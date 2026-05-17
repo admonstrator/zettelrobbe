@@ -1,0 +1,114 @@
+<!-- What's New Modal — shown once per release, skipped on login page (API returns 401) -->
+<div id="changelogModal" class="modal" style="z-index:9999;" aria-modal="true" role="dialog" aria-labelledby="changelogModalTitle">
+    <div class="modal-overlay" id="changelogModalOverlay"></div>
+    <div class="modal-container" style="max-width:560px;width:95%;">
+        <div class="modal-header">
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+                <div style="display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;background:linear-gradient(135deg,#3b82f6,#6366f1);border-radius:0.625rem;flex-shrink:0;">
+                    <i class="fas fa-rocket" style="color:#fff;font-size:0.875rem;" aria-hidden="true"></i>
+                </div>
+                <div>
+                    <h3 class="modal-title" id="changelogModalTitle">What's New</h3>
+                    <span id="changelogModalVersion" style="font-size:0.75rem;color:var(--text-secondary);font-weight:500;"></span>
+                </div>
+            </div>
+            <button class="modal-close" id="changelogModalClose" aria-label="Close What's New">
+                <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="modal-content" style="padding:1.5rem;">
+            <ul id="changelogModalEntries" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.75rem;"></ul>
+            <div style="margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+                <a
+                    href="https://github.com/admonstrator/paperless-ai-next/releases"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="font-size:0.8125rem;color:var(--text-secondary);text-decoration:none;display:flex;align-items:center;gap:0.375rem;"
+                >
+                    <i class="fab fa-github" aria-hidden="true"></i>
+                    View full release notes
+                </a>
+                <button
+                    id="changelogModalDismiss"
+                    class="dashboard-scan-button"
+                    style="padding:0.5rem 1.25rem;font-size:0.875rem;"
+                >
+                    Got it!
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    function closeModal() {
+        const modal = document.getElementById('changelogModal');
+        if (!modal) return;
+        modal.classList.remove('show');
+        fetch('/api/changelog/mark-seen', { method: 'POST', credentials: 'same-origin' })
+            .catch(function () {});
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        fetch('/api/changelog/status', { credentials: 'same-origin' })
+            .then(function (res) {
+                if (!res.ok) return null;
+                return res.json();
+            })
+            .then(function (data) {
+                if (!data || !data.show) return;
+
+                const modal = document.getElementById('changelogModal');
+                const versionEl = document.getElementById('changelogModalVersion');
+                const listEl = document.getElementById('changelogModalEntries');
+                if (!modal || !listEl) return;
+
+                if (versionEl && data.version) {
+                    versionEl.textContent = data.version;
+                }
+
+                if (Array.isArray(data.entries)) {
+                    data.entries.forEach(function (entry) {
+                        const li = document.createElement('li');
+                        li.style.cssText = 'display:flex;align-items:flex-start;gap:0.625rem;';
+
+                        const icon = document.createElement('span');
+                        icon.style.cssText = 'display:flex;align-items:center;justify-content:center;width:1.375rem;height:1.375rem;background:#eff6ff;border-radius:50%;flex-shrink:0;margin-top:0.125rem;';
+                        icon.innerHTML = '<i class="fas fa-check" style="font-size:0.625rem;color:#3b82f6;" aria-hidden="true"></i>';
+
+                        const text = document.createElement('span');
+                        text.style.cssText = 'font-size:0.9rem;color:var(--text-primary);line-height:1.5;';
+                        text.innerHTML = entry;
+
+                        li.appendChild(icon);
+                        li.appendChild(text);
+                        listEl.appendChild(li);
+                    });
+                }
+
+                modal.classList.add('show');
+            })
+            .catch(function () {});
+
+        const closeBtn = document.getElementById('changelogModalClose');
+        const dismissBtn = document.getElementById('changelogModalDismiss');
+        const overlay = document.getElementById('changelogModalOverlay');
+
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        if (dismissBtn) dismissBtn.addEventListener('click', closeModal);
+        if (overlay) overlay.addEventListener('click', closeModal);
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('changelogModal');
+                if (modal && modal.classList.contains('show')) {
+                    closeModal();
+                }
+            }
+        });
+    });
+}());
+</script>

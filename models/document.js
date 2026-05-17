@@ -243,6 +243,17 @@ const MIGRATIONS = [
         database.exec('ALTER TABLE users ADD COLUMN mfa_secret TEXT DEFAULT NULL');
       }
     }
+  },
+  {
+    version: 6,
+    description: 'Add last_seen_changelog_version column to users table',
+    up: (database) => {
+      const userColumns = database.prepare("PRAGMA table_info('users')").all();
+      const hasColumn = userColumns.some((col) => col.name === 'last_seen_changelog_version');
+      if (!hasColumn) {
+        database.exec('ALTER TABLE users ADD COLUMN last_seen_changelog_version TEXT DEFAULT NULL');
+      }
+    }
   }
 ];
 
@@ -654,6 +665,28 @@ module.exports = {
       return result.changes > 0;
     } catch (error) {
       console.error('[ERROR] updating user MFA settings:', error);
+      return false;
+    }
+  },
+
+  async getLastSeenChangelogVersion(username) {
+    try {
+      const row = db.prepare('SELECT last_seen_changelog_version FROM users WHERE username = ?').get(username);
+      return row ? row.last_seen_changelog_version : null;
+    } catch (error) {
+      console.error('[ERROR] getting last seen changelog version:', error);
+      return null;
+    }
+  },
+
+  async setLastSeenChangelogVersion(username, version) {
+    try {
+      const result = db.prepare(
+        'UPDATE users SET last_seen_changelog_version = ? WHERE username = ?'
+      ).run(version, username);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] setting last seen changelog version:', error);
       return false;
     }
   },

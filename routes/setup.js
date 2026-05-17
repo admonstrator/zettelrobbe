@@ -7570,4 +7570,81 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
  *         description: Server error
  */
 
+/**
+ * @swagger
+ * /api/changelog/status:
+ *   get:
+ *     summary: Check whether the What's New modal should be shown
+ *     description: Returns show=true when the authenticated user has not yet seen the current release changelog.
+ *     tags:
+ *       - Changelog
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Changelog status
+ *       401:
+ *         description: Not authenticated
+ */
+router.get('/api/changelog/status', isAuthenticated, async (req, res) => {
+  try {
+    if (req.user && req.user.apiKey) {
+      return res.json({ show: false });
+    }
+
+    const changelog = require('../config/changelog');
+    const username = req.user && req.user.username;
+    if (!username) {
+      return res.json({ show: false });
+    }
+
+    const lastSeen = await documentModel.getLastSeenChangelogVersion(username);
+    const show = lastSeen !== changelog.version;
+
+    return res.json({
+      show,
+      version: changelog.version,
+      entries: show ? changelog.entries : [],
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /api/changelog/status:', error);
+    return res.status(500).json({ show: false, error: 'Failed to load changelog status' });
+  }
+});
+
+/**
+ * @swagger
+ * /api/changelog/mark-seen:
+ *   post:
+ *     summary: Mark the current changelog as seen for the authenticated user
+ *     tags:
+ *       - Changelog
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Marked as seen
+ *       401:
+ *         description: Not authenticated
+ */
+router.post('/api/changelog/mark-seen', isAuthenticated, async (req, res) => {
+  try {
+    if (req.user && req.user.apiKey) {
+      return res.json({ success: true });
+    }
+
+    const changelog = require('../config/changelog');
+    const username = req.user && req.user.username;
+    if (!username) {
+      return res.json({ success: true });
+    }
+
+    await documentModel.setLastSeenChangelogVersion(username, changelog.version);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[ERROR] POST /api/changelog/mark-seen:', error);
+    return res.status(500).json({ success: false, error: 'Failed to mark changelog as seen' });
+  }
+});
+
 module.exports = router;
