@@ -450,8 +450,18 @@ function validateUrlAgainstBase(urlToValidate, expectedBaseUrl) {
         return { valid: false, error: 'Invalid URL format' };
     }
 
-    // Validate that the host and protocol match the expected base
-    if (parsedUrl.origin !== parsedBase.origin) {
+    // Normalize origins by adding implicit default ports for comparison
+    // This handles cases where Paperless-ngx behind a reverse proxy returns
+    // URLs without explicit ports (e.g., http://host/path vs http://host:8001/path)
+    function normalizeOrigin(url) {
+        const normalized = new URL(url);
+        if (normalized.port === '') {
+            normalized.port = normalized.protocol === 'https:' ? '443' : '80';
+        }
+        return normalized.origin;
+    }
+
+    if (normalizeOrigin(urlToValidate) !== normalizeOrigin(expectedBaseUrl)) {
         return { valid: false, error: 'URL origin does not match expected base URL' };
     }
 
