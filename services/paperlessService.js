@@ -944,7 +944,8 @@ class PaperlessService {
         const params = {
           page,
           page_size: 100,
-          fields: options.fields || 'id,title,created,created_date,added,tags,correspondent'
+          fields: options.fields || 'id,title,created,created_date,added,tags,correspondent',
+          ordering: 'id'
         };
 
         // Füge Tag-Filter hinzu, wenn Tags definiert sind
@@ -1149,7 +1150,8 @@ class PaperlessService {
         const params = {
           page,
           page_size: 100,
-          fields: 'id'
+          fields: 'id',
+          ordering: 'id'
         };
 
         const response = await this.client.get('/documents/', { params });
