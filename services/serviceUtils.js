@@ -450,8 +450,10 @@ function validateUrlAgainstBase(urlToValidate, expectedBaseUrl) {
         return { valid: false, error: 'Invalid URL format' };
     }
 
-    // Validate that the host and protocol match the expected base
-    if (parsedUrl.origin !== parsedBase.origin) {
+    if (
+        parsedUrl.protocol !== parsedBase.protocol ||
+        parsedUrl.hostname.toLowerCase() !== parsedBase.hostname.toLowerCase()
+    ) {
         return { valid: false, error: 'URL origin does not match expected base URL' };
     }
 
