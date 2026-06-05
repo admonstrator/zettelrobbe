@@ -1614,6 +1614,8 @@ function initializeRuntimeOverridePills() {
         { selector: '#activateCustomFields', envKey: 'ACTIVATE_CUSTOM_FIELDS' },
         { selector: '#customFieldsJson', envKey: 'CUSTOM_FIELDS' },
         { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
+        { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
+        { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
         { selector: '#mistralApiKey', envKey: 'MISTRAL_API_KEY' },
         { selector: '#mistralOcrModel', envKey: 'MISTRAL_OCR_MODEL' },
         { selector: '#tagCacheTTL', envKey: 'TAG_CACHE_TTL_SECONDS' },

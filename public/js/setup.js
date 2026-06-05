@@ -92,6 +92,8 @@ class SetupWizard {
 
         this.mistralOcrEnabled = document.getElementById('mistralOcrEnabled');
         this.mistralFields = document.getElementById('mistralFields');
+        this.ocrProvider = document.getElementById('ocrProvider');
+        this.ocrApiUrl = document.getElementById('ocrApiUrl');
         this.mistralApiKey = document.getElementById('mistralApiKey');
         this.mistralOcrModel = document.getElementById('mistralOcrModel');
 
@@ -146,6 +148,8 @@ class SetupWizard {
 
         const mistralEnabled = this.config.MISTRAL_OCR_ENABLED === 'yes';
         this.mistralOcrEnabled.value = mistralEnabled ? 'yes' : 'no';
+        this.ocrProvider.value = this.config.OCR_PROVIDER || 'mistral';
+        this.ocrApiUrl.value = this.config.OCR_API_URL || '';
         this.mistralOcrModel.value = this.config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest';
         this.processedTag.value = this.config.AI_PROCESSED_TAG_NAME || 'ai-processed';
     }
@@ -208,6 +212,7 @@ class SetupWizard {
         this.testAiBtn.addEventListener('click', () => this.testAiConnection());
 
         this.mistralOcrEnabled.addEventListener('change', () => this.toggleMistralFields());
+        this.ocrProvider.addEventListener('change', () => this.toggleMistralFields());
 
         this.copyEnvPreviewBtn.addEventListener('click', () => this.copyEnvPreview());
         this.finalizeSetupBtn.addEventListener('click', () => this.finalizeSetup());
@@ -322,6 +327,12 @@ class SetupWizard {
     toggleMistralFields() {
         const enabled = this.mistralOcrEnabled.value === 'yes';
         this.mistralFields.classList.toggle('hidden', !enabled);
+
+        const provider = (this.ocrProvider.value || 'mistral').toLowerCase();
+        const mistralApiContainer = this.mistralApiKey.closest('.space-y-2');
+        if (mistralApiContainer) {
+            mistralApiContainer.classList.toggle('hidden', provider !== 'mistral' || !enabled);
+        }
     }
 
     setPillState(element, type, text) {
@@ -724,8 +735,14 @@ class SetupWizard {
         }
 
         if (stepIndex === 5) {
-            if (this.mistralOcrEnabled.value === 'yes' && !this.mistralApiKey.value.trim()) {
+            const provider = (this.ocrProvider.value || 'mistral').toLowerCase();
+            if (this.mistralOcrEnabled.value === 'yes' && provider === 'mistral' && !this.mistralApiKey.value.trim()) {
                 await this.showPopup({ icon: 'warning', title: 'Mistral API key required', text: 'Enter the Mistral API key or disable OCR fallback.' });
+                return false;
+            }
+
+            if (!['mistral', 'ollama'].includes(provider)) {
+                await this.showPopup({ icon: 'warning', title: 'Invalid OCR provider', text: 'Choose either mistral or ollama for OCR fallback.' });
                 return false;
             }
             return true;
@@ -768,6 +785,8 @@ class SetupWizard {
         }
 
         preview.push(`MISTRAL_OCR_ENABLED=${this.mistralOcrEnabled.value === 'yes' ? 'yes' : 'no'}`);
+        preview.push(`OCR_PROVIDER=${(this.ocrProvider.value || 'mistral').toLowerCase()}`);
+        preview.push(`OCR_API_URL=${this.ocrApiUrl.value.trim()}`);
         preview.push(`MISTRAL_API_KEY=${this.mistralApiKey.value.trim()}`);
         preview.push(`MISTRAL_OCR_MODEL=${this.mistralOcrModel.value.trim() || 'mistral-ocr-latest'}`);
 
@@ -812,6 +831,8 @@ class SetupWizard {
             allowFailedPaperlessTest: this.paperlessTestState.allowFailure,
             allowFailedAiTest: this.aiTestState.allowFailure,
             mistralOcrEnabled: this.mistralOcrEnabled.value === 'yes',
+            ocrProvider: (this.ocrProvider.value || 'mistral').toLowerCase(),
+            ocrApiUrl: this.ocrApiUrl.value.trim(),
             mistralApiKey: this.mistralApiKey.value.trim(),
             mistralOcrModel: this.mistralOcrModel.value.trim() || 'mistral-ocr-latest'
         };

@@ -272,6 +272,7 @@ app.use((req, res, next) => {
   res.locals.appPaperlessNgxVersion = process.env.PAPERLESS_NGX_VERSION || 'unknown';
   res.locals.appAiProvider = config.aiProvider || process.env.AI_PROVIDER || 'openai';
   res.locals.appOcrEnabled = config.mistralOcr?.enabled === 'yes';
+  res.locals.appOcrProvider = config.mistralOcr?.provider || 'mistral';
   res.locals.appNodeEnv = process.env.NODE_ENV || 'production';
   res.locals.appNodeVersion = process.version;
   res.locals.appPlatform = `${process.platform} (${process.arch})`;

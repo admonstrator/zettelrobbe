@@ -14,7 +14,6 @@ const AIServiceFactory = require('./aiServiceFactory');
 
 class MistralOcrService {
   constructor() {
-    this.apiBase = 'https://api.mistral.ai/v1';
     this.activeDocumentIds = new Set();
   }
 
@@ -26,6 +25,20 @@ class MistralOcrService {
 
   get model() {
     return config.mistralOcr?.model || 'mistral-ocr-latest';
+  }
+
+  get provider() {
+    const normalizedProvider = String(config.mistralOcr?.provider || 'mistral').trim().toLowerCase();
+    return normalizedProvider === 'ollama' ? 'ollama' : 'mistral';
+  }
+
+  get apiBase() {
+    if (this.provider === 'ollama') {
+      const ollamaDefault = config.ollama?.apiUrl || process.env.OLLAMA_API_URL || 'http://localhost:11434';
+      return String(config.mistralOcr?.apiUrl || ollamaDefault).replace(/\/+$/, '');
+    }
+
+    return String(config.mistralOcr?.apiUrl || 'https://api.mistral.ai/v1').replace(/\/+$/, '');
   }
 
   isEnabled() {
@@ -88,7 +101,15 @@ class MistralOcrService {
    * @param {string} mimeType - MIME type of the document
    * @returns {Promise<string>} - Extracted text as markdown
    */
-  async performOcr(base64, mimeType = 'application/pdf') {
+  async performOcr(base64, mimeType = 'application/pdf', documentId = null) {
+    if (this.provider === 'ollama') {
+      return this.performOcrWithOllama(base64, mimeType, documentId);
+    }
+
+    return this.performOcrWithMistral(base64, mimeType);
+  }
+
+  async performOcrWithMistral(base64, mimeType = 'application/pdf') {
     if (!this.apiKey) {
       throw new Error('MISTRAL_API_KEY is not configured');
     }
@@ -120,6 +141,56 @@ class MistralOcrService {
     }
 
     return pages.map(p => p.markdown || '').join('\n\n').trim();
+  }
+
+  async performOcrWithOllama(base64, mimeType = 'application/pdf', documentId = null) {
+    let imageBase64 = base64;
+    let imageMimeType = mimeType;
+
+    if (!String(mimeType).toLowerCase().startsWith('image/')) {
+      if (!Number.isInteger(Number(documentId))) {
+        throw new Error('Ollama OCR requires an image input or a valid document ID for thumbnail fallback');
+      }
+
+      const thumbnailBuffer = await PaperlessService.getThumbnailImage(Number(documentId));
+      if (!thumbnailBuffer) {
+        throw new Error('Could not fetch thumbnail image for Ollama OCR');
+      }
+
+      imageBase64 = thumbnailBuffer.toString('base64');
+      imageMimeType = 'image/png';
+    }
+
+    const response = await axios.post(
+      `${this.apiBase}/api/chat`,
+      {
+        model: this.model,
+        stream: false,
+        messages: [
+          {
+            role: 'user',
+            content: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+            images: [imageBase64]
+          }
+        ],
+        options: {
+          temperature: 0
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 120000
+      }
+    );
+
+    const ocrText = String(response.data?.message?.content || '').trim();
+    if (!ocrText) {
+      throw new Error(`Ollama OCR returned empty output for ${imageMimeType}`);
+    }
+
+    return ocrText;
   }
 
   /**
@@ -202,12 +273,13 @@ class MistralOcrService {
       emit('download', `Download complete (${mimeType}).`);
 
       // Step 2: OCR
-      emit('ocr', 'Sending document to Mistral OCR…');
+      const providerLabel = this.provider === 'ollama' ? 'Ollama OCR' : 'Mistral OCR';
+      emit('ocr', `Sending document to ${providerLabel}…`);
       let ocrText;
       try {
-        ocrText = await this.performOcr(base64, mimeType);
+        ocrText = await this.performOcr(base64, mimeType, normalizedDocumentId);
       } catch (ocrErr) {
-        throw new Error(`Mistral OCR failed: ${ocrErr.message}`);
+        throw new Error(`${providerLabel} failed: ${ocrErr.message}`);
       }
       const previewLen = Math.min(ocrText.length, 120);
       emit('ocr', `OCR complete. Extracted ${ocrText.length} characters.`, {

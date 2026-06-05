@@ -147,7 +147,7 @@
             const addedDate = item.added_at ? new Date(item.added_at).toLocaleString() : '–';
 
             const processBtn = (item.status === 'pending' || item.status === 'failed')
-                ? `<button class="toolbar-btn toolbar-btn--primary toolbar-btn--sm process-btn" data-id="${item.document_id}" title="Send to Mistral OCR"><i class="fas fa-play"></i> Process</button>`
+                ? `<button class="toolbar-btn toolbar-btn--primary toolbar-btn--sm process-btn" data-id="${item.document_id}" title="Send to OCR provider"><i class="fas fa-play"></i> Process</button>`
                 : '';
 
             const hasOcrText = !!(item.ocr_text && String(item.ocr_text).trim());

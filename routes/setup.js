@@ -3169,6 +3169,8 @@ function toEnvPreviewLines(config) {
     'AZURE_DEPLOYMENT_NAME',
     'AZURE_API_VERSION',
     'MISTRAL_OCR_ENABLED',
+    'OCR_PROVIDER',
+    'OCR_API_URL',
     'MISTRAL_API_KEY',
     'MISTRAL_OCR_MODEL'
   ];
@@ -3426,6 +3428,8 @@ router.get('/setup', async (req, res) => {
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
       AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
       MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
+      OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
+      OCR_API_URL: process.env.OCR_API_URL || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
       MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
     };
@@ -3840,8 +3844,24 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const allowFailedAiTest = parseBooleanInput(req.body?.allowFailedAiTest, false);
 
     const mistralOcrEnabled = parseBooleanInput(req.body?.mistralOcrEnabled, false);
+    const ocrProvider = String(req.body?.ocrProvider || 'mistral').trim().toLowerCase();
+    const ocrApiUrl = String(req.body?.ocrApiUrl || '').trim();
     const mistralApiKey = String(req.body?.mistralApiKey || '').trim();
     const mistralOcrModel = String(req.body?.mistralOcrModel || 'mistral-ocr-latest').trim() || 'mistral-ocr-latest';
+
+    if (!['mistral', 'ollama'].includes(ocrProvider)) {
+      return res.status(400).json({
+        success: false,
+        error: 'A valid OCR provider is required.'
+      });
+    }
+
+    if (mistralOcrEnabled && ocrProvider === 'mistral' && !mistralApiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Mistral API key is required when OCR provider is set to mistral.'
+      });
+    }
 
     if (!adminUsername || !adminPassword) {
       return res.status(400).json({
@@ -3932,6 +3952,8 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       ACTIVATE_CUSTOM_FIELDS: process.env.ACTIVATE_CUSTOM_FIELDS || 'yes',
       CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',
       MISTRAL_OCR_ENABLED: mistralOcrEnabled ? 'yes' : 'no',
+      OCR_PROVIDER: ocrProvider,
+      OCR_API_URL: ocrApiUrl,
       MISTRAL_API_KEY: mistralApiKey,
       MISTRAL_OCR_MODEL: mistralOcrModel
     };
@@ -4976,6 +4998,8 @@ router.get('/settings', async (req, res) => {
     CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',
     DISABLE_AUTOMATIC_PROCESSING: process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
+    OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
+    OCR_API_URL: process.env.OCR_API_URL || '',
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
     MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
     GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
@@ -6233,6 +6257,8 @@ router.post('/settings', express.json(), async (req, res) => {
       azureApiVersion,
       tagCacheTTL,
       mistralOcrEnabled,
+      ocrProvider,
+      ocrApiUrl,
       mistralApiKey,
       mistralOcrModel,
       globalRateLimitWindowMs,
@@ -6305,6 +6331,8 @@ router.post('/settings', express.json(), async (req, res) => {
       EXTERNAL_API_ALLOW_PRIVATE_IPS: process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS || 'no',
       TAG_CACHE_TTL_SECONDS: process.env.TAG_CACHE_TTL_SECONDS || '300',
       MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
+      OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
+      OCR_API_URL: process.env.OCR_API_URL || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
       MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
       GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
@@ -6331,7 +6359,23 @@ router.post('/settings', express.json(), async (req, res) => {
     const effectiveAzureApiKey = hasAzureApiKeyInput ? azureApiKey.trim() : currentConfig.AZURE_API_KEY;
     const hasMistralApiKeyInput = hasValue(mistralApiKey);
     const effectiveMistralApiKey = hasMistralApiKeyInput ? mistralApiKey.trim() : currentConfig.MISTRAL_API_KEY;
+    const normalizedOcrProvider = String(ocrProvider || currentConfig.OCR_PROVIDER || 'mistral').trim().toLowerCase();
+    const effectiveOcrEnabled = hasValue(mistralOcrEnabled)
+      ? String(mistralOcrEnabled).trim().toLowerCase()
+      : String(currentConfig.MISTRAL_OCR_ENABLED || 'no').trim().toLowerCase();
     const normalizeCompare = (value) => String(value || '').trim();
+
+    if (!['mistral', 'ollama'].includes(normalizedOcrProvider)) {
+      return res.status(400).json({
+        error: 'Invalid OCR provider. Allowed values are mistral and ollama.'
+      });
+    }
+
+    if (effectiveOcrEnabled === 'yes' && normalizedOcrProvider === 'mistral' && !effectiveMistralApiKey) {
+      return res.status(400).json({
+        error: 'Mistral API key is required when OCR fallback is enabled with provider mistral.'
+      });
+    }
 
     // Process custom fields
     let processedCustomFields = [];
@@ -6581,6 +6625,8 @@ router.post('/settings', express.json(), async (req, res) => {
       updatedConfig.EXTERNAL_API_ALLOW_PRIVATE_IPS = externalApiAllowPrivateIps || 'no';
 
       if (mistralOcrEnabled) updatedConfig.MISTRAL_OCR_ENABLED = mistralOcrEnabled;
+      if (ocrProvider) updatedConfig.OCR_PROVIDER = String(ocrProvider).trim().toLowerCase();
+      if (typeof ocrApiUrl === 'string') updatedConfig.OCR_API_URL = ocrApiUrl.trim();
       if (hasMistralApiKeyInput) updatedConfig.MISTRAL_API_KEY = effectiveMistralApiKey;
       if (mistralOcrModel) updatedConfig.MISTRAL_OCR_MODEL = mistralOcrModel;
       if (globalRateLimitWindowMs) updatedConfig.GLOBAL_RATE_LIMIT_WINDOW_MS = globalRateLimitWindowMs;
@@ -6909,6 +6955,7 @@ router.get('/about', protectApiRoute, async (req, res) => {
       azureEndpoint: configFile.azure?.endpoint || 'unknown',
       azureDeploymentName: configFile.azure?.deploymentName || 'unknown',
       azureApiVersion: configFile.azure?.apiVersion || 'unknown',
+      ocrProvider: configFile.mistralOcr?.provider || 'mistral',
       mistralOcrModel: configFile.mistralOcr?.model || 'unknown',
       scanInterval: configFile.scanInterval || 'unknown',
       tokenLimit: String(configFile.tokenLimit || 'unknown'),
@@ -6954,6 +7001,7 @@ router.get('/about', protectApiRoute, async (req, res) => {
         azureEndpoint: configFile.azure?.endpoint || 'unknown',
         azureDeploymentName: configFile.azure?.deploymentName || 'unknown',
         azureApiVersion: configFile.azure?.apiVersion || 'unknown',
+        ocrProvider: configFile.mistralOcr?.provider || 'mistral',
         mistralOcrModel: configFile.mistralOcr?.model || 'unknown',
         scanInterval: configFile.scanInterval || 'unknown',
         tokenLimit: String(configFile.tokenLimit || 'unknown'),
@@ -7166,7 +7214,7 @@ router.delete('/api/ocr/queue/:documentId', isAuthenticated, async (req, res) =>
  *         description: Server error
  */
 
-// API: Process a single document with Mistral OCR (SSE)
+// API: Process a single document with OCR fallback (SSE)
 router.post('/api/ocr/process/:documentId', isAuthenticated, async (req, res) => {
   const documentId = parseInt(req.params.documentId, 10);
   if (isNaN(documentId)) {
@@ -7190,7 +7238,7 @@ router.post('/api/ocr/process/:documentId', isAuthenticated, async (req, res) =>
 
   try {
     if (!mistralOcrService.isEnabled()) {
-      send({ step: 'error', message: 'Mistral OCR is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.' });
+      send({ step: 'error', message: 'OCR fallback is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.' });
       return res.end();
     }
 
@@ -7256,7 +7304,7 @@ router.post('/api/ocr/process-all', isAuthenticated, async (req, res) => {
 
   try {
     if (!mistralOcrService.isEnabled()) {
-      send({ step: 'error', message: 'Mistral OCR is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.' });
+      send({ step: 'error', message: 'OCR fallback is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.' });
       return res.end();
     }
 

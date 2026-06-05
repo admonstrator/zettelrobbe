@@ -255,8 +255,8 @@
                     </div>
                 </section>
 
-                <section class="setup-step" data-step-index="5" data-step-title="Mistral OCR">
-                    <h3 class="setup-section-title"><i class="fas fa-file-lines"></i> Mistral OCR fallback</h3>
+                <section class="setup-step" data-step-index="5" data-step-title="OCR fallback">
+                    <h3 class="setup-section-title"><i class="fas fa-file-lines"></i> OCR fallback</h3>
                     <p class="setup-section-help">Configure OCR fallback for documents where AI extraction needs OCR assistance.</p>
 
                     <div class="space-y-2 mt-4">
@@ -269,11 +269,23 @@
 
                     <div id="mistralFields" class="hidden space-y-4 mt-4">
                         <div class="space-y-2">
-                            <label for="mistralApiKey" class="text-sm font-medium">Mistral API key</label>
-                            <input id="mistralApiKey" type="password" class="setup-input" placeholder="Enter Mistral API key">
+                            <label for="ocrProvider" class="text-sm font-medium">OCR provider</label>
+                            <select id="ocrProvider" class="setup-input">
+                                <option value="mistral" <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'selected' : '' %>>Mistral OCR API</option>
+                                <option value="ollama" <%= (config.OCR_PROVIDER || 'mistral') === 'ollama' ? 'selected' : '' %>>Ollama (local models e.g. Gemma)</option>
+                            </select>
                         </div>
                         <div class="space-y-2">
-                            <label for="mistralOcrModel" class="text-sm font-medium">Mistral OCR model</label>
+                            <label for="ocrApiUrl" class="text-sm font-medium">OCR API URL (optional override)</label>
+                            <input id="ocrApiUrl" type="text" class="setup-input" value="<%= config.OCR_API_URL || '' %>" placeholder="Leave empty to use provider default URL">
+                            <p class="setup-hint">For Ollama, default URL is taken from OLLAMA_API_URL when this field is empty.</p>
+                        </div>
+                        <div class="space-y-2">
+                            <label for="mistralApiKey" class="text-sm font-medium">Mistral API key</label>
+                            <input id="mistralApiKey" type="password" class="setup-input" placeholder="Required only for Mistral provider">
+                        </div>
+                        <div class="space-y-2">
+                            <label for="mistralOcrModel" class="text-sm font-medium">OCR model</label>
                             <input id="mistralOcrModel" type="text" class="setup-input" value="<%= config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest' %>">
                         </div>
                     </div>
