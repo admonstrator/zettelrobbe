@@ -716,11 +716,6 @@
                     "type": "string",
                     "description": "One-time code entered in the MFA verification step",
                     "example": "123456"
-                  },
-                  "theme": {
-                    "type": "string",
-                    "description": "UI theme preference used to set a cookie for subsequent requests",
-                    "example": "dark"
                   }
                 }
               }
@@ -942,6 +937,91 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/chat/documents": {
+      "get": {
+        "summary": "Search recent documents for omnibox selectors",
+        "description": "Returns recent documents filtered by query for Manual/OCR document selectors.",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Free-text query matched against document id, title, and correspondent name."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            },
+            "description": "Maximum number of documents returned."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching documents loaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "documents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "created": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "correspondent": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
           }
         }
       }
@@ -2384,6 +2464,45 @@
         "responses": {
           "200": {
             "description": "AI connectivity result returned"
+          }
+        }
+      }
+    },
+    "/api/setup/ai/models": {
+      "post": {
+        "summary": "Discover available AI models during setup",
+        "tags": [
+          "Setup"
+        ],
+        "responses": {
+          "200": {
+            "description": "AI model list returned"
+          }
+        }
+      }
+    },
+    "/api/setup/ocr/test": {
+      "post": {
+        "summary": "Test OCR provider connectivity during setup",
+        "tags": [
+          "Setup"
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR connectivity result returned"
+          }
+        }
+      }
+    },
+    "/api/setup/ocr/models": {
+      "post": {
+        "summary": "Discover available OCR models during setup",
+        "tags": [
+          "Setup"
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR model list returned"
           }
         }
       }
@@ -4597,6 +4716,49 @@
           },
           "500": {
             "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/changelog/status": {
+      "get": {
+        "summary": "Check whether the What's New modal should be shown",
+        "description": "Returns show=true when the authenticated user has not yet seen the current release changelog.",
+        "tags": [
+          "Changelog"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changelog status"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/changelog/mark-seen": {
+      "post": {
+        "summary": "Mark the current changelog as seen for the authenticated user",
+        "tags": [
+          "Changelog"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Marked as seen"
+          },
+          "401": {
+            "description": "Not authenticated"
           }
         }
       }

@@ -14,7 +14,8 @@ module.exports = {
   ],
   version: 'v2026.06.01',
   entries: [
+    'New: Local OCR providers available for selection in OCR settings',
     'New: Added support for Ollama API token usage metrics in document history',
-    'Improvement: Updated base URL validation to allow same host with different ports (e.g. http vs https) for pagination links'
+    'Improvement: Updated base URL validation'
   ]
 };

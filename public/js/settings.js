@@ -495,6 +495,294 @@ function initializeCoreSettings() {
 }
 
 function initializeFormHandlers() {
+    const aiProviderSelect = document.getElementById('aiProvider');
+    const ollamaUrlInput = document.getElementById('ollamaUrl');
+    const ollamaModelInput = document.getElementById('ollamaModel');
+    const customBaseUrlInput = document.getElementById('customBaseUrl');
+    const customApiKeyInput = document.getElementById('customApiKey');
+    const customModelInput = document.getElementById('customModel');
+    const fetchAiModelsBtn = document.getElementById('fetchAiModelsBtn');
+    const fetchCustomAiModelsBtn = document.getElementById('fetchCustomAiModelsBtn');
+
+    const ocrEnabledSelect = document.getElementById('mistralOcrEnabled');
+    const ocrFieldsContainer = document.getElementById('ocrFieldsContainer');
+    const ocrProviderSelect = document.getElementById('ocrProvider');
+    const ocrApiUrlContainer = document.getElementById('ocrApiUrlContainer');
+    const ocrApiKeyContainer = document.getElementById('ocrApiKeyContainer');
+    const ocrApiUrlInput = document.getElementById('ocrApiUrl');
+    const ocrApiKeyInput = document.getElementById('ocrApiKey');
+    const ocrModelInput = document.getElementById('mistralOcrModel');
+    const fetchOcrModelsBtn = document.getElementById('fetchOcrModelsBtn');
+    const testOcrBtn = document.getElementById('testOcrBtn');
+    const ocrTestState = document.getElementById('ocrTestState');
+
+    const setButtonLoading = (button, loading, loadingText = 'Loading...') => {
+        if (!button) return;
+        if (loading) {
+            if (!button.dataset.originalHtml) {
+                button.dataset.originalHtml = button.innerHTML;
+            }
+            button.disabled = true;
+            button.innerHTML = `<i class="fas fa-spinner fa-spin"></i><span>${loadingText}</span>`;
+            return;
+        }
+
+        button.disabled = false;
+        if (button.dataset.originalHtml) {
+            button.innerHTML = button.dataset.originalHtml;
+        }
+    };
+
+    const populateModelSelect = (selectElement, models, placeholder = 'Select model') => {
+        if (!selectElement) return;
+        selectElement.innerHTML = '';
+
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = placeholder;
+        selectElement.appendChild(emptyOption);
+
+        const uniqueModels = Array.from(new Set((Array.isArray(models) ? models : [])
+            .map((model) => String(model || '').trim())
+            .filter(Boolean)));
+
+        uniqueModels.forEach((model) => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            selectElement.appendChild(option);
+        });
+
+        selectElement.value = uniqueModels.length > 0 ? uniqueModels[0] : '';
+    };
+
+    const fetchModels = async (url, payload) => {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.error || result.message || 'Model discovery failed');
+        }
+
+        return Array.isArray(result.models) ? result.models : [];
+    };
+
+    if (fetchAiModelsBtn) {
+        fetchAiModelsBtn.addEventListener('click', async () => {
+            const provider = String(aiProviderSelect?.value || 'ollama').toLowerCase();
+            const apiUrl = String(ollamaUrlInput?.value || '').trim();
+
+            if (provider !== 'ollama') {
+                await Swal.fire({ icon: 'info', title: 'Switch provider', text: 'Use this button with AI Provider set to Ollama.' });
+                return;
+            }
+
+            if (!apiUrl) {
+                await Swal.fire({ icon: 'warning', title: 'Missing URL', text: 'Please enter the Ollama API URL first.' });
+                return;
+            }
+
+            setButtonLoading(fetchAiModelsBtn, true);
+            try {
+                const models = await fetchModels('/api/settings/ai/models', {
+                    aiProvider: provider,
+                    apiUrl,
+                    token: ''
+                });
+                populateModelSelect(ollamaModelInput, models, 'Select Ollama model');
+                await Swal.fire({ icon: 'success', title: 'Models loaded', text: models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.' });
+            } catch (error) {
+                await Swal.fire({ icon: 'error', title: 'Loading failed', text: error.message });
+            } finally {
+                setButtonLoading(fetchAiModelsBtn, false);
+            }
+        });
+    }
+
+    if (fetchCustomAiModelsBtn) {
+        fetchCustomAiModelsBtn.addEventListener('click', async () => {
+            const provider = String(aiProviderSelect?.value || 'custom').toLowerCase();
+            const apiUrl = String(customBaseUrlInput?.value || '').trim();
+            const token = String(customApiKeyInput?.value || '').trim();
+
+            if (provider !== 'custom') {
+                await Swal.fire({ icon: 'info', title: 'Switch provider', text: 'Use this button with AI Provider set to Custom.' });
+                return;
+            }
+
+            if (!apiUrl) {
+                await Swal.fire({ icon: 'warning', title: 'Missing URL', text: 'Please enter the custom base URL first.' });
+                return;
+            }
+
+            setButtonLoading(fetchCustomAiModelsBtn, true);
+            try {
+                const models = await fetchModels('/api/settings/ai/models', {
+                    aiProvider: provider,
+                    apiUrl,
+                    token
+                });
+                populateModelSelect(customModelInput, models, 'Select custom model');
+                await Swal.fire({ icon: 'success', title: 'Models loaded', text: models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.' });
+            } catch (error) {
+                await Swal.fire({ icon: 'error', title: 'Loading failed', text: error.message });
+            } finally {
+                setButtonLoading(fetchCustomAiModelsBtn, false);
+            }
+        });
+    }
+
+    const setOcrTestPill = (state, text) => {
+        if (!ocrTestState) return;
+        ocrTestState.textContent = text;
+        ocrTestState.className = 'setup-pill';
+        if (state === 'success') {
+            ocrTestState.classList.add('setup-pill-success');
+        } else if (state === 'error') {
+            ocrTestState.classList.add('setup-pill-error');
+        } else if (state === 'loading') {
+            ocrTestState.classList.add('setup-pill-loading');
+        }
+    };
+
+    const normalizeOcrProviderForApi = (provider) => {
+        const normalized = String(provider || 'mistral').toLowerCase();
+        return normalized === 'custom' ? 'custom' : 'mistral';
+    };
+
+    const toggleOcrFields = () => {
+        if (!ocrEnabledSelect || !ocrProviderSelect) return;
+
+        const enabled = ocrEnabledSelect.value === 'yes';
+        const provider = String(ocrProviderSelect.value || 'mistral').toLowerCase();
+
+        if (ocrFieldsContainer) {
+            ocrFieldsContainer.classList.toggle('hidden', !enabled);
+        }
+
+        if (ocrApiKeyContainer) {
+            ocrApiKeyContainer.classList.toggle('hidden', !enabled);
+        }
+
+        if (ocrApiUrlContainer) {
+            ocrApiUrlContainer.classList.toggle('hidden', !enabled || provider !== 'custom');
+        }
+
+        if (testOcrBtn) {
+            testOcrBtn.disabled = !enabled;
+        }
+    };
+
+    if (ocrProviderSelect) {
+        const initialProvider = String(ocrProviderSelect.value || 'mistral').toLowerCase();
+        if (initialProvider === 'ollama') {
+            ocrProviderSelect.value = 'custom';
+        }
+
+        ocrProviderSelect.addEventListener('change', () => {
+            toggleOcrFields();
+            setOcrTestPill('default', 'Not tested');
+        });
+    }
+
+    if (ocrEnabledSelect) {
+        ocrEnabledSelect.addEventListener('change', () => {
+            toggleOcrFields();
+            setOcrTestPill('default', 'Not tested');
+        });
+    }
+
+    if (testOcrBtn) {
+        testOcrBtn.addEventListener('click', async () => {
+            const enabled = ocrEnabledSelect?.value === 'yes';
+            if (!enabled) {
+                setOcrTestPill('success', 'Disabled (skipped)');
+                return;
+            }
+
+            const payload = {
+                enabled: true,
+                provider: normalizeOcrProviderForApi(ocrProviderSelect?.value || 'mistral'),
+                apiUrl: String(ocrApiUrlInput?.value || '').trim(),
+                apiKey: String(ocrApiKeyInput?.value || '').trim(),
+                model: String(ocrModelInput?.value || '').trim() || 'mistral-ocr-latest'
+            };
+
+            const originalHtml = testOcrBtn.innerHTML;
+            testOcrBtn.disabled = true;
+            testOcrBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Testing...</span>';
+            setOcrTestPill('loading', 'Testing...');
+
+            try {
+                const response = await fetch('/api/settings/ocr/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.error || result.message || 'OCR test failed');
+                }
+
+                setOcrTestPill('success', 'Connection valid');
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'OCR test successful',
+                    text: result.message || 'OCR provider is reachable.'
+                });
+            } catch (error) {
+                setOcrTestPill('error', 'Test failed');
+                await Swal.fire({
+                    icon: 'error',
+                    title: 'OCR test failed',
+                    text: error.message
+                });
+            } finally {
+                testOcrBtn.disabled = ocrEnabledSelect?.value !== 'yes';
+                testOcrBtn.innerHTML = originalHtml;
+            }
+        });
+    }
+
+    if (fetchOcrModelsBtn) {
+        fetchOcrModelsBtn.addEventListener('click', async () => {
+            const provider = normalizeOcrProviderForApi(ocrProviderSelect?.value || 'mistral');
+            const apiUrl = String(ocrApiUrlInput?.value || '').trim();
+            const apiKey = String(ocrApiKeyInput?.value || '').trim();
+
+            if (provider === 'mistral' && !apiKey) {
+                await Swal.fire({ icon: 'warning', title: 'Missing API key', text: 'Mistral OCR requires an API key to load models.' });
+                return;
+            }
+
+            setButtonLoading(fetchOcrModelsBtn, true);
+            try {
+                const models = await fetchModels('/api/settings/ocr/models', {
+                    provider,
+                    apiUrl,
+                    apiKey
+                });
+                populateModelSelect(ocrModelInput, models, 'Select OCR model');
+                await Swal.fire({ icon: 'success', title: 'OCR models loaded', text: models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.' });
+            } catch (error) {
+                await Swal.fire({ icon: 'error', title: 'Loading failed', text: error.message });
+            } finally {
+                setButtonLoading(fetchOcrModelsBtn, false);
+            }
+        });
+    }
+
+    toggleOcrFields();
+
     const restartOverlay = document.getElementById('restartOverlay');
     const restartOverlayStatus = document.getElementById('restartOverlayStatus');
     const restartOverlayBar = document.getElementById('restartOverlayBar');
@@ -965,6 +1253,65 @@ function initializeFormHandlers() {
 
             validateTemperature('aiTemperatureAnalysis', 'AI_TEMPERATURE_ANALYSIS');
             validateTemperature('aiTemperatureGeneration', 'AI_TEMPERATURE_GENERATION');
+
+            const resolveModels = async (url, payload) => {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) {
+                    return [];
+                }
+
+                return Array.isArray(result.models) ? result.models : [];
+            };
+
+            const aiProvider = String(formData.get('aiProvider') || '').trim().toLowerCase();
+            if (aiProvider === 'ollama' && !String(formData.get('ollamaModel') || '').trim()) {
+                const models = await resolveModels('/api/settings/ai/models', {
+                    aiProvider: 'ollama',
+                    apiUrl: String(formData.get('ollamaUrl') || '').trim(),
+                    token: ''
+                });
+                if (models.length > 0) {
+                    formData.set('ollamaModel', models[0]);
+                    const input = document.getElementById('ollamaModel');
+                    if (input) input.value = models[0];
+                }
+            }
+
+            if (aiProvider === 'custom' && !String(formData.get('customModel') || '').trim()) {
+                const models = await resolveModels('/api/settings/ai/models', {
+                    aiProvider: 'custom',
+                    apiUrl: String(formData.get('customBaseUrl') || '').trim(),
+                    token: String(formData.get('customApiKey') || '').trim()
+                });
+                if (models.length > 0) {
+                    formData.set('customModel', models[0]);
+                    const input = document.getElementById('customModel');
+                    if (input) input.value = models[0];
+                }
+            }
+
+            const ocrEnabled = String(formData.get('mistralOcrEnabled') || 'no').trim().toLowerCase() === 'yes';
+            const ocrProvider = String(formData.get('ocrProvider') || 'mistral').trim().toLowerCase();
+            if (ocrEnabled && !String(formData.get('mistralOcrModel') || '').trim()) {
+                const models = await resolveModels('/api/settings/ocr/models', {
+                    provider: ocrProvider,
+                    apiUrl: String(formData.get('ocrApiUrl') || '').trim(),
+                    apiKey: String(formData.get('ocrApiKey') || '').trim()
+                });
+                if (models.length > 0) {
+                    formData.set('mistralOcrModel', models[0]);
+                    const input = document.getElementById('mistralOcrModel');
+                    if (input) input.value = models[0];
+                }
+            }
 
             const response = await fetch('/settings', {
                 method: 'POST',

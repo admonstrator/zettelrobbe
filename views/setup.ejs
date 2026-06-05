@@ -233,7 +233,15 @@
                         </div>
                         <div class="space-y-2">
                             <label for="aiModel" class="text-sm font-medium">Model</label>
-                            <input id="aiModel" type="text" class="setup-input" required>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <select id="aiModel" class="setup-input" required>
+                                    <option value="">Select a model</option>
+                                </select>
+                                <button type="button" id="fetchAiModelsBtn" class="setup-btn setup-btn-warning whitespace-nowrap flex items-center gap-2">
+                                    <i class="fas fa-list"></i>
+                                    <span>Fetch models</span>
+                                </button>
+                            </div>
                         </div>
                         <div class="space-y-2 md:col-span-2">
                             <label for="aiApiUrl" class="text-sm font-medium">API URL</label>
@@ -260,7 +268,7 @@
                     <p class="setup-section-help">Configure OCR fallback for documents where AI extraction needs OCR assistance.</p>
 
                     <div class="space-y-2 mt-4">
-                        <label for="mistralOcrEnabled" class="text-sm font-medium">Enable OCR fallback</label>
+                        <label for="mistralOcrEnabled" class="text-sm font-medium">Enable OCR</label>
                         <select id="mistralOcrEnabled" class="setup-input">
                             <option value="no" <%= config.MISTRAL_OCR_ENABLED === 'yes' ? '' : 'selected' %>>No</option>
                             <option value="yes" <%= config.MISTRAL_OCR_ENABLED === 'yes' ? 'selected' : '' %>>Yes</option>
@@ -272,21 +280,36 @@
                             <label for="ocrProvider" class="text-sm font-medium">OCR provider</label>
                             <select id="ocrProvider" class="setup-input">
                                 <option value="mistral" <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'selected' : '' %>>Mistral OCR API</option>
-                                <option value="ollama" <%= (config.OCR_PROVIDER || 'mistral') === 'ollama' ? 'selected' : '' %>>Ollama (local models e.g. Gemma)</option>
+                                <option value="custom" <%= ((config.OCR_PROVIDER || 'mistral') === 'custom' || (config.OCR_PROVIDER || 'mistral') === 'ollama') ? 'selected' : '' %>>Custom (Ollama, LM Studio, local models)</option>
                             </select>
                         </div>
-                        <div class="space-y-2">
+                        <div id="ocrApiUrlContainer" class="space-y-2">
                             <label for="ocrApiUrl" class="text-sm font-medium">OCR API URL (optional override)</label>
                             <input id="ocrApiUrl" type="text" class="setup-input" value="<%= config.OCR_API_URL || '' %>" placeholder="Leave empty to use provider default URL">
-                            <p class="setup-hint">For Ollama, default URL is taken from OLLAMA_API_URL when this field is empty.</p>
+                            <p class="setup-hint">For custom provider, set URL to your local endpoint (e.g. Ollama or LM Studio /v1).</p>
                         </div>
-                        <div class="space-y-2">
-                            <label for="mistralApiKey" class="text-sm font-medium">Mistral API key</label>
-                            <input id="mistralApiKey" type="password" class="setup-input" placeholder="Required only for Mistral provider">
+                        <div id="ocrApiKeyContainer" class="space-y-2">
+                            <label for="ocrApiKey" class="text-sm font-medium">OCR API key</label>
+                            <input id="ocrApiKey" type="password" class="setup-input" placeholder="Optional for local/custom OCR, required for Mistral">
                         </div>
                         <div class="space-y-2">
                             <label for="mistralOcrModel" class="text-sm font-medium">OCR model</label>
-                            <input id="mistralOcrModel" type="text" class="setup-input" value="<%= config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest' %>">
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <select id="mistralOcrModel" class="setup-input">
+                                    <option value="<%= config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest' %>" selected><%= config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest' %></option>
+                                </select>
+                                <button type="button" id="fetchOcrModelsBtn" class="setup-btn setup-btn-warning whitespace-nowrap flex items-center gap-2">
+                                    <i class="fas fa-list"></i>
+                                    <span>Fetch OCR models</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="button" id="testOcrBtn" class="setup-btn setup-btn-warning flex items-center gap-2">
+                                <i class="fas fa-flask"></i>
+                                <span>Test OCR connection</span>
+                            </button>
+                            <span id="ocrTestState" class="setup-pill">Not tested</span>
                         </div>
                     </div>
                 </section>

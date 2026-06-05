@@ -208,6 +208,16 @@ main {
     background: var(--hover-bg);
 }
 
+.setup-btn-warning {
+    color: #ffffff;
+    background: #d97706;
+    border: 1px solid transparent;
+}
+
+.setup-btn-warning:hover:not(:disabled) {
+    background: #b45309;
+}
+
 .setup-pill {
     display: inline-flex;
     align-items: center;

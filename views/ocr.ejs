@@ -15,15 +15,17 @@
                     <div class="content-header-main min-w-0">
                         <h1 class="content-title truncate">OCR Queue</h1>
                         <p class="content-subtitle">
-                            Documents with missing or insufficient OCR text queued for Mistral OCR reprocessing.
+                            Documents with missing or insufficient OCR text queued for OCR reprocessing.
                         </p>
                     </div>
+                    <% if (ocrEnabled) { %>
                     <div class="content-header-actions ocr-header-badges">
                         <!-- Stats badges -->
                         <span id="statPending" class="status-badge status-pending"><i class="fas fa-hourglass-half"></i> <span id="statPendingCount">…</span> pending</span>
                         <span id="statDone" class="status-badge status-done"><i class="fas fa-check"></i> <span id="statDoneCount">…</span> done</span>
                         <span id="statFailed" class="status-badge status-failed"><i class="fas fa-times"></i> <span id="statFailedCount">…</span> failed</span>
                     </div>
+                    <% } %>
                 </div>
 
                 <% if (!ocrEnabled) { %>
@@ -31,17 +33,21 @@
                 <div class="material-card mb-6">
                     <div class="disabled-overlay">
                         <i class="fas fa-eye-slash text-5xl text-gray-400 mb-4"></i>
-                        <h2 class="text-xl font-semibold mb-2">Mistral OCR is not enabled</h2>
+                        <h2 class="text-xl font-semibold mb-2">OCR is not enabled</h2>
                         <p class="text-gray-500 mb-4 max-w-lg mx-auto">
-                            To use this feature, set the following variables in your <strong>data/.env</strong> file and restart the service:
+                            Enable OCR in settings and configure your OCR provider. You can optionally set these values in <strong>data/.env</strong> and restart the service:
                         </p>
                         <pre class="ocr-env-codeblock">MISTRAL_OCR_ENABLED=yes
-MISTRAL_API_KEY=your_key_here
+OCR_PROVIDER=mistral|custom
+OCR_API_URL=http://localhost:11434
+OCR_API_KEY=optional_or_required_provider_key
 MISTRAL_OCR_MODEL=mistral-ocr-latest</pre>
-                        <p class="text-gray-400 text-xs">You can get a Mistral API key at <a href="https://console.mistral.ai" target="_blank" class="text-blue-500 hover:underline">console.mistral.ai</a></p>
+                        <p class="text-gray-400 text-xs">Choose the provider and endpoint that match your OCR backend.</p>
                     </div>
                 </div>
                 <% } %>
+
+                <% if (ocrEnabled) { %>
 
                 <!-- Toolbar -->
                 <div class="material-card mb-4 p-4">
@@ -134,6 +140,7 @@ MISTRAL_OCR_MODEL=mistral-ocr-latest</pre>
                         </div>
                     </div>
                 </div>
+                <% } %>
 
             </div>
     </div>

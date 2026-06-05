@@ -56,6 +56,7 @@ const SETTINGS_SECRET_FIELDS = [
   'OPENAI_API_KEY',
   'CUSTOM_API_KEY',
   'AZURE_API_KEY',
+  'OCR_API_KEY',
   'MISTRAL_API_KEY',
   'API_KEY'
 ];
@@ -1079,6 +1080,114 @@ router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Error loading playground data'
+    });
+  }
+});
+
+// Compatibility endpoint for omnibox document search used by Manual/OCR views.
+/**
+ * @swagger
+ * /api/chat/documents:
+ *   get:
+ *     summary: Search recent documents for omnibox selectors
+ *     description: Returns recent documents filtered by query for Manual/OCR document selectors.
+ *     tags:
+ *       - Documents
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Free-text query matched against document id, title, and correspondent name.
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
+ *           default: 100
+ *         description: Maximum number of documents returned.
+ *     responses:
+ *       200:
+ *         description: Matching documents loaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     documents:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           title:
+ *                             type: string
+ *                           created:
+ *                             type: string
+ *                             nullable: true
+ *                           correspondent:
+ *                             type: string
+ *       500:
+ *         description: Server error
+ */
+router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
+  try {
+    const query = String(req.query?.q || '').trim().toLowerCase();
+    const requestedLimit = Number.parseInt(String(req.query?.limit || '100'), 10);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 200)
+      : 100;
+
+    const {
+      documents,
+      correspondentNames
+    } = await documentsService.getDocumentsWithMetadata(limit);
+
+    const normalizedDocuments = (Array.isArray(documents) ? documents : []).map((doc) => {
+      const correspondentId = Number(doc?.correspondent);
+      const correspondentName = Number.isInteger(correspondentId)
+        ? (correspondentNames?.[correspondentId] || '')
+        : '';
+
+      return {
+        id: doc?.id,
+        title: doc?.title || '',
+        created: doc?.created || doc?.created_date || doc?.added || null,
+        correspondent: correspondentName
+      };
+    });
+
+    const filteredDocuments = query
+      ? normalizedDocuments.filter((doc) => {
+        const idMatches = String(doc.id || '').includes(query);
+        const titleMatches = String(doc.title || '').toLowerCase().includes(query);
+        const correspondentMatches = String(doc.correspondent || '').toLowerCase().includes(query);
+        return idMatches || titleMatches || correspondentMatches;
+      })
+      : normalizedDocuments;
+
+    return res.json({
+      success: true,
+      data: {
+        documents: filteredDocuments.slice(0, limit)
+      }
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /api/chat/documents:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Error loading chat documents'
     });
   }
 });
@@ -3171,6 +3280,7 @@ function toEnvPreviewLines(config) {
     'MISTRAL_OCR_ENABLED',
     'OCR_PROVIDER',
     'OCR_API_URL',
+    'OCR_API_KEY',
     'MISTRAL_API_KEY',
     'MISTRAL_OCR_MODEL'
   ];
@@ -3322,6 +3432,74 @@ async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, 
   };
 }
 
+async function validateOcrConnectionForSetup({ enabled, provider, apiUrl, apiKey, model }) {
+  const normalizedEnabled = String(enabled ? 'yes' : 'no').trim().toLowerCase();
+  if (normalizedEnabled !== 'yes') {
+    return {
+      success: true,
+      message: 'OCR fallback is disabled.'
+    };
+  }
+
+  const normalizedProviderInput = String(provider || 'mistral').trim().toLowerCase();
+  const normalizedProvider = normalizedProviderInput === 'custom' ? 'ollama' : normalizedProviderInput;
+
+  const valid = await setupService.validateOcrConfig({
+    enabled: normalizedEnabled,
+    provider: normalizedProvider,
+    apiUrl: String(apiUrl || '').trim(),
+    apiKey: String(apiKey || '').trim(),
+    model: String(model || '').trim() || 'mistral-ocr-latest'
+  });
+
+  return {
+    success: valid,
+    message: valid
+      ? 'OCR connection is valid.'
+      : 'OCR connection test failed. Check OCR provider, OCR API URL, API key and model.'
+  };
+}
+
+async function discoverAiModelsForSetup({ aiProvider, apiUrl, token }) {
+  const provider = String(aiProvider || '').trim().toLowerCase();
+  const normalizedApiUrl = String(apiUrl || '').trim();
+  const normalizedToken = String(token || '').trim();
+
+  const models = await setupService.discoverAiModels({
+    provider,
+    apiUrl: normalizedApiUrl,
+    apiKey: normalizedToken
+  });
+
+  return {
+    success: true,
+    models,
+    message: models.length > 0
+      ? `Discovered ${models.length} model(s).`
+      : 'No models discovered for this provider.'
+  };
+}
+
+async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey }) {
+  const normalizedProvider = String(provider || 'mistral').trim().toLowerCase();
+  const normalizedApiUrl = String(apiUrl || '').trim();
+  const normalizedApiKey = String(apiKey || '').trim();
+
+  const models = await setupService.discoverOcrModels({
+    provider: normalizedProvider,
+    apiUrl: normalizedApiUrl,
+    apiKey: normalizedApiKey
+  });
+
+  return {
+    success: true,
+    models,
+    message: models.length > 0
+      ? `Discovered ${models.length} OCR model(s).`
+      : 'No OCR models discovered for this provider.'
+  };
+}
+
 /**
  * @swagger
  * /setup:
@@ -3371,6 +3549,7 @@ function sanitizeConfigForBootstrap(config) {
     'OPENAI_API_KEY',
     'CUSTOM_API_KEY',
     'AZURE_API_KEY',
+    'OCR_API_KEY',
     'MISTRAL_API_KEY'
   ];
   secretFields.forEach(field => {
@@ -3430,6 +3609,7 @@ router.get('/setup', async (req, res) => {
       MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
       OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
       OCR_API_URL: process.env.OCR_API_URL || '',
+      OCR_API_KEY: process.env.OCR_API_KEY || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
       MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
     };
@@ -3801,6 +3981,163 @@ router.post('/api/setup/ai/test', express.json(), async (req, res) => {
 
 /**
  * @swagger
+ * /api/setup/ai/models:
+ *   post:
+ *     summary: Discover available AI models during setup
+ *     tags:
+ *       - Setup
+ *     responses:
+ *       200:
+ *         description: AI model list returned
+ */
+router.post('/api/setup/ai/models', express.json(), async (req, res) => {
+  try {
+    if (!(await ensureSetupOpenOrRespond(res))) {
+      return;
+    }
+
+    const result = await discoverAiModelsForSetup({
+      aiProvider: req.body?.aiProvider,
+      apiUrl: req.body?.apiUrl,
+      token: req.body?.token
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/setup/ai/models:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Could not discover AI models.'
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/setup/ocr/test:
+ *   post:
+ *     summary: Test OCR provider connectivity during setup
+ *     tags:
+ *       - Setup
+ *     responses:
+ *       200:
+ *         description: OCR connectivity result returned
+ */
+router.post('/api/setup/ocr/test', express.json(), async (req, res) => {
+  try {
+    if (!(await ensureSetupOpenOrRespond(res))) {
+      return;
+    }
+
+    const validation = await validateOcrConnectionForSetup({
+      enabled: req.body?.enabled,
+      provider: req.body?.provider,
+      apiUrl: req.body?.apiUrl,
+      apiKey: req.body?.apiKey,
+      model: req.body?.model
+    });
+
+    return res.json(validation);
+  } catch (error) {
+    console.error('[ERROR] POST /api/setup/ocr/test:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Could not test OCR connection.'
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/setup/ocr/models:
+ *   post:
+ *     summary: Discover available OCR models during setup
+ *     tags:
+ *       - Setup
+ *     responses:
+ *       200:
+ *         description: OCR model list returned
+ */
+router.post('/api/setup/ocr/models', express.json(), async (req, res) => {
+  try {
+    if (!(await ensureSetupOpenOrRespond(res))) {
+      return;
+    }
+
+    const result = await discoverOcrModelsForSetup({
+      provider: req.body?.provider,
+      apiUrl: req.body?.apiUrl,
+      apiKey: req.body?.apiKey
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/setup/ocr/models:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Could not discover OCR models.'
+    });
+  }
+});
+
+router.post('/api/settings/ocr/test', isAuthenticated, express.json(), async (req, res) => {
+  try {
+    const validation = await validateOcrConnectionForSetup({
+      enabled: req.body?.enabled,
+      provider: req.body?.provider,
+      apiUrl: req.body?.apiUrl,
+      apiKey: req.body?.apiKey,
+      model: req.body?.model
+    });
+
+    return res.json(validation);
+  } catch (error) {
+    console.error('[ERROR] POST /api/settings/ocr/test:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Could not test OCR connection.'
+    });
+  }
+});
+
+router.post('/api/settings/ai/models', isAuthenticated, express.json(), async (req, res) => {
+  try {
+    const result = await discoverAiModelsForSetup({
+      aiProvider: req.body?.aiProvider,
+      apiUrl: req.body?.apiUrl,
+      token: req.body?.token
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/settings/ai/models:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Could not discover AI models.'
+    });
+  }
+});
+
+router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (req, res) => {
+  try {
+    const result = await discoverOcrModelsForSetup({
+      provider: req.body?.provider,
+      apiUrl: req.body?.apiUrl,
+      apiKey: req.body?.apiKey
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/settings/ocr/models:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Could not discover OCR models.'
+    });
+  }
+});
+
+/**
+ * @swagger
  * /api/setup/complete:
  *   post:
  *     summary: Finalize initial setup, persist env config, and trigger restart
@@ -3846,17 +4183,17 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const mistralOcrEnabled = parseBooleanInput(req.body?.mistralOcrEnabled, false);
     const ocrProvider = String(req.body?.ocrProvider || 'mistral').trim().toLowerCase();
     const ocrApiUrl = String(req.body?.ocrApiUrl || '').trim();
-    const mistralApiKey = String(req.body?.mistralApiKey || '').trim();
+    const ocrApiKey = String(req.body?.ocrApiKey || req.body?.mistralApiKey || '').trim();
     const mistralOcrModel = String(req.body?.mistralOcrModel || 'mistral-ocr-latest').trim() || 'mistral-ocr-latest';
 
-    if (!['mistral', 'ollama'].includes(ocrProvider)) {
+    if (!['mistral', 'custom', 'ollama'].includes(ocrProvider)) {
       return res.status(400).json({
         success: false,
         error: 'A valid OCR provider is required.'
       });
     }
 
-    if (mistralOcrEnabled && ocrProvider === 'mistral' && !mistralApiKey) {
+    if (mistralOcrEnabled && ocrProvider === 'mistral' && !ocrApiKey) {
       return res.status(400).json({
         success: false,
         error: 'Mistral API key is required when OCR provider is set to mistral.'
@@ -3921,6 +4258,22 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       });
     }
 
+    const ocrProviderForValidation = ocrProvider === 'custom' ? 'ollama' : ocrProvider;
+    const ocrValidation = await setupService.validateOcrConfig({
+      enabled: mistralOcrEnabled ? 'yes' : 'no',
+      provider: ocrProviderForValidation,
+      apiUrl: ocrApiUrl,
+      apiKey: ocrApiKey,
+      model: mistralOcrModel
+    });
+
+    if (!ocrValidation) {
+      return res.status(400).json({
+        success: false,
+        error: 'OCR connection test failed. Check OCR provider, OCR API URL, API key, and model.'
+      });
+    }
+
     const tagsForProcessing = scanAllDocuments ? [] : [includeTag];
     const apiToken = process.env.API_KEY || crypto.randomBytes(64).toString('hex');
     const jwtToken = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
@@ -3954,7 +4307,8 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       MISTRAL_OCR_ENABLED: mistralOcrEnabled ? 'yes' : 'no',
       OCR_PROVIDER: ocrProvider,
       OCR_API_URL: ocrApiUrl,
-      MISTRAL_API_KEY: mistralApiKey,
+      OCR_API_KEY: ocrApiKey,
+      MISTRAL_API_KEY: ocrApiKey,
       MISTRAL_OCR_MODEL: mistralOcrModel
     };
 
@@ -5000,6 +5354,7 @@ router.get('/settings', async (req, res) => {
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
+    OCR_API_KEY: process.env.OCR_API_KEY || '',
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
     MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
     GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
@@ -6259,6 +6614,7 @@ router.post('/settings', express.json(), async (req, res) => {
       mistralOcrEnabled,
       ocrProvider,
       ocrApiUrl,
+      ocrApiKey,
       mistralApiKey,
       mistralOcrModel,
       globalRateLimitWindowMs,
@@ -6333,6 +6689,7 @@ router.post('/settings', express.json(), async (req, res) => {
       MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
       OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
       OCR_API_URL: process.env.OCR_API_URL || '',
+      OCR_API_KEY: process.env.OCR_API_KEY || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
       MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
       GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
@@ -6357,24 +6714,65 @@ router.post('/settings', express.json(), async (req, res) => {
     const effectiveCustomApiKey = hasCustomApiKeyInput ? customApiKey.trim() : currentConfig.CUSTOM_API_KEY;
     const hasAzureApiKeyInput = hasValue(azureApiKey);
     const effectiveAzureApiKey = hasAzureApiKeyInput ? azureApiKey.trim() : currentConfig.AZURE_API_KEY;
-    const hasMistralApiKeyInput = hasValue(mistralApiKey);
-    const effectiveMistralApiKey = hasMistralApiKeyInput ? mistralApiKey.trim() : currentConfig.MISTRAL_API_KEY;
+    const normalizedOcrApiKeyInput = hasValue(ocrApiKey)
+      ? String(ocrApiKey).trim()
+      : String(mistralApiKey || '').trim();
+    const hasOcrApiKeyInput = hasValue(normalizedOcrApiKeyInput);
+    const effectiveOcrApiKey = hasOcrApiKeyInput
+      ? normalizedOcrApiKeyInput
+      : (currentConfig.OCR_API_KEY || currentConfig.MISTRAL_API_KEY || '');
     const normalizedOcrProvider = String(ocrProvider || currentConfig.OCR_PROVIDER || 'mistral').trim().toLowerCase();
     const effectiveOcrEnabled = hasValue(mistralOcrEnabled)
       ? String(mistralOcrEnabled).trim().toLowerCase()
       : String(currentConfig.MISTRAL_OCR_ENABLED || 'no').trim().toLowerCase();
+    const effectiveOcrApiUrl = hasValue(ocrApiUrl)
+      ? String(ocrApiUrl).trim()
+      : String(currentConfig.OCR_API_URL || '').trim();
+    const effectiveOcrModel = hasValue(mistralOcrModel)
+      ? String(mistralOcrModel).trim()
+      : String(currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest').trim();
     const normalizeCompare = (value) => String(value || '').trim();
 
-    if (!['mistral', 'ollama'].includes(normalizedOcrProvider)) {
+    if (!['mistral', 'custom', 'ollama'].includes(normalizedOcrProvider)) {
       return res.status(400).json({
-        error: 'Invalid OCR provider. Allowed values are mistral and ollama.'
+        error: 'Invalid OCR provider. Allowed values are mistral and custom.'
       });
     }
 
-    if (effectiveOcrEnabled === 'yes' && normalizedOcrProvider === 'mistral' && !effectiveMistralApiKey) {
+    if (effectiveOcrEnabled === 'yes' && normalizedOcrProvider === 'mistral' && !effectiveOcrApiKey) {
       return res.status(400).json({
         error: 'Mistral API key is required when OCR fallback is enabled with provider mistral.'
       });
+    }
+
+    const currentOcrEnabled = String(currentConfig.MISTRAL_OCR_ENABLED || 'no').trim().toLowerCase();
+    const currentOcrProvider = String(currentConfig.OCR_PROVIDER || 'mistral').trim().toLowerCase();
+    const currentOcrApiUrl = String(currentConfig.OCR_API_URL || '').trim();
+    const currentOcrModel = String(currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest').trim();
+    const shouldValidateOcr =
+      effectiveOcrEnabled === 'yes' && (
+        currentOcrEnabled !== effectiveOcrEnabled
+        || currentOcrProvider !== normalizedOcrProvider
+        || currentOcrApiUrl !== effectiveOcrApiUrl
+        || currentOcrModel !== effectiveOcrModel
+        || hasOcrApiKeyInput
+      );
+
+    if (shouldValidateOcr) {
+      const normalizedOcrProviderForValidation = normalizedOcrProvider === 'custom' ? 'ollama' : normalizedOcrProvider;
+      const ocrValid = await setupService.validateOcrConfig({
+        enabled: effectiveOcrEnabled,
+        provider: normalizedOcrProviderForValidation,
+        apiUrl: effectiveOcrApiUrl,
+        apiKey: effectiveOcrApiKey,
+        model: effectiveOcrModel
+      });
+
+      if (!ocrValid) {
+        return res.status(400).json({
+          error: `OCR connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check OCR provider, OCR API URL, API key and model.`
+        });
+      }
     }
 
     // Process custom fields
@@ -6627,7 +7025,10 @@ router.post('/settings', express.json(), async (req, res) => {
       if (mistralOcrEnabled) updatedConfig.MISTRAL_OCR_ENABLED = mistralOcrEnabled;
       if (ocrProvider) updatedConfig.OCR_PROVIDER = String(ocrProvider).trim().toLowerCase();
       if (typeof ocrApiUrl === 'string') updatedConfig.OCR_API_URL = ocrApiUrl.trim();
-      if (hasMistralApiKeyInput) updatedConfig.MISTRAL_API_KEY = effectiveMistralApiKey;
+      if (hasOcrApiKeyInput) {
+        updatedConfig.OCR_API_KEY = effectiveOcrApiKey;
+        updatedConfig.MISTRAL_API_KEY = effectiveOcrApiKey;
+      }
       if (mistralOcrModel) updatedConfig.MISTRAL_OCR_MODEL = mistralOcrModel;
       if (globalRateLimitWindowMs) updatedConfig.GLOBAL_RATE_LIMIT_WINDOW_MS = globalRateLimitWindowMs;
       if (globalRateLimitMax) updatedConfig.GLOBAL_RATE_LIMIT_MAX = globalRateLimitMax;

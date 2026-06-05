@@ -29,7 +29,7 @@ class MistralOcrService {
 
   get provider() {
     const normalizedProvider = String(config.mistralOcr?.provider || 'mistral').trim().toLowerCase();
-    return normalizedProvider === 'ollama' ? 'ollama' : 'mistral';
+    return (normalizedProvider === 'ollama' || normalizedProvider === 'custom') ? 'ollama' : 'mistral';
   }
 
   get apiBase() {
@@ -161,33 +161,77 @@ class MistralOcrService {
       imageMimeType = 'image/png';
     }
 
-    const response = await axios.post(
-      `${this.apiBase}/api/chat`,
-      {
-        model: this.model,
-        stream: false,
-        messages: [
-          {
-            role: 'user',
-            content: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
-            images: [imageBase64]
-          }
-        ],
-        options: {
-          temperature: 0
-        }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 120000
+    const normalizedApiBase = String(this.apiBase || '').replace(/\/+$/, '');
+    const isOpenAiCompatible = /\/v1$/i.test(normalizedApiBase);
+    const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
+    const authHeaders = this.apiKey
+      ? {
+        'Authorization': `Bearer ${this.apiKey}`
       }
-    );
+      : {};
 
-    const ocrText = String(response.data?.message?.content || '').trim();
+    const response = isOpenAiCompatible
+      ? await axios.post(
+        `${normalizedApiBase}/chat/completions`,
+        {
+          model: this.model,
+          temperature: 0,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.'
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: imageDataUrl
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders
+          },
+          timeout: 120000
+        }
+      )
+      : await axios.post(
+        `${normalizedApiBase}/api/chat`,
+        {
+          model: this.model,
+          stream: false,
+          messages: [
+            {
+              role: 'user',
+              content: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+              images: [imageBase64]
+            }
+          ],
+          options: {
+            temperature: 0
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders
+          },
+          timeout: 120000
+        }
+      );
+
+    const ocrText = isOpenAiCompatible
+      ? String(response.data?.choices?.[0]?.message?.content || '').trim()
+      : String(response.data?.message?.content || '').trim();
     if (!ocrText) {
-      throw new Error(`Ollama OCR returned empty output for ${imageMimeType}`);
+      throw new Error(`Local OCR returned empty output for ${imageMimeType}`);
     }
 
     return ocrText;
@@ -273,7 +317,7 @@ class MistralOcrService {
       emit('download', `Download complete (${mimeType}).`);
 
       // Step 2: OCR
-      const providerLabel = this.provider === 'ollama' ? 'Ollama OCR' : 'Mistral OCR';
+      const providerLabel = this.provider === 'ollama' ? 'Local OCR' : 'Mistral OCR';
       emit('ocr', `Sending document to ${providerLabel}…`);
       let ocrText;
       try {

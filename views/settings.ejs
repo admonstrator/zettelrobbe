@@ -354,7 +354,15 @@
                                     </div>
                                     <div class="space-y-2">
                                         <label for="ollamaModel" class="text-sm font-medium">Ollama Model</label>
-                                        <input type="text" id="ollamaModel" name="ollamaModel" value="<%= config.OLLAMA_MODEL %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <div class="flex flex-col sm:flex-row gap-2">
+                                            <select id="ollamaModel" name="ollamaModel" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                                <option value="<%= config.OLLAMA_MODEL %>" selected><%= config.OLLAMA_MODEL %></option>
+                                            </select>
+                                            <button type="button" id="fetchAiModelsBtn" class="toolbar-btn toolbar-btn--warning flex items-center justify-center gap-2 whitespace-nowrap">
+                                                <i class="fas fa-list"></i>
+                                                <span>Fetch Models</span>
+                                            </button>
+                                        </div>
                                         <p class="text-xs text-gray-500">ENV: OLLAMA_MODEL · Restart required</p>
                                     </div>
                                 </div>
@@ -375,7 +383,15 @@
                                     </div>
                                     <div class="space-y-2">
                                         <label for="customModel" class="text-sm font-medium">Custom Model</label>
-                                        <input type="text" id="customModel" name="customModel" value="<%= config.CUSTOM_MODEL %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <div class="flex flex-col sm:flex-row gap-2">
+                                            <select id="customModel" name="customModel" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                                <option value="<%= config.CUSTOM_MODEL %>" selected><%= config.CUSTOM_MODEL %></option>
+                                            </select>
+                                            <button type="button" id="fetchCustomAiModelsBtn" class="toolbar-btn toolbar-btn--warning flex items-center justify-center gap-2 whitespace-nowrap">
+                                                <i class="fas fa-list"></i>
+                                                <span>Fetch Models</span>
+                                            </button>
+                                        </div>
                                         <p class="text-xs text-gray-500">ENV: CUSTOM_MODEL · Restart required</p>
                                     </div>
                                 </div>
@@ -606,38 +622,55 @@
                             <section class="space-y-4 settings-section-card">
                                 <h3 class="text-lg font-semibold">OCR Fallback</h3>
                                 <div class="space-y-2">
-                                    <label for="mistralOcrEnabled" class="text-sm font-medium">Enable OCR fallback</label>
+                                    <label for="mistralOcrEnabled" class="text-sm font-medium">Enable OCR</label>
                                     <select id="mistralOcrEnabled" name="mistralOcrEnabled" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <option value="no" <%= config.MISTRAL_OCR_ENABLED === 'no' ? 'selected' : '' %>>No</option>
                                         <option value="yes" <%= config.MISTRAL_OCR_ENABLED === 'yes' ? 'selected' : '' %>>Yes</option>
                                     </select>
                                     <p class="text-xs text-gray-500">ENV: MISTRAL_OCR_ENABLED · Restart required</p>
                                 </div>
+                                <div id="ocrFieldsContainer" class="space-y-2 <%= config.MISTRAL_OCR_ENABLED === 'yes' ? '' : 'hidden' %>">
                                 <div class="space-y-2">
                                     <label for="ocrProvider" class="text-sm font-medium">OCR Provider</label>
                                     <select id="ocrProvider" name="ocrProvider" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <option value="mistral" <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'selected' : '' %>>Mistral OCR API</option>
-                                        <option value="ollama" <%= (config.OCR_PROVIDER || 'mistral') === 'ollama' ? 'selected' : '' %>>Ollama (local models, e.g. Gemma)</option>
+                                        <option value="custom" <%= ((config.OCR_PROVIDER || 'mistral') === 'custom' || (config.OCR_PROVIDER || 'mistral') === 'ollama') ? 'selected' : '' %>>Custom (Ollama, LM Studio, local models)</option>
                                     </select>
                                     <p class="text-xs text-gray-500">ENV: OCR_PROVIDER · Restart required</p>
                                 </div>
-                                <div class="space-y-2">
+                                <div id="ocrApiUrlContainer" class="space-y-2">
                                     <label for="ocrApiUrl" class="text-sm font-medium">OCR API URL (optional override)</label>
                                     <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Leave empty to use provider default">
                                     <p class="text-xs text-gray-500">ENV: OCR_API_URL · Restart required</p>
                                 </div>
-                                <div class="space-y-2">
-                                    <label for="mistralApiKey" class="text-sm font-medium">Mistral API Key</label>
+                                <div id="ocrApiKeyContainer" class="space-y-2">
+                                    <label for="ocrApiKey" class="text-sm font-medium">OCR API Key</label>
                                     <div class="relative">
-                                        <input type="password" id="mistralApiKey" name="mistralApiKey" value="" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="<%= configuredSecrets.MISTRAL_API_KEY ? 'Configured (leave empty to keep current value)' : 'Enter Mistral API key' %>">
-                                        <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" data-input="mistralApiKey"><i class="fas fa-eye"></i></button>
+                                        <input type="password" id="ocrApiKey" name="ocrApiKey" value="" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="<%= (configuredSecrets.OCR_API_KEY || configuredSecrets.MISTRAL_API_KEY) ? 'Configured (leave empty to keep current value)' : 'Optional for local/custom, required for Mistral' %>">
+                                        <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" data-input="ocrApiKey"><i class="fas fa-eye"></i></button>
                                     </div>
-                                    <p class="text-xs text-gray-500">ENV: MISTRAL_API_KEY · Restart required</p>
+                                    <p class="text-xs text-gray-500">ENV: OCR_API_KEY (legacy fallback: MISTRAL_API_KEY) · Restart required</p>
                                 </div>
                                 <div class="space-y-2">
                                     <label for="mistralOcrModel" class="text-sm font-medium">OCR Model</label>
-                                    <input type="text" id="mistralOcrModel" name="mistralOcrModel" value="<%= config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest' %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <div class="flex flex-col sm:flex-row gap-2">
+                                        <select id="mistralOcrModel" name="mistralOcrModel" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="<%= config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest' %>" selected><%= config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest' %></option>
+                                        </select>
+                                        <button type="button" id="fetchOcrModelsBtn" class="toolbar-btn toolbar-btn--warning flex items-center justify-center gap-2 whitespace-nowrap">
+                                            <i class="fas fa-list"></i>
+                                            <span>Fetch OCR Models</span>
+                                        </button>
+                                    </div>
                                     <p class="text-xs text-gray-500">ENV: MISTRAL_OCR_MODEL · Restart required</p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <button type="button" id="testOcrBtn" class="toolbar-btn toolbar-btn--warning flex items-center gap-2">
+                                        <i class="fas fa-flask"></i>
+                                        <span>Test OCR Connection</span>
+                                    </button>
+                                    <span id="ocrTestState" class="setup-pill">Not tested</span>
+                                </div>
                                 </div>
                             </section>
                         </div>

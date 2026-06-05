@@ -44,9 +44,15 @@ This isn't just a collection of patches; it's a total overhaul of how your docum
 
 Connect to OpenAI, Ollama, or any OpenAI-compatible API. We've moved beyond simple keyword matching. The AI now understands **intent and context**, meaning it knows the difference between an "Electricity Bill" and a "Manual for a Toaster" without you writing a single regex.
 
-### 👓 Mistral-Powered Vision
+### 👓 Flexible OCR Vision (Mistral + Local)
 
-Waging war against blurry scans, shaky smartphone photos, and handwritten scribbles that standard OCR usually chokes on. By integrating Mistral's OCR capabilities, we rescue the "unreadable" and turn it into searchable data. Everything syncs back to Paperless-ngx, ensuring your single source of truth stays intact.
+Waging war against blurry scans, shaky smartphone photos, and handwritten scribbles that standard OCR usually chokes on. You can run OCR with:
+
+- Mistral OCR (`provider: mistral`)
+- local OpenAI-compatible vision APIs (`provider: ollama` + `/v1` endpoint, e.g. LM Studio-compatible)
+- native Ollama chat vision APIs (`provider: ollama` + `/api/chat` endpoint)
+
+The OCR setup now also validates real image reading instead of only checking endpoint reachability.
 
 ### ⚡️ Performance without the "Spinner-Induced Rage"
 
@@ -115,12 +121,19 @@ volumes:
 
 Then open [http://localhost:3000](http://localhost:3000) to complete setup.
 
+### OCR Provider Notes
+
+- OCR API key env: `OCR_API_KEY` (backward-compatible fallback: `MISTRAL_API_KEY`)
+- Local OCR supports model discovery from both `/api/tags` (Ollama-style) and `/v1/models` (OpenAI-compatible)
+- OCR test sends a real PNG image and expects the exact token: `OCR-TEST-182730173401`
+- For OpenAI-compatible endpoints that reject data URLs, OCR validation automatically retries with raw base64 payload
+
 ### Container Images
 
 | Image Tag                                    | Size        |
 | -------------------------------------------- | ----------- |
 | `admonstrator/paperless-ai-next:latest`      | ~500–700 MB |
-| `admonstrator/paperless-ai-next:latest-lite` | ~500–700 MB |
+
 
 **Docker Hub:** [admonstrator/paperless-ai-next](https://hub.docker.com/r/admonstrator/paperless-ai-next)
 

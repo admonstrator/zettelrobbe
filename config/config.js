@@ -348,7 +348,7 @@ module.exports = {
     enabled: parseEnvBoolean(process.env.MISTRAL_OCR_ENABLED, 'no'),
     provider: String(process.env.OCR_PROVIDER || process.env.MISTRAL_OCR_PROVIDER || 'mistral').trim().toLowerCase(),
     apiUrl: (process.env.OCR_API_URL || process.env.MISTRAL_OCR_API_URL || '').trim(),
-    apiKey: process.env.MISTRAL_API_KEY || '',
+    apiKey: process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '',
     model: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
   },
   customFields: process.env.CUSTOM_FIELDS || '',
