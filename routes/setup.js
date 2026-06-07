@@ -4247,7 +4247,12 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const paperlessToken = String(req.body?.paperlessToken || '').trim();
 
     const scanAllDocuments = parseBooleanInput(req.body?.scanAllDocuments, false);
+    const includeTags = normalizeTagListInput(req.body?.includeTags);
     const includeTag = String(req.body?.includeTag || '').trim();
+    const effectiveIncludeTags = Array.from(new Set([
+      ...includeTags,
+      ...(includeTag ? [includeTag] : [])
+    ]));
     const excludeTags = normalizeTagListInput(req.body?.excludeTags);
     const processedTag = String(req.body?.processedTag || '').trim();
     const effectiveExcludeTags = Array.from(new Set([
@@ -4313,10 +4318,10 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       });
     }
 
-    if (!scanAllDocuments && !includeTag) {
+    if (!scanAllDocuments && effectiveIncludeTags.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Select a tag for scanned documents or enable scanning all documents.'
+        error: 'Select at least one tag for scanned documents or enable scanning all documents.'
       });
     }
 
@@ -4368,7 +4373,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       });
     }
 
-    const tagsForProcessing = scanAllDocuments ? [] : [includeTag];
+    const tagsForProcessing = scanAllDocuments ? [] : effectiveIncludeTags;
     const apiToken = process.env.API_KEY || crypto.randomBytes(64).toString('hex');
     const jwtToken = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 

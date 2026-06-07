@@ -12,6 +12,7 @@ class SetupWizard {
         this.nextBtn = document.getElementById('nextStepBtn');
 
         this.currentStep = 0;
+        this.includeTags = [];
         this.excludeTags = [];
 
         this.mfaState = {
@@ -78,6 +79,8 @@ class SetupWizard {
         this.tagsCount = document.getElementById('tagsCount');
         this.scanAllDocuments = document.getElementById('scanAllDocuments');
         this.includeTag = document.getElementById('includeTag');
+        this.addIncludeTagBtn = document.getElementById('addIncludeTagBtn');
+        this.includeTagsContainer = document.getElementById('includeTagsContainer');
         this.excludeTagInput = document.getElementById('excludeTagInput');
         this.addExcludeTagBtn = document.getElementById('addExcludeTagBtn');
         this.excludeTagsContainer = document.getElementById('excludeTagsContainer');
@@ -120,6 +123,7 @@ class SetupWizard {
         this.populateInitialValues();
         this.populateAiPresets();
         this.bindEvents();
+        this.renderIncludeTags();
         this.renderExcludeTags();
         this.updateMfaPanelVisibility();
         this.toggleIncludeTagField();
@@ -156,7 +160,8 @@ class SetupWizard {
         this.adminUsername.value = this.config.username || '';
         this.scanInterval.value = this.config.SCAN_INTERVAL || this.defaults.scanInterval || '*/30 * * * *';
         this.scanAllDocuments.checked = this.config.PROCESS_PREDEFINED_DOCUMENTS === 'no';
-        this.includeTag.value = Array.isArray(this.config.TAGS) && this.config.TAGS.length > 0 ? this.config.TAGS[0] : '';
+        this.includeTags = Array.isArray(this.config.TAGS) ? this.config.TAGS.slice() : [];
+        this.includeTag.value = '';
         this.excludeTags = Array.isArray(this.config.IGNORE_TAGS) ? this.config.IGNORE_TAGS.slice() : [];
 
         const mistralEnabled = this.config.MISTRAL_OCR_ENABLED === 'yes';
@@ -280,6 +285,19 @@ class SetupWizard {
         this.confirmMfaCodeBtn.addEventListener('click', () => this.confirmMfaCode());
 
         this.scanAllDocuments.addEventListener('change', () => this.toggleIncludeTagField());
+        if (this.addIncludeTagBtn) {
+            this.addIncludeTagBtn.addEventListener('click', () => this.addIncludeTag(this.includeTag.value));
+        }
+        if (this.includeTag) {
+            this.includeTag.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter') {
+                    return;
+                }
+
+                event.preventDefault();
+                this.addIncludeTag(this.includeTag.value);
+            });
+        }
 
         if (this.addExcludeTagBtn) {
             this.addExcludeTagBtn.addEventListener('click', () => this.addExcludeTag(this.excludeTagInput.value));
@@ -483,6 +501,65 @@ class SetupWizard {
         if (scanAll) {
             this.includeTag.value = '';
         }
+    }
+
+    getEffectiveIncludeTags() {
+        return Array.from(new Set(
+            (Array.isArray(this.includeTags) ? this.includeTags : [])
+                .map((value) => String(value || '').trim())
+                .filter(Boolean)
+        ));
+    }
+
+    addIncludeTag(value) {
+        const normalized = String(value || '').trim();
+        if (!normalized) {
+            return;
+        }
+
+        if (!this.includeTags.includes(normalized)) {
+            this.includeTags.push(normalized);
+            this.renderIncludeTags();
+        }
+
+        this.includeTag.value = '';
+    }
+
+    removeIncludeTag(tag) {
+        this.includeTags = this.includeTags.filter((entry) => entry !== tag);
+        this.renderIncludeTags();
+    }
+
+    renderIncludeTags() {
+        if (!this.includeTagsContainer) {
+            return;
+        }
+
+        this.includeTagsContainer.innerHTML = '';
+        const tags = this.getEffectiveIncludeTags();
+
+        if (tags.length === 0) {
+            const hint = document.createElement('p');
+            hint.className = 'setup-hint';
+            hint.textContent = 'No include tags selected.';
+            this.includeTagsContainer.appendChild(hint);
+            return;
+        }
+
+        tags.forEach((tag) => {
+            const chip = document.createElement('div');
+            chip.className = 'bg-blue-100 text-blue-800 px-3 py-1 rounded-full flex items-center gap-2';
+            chip.innerHTML = `<span>${tag}</span>`;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'hover:text-blue-600';
+            removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+            removeBtn.addEventListener('click', () => this.removeIncludeTag(tag));
+
+            chip.appendChild(removeBtn);
+            this.includeTagsContainer.appendChild(chip);
+        });
     }
 
     toggleMistralFields() {
@@ -1072,11 +1149,11 @@ class SetupWizard {
                 }
             }
 
-            if (!this.scanAllDocuments.checked && !this.includeTag.value.trim()) {
+            if (!this.scanAllDocuments.checked && this.getEffectiveIncludeTags().length === 0) {
                 await this.showPopup({
                     icon: 'warning',
                     title: 'Include tag required',
-                    text: 'Select an include tag or enable "Always scan all documents".'
+                    text: 'Select at least one include tag or enable "Always scan all documents".'
                 });
                 return false;
             }
@@ -1161,7 +1238,7 @@ class SetupWizard {
         preview.push(`PAPERLESS_API_TOKEN=${this.paperlessToken.value.trim()}`);
         preview.push(`PAPERLESS_USERNAME=${this.paperlessUsername.value.trim()}`);
         preview.push(`PROCESS_PREDEFINED_DOCUMENTS=${this.scanAllDocuments.checked ? 'no' : 'yes'}`);
-        preview.push(`TAGS=${this.scanAllDocuments.checked ? '' : this.includeTag.value.trim()}`);
+        preview.push(`TAGS=${this.scanAllDocuments.checked ? '' : this.getEffectiveIncludeTags().join(',')}`);
         preview.push(`IGNORE_TAGS=${this.getEffectiveExcludeTags().join(',')}`);
         preview.push(`ADD_AI_PROCESSED_TAG=${this.processedTag.value.trim() ? 'yes' : 'no'}`);
         preview.push(`AI_PROCESSED_TAG_NAME=${this.processedTag.value.trim() || 'ai-processed'}`);
@@ -1225,7 +1302,8 @@ class SetupWizard {
             paperlessUsername: this.paperlessUsername.value.trim(),
             paperlessToken: this.paperlessToken.value.trim(),
             scanAllDocuments: this.scanAllDocuments.checked,
-            includeTag: this.includeTag.value.trim(),
+            includeTag: this.getEffectiveIncludeTags()[0] || '',
+            includeTags: this.getEffectiveIncludeTags(),
             excludeTags: this.getEffectiveExcludeTags(),
             processedTag: this.processedTag.value.trim(),
             automaticScanEnabled: this.automaticScanEnabled.value === 'yes',
