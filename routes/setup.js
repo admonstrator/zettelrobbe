@@ -3461,7 +3461,9 @@ async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, 
 
 async function validateOcrConnectionForSetup({ enabled, provider, apiUrl, apiKey, model, setupOcrValidationTimeoutMs }) {
   return setupService.withTemporaryValidationTimeout(setupOcrValidationTimeoutMs, async () => {
-    const normalizedEnabled = String(enabled ? 'yes' : 'no').trim().toLowerCase();
+    // Correctly handles both boolean (true/false) and string ('yes'/'no') values.
+    // Using a truthy check on a string would misinterpret 'no' as enabled.
+    const normalizedEnabled = (enabled === true || String(enabled ?? '').trim().toLowerCase() === 'yes') ? 'yes' : 'no';
     if (normalizedEnabled !== 'yes') {
       return {
         success: true,
