@@ -23,6 +23,7 @@ function createMockClassList() {
 }
 
 function createMockElement(id) {
+  const listeners = {};
   return {
     id,
     value: '',
@@ -35,7 +36,15 @@ function createMockElement(id) {
     dataset: {},
     classList: createMockClassList(),
     appendChild: () => {},
-    addEventListener: () => {},
+    addEventListener: (event, handler) => {
+      if (!listeners[event]) {
+        listeners[event] = [];
+      }
+      listeners[event].push(handler);
+    },
+    dispatchEvent: (eventName) => {
+      (listeners[eventName] || []).forEach((fn) => fn());
+    },
     focus: () => {},
     select: () => {},
     setAttribute: () => {},
@@ -157,5 +166,21 @@ vm.runInThisContext(source, { filename: setupJsPath });
 assert.ok(window.setupWizard, 'Setup wizard should initialize');
 assert.strictEqual(window.setupWizard.scanAllDocuments.checked, false, 'Fresh setup should default to include-tag mode');
 assert.strictEqual(window.setupWizard.includeTag.disabled, false, 'Include tag input should stay enabled by default');
+
+// Verify reactive behavior: toggling the checkbox enables/disables the field
+window.setupWizard.scanAllDocuments.checked = true;
+window.setupWizard.scanAllDocuments.dispatchEvent('change');
+assert.strictEqual(window.setupWizard.includeTag.disabled, true, 'Tag field should be disabled when scan-all is checked');
+
+window.setupWizard.scanAllDocuments.checked = false;
+window.setupWizard.scanAllDocuments.dispatchEvent('change');
+assert.strictEqual(window.setupWizard.includeTag.disabled, false, 'Tag field should re-enable when scan-all is unchecked');
+
+// Verify loading an existing config with PROCESS_PREDEFINED_DOCUMENTS=no marks scan-all as checked
+window.__SETUP_BOOTSTRAP__ = { config: { PROCESS_PREDEFINED_DOCUMENTS: 'no' }, defaults: {}, aiProviderPresets: [] };
+window.setupWizard.config = { PROCESS_PREDEFINED_DOCUMENTS: 'no' };
+window.setupWizard.populateInitialValues();
+assert.strictEqual(window.setupWizard.scanAllDocuments.checked, true, 'PROCESS_PREDEFINED_DOCUMENTS=no should result in scan-all checked');
+assert.strictEqual(window.setupWizard.includeTag.disabled, false, 'Tag field state is driven by checkbox, not populateInitialValues');
 
 console.log('✅ test-setup-wizard-tag-default passed');

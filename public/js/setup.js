@@ -280,6 +280,8 @@ class SetupWizard {
         }
         this.confirmMfaCodeBtn.addEventListener('click', () => this.confirmMfaCode());
 
+        this.scanAllDocuments.addEventListener('change', () => this.toggleIncludeTagField());
+
         this.testPaperlessBtn.addEventListener('click', () => this.testPaperlessConnection());
         this.fetchMetadataBtn.addEventListener('click', () => this.loadPaperlessMetadata());
 
