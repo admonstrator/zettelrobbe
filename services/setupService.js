@@ -14,14 +14,33 @@ class SetupService {
     this.runtimeOverridesPath = path.join(process.cwd(), 'data', 'runtime-overrides.json');
     this.configured = null; // Variable to store the configuration status
 
-    const configuredTimeout = Number.parseInt(process.env.SETUP_VALIDATION_TIMEOUT_MS || '15000', 10);
-    this.validationTimeoutMs = Number.isFinite(configuredTimeout)
-      ? Math.min(Math.max(configuredTimeout, 1000), 120000)
-      : 15000;
+    this.validationTimeoutMs = this.normalizeValidationTimeoutMs(process.env.SETUP_VALIDATION_TIMEOUT_MS, 30000);
+    this.setupOcrDetectionCache = new Map();
+    this.setupAiDetectionCache = new Map();
+  }
+
+  normalizeValidationTimeoutMs(rawValue, fallbackValue = 30000) {
+    const parsed = Number.parseInt(String(rawValue ?? ''), 10);
+    if (!Number.isFinite(parsed)) {
+      return fallbackValue;
+    }
+
+    return Math.min(Math.max(parsed, 1000), 120000);
   }
 
   getValidationTimeoutMs() {
     return this.validationTimeoutMs;
+  }
+
+  async withTemporaryValidationTimeout(rawValue, callback) {
+    const previousTimeout = this.validationTimeoutMs;
+    this.validationTimeoutMs = this.normalizeValidationTimeoutMs(rawValue, previousTimeout);
+
+    try {
+      return await callback();
+    } finally {
+      this.validationTimeoutMs = previousTimeout;
+    }
   }
 
   async withValidationTimeout(promise, operationName) {
@@ -112,6 +131,19 @@ class SetupService {
       allowPrivateIPs: true,
       allowLocalhost
     };
+  }
+
+  getMistralUrlValidationOptions(apiUrl = '') {
+    const normalizedUrl = String(apiUrl || '').trim().toLowerCase();
+
+    // Keep strict validation for the official Mistral cloud endpoint.
+    if (!normalizedUrl || normalizedUrl.includes('api.mistral.ai')) {
+      return { allowPrivateIPs: false, allowLocalhost: false };
+    }
+
+    // For user-defined Mistral-compatible endpoints, allow private networks
+    // (localhost remains controlled by PAPERLESS_AI_SETUP_ALLOW_LOCALHOST).
+    return this.getSetupUrlValidationOptions();
   }
 
   async loadRuntimeOverrides() {
@@ -484,6 +516,163 @@ class SetupService {
     return deduped;
   }
 
+  dedupeStringValues(values = []) {
+    const seen = new Set();
+    const deduped = [];
+
+    values.forEach((value) => {
+      const normalized = String(value || '').trim().replace(/\/+$/, '');
+      if (!normalized || seen.has(normalized)) {
+        return;
+      }
+
+      seen.add(normalized);
+      deduped.push(normalized);
+    });
+
+    return deduped;
+  }
+
+  buildVersionedApiUrlCandidates(apiUrl, defaultUrl = '', preferVersioned = false) {
+    const normalizedInput = String(apiUrl || '').trim().replace(/\/+$/, '');
+    const normalizedDefault = String(defaultUrl || '').trim().replace(/\/+$/, '');
+    const effectiveUrl = normalizedInput || normalizedDefault;
+
+    if (!effectiveUrl) {
+      return [];
+    }
+
+    const baseUrl = effectiveUrl.replace(/\/v1$/i, '');
+    const versionedUrl = /\/v1$/i.test(effectiveUrl) ? effectiveUrl : `${baseUrl}/v1`;
+    return preferVersioned
+      ? this.dedupeStringValues([versionedUrl, baseUrl])
+      : this.dedupeStringValues([effectiveUrl, versionedUrl, baseUrl]);
+  }
+
+  async detectAiApiUrlForSetup(options = {}) {
+    const provider = String(options.provider || '').trim().toLowerCase();
+    const apiUrl = String(options.apiUrl || '').trim();
+    const apiKey = String(options.apiKey || '').trim();
+
+    if (!provider || !['openai', 'ollama', 'custom', 'azure'].includes(provider)) {
+      throw new Error('A valid AI provider is required for URL detection');
+    }
+
+    if (provider === 'azure') {
+      return {
+        resolvedApiUrl: apiUrl,
+        mode: 'azure'
+      };
+    }
+
+    if (provider === 'openai') {
+      const candidates = this.buildVersionedApiUrlCandidates(apiUrl, 'https://api.openai.com/v1', true);
+      return {
+        resolvedApiUrl: candidates[0] || 'https://api.openai.com/v1',
+        mode: 'openai'
+      };
+    }
+
+    if (!apiUrl && provider === 'custom') {
+      throw new Error('API URL is required for URL detection');
+    }
+
+    const defaultUrl = provider === 'ollama' ? 'http://localhost:11434' : '';
+    const candidates = this.buildVersionedApiUrlCandidates(apiUrl, defaultUrl);
+    const cacheKey = `${provider}|${candidates.join('|')}|${apiKey ? 'with-key' : 'without-key'}`;
+    if (this.setupAiDetectionCache.has(cacheKey)) {
+      return this.setupAiDetectionCache.get(cacheKey);
+    }
+
+    const validationOptions = this.getSetupUrlValidationOptions();
+
+    for (const candidate of candidates) {
+      const isOpenAiLike = /\/v1$/i.test(candidate);
+      const attempts = isOpenAiLike
+        ? [() => this.fetchOpenAiCompatibleModels(candidate, apiKey, validationOptions)]
+        : [
+          () => this.fetchOllamaModels(candidate, apiKey, validationOptions),
+          () => this.fetchOpenAiCompatibleModels(candidate, apiKey, validationOptions)
+        ];
+
+      for (const attempt of attempts) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await attempt();
+          const detected = {
+            resolvedApiUrl: candidate,
+            mode: isOpenAiLike ? 'openai' : 'ollama'
+          };
+          this.setupAiDetectionCache.set(cacheKey, detected);
+          return detected;
+        } catch (_error) {
+          // Try next probe candidate.
+        }
+      }
+    }
+
+    const fallback = {
+      resolvedApiUrl: candidates[0] || apiUrl || defaultUrl,
+      mode: /\/v1$/i.test(candidates[0] || '') ? 'openai' : 'ollama'
+    };
+    this.setupAiDetectionCache.set(cacheKey, fallback);
+    return fallback;
+  }
+
+  async detectOcrApiUrlForSetup(options = {}) {
+    const providerInput = String(options.provider || 'mistral').trim().toLowerCase();
+    const provider = providerInput === 'custom' ? 'ollama' : providerInput;
+    const apiUrl = String(options.apiUrl || '').trim();
+    const apiKey = String(options.apiKey || '').trim();
+
+    if (!['mistral', 'ollama'].includes(provider)) {
+      throw new Error('A valid OCR provider is required for URL detection');
+    }
+
+    const cacheKey = `${provider}|${apiUrl}|${apiKey ? 'with-key' : 'without-key'}`;
+    if (this.setupOcrDetectionCache.has(cacheKey)) {
+      return this.setupOcrDetectionCache.get(cacheKey);
+    }
+
+    if (provider === 'mistral') {
+      // Keep Mistral setup stable: do not probe endpoints during autodetection.
+      // We only normalize to the canonical /v1 base (or use default).
+      const candidates = this.buildVersionedApiUrlCandidates(apiUrl, 'https://api.mistral.ai/v1', true);
+      const resolved = { resolvedApiUrl: candidates[0] || 'https://api.mistral.ai/v1', mode: 'openai' };
+      this.setupOcrDetectionCache.set(cacheKey, resolved);
+      return resolved;
+    }
+
+    const validationOptions = this.getSetupUrlValidationOptions();
+    const candidates = this.buildVersionedApiUrlCandidates(apiUrl, 'http://localhost:11434');
+
+    for (const candidate of candidates) {
+      const isOpenAiLike = /\/v1$/i.test(candidate);
+      const attempts = isOpenAiLike
+        ? [() => this.fetchOpenAiCompatibleModels(candidate, apiKey, validationOptions)]
+        : [
+          () => this.fetchOllamaModels(candidate, apiKey, validationOptions),
+          () => this.fetchOpenAiCompatibleModels(candidate, apiKey, validationOptions)
+        ];
+
+      for (const attempt of attempts) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await attempt();
+          const detected = { resolvedApiUrl: candidate, mode: isOpenAiLike ? 'openai' : 'ollama' };
+          this.setupOcrDetectionCache.set(cacheKey, detected);
+          return detected;
+        } catch (_error) {
+          // Try alternate local flavor and URL variant.
+        }
+      }
+    }
+
+    const fallback = { resolvedApiUrl: candidates[0] || 'http://localhost:11434', mode: /\/v1$/i.test(candidates[0] || '') ? 'openai' : 'ollama' };
+    this.setupOcrDetectionCache.set(cacheKey, fallback);
+    return fallback;
+  }
+
   async discoverAiModels(options = {}) {
     const provider = String(options.provider || '').trim().toLowerCase();
     const apiUrl = String(options.apiUrl || '').trim();
@@ -546,32 +735,46 @@ class SetupService {
     }
 
     if (provider === 'mistral') {
-      const targetUrl = (apiUrl || 'https://api.mistral.ai/v1').replace(/\/+$/, '');
       if (!apiKey) {
         throw new Error('API key is required for Mistral OCR model discovery');
       }
 
-      return this.fetchOpenAiCompatibleModels(targetUrl, apiKey, { allowPrivateIPs: false, allowLocalhost: false });
+      const targetUrls = this.buildVersionedApiUrlCandidates(apiUrl, 'https://api.mistral.ai/v1', true);
+      const allModels = [];
+
+      for (const targetUrl of targetUrls) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const models = await this.fetchOpenAiCompatibleModels(targetUrl, apiKey, this.getMistralUrlValidationOptions(targetUrl));
+          allModels.push(...models);
+        } catch (_error) {
+          // Try alternate base URL variant, e.g. with or without /v1.
+        }
+      }
+
+      return this.dedupeModelIds(allModels);
     }
 
-    const targetUrl = (apiUrl || 'http://localhost:11434').replace(/\/+$/, '');
     const validationOptions = this.getSetupUrlValidationOptions();
-    const isOpenAiLike = /\/v1$/i.test(targetUrl);
-    const attempts = isOpenAiLike
-      ? [() => this.fetchOpenAiCompatibleModels(targetUrl, apiKey, validationOptions)]
-      : [
-        () => this.fetchOllamaModels(targetUrl, apiKey, validationOptions),
-        () => this.fetchOpenAiCompatibleModels(targetUrl, apiKey, validationOptions)
-      ];
-
     const allModels = [];
-    for (const attempt of attempts) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const models = await attempt();
-        allModels.push(...models);
-      } catch (_error) {
-        // Try next local provider flavor.
+
+    for (const targetUrl of this.buildVersionedApiUrlCandidates(apiUrl, 'http://localhost:11434')) {
+      const isOpenAiLike = /\/v1$/i.test(targetUrl);
+      const attempts = isOpenAiLike
+        ? [() => this.fetchOpenAiCompatibleModels(targetUrl, apiKey, validationOptions)]
+        : [
+          () => this.fetchOllamaModels(targetUrl, apiKey, validationOptions),
+          () => this.fetchOpenAiCompatibleModels(targetUrl, apiKey, validationOptions)
+        ];
+
+      for (const attempt of attempts) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const models = await attempt();
+          allModels.push(...models);
+        } catch (_error) {
+          // Try next local provider flavor or /v1 variant.
+        }
       }
     }
 
@@ -639,6 +842,10 @@ class SetupService {
 
   async runLocalOcrValidationRequest({ apiUrl, apiKey, model, imageDataUrl }) {
     const normalizedApiUrl = String(apiUrl || '').replace(/\/+$/, '');
+    const baseApiUrl = normalizedApiUrl.replace(/\/v1$/i, '');
+    const openAiApiUrl = /\/v1$/i.test(normalizedApiUrl) ? normalizedApiUrl : `${baseApiUrl}/v1`;
+    const ollamaApiUrl = /\/v1$/i.test(normalizedApiUrl) ? baseApiUrl : normalizedApiUrl;
+
     const headers = {
       'Content-Type': 'application/json'
     };
@@ -647,12 +854,11 @@ class SetupService {
     }
 
     const prompt = 'Read the token in this image and return only that token without extra words.';
-    const isOpenAiCompatible = /\/v1$/i.test(normalizedApiUrl);
     const imageBase64 = String(imageDataUrl || '').replace(/^data:image\/[^;]+;base64,/, '');
 
-    const runOpenAiLikeRequest = async (imageUrlValue) => this.withValidationTimeout(
+    const runOpenAiLikeRequest = async (targetApiUrl, imageUrlValue) => this.withValidationTimeout(
       axios.post(
-        `${normalizedApiUrl}/chat/completions`,
+        `${targetApiUrl}/chat/completions`,
         {
           model,
           temperature: 0,
@@ -682,54 +888,85 @@ class SetupService {
       'Local OCR OpenAI-compatible content validation'
     );
 
-    const response = isOpenAiCompatible
-      ? await (async () => {
-        try {
-          return await runOpenAiLikeRequest(imageDataUrl);
-        } catch (error) {
-          const providerMessage = String(
-            error?.response?.data?.error?.message
-            || error?.response?.data?.message
-            || error?.message
-            || ''
-          ).toLowerCase();
+    const runOpenAiLikeWithFallback = async (targetApiUrl) => {
+      try {
+        const response = await runOpenAiLikeRequest(targetApiUrl, imageDataUrl);
+        return String(response.data?.choices?.[0]?.message?.content || '').trim();
+      } catch (error) {
+        const providerMessage = String(
+          error?.response?.data?.error?.message
+          || error?.response?.data?.message
+          || error?.message
+          || ''
+        ).toLowerCase();
 
-          // Some OpenAI-compatible vision endpoints require raw base64 in `image_url.url`.
-          if (providerMessage.includes('url') && providerMessage.includes('base64') && imageBase64) {
-            return runOpenAiLikeRequest(imageBase64);
-          }
-
-          throw error;
+        if (providerMessage.includes('url') && providerMessage.includes('base64') && imageBase64) {
+          const response = await runOpenAiLikeRequest(targetApiUrl, imageBase64);
+          return String(response.data?.choices?.[0]?.message?.content || '').trim();
         }
-      })()
-      : await this.withValidationTimeout(
-        axios.post(
-          `${normalizedApiUrl}/api/chat`,
-          {
-            model,
-            stream: false,
-            messages: [
-              {
-                role: 'user',
-                content: prompt,
-                images: [imageBase64]
-              }
-            ],
-            options: {
-              temperature: 0
-            }
-          },
-          {
-            headers,
-            timeout: this.getValidationTimeoutMs()
-          }
-        ),
-        'Local OCR Ollama content validation'
-      );
 
-    return isOpenAiCompatible
-      ? String(response.data?.choices?.[0]?.message?.content || '').trim()
-      : String(response.data?.message?.content || '').trim();
+        throw error;
+      }
+    };
+
+    const runOllamaLikeRequest = async (targetApiUrl) => this.withValidationTimeout(
+      axios.post(
+        `${targetApiUrl}/api/chat`,
+        {
+          model,
+          stream: false,
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+              images: [imageBase64]
+            }
+          ],
+          options: {
+            temperature: 0
+          }
+        },
+        {
+          headers,
+          timeout: this.getValidationTimeoutMs()
+        }
+      ),
+      'Local OCR Ollama content validation'
+    );
+
+    const runOllamaLike = async (targetApiUrl) => {
+      const response = await runOllamaLikeRequest(targetApiUrl);
+      return String(response.data?.message?.content || '').trim();
+    };
+
+    const requestStrategies = /\/v1$/i.test(normalizedApiUrl)
+      ? [
+        () => runOpenAiLikeWithFallback(openAiApiUrl),
+        () => runOllamaLike(ollamaApiUrl)
+      ]
+      : [
+        () => runOllamaLike(ollamaApiUrl),
+        () => runOpenAiLikeWithFallback(openAiApiUrl)
+      ];
+
+    let lastError;
+    for (const strategy of requestStrategies) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const output = await strategy();
+        if (output) {
+          return output;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+
+    return '';
   }
 
   async validateOcrConfig(options = {}) {
@@ -755,35 +992,100 @@ class SetupService {
     }
 
     if (provider === 'mistral') {
-      const apiUrl = (configuredApiUrl || 'https://api.mistral.ai/v1').replace(/\/+$/, '');
       if (!apiKey) {
         console.error('OCR validation error: missing Mistral API key');
         return false;
       }
 
-      const urlValidation = await validateApiUrl(apiUrl, { allowPrivateIPs: false, allowLocalhost: false });
+      for (const apiUrl of this.buildVersionedApiUrlCandidates(configuredApiUrl, 'https://api.mistral.ai/v1', true)) {
+        const urlValidation = await validateApiUrl(apiUrl, this.getMistralUrlValidationOptions(apiUrl));
+        if (!urlValidation.valid) {
+          console.error('Mistral OCR URL validation error:', urlValidation.error);
+          continue;
+        }
+
+        try {
+          const modelsResponse = await this.withValidationTimeout(
+            axios.get(`${apiUrl}/models`, {
+              headers: {
+                'Authorization': `Bearer ${apiKey}`
+              },
+              timeout: this.getValidationTimeoutMs()
+            }),
+            'Mistral OCR validation'
+          );
+          if (modelsResponse.status !== 200) {
+            continue;
+          }
+
+          const token = this.getOcrValidationToken();
+          const imageDataUrl = this.buildOcrValidationImageDataUrl(token);
+          const ocrOutput = await this.runMistralOcrValidationRequest({
+            apiUrl,
+            apiKey,
+            model,
+            imageDataUrl
+          });
+
+          if (!this.isExpectedOcrTokenPresent(ocrOutput, token)) {
+            console.error('Mistral OCR validation error: OCR output did not match expected token');
+            continue;
+          }
+
+          return true;
+        } catch (error) {
+          console.error('Mistral OCR validation error:', error.message);
+        }
+      }
+
+      return false;
+    }
+
+    for (const apiUrl of this.buildVersionedApiUrlCandidates(configuredApiUrl, 'http://localhost:11434')) {
+      const urlValidation = await validateApiUrl(apiUrl, this.getSetupUrlValidationOptions());
       if (!urlValidation.valid) {
-        console.error('Mistral OCR URL validation error:', urlValidation.error);
-        return false;
+        console.error('Local OCR URL validation error:', urlValidation.error);
+        continue;
+      }
+
+      const isOpenAiCompatible = /\/v1$/i.test(apiUrl);
+      const probeEndpoints = isOpenAiCompatible
+        ? [`${apiUrl}/models`, `${apiUrl.replace(/\/v1$/i, '')}/api/tags`]
+        : [`${apiUrl}/api/tags`, `${apiUrl.replace(/\/+$/, '')}/v1/models`];
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+
+      let providerReachable = false;
+      for (const probeUrl of this.dedupeStringValues(probeEndpoints)) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const response = await this.withValidationTimeout(
+            axios.get(probeUrl, {
+              headers,
+              timeout: this.getValidationTimeoutMs()
+            }),
+            isOpenAiCompatible ? 'Local OCR OpenAI-compatible validation' : 'Local OCR Ollama validation'
+          );
+          if (response.status === 200) {
+            providerReachable = true;
+            break;
+          }
+        } catch (_error) {
+          // Try the alternative probe endpoint.
+        }
+      }
+
+      if (!providerReachable) {
+        console.warn('Local OCR validation warning: model/tag probe failed, trying OCR content validation directly.');
       }
 
       try {
-        const modelsResponse = await this.withValidationTimeout(
-          axios.get(`${apiUrl}/models`, {
-            headers: {
-              'Authorization': `Bearer ${apiKey}`
-            },
-            timeout: this.getValidationTimeoutMs()
-          }),
-          'Mistral OCR validation'
-        );
-        if (modelsResponse.status !== 200) {
-          return false;
-        }
-
         const token = this.getOcrValidationToken();
         const imageDataUrl = this.buildOcrValidationImageDataUrl(token);
-        const ocrOutput = await this.runMistralOcrValidationRequest({
+        const ocrOutput = await this.runLocalOcrValidationRequest({
           apiUrl,
           apiKey,
           model,
@@ -791,65 +1093,17 @@ class SetupService {
         });
 
         if (!this.isExpectedOcrTokenPresent(ocrOutput, token)) {
-          console.error('Mistral OCR validation error: OCR output did not match expected token');
-          return false;
+          console.error('Local OCR validation error: OCR output did not match expected token');
+          continue;
         }
 
         return true;
       } catch (error) {
-        console.error('Mistral OCR validation error:', error.message);
-        return false;
+        console.error('Local OCR validation error:', error.message);
       }
     }
 
-    const apiUrl = (configuredApiUrl || 'http://localhost:11434').replace(/\/+$/, '');
-    const urlValidation = await validateApiUrl(apiUrl, this.getSetupUrlValidationOptions());
-    if (!urlValidation.valid) {
-      console.error('Local OCR URL validation error:', urlValidation.error);
-      return false;
-    }
-
-    const isOpenAiCompatible = /\/v1$/i.test(apiUrl);
-    const targetUrl = isOpenAiCompatible
-      ? `${apiUrl}/models`
-      : `${apiUrl}/api/tags`;
-
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey}`;
-    }
-
-    try {
-      const response = await this.withValidationTimeout(
-        axios.get(targetUrl, {
-          headers,
-          timeout: this.getValidationTimeoutMs()
-        }),
-        isOpenAiCompatible ? 'Local OCR OpenAI-compatible validation' : 'Local OCR Ollama validation'
-      );
-      if (response.status !== 200) {
-        return false;
-      }
-
-      const token = this.getOcrValidationToken();
-      const imageDataUrl = this.buildOcrValidationImageDataUrl(token);
-      const ocrOutput = await this.runLocalOcrValidationRequest({
-        apiUrl,
-        apiKey,
-        model,
-        imageDataUrl
-      });
-
-      if (!this.isExpectedOcrTokenPresent(ocrOutput, token)) {
-        console.error('Local OCR validation error: OCR output did not match expected token');
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Local OCR validation error:', error.message);
-      return false;
-    }
+    return false;
   }
 
   async validateConfig(config) {
@@ -859,7 +1113,7 @@ class SetupService {
       paperlessApiUrl,
       config.PAPERLESS_API_TOKEN
     );
-    
+
     if (!paperlessValid) {
       throw new Error('Invalid Paperless configuration');
     }
@@ -945,6 +1199,8 @@ class SetupService {
       Object.entries(persistentConfig).forEach(([key, value]) => {
         process.env[key] = this.normalizeEnvironmentValue(value);
       });
+
+      this.validationTimeoutMs = this.normalizeValidationTimeoutMs(process.env.SETUP_VALIDATION_TIMEOUT_MS, this.validationTimeoutMs);
     } catch (error) {
       console.error('Error saving config:', error.message);
       throw error;

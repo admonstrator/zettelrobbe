@@ -3,7 +3,9 @@ const {
   calculateTotalPromptTokens,
   truncateToTokenLimit,
   writePromptToFile,
-  extractChatMessageContent
+  extractChatMessageContent,
+  isTimeoutError,
+  buildTimeoutErrorMessage
 } = require('./serviceUtils');
 const OpenAI = require('openai');
 const config = require('../config/config');
@@ -20,6 +22,95 @@ class CustomOpenAIService {
   constructor() {
     this.client = null;
     this.tokenizer = null;
+  }
+
+  _extractFirstJsonValue(text) {
+    if (!text) {
+      return null;
+    }
+
+    const starts = [];
+    const firstObject = text.indexOf('{');
+    const firstArray = text.indexOf('[');
+
+    if (firstObject !== -1) {
+      starts.push(firstObject);
+    }
+    if (firstArray !== -1) {
+      starts.push(firstArray);
+    }
+
+    if (starts.length === 0) {
+      return null;
+    }
+
+    const startIndex = Math.min(...starts);
+    const opening = text[startIndex];
+    const closing = opening === '{' ? '}' : ']';
+
+    let depth = 0;
+    let inString = false;
+    let escaping = false;
+
+    for (let i = startIndex; i < text.length; i += 1) {
+      const char = text[i];
+
+      if (inString) {
+        if (escaping) {
+          escaping = false;
+        } else if (char === '\\') {
+          escaping = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (char === opening) {
+        depth += 1;
+      } else if (char === closing) {
+        depth -= 1;
+        if (depth === 0) {
+          return text.slice(startIndex, i + 1);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  _parseJsonResponse(rawContent) {
+    const sanitizedContent = String(rawContent || '')
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/```json\n?/gi, '')
+      .replace(/```\n?/g, '')
+      .trim();
+
+    try {
+      return {
+        parsed: JSON.parse(sanitizedContent),
+        normalized: sanitizedContent
+      };
+    } catch (_directParseError) {
+      const extractedJson = this._extractFirstJsonValue(sanitizedContent);
+      if (!extractedJson) {
+        throw new Error('Invalid JSON response from API');
+      }
+
+      try {
+        return {
+          parsed: JSON.parse(extractedJson),
+          normalized: extractedJson
+        };
+      } catch (_extractedParseError) {
+        throw new Error('Invalid JSON response from API');
+      }
+    }
   }
 
   initialize() {
@@ -227,16 +318,14 @@ class CustomOpenAIService {
         totalTokens: usage.total_tokens
       };
 
-      // Strip <think>...</think> reasoning tags from models like Qwen3, DeepSeek-R1
-      jsonContent = jsonContent.replace(/<think>[\s\S]*?<\/think>/g, '');
-      jsonContent = jsonContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-
       let parsedResponse;
       try {
-        parsedResponse = JSON.parse(jsonContent);
+        const parsedResult = this._parseJsonResponse(jsonContent);
+        parsedResponse = parsedResult.parsed;
+        jsonContent = parsedResult.normalized;
       } catch (error) {
         console.error(`Failed to parse JSON response: ${error.message}`); console.debug(error);
-        throw new Error('Invalid JSON response from API');
+        throw error;
       }
 
       try {
@@ -257,12 +346,20 @@ class CustomOpenAIService {
         truncated: truncatedContent.length < content.length
       };
     } catch (error) {
-      console.error(`Failed to analyze document: ${error.message}`);
+      const normalizedMessage = isTimeoutError(error)
+        ? buildTimeoutErrorMessage('AI')
+        : error.message;
+
+      if (isTimeoutError(error)) {
+        console.error(`[TIMEOUT][AI] Custom provider request timed out: ${error.message}`);
+      }
+
+      console.error(`Failed to analyze document: ${normalizedMessage}`);
       console.debug(error);
       return {
         document: { tags: [], correspondent: null },
         metrics: null,
-        error: error.message
+        error: normalizedMessage
       };
     }
   }
@@ -361,16 +458,14 @@ class CustomOpenAIService {
         totalTokens: usage.total_tokens
       };
 
-      // Strip <think>...</think> reasoning tags from models like Qwen3, DeepSeek-R1
-      jsonContent = jsonContent.replace(/<think>[\s\S]*?<\/think>/g, '');
-      jsonContent = jsonContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-
       let parsedResponse;
       try {
-        parsedResponse = JSON.parse(jsonContent);
+        const parsedResult = this._parseJsonResponse(jsonContent);
+        parsedResponse = parsedResult.parsed;
+        jsonContent = parsedResult.normalized;
       } catch (error) {
         console.error(`Failed to parse JSON response: ${error.message}`); console.debug(error);
-        throw new Error('Invalid JSON response from API');
+        throw error;
       }
 
       // Validate response structure

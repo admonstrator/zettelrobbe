@@ -31,7 +31,6 @@
 | **OCR and recovery workflows**              |              |                                                                                             |
 | Works with blurry documents and images      | ❌            | ✅                                                                                           |
 | **UX and operations**                       |              |                                                                                             |
-| Searchable document picker in chat          | ❌            | ✅                                                                                           |
 | Settings tabs with runtime ENV hints        | ❌            | ✅                                                                                           |
 
 ---
@@ -100,9 +99,7 @@ Because **Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weig
 
 Please check the docker variables [here](https://paperless-ai-next.admon.me/getting-started/configuration/#docker-environment-variables) for all configuration options.
 
-> If you are using plain HTTP (like running **Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span>** locally on your NAS, your PC, or in your home network), make sure to set `COOKIE_SECURE_MODE=never` to avoid login issues! See [Configuration](/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values) for details. Using a reverse proxy like Nginx or Caddy with HTTPS is highly recommended for security and performance, especially if you expose the service to the internet.
-
-**Lite version** – AI tagging & OCR only (~500–700 MB):
+> If you are using plain HTTP (like running **Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span>** locally on your NAS, your PC, or in your home network), make sure to set `COOKIE_SECURE_MODE=never` to avoid login issues! See [Configuration](https://paperless-ai-next.admon.me/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values) for details. Using a reverse proxy like Nginx or Caddy with HTTPS is highly recommended for security and performance, especially if you expose the service to the internet.
 
 ```yaml
 services:
@@ -151,7 +148,11 @@ Versioned release tags use the format `vYYYY.MM.##` (example: `v2026.03.01`).
 
 ### "So you don't read the code? Should I be worried?"
 
-I don't read it like a monk reading ancient scrolls, but I do understand the **logic**. I treat AI like a more or less talented, slightly erratic junior dev. I tell it what to build, I test the hell out of it, and if it fails, we go back to the drawing board. I am the filter. No "AI-slop" gets merged without passing my "Does this actually solve the problem?" test. Or at least, it doesn't stay merged if I encounter issues in production.
+I can read and understand code logic, but I don't write JavaScript from scratch myself. I treat AI like a talented, slightly erratic junior dev. I guide the architecture, I read and audit the logic of every line it generates, and I test the hell out of it. I am the filter. No "AI-slop" gets merged without passing my "Does this actually solve the problem?" test. Or at least, it doesn't stay merged if I encounter issues in production. You can learn more about the author's background and the AI-assisted development workflow on the [About the Project & Author](https://paperless-ai-next.admon.me/about/) page.
+
+### "Why was RAG (semantic search/chat) support removed?"
+
+We decided to focus the project entirely on its core mission: highly reliable automated document tagging, correspondent detection, and custom field/metadata extraction. Running a secondary Python RAG container with a vector database (ChromaDB) added massive image sizes, high RAM requirements, and severe architectural overhead. For a detailed breakdown of this decision, check out the [RAG Deprecation page](https://paperless-ai-next.admon.me/rag-deprecation/).
 
 ### "What if I'm a 'real' developer and I find a bug?"
 

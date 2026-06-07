@@ -22,7 +22,13 @@ const { ipKeyGenerator } = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const Logger = require('./services/loggerService');
 const { max } = require('date-fns');
-const { validateCustomFieldValue, shouldQueueForOcrOnAiError, classifyOcrQueueReasonFromAiError } = require('./services/serviceUtils');
+const {
+  validateCustomFieldValue,
+  shouldQueueForOcrOnAiError,
+  classifyOcrQueueReasonFromAiError,
+  isTimeoutError,
+  buildTimeoutErrorMessage
+} = require('./services/serviceUtils');
 const dataDir = path.join(process.cwd(), 'data');
 const openApiDir = path.join(dataDir, 'OPENAPI');
 const openApiPath = path.join(openApiDir, 'openapi.json');
@@ -587,14 +593,22 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
   const analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id);
   console.debug('Response from AI service:', analysis);
   if (analysis.error) {
+    const aiErrorMessage = isTimeoutError(analysis.error)
+      ? `${buildTimeoutErrorMessage('AI')} Original error: ${analysis.error}`
+      : analysis.error;
+
+    if (isTimeoutError(analysis.error)) {
+      console.error(`[TIMEOUT][AI] Document ${doc.id}: ${analysis.error}`);
+    }
+
     let queuedForOcr = false;
     let markedTerminalFailed = false;
     // Queue for Mistral OCR on OCR-relevant AI errors (e.g. low content, invalid response structure)
-    if (mistralOcrService.isEnabled() && shouldQueueForOcrOnAiError(analysis.error)) {
-      const queueReason = classifyOcrQueueReasonFromAiError(analysis.error);
+    if (mistralOcrService.isEnabled() && shouldQueueForOcrOnAiError(aiErrorMessage)) {
+      const queueReason = classifyOcrQueueReasonFromAiError(aiErrorMessage);
       const added = await documentModel.addToOcrQueue(doc.id, doc.title, queueReason);
       if (added) {
-        console.log(`[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${analysis.error})`);
+        console.log(`[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${aiErrorMessage})`);
       }
       queuedForOcr = true;
     }
@@ -615,7 +629,7 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
     if (!markedTerminalFailed) {
       retryTracker.set(doc.id, docRetries + 1);
     }
-    throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
+    throw new Error(`[ERROR] Document analysis failed: ${aiErrorMessage}`);
   }
 
   // Clear retry count on success

@@ -375,7 +375,7 @@ class DashboardStatsLoader {
             const docUrl = this.getPaperlessDocumentUrl(docId);
             const idPill = docId > 0 ? `#${docId}` : '#n/a';
             const idPillHtml = docUrl
-                ? `<a href="${this.escapeHtml(docUrl)}" class="manual-search-pill id dashboard-doc-link" title="Open in Paperless">${idPill}</a>`
+                ? `<a href="${this.escapeHtml(docUrl)}" target="_blank" class="manual-search-pill id dashboard-doc-link" title="Open in Paperless">${idPill}</a>`
                 : `<span class="manual-search-pill id">${idPill}</span>`;
             return `
                 <div class="activity-item">

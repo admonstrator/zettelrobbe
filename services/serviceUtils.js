@@ -593,6 +593,51 @@ function classifyOcrQueueReasonFromAiError(errorMessage) {
 }
 
 /**
+ * Detect whether an error or message indicates a request timeout.
+ *
+ * @param {unknown} errorOrMessage
+ * @returns {boolean}
+ */
+function isTimeoutError(errorOrMessage) {
+    const message = typeof errorOrMessage === 'string'
+        ? errorOrMessage
+        : String(errorOrMessage?.message || '');
+    const code = String(errorOrMessage?.code || '').toUpperCase();
+    const normalizedMessage = message.toLowerCase();
+
+    if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'ABORT_ERR') {
+        return true;
+    }
+
+    const timeoutMarkers = [
+        'timed out',
+        'timeout',
+        'request aborted',
+        'aborted',
+        'deadline exceeded',
+        'socket hang up'
+    ];
+
+    return timeoutMarkers.some((marker) => normalizedMessage.includes(marker));
+}
+
+/**
+ * Build a normalized timeout error message for OCR/AI operations.
+ *
+ * @param {'AI'|'OCR'|string} scope
+ * @param {number|null} timeoutMs
+ * @returns {string}
+ */
+function buildTimeoutErrorMessage(scope, timeoutMs = null) {
+    const normalizedScope = String(scope || 'Request').trim().toUpperCase();
+    const suffix = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+        ? ` after ${Number(timeoutMs)}ms`
+        : '';
+
+    return `${normalizedScope} response timeout reached${suffix}. Please check provider availability and timeout settings.`;
+}
+
+/**
  * Extracts assistant message content from OpenAI-compatible responses.
  * Falls back to extracting JSON from reasoning_content when content is empty.
  *
@@ -632,5 +677,7 @@ module.exports = {
     validateCustomFieldValue,
     shouldQueueForOcrOnAiError,
     classifyOcrQueueReasonFromAiError,
-    extractChatMessageContent
+    extractChatMessageContent,
+    isTimeoutError,
+    buildTimeoutErrorMessage
 };

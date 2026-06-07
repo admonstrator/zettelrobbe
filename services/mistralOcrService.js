@@ -11,10 +11,14 @@ const config = require('../config/config');
 const PaperlessService = require('./paperlessService');
 const documentModel = require('../models/document');
 const AIServiceFactory = require('./aiServiceFactory');
+const { isTimeoutError, buildTimeoutErrorMessage } = require('./serviceUtils');
 
 class MistralOcrService {
   constructor() {
     this.activeDocumentIds = new Set();
+    this.detectedLocalApiBase = null;
+    this.detectedLocalApiMode = null;
+    this.localApiDetectionPromise = null;
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -116,24 +120,34 @@ class MistralOcrService {
 
     const documentUrl = `data:${mimeType};base64,${base64}`;
 
-    const response = await axios.post(
-      `${this.apiBase}/ocr`,
-      {
-        model: this.model,
-        document: {
-          type: 'document_url',
-          document_url: documentUrl
+    let response;
+    try {
+      response = await axios.post(
+        `${this.apiBase}/ocr`,
+        {
+          model: this.model,
+          document: {
+            type: 'document_url',
+            document_url: documentUrl
+          },
+          include_image_base64: false
         },
-        include_image_base64: false
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 120000 // 2 minute timeout for large documents
+        {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 120000 // 2 minute timeout for large documents
+        }
+      );
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        const timeoutMessage = buildTimeoutErrorMessage('OCR', 120000);
+        console.error(`[TIMEOUT][OCR] Mistral OCR request timed out: ${error.message}`);
+        throw new Error(timeoutMessage);
       }
-    );
+      throw error;
+    }
 
     const pages = response.data?.pages || [];
     if (pages.length === 0) {
@@ -161,8 +175,10 @@ class MistralOcrService {
       imageMimeType = 'image/png';
     }
 
-    const normalizedApiBase = String(this.apiBase || '').replace(/\/+$/, '');
-    const isOpenAiCompatible = /\/v1$/i.test(normalizedApiBase);
+    const normalizedApiBase = await this.resolveLocalOcrApiBase();
+    const baseApiUrl = normalizedApiBase.replace(/\/v1$/i, '');
+    const openAiApiUrl = /\/v1$/i.test(normalizedApiBase) ? normalizedApiBase : `${baseApiUrl}/v1`;
+    const ollamaApiUrl = /\/v1$/i.test(normalizedApiBase) ? baseApiUrl : normalizedApiBase;
     const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
     const authHeaders = this.apiKey
       ? {
@@ -170,40 +186,63 @@ class MistralOcrService {
       }
       : {};
 
-    const response = isOpenAiCompatible
-      ? await axios.post(
-        `${normalizedApiBase}/chat/completions`,
-        {
-          model: this.model,
-          temperature: 0,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.'
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: imageDataUrl
-                  }
+    const runOpenAiLikeRequest = async (targetApiUrl, imageUrlValue) => axios.post(
+      `${targetApiUrl}/chat/completions`,
+      {
+        model: this.model,
+        temperature: 0,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.'
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageUrlValue
                 }
-              ]
-            }
-          ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            ...authHeaders
-          },
-          timeout: 120000
+        timeout: 120000
+      }
+    );
+
+    const runOpenAiLikeWithFallback = async (targetApiUrl) => {
+      try {
+        const response = await runOpenAiLikeRequest(targetApiUrl, imageDataUrl);
+        return String(response.data?.choices?.[0]?.message?.content || '').trim();
+      } catch (error) {
+        const providerMessage = String(
+          error?.response?.data?.error?.message
+          || error?.response?.data?.message
+          || error?.message
+          || ''
+        ).toLowerCase();
+
+        // Some OpenAI-compatible vision endpoints require raw base64 in image_url.url.
+        if (providerMessage.includes('url') && providerMessage.includes('base64') && imageBase64) {
+          const response = await runOpenAiLikeRequest(targetApiUrl, imageBase64);
+          return String(response.data?.choices?.[0]?.message?.content || '').trim();
         }
-      )
-      : await axios.post(
-        `${normalizedApiBase}/api/chat`,
+
+        throw error;
+      }
+    };
+
+    const runOllamaLike = async (targetApiUrl) => {
+      const response = await axios.post(
+        `${targetApiUrl}/api/chat`,
         {
           model: this.model,
           stream: false,
@@ -227,14 +266,172 @@ class MistralOcrService {
         }
       );
 
-    const ocrText = isOpenAiCompatible
-      ? String(response.data?.choices?.[0]?.message?.content || '').trim()
-      : String(response.data?.message?.content || '').trim();
+      return String(response.data?.message?.content || '').trim();
+    };
+
+    const requestStrategies = this.detectedLocalApiMode === 'openai'
+      ? [
+        () => runOpenAiLikeWithFallback(openAiApiUrl),
+        () => runOllamaLike(ollamaApiUrl)
+      ]
+      : this.detectedLocalApiMode === 'ollama'
+        ? [
+          () => runOllamaLike(ollamaApiUrl),
+          () => runOpenAiLikeWithFallback(openAiApiUrl)
+        ]
+        : [
+        () => runOllamaLike(ollamaApiUrl),
+        () => runOpenAiLikeWithFallback(openAiApiUrl)
+      ];
+
+    let ocrText = '';
+    let lastError;
+    for (const [index, strategy] of requestStrategies.entries()) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        ocrText = await strategy();
+        if (ocrText) {
+          if (index === 0 && this.detectedLocalApiMode == null) {
+            this.detectedLocalApiMode = /\/v1$/i.test(normalizedApiBase) ? 'openai' : 'ollama';
+          } else if (index === 1) {
+            this.detectedLocalApiMode = this.detectedLocalApiMode === 'openai' ? 'ollama' : 'openai';
+          }
+          break;
+        }
+      } catch (error) {
+        if (isTimeoutError(error)) {
+          console.error(`[TIMEOUT][OCR] Local OCR request timed out: ${error.message}`);
+          lastError = new Error(buildTimeoutErrorMessage('OCR', 120000));
+          continue;
+        }
+        lastError = error;
+      }
+    }
+
+    if (!ocrText && lastError) {
+      throw lastError;
+    }
+
     if (!ocrText) {
       throw new Error(`Local OCR returned empty output for ${imageMimeType}`);
     }
 
     return ocrText;
+  }
+
+  buildLocalOcrApiCandidates(apiBase) {
+    const normalized = String(apiBase || '').trim().replace(/\/+$/, '');
+    if (!normalized) {
+      return [];
+    }
+
+    const baseUrl = normalized.replace(/\/v1$/i, '');
+    const openAiUrl = /\/v1$/i.test(normalized) ? normalized : `${baseUrl}/v1`;
+
+    // First candidate keeps user preference/order, second candidate is the alternate style.
+    return /\/v1$/i.test(normalized)
+      ? [{ base: openAiUrl, mode: 'openai' }, { base: baseUrl, mode: 'ollama' }]
+      : [{ base: baseUrl, mode: 'ollama' }, { base: openAiUrl, mode: 'openai' }];
+  }
+
+  async probeLocalOcrCandidate(candidateBase, mode, authHeaders) {
+    if (mode === 'openai') {
+      const response = await axios.get(`${candidateBase}/models`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        timeout: 10000
+      });
+      return response.status === 200;
+    }
+
+    const response = await axios.get(`${candidateBase}/api/tags`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders
+      },
+      timeout: 10000
+    });
+    return response.status === 200;
+  }
+
+  async persistDetectedLocalOcrApiBase(detectedBase) {
+    const normalizedDetectedBase = String(detectedBase || '').trim().replace(/\/+$/, '');
+    if (!normalizedDetectedBase) {
+      return;
+    }
+
+    const currentApiUrl = String(process.env.OCR_API_URL || '').trim().replace(/\/+$/, '');
+    if (currentApiUrl === normalizedDetectedBase) {
+      return;
+    }
+
+    try {
+      const setupService = require('./setupService');
+      const currentConfig = (await setupService.loadConfig()) || {};
+      await setupService.saveRuntimeOverrides({
+        ...currentConfig,
+        OCR_API_URL: normalizedDetectedBase
+      });
+
+      process.env.OCR_API_URL = normalizedDetectedBase;
+      if (config.mistralOcr && typeof config.mistralOcr === 'object') {
+        config.mistralOcr.apiUrl = normalizedDetectedBase;
+      }
+
+      console.log(`[OCR] Auto-detected OCR API URL saved: ${normalizedDetectedBase}`);
+    } catch (error) {
+      console.warn(`[OCR] Could not persist auto-detected OCR API URL (${normalizedDetectedBase}): ${error.message}`);
+    }
+  }
+
+  async resolveLocalOcrApiBase() {
+    if (this.provider !== 'ollama') {
+      return String(this.apiBase || '').replace(/\/+$/, '');
+    }
+
+    if (this.detectedLocalApiBase) {
+      return this.detectedLocalApiBase;
+    }
+
+    if (this.localApiDetectionPromise) {
+      return this.localApiDetectionPromise;
+    }
+
+    this.localApiDetectionPromise = (async () => {
+      const configuredBase = String(this.apiBase || '').replace(/\/+$/, '');
+      const authHeaders = this.apiKey
+        ? { 'Authorization': `Bearer ${this.apiKey}` }
+        : {};
+
+      for (const candidate of this.buildLocalOcrApiCandidates(configuredBase)) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const ok = await this.probeLocalOcrCandidate(candidate.base, candidate.mode, authHeaders);
+          if (!ok) {
+            continue;
+          }
+
+          this.detectedLocalApiBase = candidate.base;
+          this.detectedLocalApiMode = candidate.mode;
+          await this.persistDetectedLocalOcrApiBase(candidate.base);
+          return candidate.base;
+        } catch (_error) {
+          // Try next candidate.
+        }
+      }
+
+      this.detectedLocalApiBase = configuredBase;
+      this.detectedLocalApiMode = /\/v1$/i.test(configuredBase) ? 'openai' : 'ollama';
+      return configuredBase;
+    })();
+
+    try {
+      return await this.localApiDetectionPromise;
+    } finally {
+      this.localApiDetectionPromise = null;
+    }
   }
 
   /**
@@ -349,9 +546,15 @@ class MistralOcrService {
           aiResult = await this._runAiAnalysis(normalizedDocumentId, ocrText);
           emit('ai', 'AI analysis complete.');
         } catch (aiErr) {
+          if (isTimeoutError(aiErr)) {
+            console.error(`[TIMEOUT][AI] AI analysis timed out after OCR for document ${normalizedDocumentId}: ${aiErr.message}`);
+          }
           await recordTerminalFailure('ai_failed_after_ocr', 'ai');
           await documentModel.updateOcrQueueStatus(normalizedDocumentId, 'failed', ocrText);
-          throw new Error(`AI analysis failed after OCR: ${aiErr.message}`);
+          const aiErrorMessage = isTimeoutError(aiErr)
+            ? buildTimeoutErrorMessage('AI')
+            : aiErr.message;
+          throw new Error(`AI analysis failed after OCR: ${aiErrorMessage}`);
         }
       }
 
@@ -363,6 +566,9 @@ class MistralOcrService {
       return { ocrText, wroteBack, aiAnalysis: aiResult };
 
     } catch (error) {
+      if (isTimeoutError(error)) {
+        console.error(`[TIMEOUT][OCR] OCR pipeline timed out for document ${normalizedDocumentId}: ${error.message}`);
+      }
       await documentModel.updateOcrQueueStatus(normalizedDocumentId, 'failed');
       await recordTerminalFailure('ocr_failed', 'ocr');
       emit('error', error.message);
@@ -398,11 +604,17 @@ class MistralOcrService {
       emit('done', 'AI-only processing finished successfully.');
       return aiResult;
     } catch (error) {
+      if (isTimeoutError(error)) {
+        console.error(`[TIMEOUT][AI] AI-only OCR analysis timed out for document ${documentId}: ${error.message}`);
+      }
       const queueItem = await documentModel.getOcrQueueItem(documentId);
       const fallbackTitle = queueItem?.title || `Document ${documentId}`;
       await documentModel.addFailedDocument(documentId, fallbackTitle, 'ai_failed_after_ocr', 'ai');
-      emit('error', `AI analysis failed: ${error.message}`);
-      throw error;
+      const aiErrorMessage = isTimeoutError(error)
+        ? buildTimeoutErrorMessage('AI')
+        : error.message;
+      emit('error', `AI analysis failed: ${aiErrorMessage}`);
+      throw new Error(aiErrorMessage);
     }
   }
 

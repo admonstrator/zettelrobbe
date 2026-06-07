@@ -12,6 +12,7 @@ class SetupWizard {
         this.nextBtn = document.getElementById('nextStepBtn');
 
         this.currentStep = 0;
+        this.includeTags = [];
         this.excludeTags = [];
 
         this.mfaState = {
@@ -78,11 +79,12 @@ class SetupWizard {
         this.tagsCount = document.getElementById('tagsCount');
         this.scanAllDocuments = document.getElementById('scanAllDocuments');
         this.includeTag = document.getElementById('includeTag');
+        this.addIncludeTagBtn = document.getElementById('addIncludeTagBtn');
+        this.includeTagsContainer = document.getElementById('includeTagsContainer');
         this.excludeTagInput = document.getElementById('excludeTagInput');
         this.addExcludeTagBtn = document.getElementById('addExcludeTagBtn');
         this.excludeTagsContainer = document.getElementById('excludeTagsContainer');
         this.processedTag = document.getElementById('processedTag');
-        this.excludeProcessedTagBtn = document.getElementById('excludeProcessedTagBtn');
         this.automaticScanEnabled = document.getElementById('automaticScanEnabled');
         this.scanInterval = document.getElementById('scanInterval');
         this.paperlessTagsDatalist = document.getElementById('paperlessTagsDatalist');
@@ -90,10 +92,11 @@ class SetupWizard {
         this.aiPreset = document.getElementById('aiPreset');
         this.aiPresetHint = document.getElementById('aiPresetHint');
         this.aiProvider = document.getElementById('aiProvider');
-        this.aiModel = document.getElementById('aiModel');
-        this.fetchAiModelsBtn = document.getElementById('fetchAiModelsBtn');
         this.aiApiUrl = document.getElementById('aiApiUrl');
         this.aiToken = document.getElementById('aiToken');
+        this.aiModel = document.getElementById('aiModel');
+        this.fetchAiModelsBtn = document.getElementById('fetchAiModelsBtn');
+        this.aiValidationTimeout = document.getElementById('aiValidationTimeout');
         this.testAiBtn = document.getElementById('testAiBtn');
         this.aiTestStatePill = document.getElementById('aiTestState');
 
@@ -106,6 +109,7 @@ class SetupWizard {
         this.ocrApiKey = document.getElementById('ocrApiKey');
         this.mistralOcrModel = document.getElementById('mistralOcrModel');
         this.fetchOcrModelsBtn = document.getElementById('fetchOcrModelsBtn');
+        this.ocrValidationTimeout = document.getElementById('ocrValidationTimeout');
         this.testOcrBtn = document.getElementById('testOcrBtn');
         this.ocrTestStatePill = document.getElementById('ocrTestState');
 
@@ -119,6 +123,7 @@ class SetupWizard {
         this.populateInitialValues();
         this.populateAiPresets();
         this.bindEvents();
+        this.renderIncludeTags();
         this.renderExcludeTags();
         this.updateMfaPanelVisibility();
         this.toggleIncludeTagField();
@@ -154,8 +159,9 @@ class SetupWizard {
     populateInitialValues() {
         this.adminUsername.value = this.config.username || '';
         this.scanInterval.value = this.config.SCAN_INTERVAL || this.defaults.scanInterval || '*/30 * * * *';
-        this.scanAllDocuments.checked = this.config.PROCESS_PREDEFINED_DOCUMENTS !== 'yes';
-        this.includeTag.value = Array.isArray(this.config.TAGS) && this.config.TAGS.length > 0 ? this.config.TAGS[0] : '';
+        this.scanAllDocuments.checked = this.config.PROCESS_PREDEFINED_DOCUMENTS === 'no';
+        this.includeTags = Array.isArray(this.config.TAGS) ? this.config.TAGS.slice() : [];
+        this.includeTag.value = '';
         this.excludeTags = Array.isArray(this.config.IGNORE_TAGS) ? this.config.IGNORE_TAGS.slice() : [];
 
         const mistralEnabled = this.config.MISTRAL_OCR_ENABLED === 'yes';
@@ -165,7 +171,78 @@ class SetupWizard {
         this.ocrApiUrl.value = this.config.OCR_API_URL || '';
         this.setModelSelectOptions(this.mistralOcrModel, [this.config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'], 'Select OCR model');
         this.mistralOcrModel.value = this.config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest';
+        this.ocrValidationTimeout.value = this.getOcrValidationTimeoutSeconds();
         this.processedTag.value = this.config.AI_PROCESSED_TAG_NAME || 'ai-processed';
+        this.aiValidationTimeout.value = this.getAiValidationTimeoutSeconds();
+
+        const provider = String(this.config.AI_PROVIDER || 'custom').trim().toLowerCase();
+        this.aiProvider.value = provider;
+
+        if (provider === 'openai') {
+            this.aiApiUrl.value = this.config.OPENAI_API_URL || 'https://api.openai.com/v1';
+            this.setModelSelectOptions(this.aiModel, [this.config.OPENAI_MODEL || 'gpt-4o-mini'], 'Select model');
+            this.aiModel.value = this.config.OPENAI_MODEL || 'gpt-4o-mini';
+            this.aiToken.value = this.config.OPENAI_API_KEY || '';
+        } else if (provider === 'ollama') {
+            this.aiApiUrl.value = this.config.OLLAMA_API_URL || 'http://localhost:11434';
+            this.setModelSelectOptions(this.aiModel, [this.config.OLLAMA_MODEL || 'llama3.2'], 'Select model');
+            this.aiModel.value = this.config.OLLAMA_MODEL || 'llama3.2';
+            this.aiToken.value = this.config.OLLAMA_API_KEY || '';
+        } else if (provider === 'azure') {
+            this.aiApiUrl.value = this.config.AZURE_ENDPOINT || '';
+            this.setModelSelectOptions(this.aiModel, [this.config.AZURE_DEPLOYMENT_NAME || ''], 'Select model');
+            this.aiModel.value = this.config.AZURE_DEPLOYMENT_NAME || '';
+            this.aiToken.value = this.config.AZURE_API_KEY || '';
+        } else {
+            this.aiProvider.value = 'custom';
+            this.aiApiUrl.value = this.config.CUSTOM_BASE_URL || '';
+            this.setModelSelectOptions(this.aiModel, [this.config.CUSTOM_MODEL || ''], 'Select model');
+            this.aiModel.value = this.config.CUSTOM_MODEL || '';
+            this.aiToken.value = this.config.CUSTOM_API_KEY || '';
+        }
+    }
+
+    findMatchingPreset() {
+        const provider = String(this.aiProvider.value || '').trim().toLowerCase();
+        const apiUrl = String(this.aiApiUrl.value || '').trim().replace(/\/+$/, '');
+        const model = String(this.aiModel.value || '').trim();
+
+        return this.presets.find((preset) => {
+            const presetProvider = String(preset.provider || '').trim().toLowerCase();
+            const presetApiUrl = String(preset.apiUrl || '').trim().replace(/\/+$/, '');
+            const presetModel = String(preset.model || '').trim();
+            return presetProvider === provider && presetApiUrl === apiUrl && presetModel === model;
+        }) || null;
+    }
+
+    getNormalizedTimeoutSeconds(rawValue, fallbackMs = 30000) {
+        const parsed = Number.parseInt(String(rawValue || '').trim(), 10);
+        const normalizedMs = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1000), 120000) : fallbackMs;
+        return String(Math.round(normalizedMs / 1000));
+    }
+
+    getAiValidationTimeoutSeconds() {
+        return this.getNormalizedTimeoutSeconds(this.config.SETUP_VALIDATION_TIMEOUT_MS || '30000');
+    }
+
+    getOcrValidationTimeoutSeconds() {
+        return this.getNormalizedTimeoutSeconds(
+            this.config.SETUP_OCR_VALIDATION_TIMEOUT_MS || this.config.SETUP_VALIDATION_TIMEOUT_MS || '30000'
+        );
+    }
+
+    getTimeoutMs(inputElement, fallbackSeconds = 30) {
+        const rawSeconds = Number.parseInt(String(inputElement?.value || String(fallbackSeconds)).trim(), 10);
+        const normalizedSeconds = Number.isFinite(rawSeconds) ? Math.min(Math.max(rawSeconds, 1), 120) : 30;
+        return normalizedSeconds * 1000;
+    }
+
+    getAiValidationTimeoutMs() {
+        return this.getTimeoutMs(this.aiValidationTimeout, 30);
+    }
+
+    getOcrValidationTimeoutMs() {
+        return this.getTimeoutMs(this.ocrValidationTimeout, 30);
     }
 
     populateAiPresets() {
@@ -183,11 +260,13 @@ class SetupWizard {
             this.aiPreset.appendChild(option);
         });
 
-        if (this.presets.length > 0) {
-            this.aiPreset.value = this.presets[0].id;
-            this.applyPreset(this.presets[0]);
+        const matchingPreset = this.findMatchingPreset();
+        if (matchingPreset) {
+            this.aiPreset.value = matchingPreset.id;
+            this.aiPresetHint.textContent = `Preset "${matchingPreset.label}" selected.`;
         } else {
-            this.aiProvider.value = 'custom';
+            this.aiPreset.value = '';
+            this.aiPresetHint.textContent = 'Manual mode: choose provider and enter values yourself. Token is optional for custom endpoints.';
         }
     }
 
@@ -200,7 +279,38 @@ class SetupWizard {
         this.confirmPassword.addEventListener('input', () => this.updatePasswordHint());
 
         this.enableMfa.addEventListener('change', () => this.updateMfaPanelVisibility());
+        if (this.startMfaSetupBtn) {
+            this.startMfaSetupBtn.addEventListener('click', () => this.startMfaSetup());
+        }
         this.confirmMfaCodeBtn.addEventListener('click', () => this.confirmMfaCode());
+
+        this.scanAllDocuments.addEventListener('change', () => this.toggleIncludeTagField());
+        if (this.addIncludeTagBtn) {
+            this.addIncludeTagBtn.addEventListener('click', () => this.addIncludeTag(this.includeTag.value));
+        }
+        if (this.includeTag) {
+            this.includeTag.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter') {
+                    return;
+                }
+
+                event.preventDefault();
+                this.addIncludeTag(this.includeTag.value);
+            });
+        }
+
+        if (this.addExcludeTagBtn) {
+            this.addExcludeTagBtn.addEventListener('click', () => this.addExcludeTag(this.excludeTagInput.value));
+        }
+        if (this.excludeTagInput) {
+            this.excludeTagInput.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter') {
+                    return;
+                }
+                event.preventDefault();
+                this.addExcludeTag(this.excludeTagInput.value);
+            });
+        }
 
         this.testPaperlessBtn.addEventListener('click', () => this.testPaperlessConnection());
         this.fetchMetadataBtn.addEventListener('click', () => this.loadPaperlessMetadata());
@@ -208,6 +318,12 @@ class SetupWizard {
         this.testAiBtn.addEventListener('click', () => this.testAiConnection());
         if (this.fetchAiModelsBtn) {
             this.fetchAiModelsBtn.addEventListener('click', () => this.fetchAiModels());
+        }
+        if (this.aiPreset) {
+            this.aiPreset.addEventListener('change', () => {
+                const preset = this.presets.find((entry) => entry.id === this.aiPreset.value) || null;
+                this.applyPreset(preset);
+            });
         }
 
         this.mistralOcrEnabled.addEventListener('change', () => this.toggleMistralFields());
@@ -268,6 +384,39 @@ class SetupWizard {
             ...this.getPopupThemeOptions(),
             ...options
         });
+    }
+
+    isTimeoutMessage(message) {
+        const normalized = String(message || '').toLowerCase();
+        return normalized.includes('timeout')
+            || normalized.includes('timed out')
+            || normalized.includes('[timeout]');
+    }
+
+    buildTimeoutUiMessage(scope, timeoutMs, originalMessage = '') {
+        const normalizedScope = String(scope || 'Request').trim();
+        const timeoutPart = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+            ? ` after ${Number(timeoutMs)}ms`
+            : '';
+        const original = String(originalMessage || '').trim();
+        return original
+            ? `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed. Original error: ${original}`
+            : `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed.`;
+    }
+
+    getOperationErrorDetails(scope, error, timeoutMs) {
+        const rawMessage = String(error?.message || error || 'Request failed');
+        if (!this.isTimeoutMessage(rawMessage)) {
+            return {
+                isTimeout: false,
+                message: rawMessage
+            };
+        }
+
+        return {
+            isTimeout: true,
+            message: this.buildTimeoutUiMessage(scope, timeoutMs, rawMessage)
+        };
     }
 
     showStep(index) {
@@ -354,6 +503,65 @@ class SetupWizard {
         }
     }
 
+    getEffectiveIncludeTags() {
+        return Array.from(new Set(
+            (Array.isArray(this.includeTags) ? this.includeTags : [])
+                .map((value) => String(value || '').trim())
+                .filter(Boolean)
+        ));
+    }
+
+    addIncludeTag(value) {
+        const normalized = String(value || '').trim();
+        if (!normalized) {
+            return;
+        }
+
+        if (!this.includeTags.includes(normalized)) {
+            this.includeTags.push(normalized);
+            this.renderIncludeTags();
+        }
+
+        this.includeTag.value = '';
+    }
+
+    removeIncludeTag(tag) {
+        this.includeTags = this.includeTags.filter((entry) => entry !== tag);
+        this.renderIncludeTags();
+    }
+
+    renderIncludeTags() {
+        if (!this.includeTagsContainer) {
+            return;
+        }
+
+        this.includeTagsContainer.innerHTML = '';
+        const tags = this.getEffectiveIncludeTags();
+
+        if (tags.length === 0) {
+            const hint = document.createElement('p');
+            hint.className = 'setup-hint';
+            hint.textContent = 'No include tags selected.';
+            this.includeTagsContainer.appendChild(hint);
+            return;
+        }
+
+        tags.forEach((tag) => {
+            const chip = document.createElement('div');
+            chip.className = 'bg-blue-100 text-blue-800 px-3 py-1 rounded-full flex items-center gap-2';
+            chip.innerHTML = `<span>${tag}</span>`;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'hover:text-blue-600';
+            removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+            removeBtn.addEventListener('click', () => this.removeIncludeTag(tag));
+
+            chip.appendChild(removeBtn);
+            this.includeTagsContainer.appendChild(chip);
+        });
+    }
+
     toggleMistralFields() {
         const enabled = this.mistralOcrEnabled.value === 'yes';
         this.mistralFields.classList.toggle('hidden', !enabled);
@@ -368,13 +576,23 @@ class SetupWizard {
         }
     }
 
+    normalizeOcrApiUrlForProvider(provider, rawUrl) {
+        const normalizedProvider = String(provider || 'mistral').toLowerCase();
+        if (normalizedProvider === 'mistral') {
+            return '';
+        }
+
+        return String(rawUrl || '').trim();
+    }
+
     async testOcrConnection() {
         const payload = {
             enabled: this.mistralOcrEnabled.value === 'yes',
             provider: (this.ocrProvider.value || 'mistral').toLowerCase(),
-            apiUrl: this.ocrApiUrl.value.trim(),
+            apiUrl: this.normalizeOcrApiUrlForProvider(this.ocrProvider.value, this.ocrApiUrl.value),
             apiKey: this.ocrApiKey.value.trim(),
-            model: this.mistralOcrModel.value.trim() || 'mistral-ocr-latest'
+            model: this.mistralOcrModel.value.trim() || 'mistral-ocr-latest',
+            setupOcrValidationTimeoutMs: this.getOcrValidationTimeoutMs()
         };
 
         if (!payload.enabled) {
@@ -392,6 +610,10 @@ class SetupWizard {
             this.ocrTestState.ran = true;
             this.ocrTestState.success = Boolean(result.success);
 
+            if (result.resolvedApiUrl && this.ocrApiUrl) {
+                this.ocrApiUrl.value = String(result.resolvedApiUrl).trim();
+            }
+
             if (result.success) {
                 this.setPillState(this.ocrTestStatePill, 'success', 'Connection valid');
                 await this.showPopup({ icon: 'success', title: 'OCR test successful', text: result.message || 'OCR provider is reachable.' });
@@ -400,10 +622,15 @@ class SetupWizard {
                 await this.showPopup({ icon: 'error', title: 'OCR test failed', text: result.message || 'OCR connection test failed.' });
             }
         } catch (error) {
+            const errorDetails = this.getOperationErrorDetails('OCR response', error, payload.setupOcrValidationTimeoutMs);
             this.ocrTestState.ran = true;
             this.ocrTestState.success = false;
-            this.setPillState(this.ocrTestStatePill, 'error', 'Test failed');
-            await this.showPopup({ icon: 'error', title: 'OCR test failed', text: error.message });
+            this.setPillState(this.ocrTestStatePill, 'error', errorDetails.isTimeout ? 'Timeout reached' : 'Test failed');
+            await this.showPopup({
+                icon: 'error',
+                title: errorDetails.isTimeout ? 'OCR timeout reached' : 'OCR test failed',
+                text: errorDetails.message
+            });
         } finally {
             this.setButtonLoading(this.testOcrBtn, false);
         }
@@ -595,6 +822,19 @@ class SetupWizard {
         });
     }
 
+    getEffectiveExcludeTags() {
+        const processedTag = String(this.processedTag?.value || '').trim();
+        const normalizedManualTags = (Array.isArray(this.excludeTags) ? this.excludeTags : [])
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+
+        if (!processedTag) {
+            return Array.from(new Set(normalizedManualTags));
+        }
+
+        return Array.from(new Set([...normalizedManualTags, processedTag]));
+    }
+
     addExcludeTag(value) {
         const normalized = String(value || '').trim();
         if (!normalized) {
@@ -638,7 +878,6 @@ class SetupWizard {
     applyPreset(preset) {
         if (!preset) {
             this.aiPresetHint.textContent = 'Manual mode: choose provider and enter values yourself. Token is optional for custom endpoints.';
-            this.aiProvider.value = 'custom';
             return;
         }
 
@@ -668,7 +907,8 @@ class SetupWizard {
         const payload = {
             aiProvider: this.aiProvider.value.trim().toLowerCase(),
             apiUrl: this.aiApiUrl.value.trim(),
-            token: this.aiToken.value.trim()
+            token: this.aiToken.value.trim(),
+            setupValidationTimeoutMs: this.getAiValidationTimeoutMs()
         };
 
         if (!payload.aiProvider) {
@@ -689,20 +929,33 @@ class SetupWizard {
         try {
             const result = await this.request('/api/setup/ai/models', payload);
             const models = Array.isArray(result.models) ? result.models : [];
+
+            if (result.resolvedApiUrl && this.aiApiUrl) {
+                this.aiApiUrl.value = String(result.resolvedApiUrl).trim();
+            }
+
             this.setModelSelectOptions(this.aiModel, models, 'Select model');
 
             if (!silent) {
+                const resolvedInfo = result.resolvedApiUrl
+                    ? `\nResolved API URL: ${String(result.resolvedApiUrl).trim()}`
+                    : '';
                 await this.showPopup({
                     icon: models.length > 0 ? 'success' : 'info',
                     title: 'AI models loaded',
-                    text: result.message || (models.length > 0 ? 'Models discovered successfully.' : 'No models found.')
+                    text: `${result.message || (models.length > 0 ? 'Models discovered successfully.' : 'No models found.')}${resolvedInfo}`
                 });
             }
 
             return models;
         } catch (error) {
+            const errorDetails = this.getOperationErrorDetails('AI model discovery', error, payload.setupValidationTimeoutMs);
             if (!silent) {
-                await this.showPopup({ icon: 'error', title: 'Failed to load AI models', text: error.message });
+                await this.showPopup({
+                    icon: 'error',
+                    title: errorDetails.isTimeout ? 'AI timeout reached' : 'Failed to load AI models',
+                    text: errorDetails.message
+                });
             }
             return [];
         } finally {
@@ -713,8 +966,9 @@ class SetupWizard {
     async fetchOcrModels(silent = false) {
         const payload = {
             provider: (this.ocrProvider.value || 'mistral').toLowerCase(),
-            apiUrl: this.ocrApiUrl.value.trim(),
-            apiKey: this.ocrApiKey.value.trim()
+            apiUrl: this.normalizeOcrApiUrlForProvider(this.ocrProvider.value, this.ocrApiUrl.value),
+            apiKey: this.ocrApiKey.value.trim(),
+            setupOcrValidationTimeoutMs: this.getOcrValidationTimeoutMs()
         };
 
         if (payload.provider === 'mistral' && !payload.apiKey) {
@@ -728,6 +982,11 @@ class SetupWizard {
         try {
             const result = await this.request('/api/setup/ocr/models', payload);
             const models = Array.isArray(result.models) ? result.models : [];
+
+            if (result.resolvedApiUrl && this.ocrApiUrl) {
+                this.ocrApiUrl.value = String(result.resolvedApiUrl).trim();
+            }
+
             this.setModelSelectOptions(this.mistralOcrModel, models, 'Select OCR model');
 
             if (!silent) {
@@ -740,8 +999,13 @@ class SetupWizard {
 
             return models;
         } catch (error) {
+            const errorDetails = this.getOperationErrorDetails('OCR model discovery', error, payload.setupOcrValidationTimeoutMs);
             if (!silent) {
-                await this.showPopup({ icon: 'error', title: 'Failed to load OCR models', text: error.message });
+                await this.showPopup({
+                    icon: 'error',
+                    title: errorDetails.isTimeout ? 'OCR timeout reached' : 'Failed to load OCR models',
+                    text: errorDetails.message
+                });
             }
             return [];
         } finally {
@@ -758,7 +1022,8 @@ class SetupWizard {
             aiProvider: this.aiProvider.value.trim().toLowerCase(),
             apiUrl: this.aiApiUrl.value.trim(),
             token: this.aiToken.value.trim(),
-            model: this.aiModel.value.trim()
+            model: this.aiModel.value.trim(),
+            setupValidationTimeoutMs: this.getAiValidationTimeoutMs()
         };
 
         if (!payload.aiProvider || !payload.model || !payload.apiUrl) {
@@ -775,18 +1040,34 @@ class SetupWizard {
             this.aiTestState.success = Boolean(result.success);
             this.aiTestState.allowFailure = false;
 
+            if (result.resolvedApiUrl && this.aiApiUrl) {
+                this.aiApiUrl.value = String(result.resolvedApiUrl).trim();
+            }
+
             if (result.success) {
                 this.setPillState(this.aiTestStatePill, 'success', 'Connection valid');
-                await this.showPopup({ icon: 'success', title: 'AI test successful', text: result.message || 'AI provider is reachable.' });
+                const resolvedInfo = result.resolvedApiUrl
+                    ? `\nResolved API URL: ${String(result.resolvedApiUrl).trim()}`
+                    : '';
+                await this.showPopup({
+                    icon: 'success',
+                    title: 'AI test successful',
+                    text: `${result.message || 'AI provider is reachable.'}${resolvedInfo}`
+                });
             } else {
                 this.setPillState(this.aiTestStatePill, 'error', 'Test failed');
                 await this.showPopup({ icon: 'error', title: 'AI test failed', text: result.message || 'AI connection test failed.' });
             }
         } catch (error) {
+            const errorDetails = this.getOperationErrorDetails('AI response', error, payload.setupValidationTimeoutMs);
             this.aiTestState.ran = true;
             this.aiTestState.success = false;
-            this.setPillState(this.aiTestStatePill, 'error', 'Test failed');
-            await this.showPopup({ icon: 'error', title: 'AI test failed', text: error.message });
+            this.setPillState(this.aiTestStatePill, 'error', errorDetails.isTimeout ? 'Timeout reached' : 'Test failed');
+            await this.showPopup({
+                icon: 'error',
+                title: errorDetails.isTimeout ? 'AI timeout reached' : 'AI test failed',
+                text: errorDetails.message
+            });
         } finally {
             this.setButtonLoading(this.testAiBtn, false);
         }
@@ -868,11 +1149,11 @@ class SetupWizard {
                 }
             }
 
-            if (!this.scanAllDocuments.checked && !this.includeTag.value.trim()) {
+            if (!this.scanAllDocuments.checked && this.getEffectiveIncludeTags().length === 0) {
                 await this.showPopup({
                     icon: 'warning',
                     title: 'Include tag required',
-                    text: 'Select an include tag or enable "Always scan all documents".'
+                    text: 'Select at least one include tag or enable "Always scan all documents".'
                 });
                 return false;
             }
@@ -881,6 +1162,12 @@ class SetupWizard {
         }
 
         if (stepIndex === 4) {
+            const timeoutSeconds = Number.parseInt(String(this.aiValidationTimeout.value || '30').trim(), 10);
+            if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 120) {
+                await this.showPopup({ icon: 'warning', title: 'Invalid timeout', text: 'Timeout must be between 1 and 120 seconds.' });
+                return false;
+            }
+
             if (!this.aiModel.value.trim()) {
                 await this.fetchAiModels(true);
             }
@@ -917,6 +1204,12 @@ class SetupWizard {
         }
 
         if (stepIndex === 5) {
+            const ocrTimeoutSeconds = Number.parseInt(String(this.ocrValidationTimeout?.value || '30').trim(), 10);
+            if (!Number.isFinite(ocrTimeoutSeconds) || ocrTimeoutSeconds < 1 || ocrTimeoutSeconds > 120) {
+                await this.showPopup({ icon: 'warning', title: 'Invalid OCR timeout', text: 'OCR timeout must be between 1 and 120 seconds.' });
+                return false;
+            }
+
             const provider = (this.ocrProvider.value || 'mistral').toLowerCase();
             if (this.mistralOcrEnabled.value === 'yes' && provider === 'mistral' && !this.ocrApiKey.value.trim()) {
                 await this.showPopup({ icon: 'warning', title: 'Mistral API key required', text: 'Enter the Mistral API key or disable OCR fallback.' });
@@ -945,8 +1238,8 @@ class SetupWizard {
         preview.push(`PAPERLESS_API_TOKEN=${this.paperlessToken.value.trim()}`);
         preview.push(`PAPERLESS_USERNAME=${this.paperlessUsername.value.trim()}`);
         preview.push(`PROCESS_PREDEFINED_DOCUMENTS=${this.scanAllDocuments.checked ? 'no' : 'yes'}`);
-        preview.push(`TAGS=${this.scanAllDocuments.checked ? '' : this.includeTag.value.trim()}`);
-        preview.push(`IGNORE_TAGS=${this.excludeTags.join(',')}`);
+        preview.push(`TAGS=${this.scanAllDocuments.checked ? '' : this.getEffectiveIncludeTags().join(',')}`);
+        preview.push(`IGNORE_TAGS=${this.getEffectiveExcludeTags().join(',')}`);
         preview.push(`ADD_AI_PROCESSED_TAG=${this.processedTag.value.trim() ? 'yes' : 'no'}`);
         preview.push(`AI_PROCESSED_TAG_NAME=${this.processedTag.value.trim() || 'ai-processed'}`);
         preview.push(`DISABLE_AUTOMATIC_PROCESSING=${this.automaticScanEnabled.value === 'yes' ? 'no' : 'yes'}`);
@@ -970,10 +1263,13 @@ class SetupWizard {
             preview.push(`CUSTOM_MODEL=${this.aiModel.value.trim()}`);
         }
 
+        preview.push(`SETUP_VALIDATION_TIMEOUT_MS=${this.getAiValidationTimeoutMs()}`);
+        preview.push(`SETUP_OCR_VALIDATION_TIMEOUT_MS=${this.getOcrValidationTimeoutMs()}`);
+
         preview.push(`MISTRAL_OCR_ENABLED=${this.mistralOcrEnabled.value === 'yes' ? 'yes' : 'no'}`);
         const normalizedOcrProvider = (this.ocrProvider.value || 'mistral').toLowerCase();
         preview.push(`OCR_PROVIDER=${normalizedOcrProvider === 'custom' ? 'custom' : 'mistral'}`);
-        preview.push(`OCR_API_URL=${this.ocrApiUrl.value.trim()}`);
+        preview.push(`OCR_API_URL=${this.normalizeOcrApiUrlForProvider(normalizedOcrProvider, this.ocrApiUrl.value)}`);
         preview.push(`OCR_API_KEY=${this.ocrApiKey.value.trim()}`);
         preview.push(`MISTRAL_OCR_MODEL=${this.mistralOcrModel.value.trim() || 'mistral-ocr-latest'}`);
 
@@ -1006,8 +1302,9 @@ class SetupWizard {
             paperlessUsername: this.paperlessUsername.value.trim(),
             paperlessToken: this.paperlessToken.value.trim(),
             scanAllDocuments: this.scanAllDocuments.checked,
-            includeTag: this.includeTag.value.trim(),
-            excludeTags: this.excludeTags,
+            includeTag: this.getEffectiveIncludeTags()[0] || '',
+            includeTags: this.getEffectiveIncludeTags(),
+            excludeTags: this.getEffectiveExcludeTags(),
             processedTag: this.processedTag.value.trim(),
             automaticScanEnabled: this.automaticScanEnabled.value === 'yes',
             scanInterval: this.scanInterval.value.trim(),
@@ -1015,11 +1312,13 @@ class SetupWizard {
             aiApiUrl: this.aiApiUrl.value.trim(),
             aiToken: this.aiToken.value.trim(),
             aiModel: this.aiModel.value.trim(),
+            setupValidationTimeoutMs: this.getAiValidationTimeoutMs(),
+            setupOcrValidationTimeoutMs: this.getOcrValidationTimeoutMs(),
             allowFailedPaperlessTest: this.paperlessTestState.allowFailure,
             allowFailedAiTest: this.aiTestState.allowFailure,
             mistralOcrEnabled: this.mistralOcrEnabled.value === 'yes',
             ocrProvider: (this.ocrProvider.value || 'mistral').toLowerCase(),
-            ocrApiUrl: this.ocrApiUrl.value.trim(),
+            ocrApiUrl: this.normalizeOcrApiUrlForProvider(this.ocrProvider.value, this.ocrApiUrl.value),
             ocrApiKey: this.ocrApiKey.value.trim(),
             mistralOcrModel: this.mistralOcrModel.value.trim() || 'mistral-ocr-latest'
         };

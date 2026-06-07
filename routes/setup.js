@@ -3354,150 +3354,207 @@ async function validatePaperlessConnectionForSetup(paperlessUrl, paperlessToken)
   };
 }
 
-async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, azureApiVersion }) {
-  const provider = String(aiProvider || '').trim().toLowerCase();
-  const normalizedApiUrl = String(apiUrl || '').trim();
-  const normalizedToken = String(token || '').trim();
-  const normalizedModel = String(model || '').trim();
+async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, azureApiVersion, setupValidationTimeoutMs }) {
+  return setupService.withTemporaryValidationTimeout(setupValidationTimeoutMs, async () => {
+    const provider = String(aiProvider || '').trim().toLowerCase();
+    const normalizedApiUrl = String(apiUrl || '').trim();
+    const normalizedToken = String(token || '').trim();
+    const normalizedModel = String(model || '').trim();
 
-  if (!provider || !['openai', 'ollama', 'custom', 'azure'].includes(provider)) {
-    return {
-      success: false,
-      message: 'A valid AI provider is required.'
-    };
-  }
-
-  if (provider === 'openai') {
-    if (!normalizedToken) {
+    if (!provider || !['openai', 'ollama', 'custom', 'azure'].includes(provider)) {
       return {
         success: false,
-        message: 'An API token is required for OpenAI.'
+        message: 'A valid AI provider is required.'
       };
     }
 
-    const valid = await setupService.validateOpenAIConfig(normalizedToken);
-    return {
-      success: valid,
-      message: valid ? 'OpenAI credentials are valid.' : 'OpenAI test failed. Check token and network access.'
-    };
-  }
+    if (provider === 'openai') {
+      if (!normalizedToken) {
+        return {
+          success: false,
+          message: 'An API token is required for OpenAI.'
+        };
+      }
 
-  if (provider === 'ollama') {
+      const valid = await setupService.validateOpenAIConfig(normalizedToken);
+      return {
+        success: valid,
+        message: valid ? 'OpenAI credentials are valid.' : 'OpenAI test failed. Check token and network access.'
+      };
+    }
+
+    if (provider === 'ollama') {
+      if (!normalizedModel) {
+        return {
+          success: false,
+          message: 'Model is required for Ollama.'
+        };
+      }
+
+      const detection = await setupService.detectAiApiUrlForSetup({
+        provider,
+        apiUrl: normalizedApiUrl,
+        apiKey: normalizedToken
+      });
+      const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl || '').trim();
+
+      const valid = detection?.mode === 'openai'
+        ? await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel)
+        : await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel);
+
+      return {
+        success: valid,
+        resolvedApiUrl,
+        message: valid
+          ? 'Ollama connection is valid.'
+          : 'Ollama test failed. Check URL and model.'
+      };
+    }
+
+    if (provider === 'azure') {
+      if (!normalizedApiUrl || !normalizedToken || !normalizedModel) {
+        return {
+          success: false,
+          message: 'Endpoint, token, and deployment/model are required for Azure.'
+        };
+      }
+
+      const valid = await setupService.validateAzureConfig(
+        normalizedToken,
+        normalizedApiUrl,
+        normalizedModel,
+        azureApiVersion || '2023-05-15'
+      );
+
+      return {
+        success: valid,
+        message: valid ? 'Azure connection is valid.' : 'Azure test failed. Check endpoint, token, deployment, and API version.'
+      };
+    }
+
     if (!normalizedApiUrl || !normalizedModel) {
       return {
         success: false,
-        message: 'API URL and model are required for Ollama.'
+        message: 'API URL and model are required for custom providers.'
       };
     }
 
-    const valid = await setupService.validateOllamaConfig(normalizedApiUrl, normalizedModel);
-    return {
-      success: valid,
-      message: valid ? 'Ollama connection is valid.' : 'Ollama test failed. Check URL and model.'
-    };
-  }
-
-  if (provider === 'azure') {
-    if (!normalizedApiUrl || !normalizedToken || !normalizedModel) {
-      return {
-        success: false,
-        message: 'Endpoint, token, and deployment/model are required for Azure.'
-      };
-    }
-
-    const valid = await setupService.validateAzureConfig(
-      normalizedToken,
-      normalizedApiUrl,
-      normalizedModel,
-      azureApiVersion || '2023-05-15'
-    );
+    const detection = await setupService.detectAiApiUrlForSetup({
+      provider,
+      apiUrl: normalizedApiUrl,
+      apiKey: normalizedToken
+    });
+    const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl).trim();
+    const valid = detection?.mode === 'ollama'
+      ? await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel)
+      : await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel);
 
     return {
       success: valid,
-      message: valid ? 'Azure connection is valid.' : 'Azure test failed. Check endpoint, token, deployment, and API version.'
+      resolvedApiUrl,
+      message: valid
+        ? 'Custom provider connection is valid.'
+        : 'Custom provider test failed. Check URL, optional token, and model.'
     };
-  }
-
-  if (!normalizedApiUrl || !normalizedModel) {
-    return {
-      success: false,
-      message: 'API URL and model are required for custom providers.'
-    };
-  }
-
-  const valid = await setupService.validateCustomConfig(normalizedApiUrl, normalizedToken, normalizedModel);
-  return {
-    success: valid,
-    message: valid ? 'Custom provider connection is valid.' : 'Custom provider test failed. Check URL, optional token, and model.'
-  };
+  });
 }
 
-async function validateOcrConnectionForSetup({ enabled, provider, apiUrl, apiKey, model }) {
-  const normalizedEnabled = String(enabled ? 'yes' : 'no').trim().toLowerCase();
-  if (normalizedEnabled !== 'yes') {
+async function validateOcrConnectionForSetup({ enabled, provider, apiUrl, apiKey, model, setupOcrValidationTimeoutMs }) {
+  return setupService.withTemporaryValidationTimeout(setupOcrValidationTimeoutMs, async () => {
+    // Correctly handles both boolean (true/false) and string ('yes'/'no') values.
+    // Using a truthy check on a string would misinterpret 'no' as enabled.
+    const normalizedEnabled = (enabled === true || String(enabled ?? '').trim().toLowerCase() === 'yes') ? 'yes' : 'no';
+    if (normalizedEnabled !== 'yes') {
+      return {
+        success: true,
+        message: 'OCR fallback is disabled.'
+      };
+    }
+
+    const normalizedProviderInput = String(provider || 'mistral').trim().toLowerCase();
+    const normalizedProvider = normalizedProviderInput === 'custom' ? 'ollama' : normalizedProviderInput;
+    const detection = await setupService.detectOcrApiUrlForSetup({
+      provider: normalizedProvider,
+      apiUrl: String(apiUrl || '').trim(),
+      apiKey: String(apiKey || '').trim()
+    });
+    const resolvedApiUrl = String(detection?.resolvedApiUrl || apiUrl || '').trim();
+
+    const valid = await setupService.validateOcrConfig({
+      enabled: normalizedEnabled,
+      provider: normalizedProvider,
+      apiUrl: resolvedApiUrl,
+      apiKey: String(apiKey || '').trim(),
+      model: String(model || '').trim() || 'mistral-ocr-latest'
+    });
+
+    return {
+      success: valid,
+      resolvedApiUrl,
+      message: valid
+        ? 'OCR connection is valid.'
+        : 'OCR connection test failed. Check OCR provider, OCR API URL, API key and model.'
+    };
+  });
+}
+
+async function discoverAiModelsForSetup({ aiProvider, apiUrl, token, setupValidationTimeoutMs }) {
+  return setupService.withTemporaryValidationTimeout(setupValidationTimeoutMs, async () => {
+    const provider = String(aiProvider || '').trim().toLowerCase();
+    const normalizedApiUrl = String(apiUrl || '').trim();
+    const normalizedToken = String(token || '').trim();
+
+    const detection = await setupService.detectAiApiUrlForSetup({
+      provider,
+      apiUrl: normalizedApiUrl,
+      apiKey: normalizedToken
+    });
+    const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl || '').trim();
+
+    const models = await setupService.discoverAiModels({
+      provider,
+      apiUrl: resolvedApiUrl,
+      apiKey: normalizedToken
+    });
+
     return {
       success: true,
-      message: 'OCR fallback is disabled.'
+      models,
+      resolvedApiUrl,
+      message: models.length > 0
+        ? `Discovered ${models.length} model(s).`
+        : 'No models discovered for this provider.'
     };
-  }
-
-  const normalizedProviderInput = String(provider || 'mistral').trim().toLowerCase();
-  const normalizedProvider = normalizedProviderInput === 'custom' ? 'ollama' : normalizedProviderInput;
-
-  const valid = await setupService.validateOcrConfig({
-    enabled: normalizedEnabled,
-    provider: normalizedProvider,
-    apiUrl: String(apiUrl || '').trim(),
-    apiKey: String(apiKey || '').trim(),
-    model: String(model || '').trim() || 'mistral-ocr-latest'
   });
-
-  return {
-    success: valid,
-    message: valid
-      ? 'OCR connection is valid.'
-      : 'OCR connection test failed. Check OCR provider, OCR API URL, API key and model.'
-  };
 }
 
-async function discoverAiModelsForSetup({ aiProvider, apiUrl, token }) {
-  const provider = String(aiProvider || '').trim().toLowerCase();
-  const normalizedApiUrl = String(apiUrl || '').trim();
-  const normalizedToken = String(token || '').trim();
+async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey, setupOcrValidationTimeoutMs }) {
+  return setupService.withTemporaryValidationTimeout(setupOcrValidationTimeoutMs, async () => {
+    const normalizedProvider = String(provider || 'mistral').trim().toLowerCase();
+    const normalizedApiUrl = String(apiUrl || '').trim();
+    const normalizedApiKey = String(apiKey || '').trim();
+    const detection = await setupService.detectOcrApiUrlForSetup({
+      provider: normalizedProvider,
+      apiUrl: normalizedApiUrl,
+      apiKey: normalizedApiKey
+    });
+    const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl).trim();
 
-  const models = await setupService.discoverAiModels({
-    provider,
-    apiUrl: normalizedApiUrl,
-    apiKey: normalizedToken
+    const models = await setupService.discoverOcrModels({
+      provider: normalizedProvider,
+      apiUrl: resolvedApiUrl,
+      apiKey: normalizedApiKey
+    });
+
+    return {
+      success: true,
+      models,
+      resolvedApiUrl,
+      message: models.length > 0
+        ? `Discovered ${models.length} OCR model(s).`
+        : 'No OCR models discovered for this provider.'
+    };
   });
-
-  return {
-    success: true,
-    models,
-    message: models.length > 0
-      ? `Discovered ${models.length} model(s).`
-      : 'No models discovered for this provider.'
-  };
-}
-
-async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey }) {
-  const normalizedProvider = String(provider || 'mistral').trim().toLowerCase();
-  const normalizedApiUrl = String(apiUrl || '').trim();
-  const normalizedApiKey = String(apiKey || '').trim();
-
-  const models = await setupService.discoverOcrModels({
-    provider: normalizedProvider,
-    apiUrl: normalizedApiUrl,
-    apiKey: normalizedApiKey
-  });
-
-  return {
-    success: true,
-    models,
-    message: models.length > 0
-      ? `Discovered ${models.length} OCR model(s).`
-      : 'No OCR models discovered for this provider.'
-  };
 }
 
 /**
@@ -3611,7 +3668,9 @@ router.get('/setup', async (req, res) => {
       OCR_API_URL: process.env.OCR_API_URL || '',
       OCR_API_KEY: process.env.OCR_API_KEY || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
-      MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
+      MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
+      SETUP_VALIDATION_TIMEOUT_MS: process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
+      SETUP_OCR_VALIDATION_TIMEOUT_MS: process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000'
     };
 
     // Check both configuration and users
@@ -3966,7 +4025,8 @@ router.post('/api/setup/ai/test', express.json(), async (req, res) => {
       apiUrl: req.body?.apiUrl,
       token: req.body?.token,
       model: req.body?.model,
-      azureApiVersion: req.body?.azureApiVersion
+      azureApiVersion: req.body?.azureApiVersion,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
     });
 
     return res.json(validation);
@@ -3999,7 +4059,8 @@ router.post('/api/setup/ai/models', express.json(), async (req, res) => {
     const result = await discoverAiModelsForSetup({
       aiProvider: req.body?.aiProvider,
       apiUrl: req.body?.apiUrl,
-      token: req.body?.token
+      token: req.body?.token,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
     });
 
     return res.json(result);
@@ -4034,7 +4095,8 @@ router.post('/api/setup/ocr/test', express.json(), async (req, res) => {
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
       apiKey: req.body?.apiKey,
-      model: req.body?.model
+      model: req.body?.model,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
     });
 
     return res.json(validation);
@@ -4067,7 +4129,8 @@ router.post('/api/setup/ocr/models', express.json(), async (req, res) => {
     const result = await discoverOcrModelsForSetup({
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
-      apiKey: req.body?.apiKey
+      apiKey: req.body?.apiKey,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
     });
 
     return res.json(result);
@@ -4087,7 +4150,8 @@ router.post('/api/settings/ocr/test', isAuthenticated, express.json(), async (re
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
       apiKey: req.body?.apiKey,
-      model: req.body?.model
+      model: req.body?.model,
+      setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
     });
 
     return res.json(validation);
@@ -4105,7 +4169,8 @@ router.post('/api/settings/ai/models', isAuthenticated, express.json(), async (r
     const result = await discoverAiModelsForSetup({
       aiProvider: req.body?.aiProvider,
       apiUrl: req.body?.apiUrl,
-      token: req.body?.token
+      token: req.body?.token,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
     });
 
     return res.json(result);
@@ -4118,12 +4183,29 @@ router.post('/api/settings/ai/models', isAuthenticated, express.json(), async (r
   }
 });
 
+router.get('/api/settings/ai/presets', isAuthenticated, async (_req, res) => {
+  try {
+    const presets = await loadAiProviderPresets();
+    return res.json({
+      success: true,
+      presets
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /api/settings/ai/presets:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Could not load AI provider presets.'
+    });
+  }
+});
+
 router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (req, res) => {
   try {
     const result = await discoverOcrModelsForSetup({
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
-      apiKey: req.body?.apiKey
+      apiKey: req.body?.apiKey,
+      setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
     });
 
     return res.json(result);
@@ -4165,9 +4247,18 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const paperlessToken = String(req.body?.paperlessToken || '').trim();
 
     const scanAllDocuments = parseBooleanInput(req.body?.scanAllDocuments, false);
+    const includeTags = normalizeTagListInput(req.body?.includeTags);
     const includeTag = String(req.body?.includeTag || '').trim();
+    const effectiveIncludeTags = Array.from(new Set([
+      ...includeTags,
+      ...(includeTag ? [includeTag] : [])
+    ]));
     const excludeTags = normalizeTagListInput(req.body?.excludeTags);
     const processedTag = String(req.body?.processedTag || '').trim();
+    const effectiveExcludeTags = Array.from(new Set([
+      ...excludeTags,
+      ...(processedTag ? [processedTag] : [])
+    ]));
     const automaticScanEnabled = parseBooleanInput(req.body?.automaticScanEnabled, true);
     const scanInterval = String(req.body?.scanInterval || getDefaultScanInterval()).trim() || getDefaultScanInterval();
 
@@ -4176,13 +4267,19 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const aiToken = String(req.body?.aiToken || '').trim();
     const aiModel = String(req.body?.aiModel || '').trim();
     const aiAzureApiVersion = String(req.body?.aiAzureApiVersion || '2023-05-15').trim() || '2023-05-15';
+    const setupValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(req.body?.setupValidationTimeoutMs, 30000);
+    const setupOcrValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(
+      req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs,
+      30000
+    );
 
     const allowFailedPaperlessTest = parseBooleanInput(req.body?.allowFailedPaperlessTest, false);
     const allowFailedAiTest = parseBooleanInput(req.body?.allowFailedAiTest, false);
 
     const mistralOcrEnabled = parseBooleanInput(req.body?.mistralOcrEnabled, false);
     const ocrProvider = String(req.body?.ocrProvider || 'mistral').trim().toLowerCase();
-    const ocrApiUrl = String(req.body?.ocrApiUrl || '').trim();
+    const ocrApiUrlRaw = String(req.body?.ocrApiUrl || '').trim();
+    const ocrApiUrl = ocrProvider === 'mistral' ? '' : ocrApiUrlRaw;
     const ocrApiKey = String(req.body?.ocrApiKey || req.body?.mistralApiKey || '').trim();
     const mistralOcrModel = String(req.body?.mistralOcrModel || 'mistral-ocr-latest').trim() || 'mistral-ocr-latest';
 
@@ -4221,10 +4318,10 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       });
     }
 
-    if (!scanAllDocuments && !includeTag) {
+    if (!scanAllDocuments && effectiveIncludeTags.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Select a tag for scanned documents or enable scanning all documents.'
+        error: 'Select at least one tag for scanned documents or enable scanning all documents.'
       });
     }
 
@@ -4248,7 +4345,8 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       apiUrl: aiApiUrl,
       token: aiToken,
       model: aiModel,
-      azureApiVersion: aiAzureApiVersion
+      azureApiVersion: aiAzureApiVersion,
+      setupValidationTimeoutMs
     });
 
     if (!aiValidation.success && !allowFailedAiTest) {
@@ -4259,22 +4357,23 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     }
 
     const ocrProviderForValidation = ocrProvider === 'custom' ? 'ollama' : ocrProvider;
-    const ocrValidation = await setupService.validateOcrConfig({
+    const ocrValidation = await validateOcrConnectionForSetup({
       enabled: mistralOcrEnabled ? 'yes' : 'no',
       provider: ocrProviderForValidation,
       apiUrl: ocrApiUrl,
       apiKey: ocrApiKey,
-      model: mistralOcrModel
+      model: mistralOcrModel,
+      setupOcrValidationTimeoutMs
     });
 
-    if (!ocrValidation) {
+    if (!ocrValidation.success) {
       return res.status(400).json({
         success: false,
-        error: 'OCR connection test failed. Check OCR provider, OCR API URL, API key, and model.'
+        error: ocrValidation.message
       });
     }
 
-    const tagsForProcessing = scanAllDocuments ? [] : [includeTag];
+    const tagsForProcessing = scanAllDocuments ? [] : effectiveIncludeTags;
     const apiToken = process.env.API_KEY || crypto.randomBytes(64).toString('hex');
     const jwtToken = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 
@@ -4286,7 +4385,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       SCAN_INTERVAL: scanInterval,
       PROCESS_PREDEFINED_DOCUMENTS: scanAllDocuments ? 'no' : 'yes',
       TAGS: tagsForProcessing,
-      IGNORE_TAGS: excludeTags,
+      IGNORE_TAGS: effectiveExcludeTags,
       ADD_AI_PROCESSED_TAG: processedTag ? 'yes' : 'no',
       AI_PROCESSED_TAG_NAME: processedTag || 'ai-processed',
       DISABLE_AUTOMATIC_PROCESSING: automaticScanEnabled ? 'no' : 'yes',
@@ -4309,7 +4408,9 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       OCR_API_URL: ocrApiUrl,
       OCR_API_KEY: ocrApiKey,
       MISTRAL_API_KEY: ocrApiKey,
-      MISTRAL_OCR_MODEL: mistralOcrModel
+      MISTRAL_OCR_MODEL: mistralOcrModel,
+      SETUP_VALIDATION_TIMEOUT_MS: String(setupValidationTimeoutMs),
+      SETUP_OCR_VALIDATION_TIMEOUT_MS: String(setupOcrValidationTimeoutMs)
     };
 
     if (aiProvider === 'openai') {
@@ -5357,6 +5458,7 @@ router.get('/settings', async (req, res) => {
     OCR_API_KEY: process.env.OCR_API_KEY || '',
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
     MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
+    SETUP_OCR_VALIDATION_TIMEOUT_MS: process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
     GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
     GLOBAL_RATE_LIMIT_MAX: process.env.GLOBAL_RATE_LIMIT_MAX || '1000',
     TRUST_PROXY: typeof process.env.TRUST_PROXY === 'undefined' ? '' : process.env.TRUST_PROXY,
@@ -5403,6 +5505,7 @@ router.get('/settings', async (req, res) => {
   });
 
   const version = configFile.PAPERLESS_AI_VERSION || ' ';
+  const aiProviderPresets = await loadAiProviderPresets();
   let mfaSettings = {
     available: false,
     username: '',
@@ -5435,6 +5538,7 @@ router.get('/settings', async (req, res) => {
     lockedEnvDetails,
     runtimeFirstMode,
     hasLegacyEnvMigrationNotice,
+    aiProviderPresets,
     mfaSettings,
     success: isConfigured ? 'The application is already configured. You can update the configuration below.' : undefined,
     settingsError: showErrorCheckSettings ? 'Please check your settings. Something is not working correctly.' : undefined
@@ -6617,6 +6721,7 @@ router.post('/settings', express.json(), async (req, res) => {
       ocrApiKey,
       mistralApiKey,
       mistralOcrModel,
+      ocrValidationTimeout,
       globalRateLimitWindowMs,
       globalRateLimitMax,
       trustProxy,
@@ -6692,6 +6797,7 @@ router.post('/settings', express.json(), async (req, res) => {
       OCR_API_KEY: process.env.OCR_API_KEY || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
       MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
+      SETUP_OCR_VALIDATION_TIMEOUT_MS: process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
       GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
       GLOBAL_RATE_LIMIT_MAX: process.env.GLOBAL_RATE_LIMIT_MAX || '1000',
       TRUST_PROXY: typeof process.env.TRUST_PROXY === 'undefined' ? '' : process.env.TRUST_PROXY,
@@ -6725,12 +6831,18 @@ router.post('/settings', express.json(), async (req, res) => {
     const effectiveOcrEnabled = hasValue(mistralOcrEnabled)
       ? String(mistralOcrEnabled).trim().toLowerCase()
       : String(currentConfig.MISTRAL_OCR_ENABLED || 'no').trim().toLowerCase();
-    const effectiveOcrApiUrl = hasValue(ocrApiUrl)
-      ? String(ocrApiUrl).trim()
-      : String(currentConfig.OCR_API_URL || '').trim();
+    const effectiveOcrApiUrl = normalizedOcrProvider === 'mistral'
+      ? ''
+      : (hasValue(ocrApiUrl)
+        ? String(ocrApiUrl).trim()
+        : String(currentConfig.OCR_API_URL || '').trim());
     const effectiveOcrModel = hasValue(mistralOcrModel)
       ? String(mistralOcrModel).trim()
       : String(currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest').trim();
+    const effectiveOcrValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(
+      hasValue(ocrValidationTimeout) ? Number.parseInt(String(ocrValidationTimeout).trim(), 10) * 1000 : currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS,
+      30000
+    );
     const normalizeCompare = (value) => String(value || '').trim();
 
     if (!['mistral', 'custom', 'ollama'].includes(normalizedOcrProvider)) {
@@ -6755,18 +6867,19 @@ router.post('/settings', express.json(), async (req, res) => {
         || currentOcrProvider !== normalizedOcrProvider
         || currentOcrApiUrl !== effectiveOcrApiUrl
         || currentOcrModel !== effectiveOcrModel
+        || String(currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS || '30000').trim() !== String(effectiveOcrValidationTimeoutMs)
         || hasOcrApiKeyInput
       );
 
     if (shouldValidateOcr) {
       const normalizedOcrProviderForValidation = normalizedOcrProvider === 'custom' ? 'ollama' : normalizedOcrProvider;
-      const ocrValid = await setupService.validateOcrConfig({
+      const ocrValid = await setupService.withTemporaryValidationTimeout(effectiveOcrValidationTimeoutMs, async () => setupService.validateOcrConfig({
         enabled: effectiveOcrEnabled,
         provider: normalizedOcrProviderForValidation,
         apiUrl: effectiveOcrApiUrl,
         apiKey: effectiveOcrApiKey,
         model: effectiveOcrModel
-      });
+      }));
 
       if (!ocrValid) {
         return res.status(400).json({
@@ -7024,12 +7137,17 @@ router.post('/settings', express.json(), async (req, res) => {
 
       if (mistralOcrEnabled) updatedConfig.MISTRAL_OCR_ENABLED = mistralOcrEnabled;
       if (ocrProvider) updatedConfig.OCR_PROVIDER = String(ocrProvider).trim().toLowerCase();
-      if (typeof ocrApiUrl === 'string') updatedConfig.OCR_API_URL = ocrApiUrl.trim();
+      if (normalizedOcrProvider === 'mistral') {
+        updatedConfig.OCR_API_URL = '';
+      } else if (typeof ocrApiUrl === 'string') {
+        updatedConfig.OCR_API_URL = ocrApiUrl.trim();
+      }
       if (hasOcrApiKeyInput) {
         updatedConfig.OCR_API_KEY = effectiveOcrApiKey;
         updatedConfig.MISTRAL_API_KEY = effectiveOcrApiKey;
       }
       if (mistralOcrModel) updatedConfig.MISTRAL_OCR_MODEL = mistralOcrModel;
+      updatedConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS = String(effectiveOcrValidationTimeoutMs);
       if (globalRateLimitWindowMs) updatedConfig.GLOBAL_RATE_LIMIT_WINDOW_MS = globalRateLimitWindowMs;
       if (globalRateLimitMax) updatedConfig.GLOBAL_RATE_LIMIT_MAX = globalRateLimitMax;
       if (typeof trustProxy === 'string') updatedConfig.TRUST_PROXY = trustProxy.trim();
