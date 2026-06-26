@@ -1269,6 +1269,33 @@ class PaperlessService {
     }
   }
 
+  async searchDocuments(query, limit = 100) {
+    this.initialize();
+
+    const safeLimit = Number.isInteger(Number(limit)) ? Math.max(1, Math.min(Number(limit), 200)) : 100;
+
+    try {
+      const response = await this.client.get('/documents/', {
+        params: {
+          fields: 'id,title,tags,correspondent,created',
+          query: query,
+          page: 1,
+          page_size: safeLimit,
+          ordering: '-created'
+        }
+      });
+
+      if (!Array.isArray(response?.data?.results)) {
+        return [];
+      }
+
+      return response.data.results;
+    } catch (error) {
+      console.error('[ERROR] searching documents:', error.message);
+      return [];
+    }
+  }
+
   // Aktualisierte getDocuments Methode
   async getDocuments() {
     return this.getAllDocuments();
