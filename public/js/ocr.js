@@ -12,6 +12,7 @@
     let currentStatus = '';
     let loadTimeout = null;
     let manualDocumentOmnibox = null;
+    let queuedDocIds = new Set();
 
     // ── DOM refs ───────────────────────────────────────────────────────────
     const tableBody       = document.getElementById('ocrTableBody');
@@ -44,7 +45,9 @@
             if (statusFilter) statusFilter.value = initialStatus;
         }
 
-        initializeManualDocumentSearch();
+        refreshQueuedIds().then(() => {
+            initializeManualDocumentSearch();
+        });
         loadQueue();
         loadStats();
 
@@ -241,6 +244,38 @@
         if (el) el.textContent = val ?? '0';
     }
 
+    async function refreshQueuedIds() {
+        try {
+            const resp = await fetch('/api/ocr/queue/ids');
+            const data = await resp.json();
+            if (data.success && Array.isArray(data.ids)) {
+                queuedDocIds = new Set(data.ids);
+            }
+        } catch (_) {}
+    }
+
+    async function addToQueueDirect(docId) {
+        if (!docId || queuedDocIds.has(Number(docId))) return;
+        try {
+            const resp = await fetch('/api/ocr/queue/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ documentId: Number(docId) })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast(data.message || 'Added to queue');
+                queuedDocIds.add(Number(docId));
+                loadQueue();
+                loadStats();
+            } else {
+                showToast(data.message || data.error || 'Failed', 'error');
+            }
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
     function setManualSearchStatus(message, isError) {
         if (!manualDocSearchStatus) return;
         manualDocSearchStatus.textContent = message;
@@ -279,12 +314,13 @@
             resultTitleClass: 'manual-search-title',
             resultMetaClass: 'manual-search-meta',
             resultPillClass: 'manual-search-pill',
+            filterResults: (documents) => documents.filter(doc => !queuedDocIds.has(doc.id)),
             onSelect: (doc) => {
-                setSelectedManualDocument(doc);
+                addToQueueDirect(doc.id);
+                if (manualDocSearchInput) manualDocSearchInput.value = '';
+                if (manualDocId) manualDocId.value = '';
             },
-            onEnterAfterSelect: () => {
-                addManual();
-            }
+            onEnterAfterSelect: () => {}
         });
     }
 
@@ -333,6 +369,7 @@
             const resp = await fetch(`/api/ocr/queue/${documentId}`, { method: 'DELETE' });
             const data = await resp.json();
             showToast(data.success ? 'Removed from queue' : (data.message || 'Failed'), data.success ? 'success' : 'error');
+            if (data.success) queuedDocIds.delete(documentId);
             loadQueue();
             loadStats();
         } catch (err) {

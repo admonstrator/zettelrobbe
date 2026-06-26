@@ -88,7 +88,8 @@
             resultItemClass: config.resultItemClass || 'search-result-item',
             resultTitleClass: config.resultTitleClass || 'search-result-title',
             resultMetaClass: config.resultMetaClass || 'search-result-meta',
-            resultPillClass: config.resultPillClass || 'search-result-pill'
+            resultPillClass: config.resultPillClass || 'search-result-pill',
+            filterResults: typeof config.filterResults === 'function' ? config.filterResults : null
         };
 
         let debounceTimer = null;
@@ -242,9 +243,13 @@
                 }
 
                 const payload = await response.json();
-                const documents = Array.isArray(payload && payload.data && payload.data.documents)
+                let documents = Array.isArray(payload && payload.data && payload.data.documents)
                     ? payload.data.documents
                     : [];
+
+                if (settings.filterResults) {
+                    documents = settings.filterResults(documents);
+                }
 
                 if (showResults) {
                     renderResults(documents);

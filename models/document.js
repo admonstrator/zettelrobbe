@@ -1242,6 +1242,16 @@ module.exports = {
     }
   },
 
+  async getOcrQueueDocumentIds() {
+    try {
+      const rows = db.prepare('SELECT document_id FROM ocr_queue').all();
+      return rows.map(r => r.document_id);
+    } catch (error) {
+      console.error('[ERROR] getting OCR queue document IDs:', error);
+      return [];
+    }
+  },
+
   async getOcrQueueCount() {
     try {
       return db

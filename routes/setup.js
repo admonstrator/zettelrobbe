@@ -8965,6 +8965,17 @@ router.get('/api/ocr/queue', isAuthenticated, async (req, res) => {
  *         description: Server error
  */
 
+// API: Get all document IDs currently in the OCR queue
+router.get('/api/ocr/queue/ids', isAuthenticated, async (req, res) => {
+  try {
+    const ids = await documentModel.getOcrQueueDocumentIds();
+    return res.json({ success: true, ids });
+  } catch (error) {
+    console.error('[ERROR] GET /api/ocr/queue/ids:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // API: Add a document manually to OCR queue
 router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
   try {
