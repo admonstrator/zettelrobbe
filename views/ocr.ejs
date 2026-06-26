@@ -64,12 +64,13 @@ MISTRAL_OCR_MODEL=mistral-ocr-latest</pre>
                             <div id="manualDocSearchResults" class="manual-search-results hidden" role="listbox" aria-label="OCR document search results"></div>
                             <input type="hidden" id="manualDocId" value="">
                             <p id="manualDocSearchStatus" class="manual-search-status">Loading recent documents...</p>
+                            <div id="searchModeToggles" class="search-mode-toggles">
+                                <button type="button" class="search-mode-btn active" data-mode="all">All</button>
+                                <button type="button" class="search-mode-btn" data-mode="title">Title</button>
+                                <button type="button" class="search-mode-btn" data-mode="tags">Tags</button>
+                                <button type="button" class="search-mode-btn" data-mode="correspondent">Correspondent</button>
+                            </div>
                         </div>
-                        <button id="addManualBtn"
-                                class="toolbar-btn toolbar-btn--primary toolbar-btn--sm"
-                                title="Add document manually to OCR queue">
-                            <i class="fas fa-plus"></i> Add to Queue
-                        </button>
                     </div>
 
                     <div class="app-toolbar-controls">

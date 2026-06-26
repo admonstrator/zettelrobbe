@@ -20,7 +20,6 @@
     const prevBtn         = document.getElementById('prevPageBtn');
     const nextBtn         = document.getElementById('nextPageBtn');
     const statusFilter    = document.getElementById('statusFilter');
-    const addManualBtn    = document.getElementById('addManualBtn');
     const manualDocId     = document.getElementById('manualDocId');
     const manualDocSearchInput = document.getElementById('manualDocSearchInput');
     const manualDocSearchResults = document.getElementById('manualDocSearchResults');
@@ -47,6 +46,7 @@
 
         refreshQueuedIds().then(() => {
             initializeManualDocumentSearch();
+            initializeSearchModeToggles();
         });
         loadQueue();
         loadStats();
@@ -56,8 +56,6 @@
             currentPage = 0;
             loadQueue();
         });
-
-        if (addManualBtn) addManualBtn.addEventListener('click', addManual);
 
         if (processAllBtn) processAllBtn.addEventListener('click', processAll);
         if (prevBtn) prevBtn.addEventListener('click', function () { if (currentPage > 0) { currentPage--; loadQueue(); } });
@@ -276,29 +274,6 @@
         }
     }
 
-    function setManualSearchStatus(message, isError) {
-        if (!manualDocSearchStatus) return;
-        manualDocSearchStatus.textContent = message;
-        manualDocSearchStatus.classList.toggle('error', !!isError);
-    }
-
-    function setSelectedManualDocument(doc) {
-        if (!doc || !manualDocSearchInput || !manualDocId) return;
-
-        manualDocId.value = String(doc.id);
-        manualDocSearchInput.value = doc.title || `Document ${doc.id}`;
-    }
-
-    function selectActiveManualResult() {
-        const selectedDoc = manualDocumentOmnibox ? manualDocumentOmnibox.selectActiveResult({ trigger: 'manual-add' }) : null;
-        return !!selectedDoc;
-    }
-
-    async function loadManualSearchDocuments(searchTerm, options) {
-        if (!manualDocumentOmnibox) return;
-        await manualDocumentOmnibox.load(searchTerm || '', options || {});
-    }
-
     function initializeManualDocumentSearch() {
         if (!manualDocSearchInput || !manualDocId) return;
 
@@ -310,6 +285,7 @@
             hiddenInputId: 'manualDocId',
             limit: 100,
             debounceMs: 250,
+            multiSelect: true,
             resultItemClass: 'manual-search-item',
             resultTitleClass: 'manual-search-title',
             resultMetaClass: 'manual-search-meta',
@@ -317,50 +293,26 @@
             filterResults: (documents) => documents.filter(doc => !queuedDocIds.has(doc.id)),
             onSelect: (doc) => {
                 addToQueueDirect(doc.id);
-                if (manualDocSearchInput) manualDocSearchInput.value = '';
-                if (manualDocId) manualDocId.value = '';
             },
             onEnterAfterSelect: () => {}
         });
     }
 
-    // ── Add manual ─────────────────────────────────────────────────────────
-    async function addManual() {
-        let docId = manualDocId ? manualDocId.value.trim() : '';
-        if (!docId && selectActiveManualResult() && manualDocId) {
-            docId = manualDocId.value.trim();
-        }
-        if (!docId) { showToast('Please select a document from the search results', 'error'); return; }
+    function initializeSearchModeToggles() {
+        const container = document.getElementById('searchModeToggles');
+        if (!container || !manualDocumentOmnibox) return;
 
-        if (!/^\d+$/.test(docId) || Number(docId) <= 0) {
-            showToast('Document ID must be a positive integer', 'error');
-            return;
-        }
-
-        try {
-            addManualBtn.disabled = true;
-            const resp = await fetch('/api/ocr/queue/add', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ documentId: Number(docId) })
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showToast(data.message || 'Added to queue');
-                if (manualDocId) manualDocId.value = '';
-                if (manualDocSearchInput) manualDocSearchInput.value = '';
-                setManualSearchStatus('Loading recent documents...');
-                loadManualSearchDocuments('', { showResults: false });
-                loadQueue();
-                loadStats();
-            } else {
-                showToast(data.message || data.error || 'Failed', 'error');
+        container.addEventListener('click', function (e) {
+            const btn = e.target.closest('.search-mode-btn');
+            if (!btn) return;
+            container.querySelectorAll('.search-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            manualDocumentOmnibox.setSearchMode(btn.dataset.mode);
+            const currentValue = manualDocSearchInput ? manualDocSearchInput.value.trim() : '';
+            if (currentValue) {
+                manualDocumentOmnibox.load(currentValue, { showResults: true });
             }
-        } catch (err) {
-            showToast(err.message, 'error');
-        } finally {
-            addManualBtn.disabled = false;
-        }
+        });
     }
 
     // ── Remove item ────────────────────────────────────────────────────────

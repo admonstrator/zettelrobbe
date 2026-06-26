@@ -128,3 +128,31 @@
         padding: 0.7rem 0.75rem;
     }
 }
+
+.search-mode-toggles {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 0.35rem;
+}
+
+.search-mode-btn {
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border: 1px solid var(--border-color, #e2e8f0);
+    background: transparent;
+    color: var(--text-secondary, #64748b);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.search-mode-btn:hover {
+    background: var(--hover-bg, #f1f5f9);
+}
+
+.search-mode-btn.active {
+    background: var(--accent-primary, #3b82f6);
+    color: #fff;
+    border-color: var(--accent-primary, #3b82f6);
+}

@@ -1269,21 +1269,34 @@ class PaperlessService {
     }
   }
 
-  async searchDocuments(query, limit = 100) {
+  async searchDocuments(query, limit = 100, mode = 'all') {
     this.initialize();
 
     const safeLimit = Number.isInteger(Number(limit)) ? Math.max(1, Math.min(Number(limit), 200)) : 100;
 
     try {
-      const response = await this.client.get('/documents/', {
-        params: {
-          fields: 'id,title,tags,correspondent,created',
-          query: query,
-          page: 1,
-          page_size: safeLimit,
-          ordering: '-created'
-        }
-      });
+      const params = {
+        fields: 'id,title,tags,correspondent,created',
+        page: 1,
+        page_size: safeLimit,
+        ordering: '-created'
+      };
+
+      if (mode === 'title') {
+        params.title__icontains = query;
+      } else if (mode === 'tags') {
+        const tagIds = await this._findTagIdsByPartialName(query);
+        if (!tagIds.length) return [];
+        params.tags__id__in = tagIds.join(',');
+      } else if (mode === 'correspondent') {
+        const corrIds = await this._findCorrespondentIdsByPartialName(query);
+        if (!corrIds.length) return [];
+        params.correspondent__id__in = corrIds.join(',');
+      } else {
+        params.query = query;
+      }
+
+      const response = await this.client.get('/documents/', { params });
 
       if (!Array.isArray(response?.data?.results)) {
         return [];
@@ -1292,6 +1305,30 @@ class PaperlessService {
       return response.data.results;
     } catch (error) {
       console.error('[ERROR] searching documents:', error.message);
+      return [];
+    }
+  }
+
+  async _findTagIdsByPartialName(query) {
+    try {
+      const response = await this.client.get('/tags/', {
+        params: { name__icontains: query, page_size: 50 }
+      });
+      return (response.data?.results || []).map(t => t.id);
+    } catch (error) {
+      console.error('[ERROR] searching tags by name:', error.message);
+      return [];
+    }
+  }
+
+  async _findCorrespondentIdsByPartialName(query) {
+    try {
+      const response = await this.client.get('/correspondents/', {
+        params: { name__icontains: query, page_size: 50 }
+      });
+      return (response.data?.results || []).map(c => c.id);
+    } catch (error) {
+      console.error('[ERROR] searching correspondents by name:', error.message);
       return [];
     }
   }

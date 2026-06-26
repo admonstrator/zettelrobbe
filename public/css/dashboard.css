@@ -80,6 +80,8 @@
     --manual-pill-id-text: #1e293b;
     --manual-pill-date-bg: #dcfce7;
     --manual-pill-date-text: #166534;
+    --manual-pill-tag-bg: #fef3c7;
+    --manual-pill-tag-text: #92400e;
     --material-card-shadow-rest: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
         0 2px 4px -1px rgba(0, 0, 0, 0.06);
     --material-card-shadow-hover: 0 8px 14px -10px rgba(15, 23, 42, 0.28),
@@ -110,6 +112,8 @@
     --manual-pill-id-text: #e2e8f0;
     --manual-pill-date-bg: #14532d;
     --manual-pill-date-text: #bbf7d0;
+    --manual-pill-tag-bg: #78350f;
+    --manual-pill-tag-text: #fef3c7;
     --material-card-shadow-rest: 0 4px 6px -1px rgba(0, 0, 0, 0.26),
         0 2px 4px -1px rgba(0, 0, 0, 0.22);
     --material-card-shadow-hover: 0 10px 16px -12px rgba(0, 0, 0, 0.52),
@@ -191,6 +195,11 @@
 .manual-search-pill.id {
     background: var(--manual-pill-id-bg);
     color: var(--manual-pill-id-text);
+}
+
+.manual-search-pill.tag {
+    background: var(--manual-pill-tag-bg);
+    color: var(--manual-pill-tag-text);
 }
 
 .dashboard-doc-link {
