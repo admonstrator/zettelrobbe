@@ -2876,16 +2876,17 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
     paperlessService.getDocument(doc.id)
   ]);
 
-  if (!content || content.length < 10) {
-    console.log(`[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: 10), skipping analysis`);
+  const minContentLength = config.minContentLength;
+  if (!content || content.length < minContentLength) {
+    console.log(`[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${minContentLength}), skipping analysis`);
     if (mistralOcrService.isEnabled()) {
-      const added = await documentModel.addToOcrQueue(doc.id, doc.title, 'short_content_lt_10');
+      const added = await documentModel.addToOcrQueue(doc.id, doc.title, `short_content_lt_${minContentLength}`);
       if (added) {
         console.log(`[OCR] Document ${doc.id} queued for Mistral OCR (short_content)`);
       }
     } else {
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(doc.id, doc.title, 'insufficient_content_lt_10', 'ai');
+      await documentModel.addFailedDocument(doc.id, doc.title, `insufficient_content_lt_${minContentLength}`, 'ai');
     }
     return null;
   }

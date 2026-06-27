@@ -214,7 +214,7 @@ const csrfCookieSecure = shouldUseSecureCookies();
 const retryTracker = new Map();
 
 // Configurable minimum content length (default: 10 characters)
-const MIN_CONTENT_LENGTH = parseInt(process.env.MIN_CONTENT_LENGTH || '10', 10);
+const MIN_CONTENT_LENGTH = config.minContentLength;
 
 
 const corsOptions = {

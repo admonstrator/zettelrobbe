@@ -310,6 +310,9 @@ module.exports = {
   ignoreTags: process.env.IGNORE_TAGS || '',
   tokenLimit: process.env.TOKEN_LIMIT || 128000,
   responseTokens: process.env.RESPONSE_TOKENS || 1000,
+  // Minimum extracted-text length before a document is sent to AI analysis.
+  // Documents below this are skipped or routed to OCR fallback. Default 10.
+  minContentLength: parseInt(process.env.MIN_CONTENT_LENGTH || '10', 10),
   aiTemperatureAnalysis: parseTemperature(process.env.AI_TEMPERATURE_ANALYSIS, 0.3, 'AI_TEMPERATURE_ANALYSIS'),
   aiTemperatureGeneration: parseTemperature(process.env.AI_TEMPERATURE_GENERATION, 0.7, 'AI_TEMPERATURE_GENERATION'),
   addAIProcessedTag: process.env.ADD_AI_PROCESSED_TAG || 'no',
