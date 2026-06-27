@@ -3683,15 +3683,17 @@ router.get('/setup', async (req, res) => {
     // Load saved config if it exists
     if (isEnvConfigured) {
       const savedConfig = await setupService.loadConfig();
-      if (savedConfig.PAPERLESS_API_URL) {
-        savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+      if (savedConfig) {
+        if (savedConfig.PAPERLESS_API_URL) {
+          savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+        }
+
+        savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
+        savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
+        savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
+
+        config = { ...config, ...savedConfig };
       }
-
-      savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
-      savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
-      savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
-
-      config = { ...config, ...savedConfig };
     }
 
     // Debug output
@@ -5470,15 +5472,17 @@ router.get('/settings', async (req, res) => {
   
   if (isConfigured) {
     const savedConfig = await setupService.loadConfig();
-    if (savedConfig.PAPERLESS_API_URL) {
-      savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+    if (savedConfig) {
+      if (savedConfig.PAPERLESS_API_URL) {
+        savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+      }
+
+      savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
+      savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
+      savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
+
+      config = { ...config, ...savedConfig };
     }
-
-    savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
-    savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
-    savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
-
-    config = { ...config, ...savedConfig };
   }
 
   // Debug-output
