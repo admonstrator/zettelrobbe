@@ -51,6 +51,11 @@ const txtLogger = new Logger({
 });
 
 const app = express();
+// Express 5 changed the default query parser to "simple", which does not parse
+// nested bracket parameters (e.g. order[0][column], columns[1][data]) sent by
+// DataTables server-side processing. Restore the Express 4 "extended" (qs)
+// parser so req.query.order/columns are objects again and table sorting works.
+app.set('query parser', 'extended');
 const scanControl = global.__paperlessAiScanControl || {
   running: false,
   stopRequested: false,
