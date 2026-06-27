@@ -19,13 +19,16 @@ class SetupService {
     this.setupAiDetectionCache = new Map();
   }
 
-  normalizeValidationTimeoutMs(rawValue, fallbackValue = 30000) {
+  // maxMs defaults to 120s, the cap used for connection/availability checks.
+  // OCR document processing passes a higher cap (see OCR timeout handling) so a
+  // stored processing timeout can exceed the check ceiling.
+  normalizeValidationTimeoutMs(rawValue, fallbackValue = 30000, maxMs = 120000) {
     const parsed = Number.parseInt(String(rawValue ?? ''), 10);
     if (!Number.isFinite(parsed)) {
       return fallbackValue;
     }
 
-    return Math.min(Math.max(parsed, 1000), 120000);
+    return Math.min(Math.max(parsed, 1000), maxMs);
   }
 
   getValidationTimeoutMs() {

@@ -672,10 +672,10 @@
                                 <div class="space-y-2">
                                     <label for="ocrValidationTimeout" class="text-sm font-medium">OCR Timeout</label>
                                     <div class="flex items-center gap-3">
-                                        <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="120" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS || 30000) / 1000) %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="600" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS || 30000) / 1000) %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <span class="text-xs text-gray-500 whitespace-nowrap">seconds</span>
                                     </div>
-                                    <p class="text-xs text-gray-500">ENV: SETUP_OCR_VALIDATION_TIMEOUT_MS · Used for OCR model loading and OCR connection tests</p>
+                                    <p class="text-xs text-gray-500">ENV: SETUP_OCR_VALIDATION_TIMEOUT_MS · Used for OCR model loading, OCR connection tests, and OCR document processing. Connection tests stay capped at 120s; processing can use the full value.</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-3">
                                     <button type="button" id="testOcrBtn" class="toolbar-btn toolbar-btn--warning flex items-center gap-2">

@@ -4344,7 +4344,8 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const setupValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(req.body?.setupValidationTimeoutMs, 30000);
     const setupOcrValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(
       req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs,
-      30000
+      30000,
+      600000 // OCR processing may run up to 10 min; the check itself stays capped at 120s
     );
 
     const allowFailedPaperlessTest = parseBooleanInput(req.body?.allowFailedPaperlessTest, false);
@@ -6967,7 +6968,8 @@ router.post('/settings', express.json(), async (req, res) => {
       : String(currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest').trim();
     const effectiveOcrValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(
       hasValue(ocrValidationTimeout) ? Number.parseInt(String(ocrValidationTimeout).trim(), 10) * 1000 : currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS,
-      30000
+      30000,
+      600000 // OCR processing may run up to 10 min; the check itself stays capped at 120s
     );
     const normalizeCompare = (value) => String(value || '').trim();
 

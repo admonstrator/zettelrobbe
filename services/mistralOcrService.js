@@ -13,6 +13,25 @@ const documentModel = require('../models/document');
 const AIServiceFactory = require('./aiServiceFactory');
 const { isTimeoutError, buildTimeoutErrorMessage } = require('./serviceUtils');
 
+// OCR document processing can take far longer than the connection check —
+// large documents on slow local models routinely exceed the old hard 2-minute
+// limit. Reuse the configured OCR connection-check timeout value
+// (SETUP_OCR_VALIDATION_TIMEOUT_MS, falling back to SETUP_VALIDATION_TIMEOUT_MS),
+// but apply a separate, higher cap here: the connection check stays capped at
+// 120s in setupService, while processing may run up to 10 minutes. Falls back
+// to the previous 120s default when no value is configured.
+const OCR_PROCESSING_TIMEOUT_DEFAULT_MS = 120000;
+const OCR_PROCESSING_TIMEOUT_MAX_MS = 600000;
+
+function getOcrProcessingTimeoutMs() {
+  const raw = process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS;
+  const parsed = Number.parseInt(String(raw ?? ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return OCR_PROCESSING_TIMEOUT_DEFAULT_MS;
+  }
+  return Math.min(Math.max(parsed, 1000), OCR_PROCESSING_TIMEOUT_MAX_MS);
+}
+
 class MistralOcrService {
   constructor() {
     this.activeDocumentIds = new Set();
@@ -137,12 +156,12 @@ class MistralOcrService {
             'Authorization': `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json'
           },
-          timeout: 120000 // 2 minute timeout for large documents
+          timeout: getOcrProcessingTimeoutMs()
         }
       );
     } catch (error) {
       if (isTimeoutError(error)) {
-        const timeoutMessage = buildTimeoutErrorMessage('OCR', 120000);
+        const timeoutMessage = buildTimeoutErrorMessage('OCR', getOcrProcessingTimeoutMs());
         console.error(`[TIMEOUT][OCR] Mistral OCR request timed out: ${error.message}`);
         throw new Error(timeoutMessage);
       }
@@ -214,7 +233,7 @@ class MistralOcrService {
           'Content-Type': 'application/json',
           ...authHeaders
         },
-        timeout: 120000
+        timeout: getOcrProcessingTimeoutMs()
       }
     );
 
@@ -262,7 +281,7 @@ class MistralOcrService {
             'Content-Type': 'application/json',
             ...authHeaders
           },
-          timeout: 120000
+          timeout: getOcrProcessingTimeoutMs()
         }
       );
 
@@ -301,7 +320,7 @@ class MistralOcrService {
       } catch (error) {
         if (isTimeoutError(error)) {
           console.error(`[TIMEOUT][OCR] Local OCR request timed out: ${error.message}`);
-          lastError = new Error(buildTimeoutErrorMessage('OCR', 120000));
+          lastError = new Error(buildTimeoutErrorMessage('OCR', getOcrProcessingTimeoutMs()));
           continue;
         }
         lastError = error;
