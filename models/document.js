@@ -254,6 +254,23 @@ const MIGRATIONS = [
         database.exec('ALTER TABLE users ADD COLUMN last_seen_changelog_version TEXT DEFAULT NULL');
       }
     }
+  },
+  {
+    version: 7,
+    description: 'Deduplicate history_documents and enforce one entry per document_id',
+    up: (database) => {
+      // Remove duplicate history rows that accumulated because addToHistory()
+      // used a plain INSERT with no uniqueness on document_id. Keep only the
+      // newest row (highest id) per document_id; no document is lost.
+      database.exec(`
+        DELETE FROM history_documents
+        WHERE id NOT IN (
+          SELECT MAX(id) FROM history_documents GROUP BY document_id
+        )
+      `);
+      // Prevent future duplicates and enable the UPSERT in addToHistory().
+      database.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_history_documents_document_id ON history_documents(document_id)');
+    }
   }
 ];
 
@@ -399,6 +416,13 @@ module.exports = {
       const result = db.prepare(`
         INSERT INTO history_documents (document_id, tags, title, correspondent, custom_fields, document_type_name, language)
         VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(document_id) DO UPDATE SET
+          tags = excluded.tags,
+          title = excluded.title,
+          correspondent = excluded.correspondent,
+          custom_fields = excluded.custom_fields,
+          document_type_name = excluded.document_type_name,
+          language = excluded.language
       `).run(documentId, tagIdsString, title, correspondent, customFieldsString, documentTypeName ?? null, language ?? null);
       if (result.changes > 0) {
         console.log(`[DEBUG] Document ${title} added to history`);

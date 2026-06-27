@@ -1724,6 +1724,88 @@
         }
       }
     },
+    "/api/history/rescan": {
+      "post": {
+        "summary": "Rescan (reprocess) multiple documents by ID",
+        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background.\n",
+        "tags": [
+          "History"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Document IDs to reprocess",
+                    "example": [
+                      42,
+                      43,
+                      44
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documents enqueued for reprocessing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "queued": {
+                      "type": "integer",
+                      "example": 3
+                    },
+                    "notFound": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "example": []
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document IDs"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
     "/api/settings/clear-tag-cache": {
       "post": {
         "summary": "Manually clear the centralized tag cache",

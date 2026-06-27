@@ -367,6 +367,9 @@ class HistoryManager {
         document.getElementById('resetAllBtn')?.addEventListener('click', () => {
             this.showModal(this.confirmModalAll);
         });
+
+        // Rescan Selected button
+        document.getElementById('rescanSelectedBtn')?.addEventListener('click', () => this._handleRescanSelected());
     }
 
     initializeFilters() {
@@ -780,6 +783,43 @@ class HistoryManager {
         }
     }
 
+    async _handleRescanSelected() {
+        const ids = this.getSelectedDocuments();
+        if (ids.length === 0) {
+            this.showToast('Please select at least one document to rescan.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('rescanSelectedBtn');
+        const origHtml = btn?.innerHTML;
+        if (btn) {
+            btn.disabled  = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Rescanning...';
+        }
+
+        try {
+            // Reprocess the selected documents directly, bypassing the scan tag
+            // filter (the backend clears their local record and enqueues them).
+            const response = await fetch('/api/history/rescan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids })
+            });
+            if (!response.ok) throw new Error('Rescan request failed');
+
+            await this.table.ajax.reload();
+            this.showToast(`${ids.length} document(s) sent for rescan. It might take a few moments to process.`, 'success');
+        } catch (err) {
+            console.error('Bulk rescan failed:', err);
+            this.showToast('Rescan failed. Please try again.', 'error');
+        } finally {
+            if (btn) {
+                btn.disabled  = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    }
+
     async rescanDocument(documentId) {
         const btn = document.getElementById('infoModalRescanBtn');
         const origHtml = btn?.innerHTML;
@@ -789,21 +829,19 @@ class HistoryManager {
         }
 
         try {
-            // 1. Reset document in DB
+            // Reprocess directly, bypassing the scan tag filter. The backend
+            // clears the local record and enqueues the document for processing.
             const resetRes = await fetch(`/api/history/${documentId}/rescan`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
             if (!resetRes.ok) throw new Error('Reset failed');
 
-            // 2. Trigger immediate scan (fire and forget)
-            fetch('/api/scan/now', { method: 'POST' }).catch(() => {});
-
-            // 3. Close modal & show toast
+            // Close modal & show toast
             this.hideModal(document.getElementById('infoModal'));
             this.showToast('Document sent for rescan. It might take a few moments to process.', 'success');
 
-            // 4. Reload table
+            // Reload table
             this.table?.ajax.reload();
         } catch (err) {
             console.error('Rescan failed:', err);
