@@ -2064,15 +2064,86 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid document ID' });
     }
 
-    await documentModel.deleteDocumentsIdList([documentId]);
+    await rescanDocumentsByIds([documentId]);
 
     res.json({
       success: true,
-      message: 'Dokument wurde zurückgesetzt und wird beim nächsten Scan erneut verarbeitet.'
+      message: 'Document queued for reprocessing.'
     });
   } catch (error) {
     console.error('[ERROR] /api/history/:id/rescan:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
+/**
+ * @swagger
+ * /api/history/rescan:
+ *   post:
+ *     summary: Rescan (reprocess) multiple documents by ID
+ *     description: |
+ *       Forces reprocessing of the given documents regardless of the configured
+ *       scan tag filters. The local processing record is cleared and each document
+ *       is enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS
+ *       / TAGS scan-scope rules. Processing runs in the background.
+ *     tags:
+ *       - History
+ *     security:
+ *       - cookieAuth: []
+ *       - apiKey: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - ids
+ *             properties:
+ *               ids:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                 description: Document IDs to reprocess
+ *                 example: [42, 43, 44]
+ *     responses:
+ *       200:
+ *         description: Documents enqueued for reprocessing
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 queued:
+ *                   type: integer
+ *                   example: 3
+ *                 notFound:
+ *                   type: array
+ *                   items:
+ *                     type: integer
+ *                   example: []
+ *       400:
+ *         description: Invalid document IDs
+ *       401:
+ *         description: Authentication required
+ *       500:
+ *         description: Server error
+ */
+router.post('/api/history/rescan', isAuthenticated, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'Invalid document IDs' });
+    }
+
+    const { queued, notFound } = await rescanDocumentsByIds(ids);
+    res.json({ success: true, queued, notFound });
+  } catch (error) {
+    console.error('[ERROR] /api/history/rescan:', error);
+    res.status(500).json({ success: false, error: 'Error queuing documents for rescan' });
   }
 });
 
@@ -2778,7 +2849,10 @@ router.post('/api/scan/stop', isAuthenticated, async (req, res) => {
 
 async function processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt = null) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-  if (isProcessed) return null;
+  if (isProcessed) {
+    console.log(`[DEBUG] Document ${doc.id} already in processed_documents — skipping. Remove via Rescan to reprocess.`);
+    return null;
+  }
 
   const isFailed = await documentModel.isDocumentFailed(doc.id);
   if (isFailed) {
@@ -2802,16 +2876,17 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
     paperlessService.getDocument(doc.id)
   ]);
 
-  if (!content || content.length < 10) {
-    console.log(`[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: 10), skipping analysis`);
+  const minContentLength = config.minContentLength;
+  if (!content || content.length < minContentLength) {
+    console.log(`[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${minContentLength}), skipping analysis`);
     if (mistralOcrService.isEnabled()) {
-      const added = await documentModel.addToOcrQueue(doc.id, doc.title, 'short_content_lt_10');
+      const added = await documentModel.addToOcrQueue(doc.id, doc.title, `short_content_lt_${minContentLength}`);
       if (added) {
         console.log(`[OCR] Document ${doc.id} queued for Mistral OCR (short_content)`);
       }
     } else {
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(doc.id, doc.title, 'insufficient_content_lt_10', 'ai');
+      await documentModel.addFailedDocument(doc.id, doc.title, `insufficient_content_lt_${minContentLength}`, 'ai');
     }
     return null;
   }
@@ -3683,15 +3758,17 @@ router.get('/setup', async (req, res) => {
     // Load saved config if it exists
     if (isEnvConfigured) {
       const savedConfig = await setupService.loadConfig();
-      if (savedConfig.PAPERLESS_API_URL) {
-        savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+      if (savedConfig) {
+        if (savedConfig.PAPERLESS_API_URL) {
+          savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+        }
+
+        savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
+        savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
+        savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
+
+        config = { ...config, ...savedConfig };
       }
-
-      savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
-      savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
-      savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
-
-      config = { ...config, ...savedConfig };
     }
 
     // Debug output
@@ -4933,11 +5010,63 @@ async function processQueue(customPrompt) {
     console.error('[ERROR] Error during queue processing:', error);
   } finally {
     isProcessing = false;
-    
+
     if (documentQueue.length > 0) {
       processQueue();
     }
   }
+}
+
+/**
+ * Reprocess specific documents by ID, bypassing the scan tag/filter rules.
+ *
+ * Clears the local processed_documents record (so the processDocument() gate
+ * lets them through) and enqueues each document for direct AI processing via
+ * the shared documentQueue — regardless of whether it still carries the
+ * configured trigger tag. Processing runs in the background (fire-and-forget)
+ * so callers get a fast response.
+ *
+ * @param {Array<number|string>} ids - Document IDs to reprocess.
+ * @returns {Promise<{queued: number, notFound: number[]}>}
+ */
+async function rescanDocumentsByIds(ids) {
+  const numericIds = (Array.isArray(ids) ? ids : [])
+    .map((id) => parseInt(id, 10))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (numericIds.length === 0) {
+    return { queued: 0, notFound: [] };
+  }
+
+  // Drop the local "already processed" record so the gate in processDocument()
+  // no longer skips these documents.
+  await documentModel.deleteDocumentsIdList(numericIds);
+  await removeThumbnailCacheForDocumentIds(numericIds);
+
+  const notFound = [];
+  let queued = 0;
+
+  for (const id of numericIds) {
+    try {
+      const document = await paperlessService.getDocument(id);
+      if (!document) {
+        notFound.push(id);
+        continue;
+      }
+      documentQueue.push(document);
+      queued += 1;
+    } catch (error) {
+      console.error(`[ERROR] Failed to fetch document ${id} for rescan:`, error.message);
+      notFound.push(id);
+    }
+  }
+
+  // Fire-and-forget: the HTTP response should not wait for AI processing.
+  if (queued > 0) {
+    processQueue();
+  }
+
+  return { queued, notFound };
 }
 
 /**
@@ -5470,15 +5599,17 @@ router.get('/settings', async (req, res) => {
   
   if (isConfigured) {
     const savedConfig = await setupService.loadConfig();
-    if (savedConfig.PAPERLESS_API_URL) {
-      savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+    if (savedConfig) {
+      if (savedConfig.PAPERLESS_API_URL) {
+        savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+      }
+
+      savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
+      savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
+      savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
+
+      config = { ...config, ...savedConfig };
     }
-
-    savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
-    savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
-    savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
-
-    config = { ...config, ...savedConfig };
   }
 
   // Debug-output
