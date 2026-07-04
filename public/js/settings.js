@@ -2281,7 +2281,7 @@ function initializeRuntimeOverridePills() {
         { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
         { selector: '#mistralApiKey', envKey: 'MISTRAL_API_KEY' },
         { selector: '#mistralOcrModel', envKey: 'MISTRAL_OCR_MODEL' },
-        { selector: '#ocrValidationTimeout', envKey: 'SETUP_OCR_VALIDATION_TIMEOUT_MS', transform: (value) => String(Math.min(Math.max(Number.parseInt(String(value || '30').trim(), 10) || 30, 1), 120) * 1000) },
+        { selector: '#ocrValidationTimeout', envKey: 'SETUP_OCR_VALIDATION_TIMEOUT_MS', transform: (value) => String(Math.min(Math.max(Number.parseInt(String(value || '30').trim(), 10) || 30, 1), 7200) * 1000) },
         { selector: '#tagCacheTTL', envKey: 'TAG_CACHE_TTL_SECONDS' },
         { selector: '#globalRateLimitWindowMs', envKey: 'GLOBAL_RATE_LIMIT_WINDOW_MS' },
         { selector: '#globalRateLimitMax', envKey: 'GLOBAL_RATE_LIMIT_MAX' },

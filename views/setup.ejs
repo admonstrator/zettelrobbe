@@ -320,10 +320,10 @@
                         <div class="space-y-2">
                             <label for="ocrValidationTimeout" class="text-sm font-medium">OCR timeout</label>
                             <div class="flex items-center gap-3">
-                                <input id="ocrValidationTimeout" type="number" min="1" max="120" step="1" class="setup-input" value="30">
+                                <input id="ocrValidationTimeout" type="number" min="1" max="7200" step="1" class="setup-input" value="30">
                                 <span class="setup-hint whitespace-nowrap">seconds</span>
                             </div>
-                            <p class="setup-hint">Used for OCR model discovery and OCR connection tests. Default: 30s.</p>
+                            <p class="setup-hint">Used for OCR model discovery, connection tests and document processing. Default: 30s.</p>
                         </div>
                         <div class="flex flex-wrap items-center gap-3">
                             <button type="button" id="testOcrBtn" class="setup-btn setup-btn-warning flex items-center gap-2">

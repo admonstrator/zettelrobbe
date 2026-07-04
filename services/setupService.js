@@ -25,7 +25,7 @@ class SetupService {
       return fallbackValue;
     }
 
-    return Math.min(Math.max(parsed, 1000), 120000);
+    return Math.min(Math.max(parsed, 1000), 7200000);
   }
 
   getValidationTimeoutMs() {
