@@ -19,6 +19,7 @@
     function wireBadgeNavigation() {
         const ocrBadge = document.getElementById('sidebarOcrBadge');
         const failedBadge = document.getElementById('sidebarFailedBadge');
+        const ignoredBadge = document.getElementById('sidebarIgnoredBadge');
 
         if (ocrBadge) {
             ocrBadge.style.cursor = 'pointer';
@@ -39,6 +40,16 @@
                 window.location.href = '/failed';
             });
         }
+
+        if (ignoredBadge) {
+            ignoredBadge.style.cursor = 'pointer';
+            ignoredBadge.title = 'Open ignored documents';
+            ignoredBadge.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                window.location.href = '/ignored';
+            });
+        }
     }
 
     async function loadSidebarBadges() {
@@ -49,9 +60,11 @@
 
             const ocrBadge = document.getElementById('sidebarOcrBadge');
             const failedBadge = document.getElementById('sidebarFailedBadge');
+            const ignoredBadge = document.getElementById('sidebarIgnoredBadge');
 
             updateBadge(ocrBadge, data.stats.pending);
             updateBadge(failedBadge, data.stats.permanentlyFailed);
+            updateBadge(ignoredBadge, data.stats.ignored);
         } catch (_) {
             // Silently ignore badge fetch errors to avoid impacting page UX
         }

@@ -7568,6 +7568,39 @@ router.get('/failed', protectApiRoute, async (req, res) => {
  *         description: Server error
  */
 
+// Page: Ignored Documents Queue
+router.get('/ignored', protectApiRoute, async (req, res) => {
+  try {
+    return res.render('ignored', {
+      version: configFile.PAPERLESS_AI_VERSION || ' ',
+    });
+  } catch (error) {
+    console.error('[ERROR] Ignored page:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /ignored:
+ *   get:
+ *     summary: Permanently ignored documents page
+ *     tags:
+ *       - Navigation
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Ignored queue page rendered successfully
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       500:
+ *         description: Server error
+ */
+
 // Page: About / Support Information
 router.get('/about', protectApiRoute, async (req, res) => {
   try {
@@ -8146,14 +8179,18 @@ router.get('/api/ocr/queue/:documentId/text', isAuthenticated, async (req, res) 
 // API: Get OCR queue statistics
 router.get('/api/ocr/stats', isAuthenticated, async (req, res) => {
   try {
-    const allItems = await documentModel.getOcrQueue();
-    const failedDocs = await documentModel.getFailedDocumentsPaginated({ limit: 1, offset: 0 });
+    const [allItems, failedDocs, ignoredCount] = await Promise.all([
+      documentModel.getOcrQueue(),
+      documentModel.getFailedDocumentsPaginated({ limit: 1, offset: 0 }),
+      documentModel.getIgnoredCount()
+    ]);
     const stats = {
       pending: allItems.filter(i => i.status === 'pending').length,
       processing: allItems.filter(i => i.status === 'processing').length,
       done: allItems.filter(i => i.status === 'done').length,
       failed: allItems.filter(i => i.status === 'failed').length,
       permanentlyFailed: failedDocs.total || 0,
+      ignored: ignoredCount,
       total: allItems.length,
       ocrEnabled: mistralOcrService.isEnabled()
     };
@@ -8311,6 +8348,122 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
  *       500:
  *         description: Server error
  */
+
+// API: Get paginated ignored documents queue
+router.get('/api/ignored/queue', isAuthenticated, async (req, res) => {
+  try {
+    const start = parseInt(req.query.start || '0', 10);
+    const length = parseInt(req.query.length || '25', 10);
+    const search = req.query.search || '';
+
+    const { docs, total } = await documentModel.getIgnoredDocumentsPaginated({
+      search,
+      limit: length,
+      offset: start
+    });
+
+    const paperlessUrl = await paperlessService.getPublicBaseUrl();
+
+    return res.json({
+      success: true,
+      data: docs,
+      recordsTotal: total,
+      recordsFiltered: total,
+      paperlessUrl
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /api/ignored/queue:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Add a document to the ignored list
+router.post('/api/ignored/add', isAuthenticated, async (req, res) => {
+  try {
+    const documentId = parseInt(req.body.documentId, 10);
+    if (isNaN(documentId)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+    }
+
+    const title = req.body.title || '';
+    const reason = req.body.reason || 'manual';
+
+    const added = await documentModel.addIgnoredDocument(documentId, title, reason);
+    return res.json({
+      success: true,
+      message: added
+        ? `Document ${documentId} added to ignored list.`
+        : `Document ${documentId} was already ignored.`
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/ignored/add:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Remove a document from the ignored list (unignore)
+router.delete('/api/ignored/:documentId', isAuthenticated, async (req, res) => {
+  try {
+    const documentId = parseInt(req.params.documentId, 10);
+    if (isNaN(documentId)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+    }
+
+    const removed = await documentModel.removeIgnoredDocument(documentId);
+    return res.json({
+      success: removed,
+      message: removed
+        ? `Document ${documentId} removed from ignored list. It can be scanned again.`
+        : `Document ${documentId} was not in ignored list.`
+    });
+  } catch (error) {
+    console.error('[ERROR] DELETE /api/ignored/:documentId:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Clear all ignored documents
+router.post('/api/ignored/clear-all', isAuthenticated, async (req, res) => {
+  try {
+    const count = await documentModel.clearAllIgnoredDocuments();
+    return res.json({
+      success: true,
+      count,
+      message: count > 0
+        ? `${count} ignored document${count === 1 ? '' : 's'} removed. They can be scanned again.`
+        : 'No ignored documents to remove.'
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/ignored/clear-all:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Move a failed document to the ignored list (atomic: add to ignored + remove from failed)
+router.post('/api/failed/ignore/:documentId', isAuthenticated, async (req, res) => {
+  try {
+    const documentId = parseInt(req.params.documentId, 10);
+    if (isNaN(documentId)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+    }
+
+    const failedDocs = await documentModel.getFailedDocumentsPaginated({ search: String(documentId), limit: 1, offset: 0 });
+    const failedDoc = failedDocs.docs.find(d => d.document_id === documentId);
+    const title = failedDoc?.title || '';
+
+    await documentModel.addIgnoredDocument(documentId, title, 'failed_document');
+    await documentModel.resetFailedDocument(documentId);
+    await documentModel.clearProcessingStatusByDocumentId(documentId);
+
+    return res.json({
+      success: true,
+      message: `Document ${documentId} moved to ignored list.`
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/failed/ignore/:documentId:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 /**
  * @swagger
