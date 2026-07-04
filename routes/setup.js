@@ -21,6 +21,7 @@ const cookieParser = require('cookie-parser');
 const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const customService = require('../services/customService.js');
 const mistralOcrService = require('../services/mistralOcrService');
+const quickstartService = require('../services/quickstartService');
 const reconciliationService = require('../services/reconciliationService');
 const { THUMBNAIL_CACHE_DIR, getThumbnailCachePath } = require('../services/thumbnailCachePaths');
 const config = require('../config/config.js');
@@ -3632,6 +3633,21 @@ async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey, setupOcrVal
   });
 }
 
+async function detectQuickstartForSetup({ baseUrl, apiKey, setupValidationTimeoutMs }) {
+  return setupService.withTemporaryValidationTimeout(setupValidationTimeoutMs, async () => {
+    const detection = await quickstartService.detectAndClassify({
+      baseUrl: String(baseUrl || '').trim(),
+      apiKey: String(apiKey || '').trim()
+    });
+
+    return {
+      success: true,
+      detection,
+      message: quickstartService.buildDetectionSummaryMessage(detection)
+    };
+  });
+}
+
 /**
  * @swagger
  * /setup:
@@ -4220,6 +4236,57 @@ router.post('/api/setup/ocr/models', express.json(), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/setup/quickstart/detect:
+ *   post:
+ *     summary: Auto-detect API flavor and classify models from a single base URL during setup
+ *     tags:
+ *       - Setup
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - baseUrl
+ *             properties:
+ *               baseUrl:
+ *                 type: string
+ *                 example: http://192.168.1.5:1234
+ *               apiKey:
+ *                 type: string
+ *               setupValidationTimeoutMs:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Detection result with classified models and suggestions
+ *       400:
+ *         description: Detection failed (unreachable URL, blocked URL, or no compatible API)
+ */
+router.post('/api/setup/quickstart/detect', express.json(), async (req, res) => {
+  try {
+    if (!(await ensureSetupOpenOrRespond(res))) {
+      return;
+    }
+
+    const result = await detectQuickstartForSetup({
+      baseUrl: req.body?.baseUrl,
+      apiKey: req.body?.apiKey,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/setup/quickstart/detect:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Quickstart detection failed.'
+    });
+  }
+});
+
 router.post('/api/settings/ocr/test', isAuthenticated, express.json(), async (req, res) => {
   try {
     const validation = await validateOcrConnectionForSetup({
@@ -4291,6 +4358,58 @@ router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (
     return res.status(400).json({
       success: false,
       error: error.message || 'Could not discover OCR models.'
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/settings/quickstart/detect:
+ *   post:
+ *     summary: Auto-detect API flavor and classify models from a single base URL
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - baseUrl
+ *             properties:
+ *               baseUrl:
+ *                 type: string
+ *                 example: http://192.168.1.5:1234
+ *               apiKey:
+ *                 type: string
+ *               setupValidationTimeoutMs:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Detection result with classified models and suggestions
+ *       400:
+ *         description: Detection failed (unreachable URL, blocked URL, or no compatible API)
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/api/settings/quickstart/detect', isAuthenticated, express.json(), async (req, res) => {
+  try {
+    const result = await detectQuickstartForSetup({
+      baseUrl: req.body?.baseUrl,
+      apiKey: req.body?.apiKey,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/settings/quickstart/detect:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Quickstart detection failed.'
     });
   }
 });

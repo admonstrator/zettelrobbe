@@ -44,6 +44,13 @@ class SetupWizard {
             tagNames: []
         };
 
+        this.quickstartState = {
+            mode: 'manual',
+            detected: false,
+            detection: null,
+            ocrApplied: false
+        };
+
         this.bindElements();
         this.initialize();
     }
@@ -100,6 +107,21 @@ class SetupWizard {
         this.testAiBtn = document.getElementById('testAiBtn');
         this.aiTestStatePill = document.getElementById('aiTestState');
 
+        this.aiModeQuickstartBtn = document.getElementById('aiModeQuickstartBtn');
+        this.aiModeManualBtn = document.getElementById('aiModeManualBtn');
+        this.aiQuickstartPanel = document.getElementById('aiQuickstartPanel');
+        this.aiManualPanel = document.getElementById('aiManualPanel');
+        this.quickstartBaseUrl = document.getElementById('quickstartBaseUrl');
+        this.quickstartApiKey = document.getElementById('quickstartApiKey');
+        this.quickstartDetectBtn = document.getElementById('quickstartDetectBtn');
+        this.quickstartDetectStatePill = document.getElementById('quickstartDetectState');
+        this.quickstartHint = document.getElementById('quickstartHint');
+        this.quickstartAiModel = document.getElementById('quickstartAiModel');
+        this.quickstartOcrModel = document.getElementById('quickstartOcrModel');
+        this.quickstartEnableOcr = document.getElementById('quickstartEnableOcr');
+        this.quickstartOcrHint = document.getElementById('quickstartOcrHint');
+        this.ocrQuickstartNotice = document.getElementById('ocrQuickstartNotice');
+
         this.mistralOcrEnabled = document.getElementById('mistralOcrEnabled');
         this.mistralFields = document.getElementById('mistralFields');
         this.ocrProvider = document.getElementById('ocrProvider');
@@ -128,6 +150,9 @@ class SetupWizard {
         this.updateMfaPanelVisibility();
         this.toggleIncludeTagField();
         this.toggleMistralFields();
+        // Fresh installs start in quickstart mode; existing configs open in
+        // manual mode so their loaded values stay visible.
+        this.setAiConfigMode(this.config.AI_PROVIDER ? 'manual' : 'quickstart');
         this.showStep(0);
     }
 
@@ -324,6 +349,25 @@ class SetupWizard {
                 const preset = this.presets.find((entry) => entry.id === this.aiPreset.value) || null;
                 this.applyPreset(preset);
             });
+        }
+
+        if (this.aiModeQuickstartBtn) {
+            this.aiModeQuickstartBtn.addEventListener('click', () => this.setAiConfigMode('quickstart'));
+        }
+        if (this.aiModeManualBtn) {
+            this.aiModeManualBtn.addEventListener('click', () => this.setAiConfigMode('manual'));
+        }
+        if (this.quickstartDetectBtn) {
+            this.quickstartDetectBtn.addEventListener('click', () => this.runQuickstartDetect());
+        }
+        if (this.quickstartAiModel) {
+            this.quickstartAiModel.addEventListener('change', () => this.applyQuickstartToManualFields());
+        }
+        if (this.quickstartOcrModel) {
+            this.quickstartOcrModel.addEventListener('change', () => this.applyQuickstartToManualFields());
+        }
+        if (this.quickstartEnableOcr) {
+            this.quickstartEnableOcr.addEventListener('change', () => this.applyQuickstartToManualFields());
         }
 
         this.mistralOcrEnabled.addEventListener('change', () => this.toggleMistralFields());
@@ -888,6 +932,153 @@ class SetupWizard {
         this.aiPresetHint.textContent = `Preset "${preset.label}" selected.${this.aiProvider.value === 'custom' ? ' Token can stay empty if your endpoint allows anonymous access.' : ''}`;
     }
 
+    setAiConfigMode(mode) {
+        const normalizedMode = mode === 'quickstart' ? 'quickstart' : 'manual';
+        this.quickstartState.mode = normalizedMode;
+
+        if (this.aiQuickstartPanel) {
+            this.aiQuickstartPanel.classList.toggle('hidden', normalizedMode !== 'quickstart');
+        }
+        if (this.aiManualPanel) {
+            this.aiManualPanel.classList.toggle('hidden', normalizedMode !== 'manual');
+        }
+        if (this.aiModeQuickstartBtn) {
+            this.aiModeQuickstartBtn.setAttribute('aria-pressed', normalizedMode === 'quickstart' ? 'true' : 'false');
+        }
+        if (this.aiModeManualBtn) {
+            this.aiModeManualBtn.setAttribute('aria-pressed', normalizedMode === 'manual' ? 'true' : 'false');
+        }
+    }
+
+    async runQuickstartDetect() {
+        const baseUrl = String(this.quickstartBaseUrl?.value || '').trim();
+        if (!baseUrl) {
+            await this.showPopup({ icon: 'warning', title: 'URL required', text: 'Enter the base URL of your AI server first.' });
+            return;
+        }
+
+        const payload = {
+            baseUrl,
+            apiKey: String(this.quickstartApiKey?.value || '').trim(),
+            setupValidationTimeoutMs: this.getAiValidationTimeoutMs()
+        };
+
+        this.setButtonLoading(this.quickstartDetectBtn, true, 'Detecting...');
+        this.setPillState(this.quickstartDetectStatePill, 'loading', 'Detecting...');
+
+        try {
+            const result = await this.request('/api/setup/quickstart/detect', payload);
+            const detection = result.detection || {};
+
+            this.quickstartState.detected = true;
+            this.quickstartState.detection = detection;
+
+            const textModels = Array.isArray(detection.textModels) ? detection.textModels : [];
+            const visionModels = Array.isArray(detection.visionModels) ? detection.visionModels : [];
+
+            this.setModelSelectOptions(this.quickstartAiModel, textModels, textModels.length > 0 ? 'Select AI model' : 'No text-capable models found');
+            this.quickstartAiModel.disabled = textModels.length === 0;
+            if (detection.suggestedAiModel) {
+                this.quickstartAiModel.value = detection.suggestedAiModel;
+            }
+
+            this.setModelSelectOptions(this.quickstartOcrModel, visionModels, visionModels.length > 0 ? 'Select OCR model' : 'No vision-capable models found');
+            this.quickstartOcrModel.disabled = visionModels.length === 0;
+            if (detection.suggestedOcrModel) {
+                this.quickstartOcrModel.value = detection.suggestedOcrModel;
+            }
+
+            const hasVisionModels = visionModels.length > 0;
+            this.quickstartEnableOcr.disabled = !hasVisionModels;
+            this.quickstartEnableOcr.checked = hasVisionModels;
+            if (this.quickstartOcrHint) {
+                this.quickstartOcrHint.classList.toggle('hidden', hasVisionModels);
+                this.quickstartOcrHint.textContent = hasVisionModels
+                    ? ''
+                    : 'No vision-capable model found — OCR fallback stays disabled.';
+            }
+
+            if (this.quickstartHint) {
+                this.quickstartHint.classList.remove('hidden');
+                this.quickstartHint.textContent = result.message || 'Detection complete.';
+            }
+
+            this.setPillState(this.quickstartDetectStatePill, 'success', 'Detected');
+            this.applyQuickstartToManualFields();
+        } catch (error) {
+            const errorDetails = this.getOperationErrorDetails('Quickstart detection', error, payload.setupValidationTimeoutMs);
+            this.quickstartState.detected = false;
+            this.quickstartState.detection = null;
+            this.setPillState(this.quickstartDetectStatePill, 'error', errorDetails.isTimeout ? 'Timeout reached' : 'Detection failed');
+            await this.showPopup({
+                icon: 'error',
+                title: errorDetails.isTimeout ? 'Detection timeout reached' : 'Detection failed',
+                text: errorDetails.message
+            });
+        } finally {
+            this.setButtonLoading(this.quickstartDetectBtn, false);
+        }
+    }
+
+    applyQuickstartToManualFields() {
+        const detection = this.quickstartState.detection;
+        if (!detection) {
+            return;
+        }
+
+        const selectedAiModel = String(this.quickstartAiModel?.value || '').trim();
+        const quickstartKey = String(this.quickstartApiKey?.value || '').trim();
+
+        const aiValuesChanged = this.aiProvider.value !== (detection.aiProvider || 'custom')
+            || this.aiApiUrl.value !== (detection.resolvedAiApiUrl || '')
+            || this.aiToken.value !== quickstartKey
+            || (selectedAiModel && this.aiModel.value !== selectedAiModel);
+
+        this.aiProvider.value = detection.aiProvider || 'custom';
+        this.aiApiUrl.value = detection.resolvedAiApiUrl || '';
+        this.aiToken.value = quickstartKey;
+        if (selectedAiModel) {
+            this.setModelSelectOptions(this.aiModel, [selectedAiModel], 'Select model');
+            this.aiModel.value = selectedAiModel;
+        }
+
+        // Changed values invalidate a previous AI connection test; an
+        // idempotent re-apply (e.g. during finalize re-validation) must not.
+        if (aiValuesChanged) {
+            this.aiTestState.ran = false;
+            this.aiTestState.success = false;
+            this.setPillState(this.aiTestStatePill, '', 'Not tested');
+        }
+
+        const enableOcr = Boolean(this.quickstartEnableOcr?.checked);
+        const selectedOcrModel = String(this.quickstartOcrModel?.value || '').trim();
+
+        if (enableOcr && selectedOcrModel) {
+            this.mistralOcrEnabled.value = 'yes';
+            this.ocrProvider.value = 'custom';
+            this.ocrApiUrl.value = detection.resolvedOcrApiUrl || '';
+            this.ocrApiKey.value = quickstartKey;
+            this.setModelSelectOptions(this.mistralOcrModel, [selectedOcrModel], 'Select OCR model');
+            this.mistralOcrModel.value = selectedOcrModel;
+            this.quickstartState.ocrApplied = true;
+
+            if (this.ocrQuickstartNotice) {
+                this.ocrQuickstartNotice.classList.remove('hidden');
+                this.ocrQuickstartNotice.textContent = `OCR was prefilled by Quickstart (model "${selectedOcrModel}" via ${detection.resolvedOcrApiUrl || 'detected endpoint'}). Adjust below if needed.`;
+            }
+        } else if (this.quickstartState.ocrApplied) {
+            // The user unchecked the OCR option after a previous apply.
+            this.mistralOcrEnabled.value = 'no';
+            this.quickstartState.ocrApplied = false;
+            if (this.ocrQuickstartNotice) {
+                this.ocrQuickstartNotice.classList.add('hidden');
+                this.ocrQuickstartNotice.textContent = '';
+            }
+        }
+
+        this.toggleMistralFields();
+    }
+
     fillDatalist(datalistElement, values) {
         if (!datalistElement) {
             return;
@@ -1166,6 +1357,21 @@ class SetupWizard {
             if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 120) {
                 await this.showPopup({ icon: 'warning', title: 'Invalid timeout', text: 'Timeout must be between 1 and 120 seconds.' });
                 return false;
+            }
+
+            if (this.quickstartState.mode === 'quickstart') {
+                if (!this.quickstartState.detected) {
+                    await this.showPopup({ icon: 'warning', title: 'Detection required', text: 'Run "Detect models" and choose an AI model first, or switch to manual configuration.' });
+                    return false;
+                }
+
+                if (!String(this.quickstartAiModel?.value || '').trim()) {
+                    await this.showPopup({ icon: 'warning', title: 'No AI model selected', text: 'No text-capable model is selected. Choose one or configure manually.' });
+                    return false;
+                }
+
+                // Re-sync the hidden fields before the shared checks below.
+                this.applyQuickstartToManualFields();
             }
 
             if (!this.aiModel.value.trim()) {

@@ -227,45 +227,96 @@
 
                 <section class="setup-step" data-step-index="4" data-step-title="AI credentials">
                     <h3 class="setup-section-title"><i class="fas fa-robot"></i> AI access credentials</h3>
-                    <p class="setup-section-help">Select a predefined provider preset and test credentials.</p>
+                    <p class="setup-section-help">Point Quickstart at a local AI server for automatic configuration, or configure a provider manually.</p>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        <div class="space-y-2 md:col-span-2">
-                            <label for="aiPreset" class="text-sm font-medium">Provider preset</label>
-                            <select id="aiPreset" class="setup-input"></select>
-                            <p id="aiPresetHint" class="setup-hint"></p>
+                    <div class="mt-4 flex gap-2" role="group" aria-label="AI configuration mode">
+                        <button type="button" id="aiModeQuickstartBtn" class="setup-btn setup-btn-secondary setup-mode-btn flex items-center gap-2" aria-pressed="false">
+                            <i class="fas fa-bolt"></i>
+                            <span>Quickstart (auto-detect)</span>
+                        </button>
+                        <button type="button" id="aiModeManualBtn" class="setup-btn setup-btn-secondary setup-mode-btn flex items-center gap-2" aria-pressed="false">
+                            <i class="fas fa-sliders"></i>
+                            <span>Manual configuration</span>
+                        </button>
+                    </div>
+
+                    <div id="aiQuickstartPanel" class="hidden space-y-4 mt-4">
+                        <div class="space-y-2">
+                            <label for="quickstartBaseUrl" class="text-sm font-medium">AI server URL</label>
+                            <input id="quickstartBaseUrl" type="text" class="setup-input" placeholder="http://192.168.1.5:1234 (LM Studio) or http://host:11434 (Ollama)">
+                            <p class="setup-hint">Enter the base URL of your LM Studio, Ollama, or OpenAI-compatible server.</p>
                         </div>
-                        <input id="aiProvider" type="hidden">
-                        <div class="space-y-2 md:col-span-2">
-                            <label for="aiApiUrl" class="text-sm font-medium">API URL</label>
-                            <input id="aiApiUrl" type="text" class="setup-input" required>
+                        <div class="space-y-2">
+                            <label for="quickstartApiKey" class="text-sm font-medium">API key (optional)</label>
+                            <input id="quickstartApiKey" type="password" class="setup-input" placeholder="Only needed if your endpoint requires a token">
                         </div>
-                        <div class="space-y-2 md:col-span-2">
-                            <label for="aiToken" class="text-sm font-medium">API key</label>
-                            <input id="aiToken" type="password" class="setup-input" placeholder="Enter token if required">
-                            <p class="setup-hint">For custom endpoints, this field can stay empty if the API does not require authentication.</p>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="button" id="quickstartDetectBtn" class="setup-btn setup-btn-warning flex items-center gap-2">
+                                <i class="fas fa-magnifying-glass"></i>
+                                <span>Detect models</span>
+                            </button>
+                            <span id="quickstartDetectState" class="setup-pill">Not detected</span>
                         </div>
-                        <div class="space-y-2 md:col-span-2">
-                            <label for="aiModel" class="text-sm font-medium">Model</label>
-                            <div class="flex flex-col sm:flex-row gap-2">
-                                <select id="aiModel" class="setup-input" required>
-                                    <option value="">Select a model</option>
-                                </select>
-                                <button type="button" id="fetchAiModelsBtn" class="setup-btn setup-btn-warning whitespace-nowrap flex items-center gap-2">
-                                    <i class="fas fa-list"></i>
-                                    <span>Fetch models</span>
-                                </button>
+                        <p id="quickstartHint" class="setup-hint hidden"></p>
+                        <div class="space-y-2">
+                            <label for="quickstartAiModel" class="text-sm font-medium">Suggested AI model</label>
+                            <select id="quickstartAiModel" class="setup-input" disabled>
+                                <option value="">Run detection first</option>
+                            </select>
+                        </div>
+                        <div class="space-y-2">
+                            <label for="quickstartOcrModel" class="text-sm font-medium">Suggested OCR model (vision-capable)</label>
+                            <select id="quickstartOcrModel" class="setup-input" disabled>
+                                <option value="">Run detection first</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input id="quickstartEnableOcr" type="checkbox" disabled>
+                            <label for="quickstartEnableOcr" class="text-sm font-medium">Also configure OCR fallback with this endpoint</label>
+                        </div>
+                        <p id="quickstartOcrHint" class="setup-hint hidden"></p>
+                    </div>
+
+                    <div id="aiManualPanel" class="hidden mt-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="space-y-2 md:col-span-2">
+                                <label for="aiPreset" class="text-sm font-medium">Provider preset</label>
+                                <select id="aiPreset" class="setup-input"></select>
+                                <p id="aiPresetHint" class="setup-hint"></p>
                             </div>
-                        </div>
-                        <div class="space-y-2 md:col-span-2">
-                            <label for="aiValidationTimeout" class="text-sm font-medium">Timeout</label>
-                            <div class="flex items-center gap-3">
-                                <input id="aiValidationTimeout" type="number" min="1" max="120" step="1" class="setup-input" value="30" required>
-                                <span class="setup-hint whitespace-nowrap">seconds</span>
+                            <div class="space-y-2 md:col-span-2">
+                                <label for="aiApiUrl" class="text-sm font-medium">API URL</label>
+                                <input id="aiApiUrl" type="text" class="setup-input" required>
                             </div>
-                            <p class="setup-hint">Used for model discovery and connection tests. Default: 30s.</p>
+                            <div class="space-y-2 md:col-span-2">
+                                <label for="aiToken" class="text-sm font-medium">API key</label>
+                                <input id="aiToken" type="password" class="setup-input" placeholder="Enter token if required">
+                                <p class="setup-hint">For custom endpoints, this field can stay empty if the API does not require authentication.</p>
+                            </div>
+                            <div class="space-y-2 md:col-span-2">
+                                <label for="aiModel" class="text-sm font-medium">Model</label>
+                                <div class="flex flex-col sm:flex-row gap-2">
+                                    <select id="aiModel" class="setup-input" required>
+                                        <option value="">Select a model</option>
+                                    </select>
+                                    <button type="button" id="fetchAiModelsBtn" class="setup-btn setup-btn-warning whitespace-nowrap flex items-center gap-2">
+                                        <i class="fas fa-list"></i>
+                                        <span>Fetch models</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="space-y-2 md:col-span-2">
+                                <label for="aiValidationTimeout" class="text-sm font-medium">Timeout</label>
+                                <div class="flex items-center gap-3">
+                                    <input id="aiValidationTimeout" type="number" min="1" max="120" step="1" class="setup-input" value="30" required>
+                                    <span class="setup-hint whitespace-nowrap">seconds</span>
+                                </div>
+                                <p class="setup-hint">Used for model discovery and connection tests. Default: 30s.</p>
+                            </div>
                         </div>
                     </div>
+
+                    <input id="aiProvider" type="hidden">
 
                     <div class="mt-4 flex flex-wrap items-center gap-3">
                         <button type="button" id="testAiBtn" class="setup-btn setup-btn-secondary">
@@ -279,6 +330,8 @@
                 <section class="setup-step" data-step-index="5" data-step-title="OCR fallback">
                     <h3 class="setup-section-title"><i class="fas fa-file-lines"></i> OCR fallback</h3>
                     <p class="setup-section-help">Configure OCR fallback for documents where AI extraction needs OCR assistance.</p>
+
+                    <div id="ocrQuickstartNotice" class="setup-notice setup-notice-success hidden mt-4"></div>
 
                     <div class="space-y-2 mt-4">
                         <label for="mistralOcrEnabled" class="text-sm font-medium">Enable OCR</label>

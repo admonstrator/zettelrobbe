@@ -895,7 +895,7 @@ function initializeFormHandlers() {
 
     const getOcrValidationTimeoutMs = () => {
         const rawSeconds = Number.parseInt(String(ocrValidationTimeoutInput?.value || '30').trim(), 10);
-        const normalizedSeconds = Number.isFinite(rawSeconds) ? Math.min(Math.max(rawSeconds, 1), 120) : 30;
+        const normalizedSeconds = Number.isFinite(rawSeconds) ? Math.min(Math.max(rawSeconds, 1), 7200) : 30;
         return normalizedSeconds * 1000;
     };
 
@@ -938,6 +938,157 @@ function initializeFormHandlers() {
         ocrEnabledSelect.addEventListener('change', () => {
             toggleOcrFields();
             setOcrTestPill('default', 'Not tested');
+        });
+    }
+
+    const quickstartUrlInput = document.getElementById('settingsQuickstartUrl');
+    const quickstartApiKeyInput = document.getElementById('settingsQuickstartApiKey');
+    const quickstartDetectBtn = document.getElementById('settingsQuickstartDetectBtn');
+    const quickstartStateLabel = document.getElementById('settingsQuickstartState');
+    const quickstartResults = document.getElementById('settingsQuickstartResults');
+    const quickstartHint = document.getElementById('settingsQuickstartHint');
+    const quickstartAiModelSelect = document.getElementById('settingsQuickstartAiModel');
+    const quickstartOcrModelSelect = document.getElementById('settingsQuickstartOcrModel');
+    const quickstartEnableOcrCheckbox = document.getElementById('settingsQuickstartEnableOcr');
+    const quickstartApplyBtn = document.getElementById('settingsQuickstartApplyBtn');
+    const quickstartApplyHint = document.getElementById('settingsQuickstartApplyHint');
+    let quickstartDetection = null;
+
+    if (quickstartDetectBtn) {
+        quickstartDetectBtn.addEventListener('click', async () => {
+            const baseUrl = String(quickstartUrlInput?.value || '').trim();
+            if (!baseUrl) {
+                await Swal.fire({ icon: 'warning', title: 'URL required', text: 'Enter the base URL of your AI server first.' });
+                return;
+            }
+
+            setButtonLoading(quickstartDetectBtn, true, 'Detecting...');
+            if (quickstartStateLabel) {
+                quickstartStateLabel.textContent = 'Detecting...';
+            }
+
+            try {
+                const response = await fetch('/api/settings/quickstart/detect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        baseUrl,
+                        apiKey: String(quickstartApiKeyInput?.value || '').trim()
+                    })
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) {
+                    throw new Error(result.error || result.message || 'Quickstart detection failed');
+                }
+
+                quickstartDetection = result.detection || null;
+                const textModels = Array.isArray(quickstartDetection?.textModels) ? quickstartDetection.textModels : [];
+                const visionModels = Array.isArray(quickstartDetection?.visionModels) ? quickstartDetection.visionModels : [];
+
+                populateModelSelect(quickstartAiModelSelect, textModels, textModels.length > 0 ? 'Select AI model' : 'No text-capable models found');
+                if (quickstartDetection?.suggestedAiModel && quickstartAiModelSelect) {
+                    quickstartAiModelSelect.value = quickstartDetection.suggestedAiModel;
+                }
+
+                populateModelSelect(quickstartOcrModelSelect, visionModels, visionModels.length > 0 ? 'Select OCR model' : 'No vision-capable models found');
+                if (quickstartDetection?.suggestedOcrModel && quickstartOcrModelSelect) {
+                    quickstartOcrModelSelect.value = quickstartDetection.suggestedOcrModel;
+                }
+
+                if (quickstartEnableOcrCheckbox) {
+                    quickstartEnableOcrCheckbox.disabled = visionModels.length === 0;
+                    quickstartEnableOcrCheckbox.checked = visionModels.length > 0;
+                }
+
+                if (quickstartHint) {
+                    quickstartHint.textContent = result.message || 'Detection complete.';
+                }
+                if (quickstartResults) {
+                    quickstartResults.classList.remove('hidden');
+                }
+                if (quickstartStateLabel) {
+                    quickstartStateLabel.textContent = 'Detected';
+                }
+                if (quickstartApplyHint) {
+                    quickstartApplyHint.textContent = '';
+                }
+            } catch (error) {
+                quickstartDetection = null;
+                if (quickstartResults) {
+                    quickstartResults.classList.add('hidden');
+                }
+                if (quickstartStateLabel) {
+                    quickstartStateLabel.textContent = 'Detection failed';
+                }
+                const errorDetails = getTimeoutAwareErrorDetails('Quickstart detection', error, null);
+                await Swal.fire({
+                    icon: 'error',
+                    title: errorDetails.isTimeout ? 'Detection timeout reached' : 'Detection failed',
+                    text: errorDetails.message
+                });
+            } finally {
+                setButtonLoading(quickstartDetectBtn, false);
+            }
+        });
+    }
+
+    if (quickstartApplyBtn) {
+        quickstartApplyBtn.addEventListener('click', async () => {
+            if (!quickstartDetection) {
+                await Swal.fire({ icon: 'warning', title: 'Detection required', text: 'Run detection first.' });
+                return;
+            }
+
+            const selectedAiModel = String(quickstartAiModelSelect?.value || '').trim();
+            if (!selectedAiModel) {
+                await Swal.fire({ icon: 'warning', title: 'No AI model selected', text: 'Choose an AI model before applying.' });
+                return;
+            }
+
+            const detectedProvider = quickstartDetection.aiProvider === 'ollama' ? 'ollama' : 'custom';
+            const quickstartKey = String(quickstartApiKeyInput?.value || '').trim();
+
+            if (aiProviderSelect) {
+                aiProviderSelect.value = detectedProvider;
+                aiProviderSelect.dispatchEvent(new Event('change'));
+            }
+
+            if (detectedProvider === 'ollama') {
+                if (ollamaUrlInput) ollamaUrlInput.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
+                populateModelSelect(ollamaModelInput, [selectedAiModel], 'Select Ollama model');
+                if (ollamaModelInput) ollamaModelInput.value = selectedAiModel;
+            } else {
+                if (customBaseUrlInput) customBaseUrlInput.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
+                if (customApiKeyInput) customApiKeyInput.value = quickstartKey;
+                populateModelSelect(customModelInput, [selectedAiModel], 'Select custom model');
+                if (customModelInput) customModelInput.value = selectedAiModel;
+            }
+
+            const applyOcr = Boolean(quickstartEnableOcrCheckbox?.checked);
+            const selectedOcrModel = String(quickstartOcrModelSelect?.value || '').trim();
+            let appliedOcr = false;
+
+            if (applyOcr && selectedOcrModel) {
+                if (ocrEnabledSelect) ocrEnabledSelect.value = 'yes';
+                if (ocrProviderSelect) ocrProviderSelect.value = 'custom';
+                if (ocrApiUrlInput) ocrApiUrlInput.value = String(quickstartDetection.resolvedOcrApiUrl || '').trim();
+                if (ocrApiKeyInput) ocrApiKeyInput.value = quickstartKey;
+                if (ocrModelInput) {
+                    populateModelSelect(ocrModelInput, [selectedOcrModel], 'Select OCR model');
+                    ocrModelInput.value = selectedOcrModel;
+                }
+                toggleOcrFields();
+                setOcrTestPill('default', 'Not tested');
+                appliedOcr = true;
+            }
+
+            refreshAiPresetSelection();
+
+            if (quickstartApplyHint) {
+                quickstartApplyHint.textContent = appliedOcr
+                    ? 'AI and OCR fields were prefilled — review the OCR tab, then save.'
+                    : 'AI fields were prefilled — review, then save.';
+            }
         });
     }
 

@@ -2589,6 +2589,99 @@
         }
       }
     },
+    "/api/setup/quickstart/detect": {
+      "post": {
+        "summary": "Auto-detect API flavor and classify models from a single base URL during setup",
+        "tags": [
+          "Setup"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "baseUrl"
+                ],
+                "properties": {
+                  "baseUrl": {
+                    "type": "string",
+                    "example": "http://192.168.1.5:1234"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  },
+                  "setupValidationTimeoutMs": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Detection result with classified models and suggestions"
+          },
+          "400": {
+            "description": "Detection failed (unreachable URL, blocked URL, or no compatible API)"
+          }
+        }
+      }
+    },
+    "/api/settings/quickstart/detect": {
+      "post": {
+        "summary": "Auto-detect API flavor and classify models from a single base URL",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "baseUrl"
+                ],
+                "properties": {
+                  "baseUrl": {
+                    "type": "string",
+                    "example": "http://192.168.1.5:1234"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  },
+                  "setupValidationTimeoutMs": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Detection result with classified models and suggestions"
+          },
+          "400": {
+            "description": "Detection failed (unreachable URL, blocked URL, or no compatible API)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/api/setup/complete": {
       "post": {
         "summary": "Finalize initial setup, persist env config, and trigger restart",
@@ -4373,6 +4466,37 @@
         "responses": {
           "200": {
             "description": "Failed queue page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/ignored": {
+      "get": {
+        "summary": "Permanently ignored documents page",
+        "tags": [
+          "Navigation"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ignored queue page rendered successfully",
             "content": {
               "text/html": {
                 "schema": {
