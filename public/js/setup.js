@@ -217,7 +217,7 @@ class SetupWizard {
 
     getNormalizedTimeoutSeconds(rawValue, fallbackMs = 30000) {
         const parsed = Number.parseInt(String(rawValue || '').trim(), 10);
-        const normalizedMs = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1000), 120000) : fallbackMs;
+        const normalizedMs = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1000), 7200000) : fallbackMs;
         return String(Math.round(normalizedMs / 1000));
     }
 
@@ -233,7 +233,7 @@ class SetupWizard {
 
     getTimeoutMs(inputElement, fallbackSeconds = 30) {
         const rawSeconds = Number.parseInt(String(inputElement?.value || String(fallbackSeconds)).trim(), 10);
-        const normalizedSeconds = Number.isFinite(rawSeconds) ? Math.min(Math.max(rawSeconds, 1), 120) : 30;
+        const normalizedSeconds = Number.isFinite(rawSeconds) ? Math.min(Math.max(rawSeconds, 1), 7200) : 30;
         return normalizedSeconds * 1000;
     }
 

@@ -49,6 +49,12 @@ class MistralOcrService {
     return config.mistralOcr?.enabled === 'yes';
   }
 
+  get ocrTimeoutMs() {
+    const raw = process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS || '120000';
+    const parsed = Number.parseInt(String(raw).trim(), 10);
+    return Number.isFinite(parsed) && parsed >= 1000 ? parsed : 120000;
+  }
+
   isDocumentActivelyProcessing(documentId) {
     const normalizedDocumentId = Number(documentId);
     return Number.isInteger(normalizedDocumentId) && this.activeDocumentIds.has(normalizedDocumentId);
@@ -137,12 +143,12 @@ class MistralOcrService {
             'Authorization': `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json'
           },
-          timeout: 120000 // 2 minute timeout for large documents
+          timeout: this.ocrTimeoutMs
         }
       );
     } catch (error) {
       if (isTimeoutError(error)) {
-        const timeoutMessage = buildTimeoutErrorMessage('OCR', 120000);
+        const timeoutMessage = buildTimeoutErrorMessage('OCR', this.ocrTimeoutMs);
         console.error(`[TIMEOUT][OCR] Mistral OCR request timed out: ${error.message}`);
         throw new Error(timeoutMessage);
       }
@@ -186,6 +192,7 @@ class MistralOcrService {
       }
       : {};
 
+    const ocrTimeoutMs = this.ocrTimeoutMs;
     const runOpenAiLikeRequest = async (targetApiUrl, imageUrlValue) => axios.post(
       `${targetApiUrl}/chat/completions`,
       {
@@ -214,7 +221,7 @@ class MistralOcrService {
           'Content-Type': 'application/json',
           ...authHeaders
         },
-        timeout: 120000
+        timeout: ocrTimeoutMs
       }
     );
 
@@ -262,7 +269,7 @@ class MistralOcrService {
             'Content-Type': 'application/json',
             ...authHeaders
           },
-          timeout: 120000
+          timeout: ocrTimeoutMs
         }
       );
 
@@ -301,7 +308,7 @@ class MistralOcrService {
       } catch (error) {
         if (isTimeoutError(error)) {
           console.error(`[TIMEOUT][OCR] Local OCR request timed out: ${error.message}`);
-          lastError = new Error(buildTimeoutErrorMessage('OCR', 120000));
+          lastError = new Error(buildTimeoutErrorMessage('OCR', ocrTimeoutMs));
           continue;
         }
         lastError = error;
