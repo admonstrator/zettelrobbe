@@ -23,4 +23,8 @@ module.exports = {
     'Fix: OCR timeout',
     'Fix: Document handling for re-tagged documents',
   ],
+  version: 'v2026.07.02',
+  entries: [
+    'New: Quickstart AI setup routine for AI / OCR',
+  ],
 };
