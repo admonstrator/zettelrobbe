@@ -3580,6 +3580,32 @@ async function discoverAiModelsForSetup({ aiProvider, apiUrl, token, setupValida
     const normalizedApiUrl = String(apiUrl || '').trim();
     const normalizedToken = String(token || '').trim();
 
+    // For local providers, classify models via quickstart detection so
+    // embedding-only models are excluded from the AI model dropdown.
+    if (['custom', 'ollama'].includes(provider) && normalizedApiUrl) {
+      try {
+        const classification = await quickstartService.detectAndClassify({
+          baseUrl: normalizedApiUrl,
+          apiKey: normalizedToken
+        });
+
+        if (classification.textModels.length > 0) {
+          const excludedCount = classification.models.length - classification.textModels.length;
+          return {
+            success: true,
+            models: classification.textModels,
+            resolvedApiUrl: classification.resolvedAiApiUrl,
+            message: excludedCount > 0
+              ? `Discovered ${classification.textModels.length} model(s) (${excludedCount} embedding-only model(s) excluded).`
+              : `Discovered ${classification.textModels.length} model(s).`
+          };
+        }
+      } catch {
+        // Classification probe failed; fall through to the legacy unfiltered
+        // discovery below so existing setups keep working.
+      }
+    }
+
     const detection = await setupService.detectAiApiUrlForSetup({
       provider,
       apiUrl: normalizedApiUrl,
@@ -3609,6 +3635,44 @@ async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey, setupOcrVal
     const normalizedProvider = String(provider || 'mistral').trim().toLowerCase();
     const normalizedApiUrl = String(apiUrl || '').trim();
     const normalizedApiKey = String(apiKey || '').trim();
+
+    // For local providers, classify models via quickstart detection so the
+    // OCR dropdown only offers vision-capable models (metadata-first via
+    // LM Studio /api/v0/models or Ollama /api/show, heuristics otherwise).
+    if (['custom', 'ollama'].includes(normalizedProvider) && normalizedApiUrl) {
+      try {
+        const classification = await quickstartService.detectAndClassify({
+          baseUrl: normalizedApiUrl,
+          apiKey: normalizedApiKey
+        });
+
+        if (classification.visionModels.length > 0) {
+          return {
+            success: true,
+            models: classification.visionModels,
+            resolvedApiUrl: classification.resolvedOcrApiUrl,
+            message: `Discovered ${classification.visionModels.length} vision-capable OCR model(s) out of ${classification.models.length} total.`
+          };
+        }
+
+        // Nothing classified as vision-capable: fall back to the full list so
+        // the user can still pick manually (classification may be incomplete
+        // for generic endpoints without model metadata).
+        const allModels = classification.models.map((model) => model.id);
+        return {
+          success: true,
+          models: allModels,
+          resolvedApiUrl: classification.resolvedOcrApiUrl,
+          message: allModels.length > 0
+            ? `No vision-capable models detected; showing all ${allModels.length} model(s). OCR requires a vision model.`
+            : 'No OCR models discovered for this provider.'
+        };
+      } catch {
+        // Classification probe failed; fall through to the legacy unfiltered
+        // discovery below so existing setups keep working.
+      }
+    }
+
     const detection = await setupService.detectOcrApiUrlForSetup({
       provider: normalizedProvider,
       apiUrl: normalizedApiUrl,
@@ -4283,6 +4347,63 @@ router.post('/api/setup/quickstart/detect', express.json(), async (req, res) => 
     return res.status(400).json({
       success: false,
       error: error.message || 'Quickstart detection failed.'
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/settings/ai/test:
+ *   post:
+ *     summary: Test AI provider connectivity from the settings page
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - aiProvider
+ *             properties:
+ *               aiProvider:
+ *                 type: string
+ *                 enum: [openai, ollama, custom, azure]
+ *               apiUrl:
+ *                 type: string
+ *               token:
+ *                 type: string
+ *               model:
+ *                 type: string
+ *               setupValidationTimeoutMs:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: AI connectivity result returned
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/api/settings/ai/test', isAuthenticated, express.json(), async (req, res) => {
+  try {
+    const validation = await validateAiConnectionForSetup({
+      aiProvider: req.body?.aiProvider,
+      apiUrl: req.body?.apiUrl,
+      token: req.body?.token,
+      model: req.body?.model,
+      azureApiVersion: req.body?.azureApiVersion,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+    });
+
+    return res.json(validation);
+  } catch (error) {
+    console.error('[ERROR] POST /api/settings/ai/test:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Could not test AI connection.'
     });
   }
 });

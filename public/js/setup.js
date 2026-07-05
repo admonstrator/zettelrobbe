@@ -120,6 +120,8 @@ class SetupWizard {
         this.quickstartOcrModel = document.getElementById('quickstartOcrModel');
         this.quickstartEnableOcr = document.getElementById('quickstartEnableOcr');
         this.quickstartOcrHint = document.getElementById('quickstartOcrHint');
+        this.quickstartSaveRow = document.getElementById('quickstartSaveRow');
+        this.quickstartSaveBtn = document.getElementById('quickstartSaveBtn');
         this.ocrQuickstartNotice = document.getElementById('ocrQuickstartNotice');
 
         this.mistralOcrEnabled = document.getElementById('mistralOcrEnabled');
@@ -368,6 +370,9 @@ class SetupWizard {
         }
         if (this.quickstartEnableOcr) {
             this.quickstartEnableOcr.addEventListener('change', () => this.applyQuickstartToManualFields());
+        }
+        if (this.quickstartSaveBtn) {
+            this.quickstartSaveBtn.addEventListener('click', () => this.runQuickstartSaveFlow());
         }
 
         this.mistralOcrEnabled.addEventListener('change', () => this.toggleMistralFields());
@@ -1004,11 +1009,17 @@ class SetupWizard {
             }
 
             this.setPillState(this.quickstartDetectStatePill, 'success', 'Detected');
+            if (this.quickstartSaveRow) {
+                this.quickstartSaveRow.classList.toggle('hidden', textModels.length === 0);
+            }
             this.applyQuickstartToManualFields();
         } catch (error) {
             const errorDetails = this.getOperationErrorDetails('Quickstart detection', error, payload.setupValidationTimeoutMs);
             this.quickstartState.detected = false;
             this.quickstartState.detection = null;
+            if (this.quickstartSaveRow) {
+                this.quickstartSaveRow.classList.add('hidden');
+            }
             this.setPillState(this.quickstartDetectStatePill, 'error', errorDetails.isTimeout ? 'Timeout reached' : 'Detection failed');
             await this.showPopup({
                 icon: 'error',
@@ -1077,6 +1088,168 @@ class SetupWizard {
         }
 
         this.toggleMistralFields();
+    }
+
+    setModelTestRowState(rowId, state, text) {
+        const row = document.getElementById(rowId);
+        if (!row) {
+            return;
+        }
+
+        const iconPresets = {
+            pending: { className: 'fas fa-spinner fa-spin', color: '' },
+            success: { className: 'fas fa-circle-check', color: '#16a34a' },
+            error: { className: 'fas fa-circle-xmark', color: '#dc2626' },
+            skipped: { className: 'fas fa-circle-minus', color: '#94a3b8' }
+        };
+        const preset = iconPresets[state] || iconPresets.pending;
+
+        row.innerHTML = '';
+        const icon = document.createElement('i');
+        icon.className = preset.className;
+        if (preset.color) {
+            icon.style.color = preset.color;
+        }
+        row.appendChild(icon);
+        row.appendChild(document.createTextNode(` ${text}`));
+    }
+
+    toggleModelTestOverlay(visible, statusText = '') {
+        const overlay = document.getElementById('modelTestOverlay');
+        if (overlay) {
+            overlay.classList.toggle('hidden', !visible);
+        }
+
+        const status = document.getElementById('modelTestOverlayStatus');
+        if (status && statusText) {
+            status.textContent = statusText;
+        }
+    }
+
+    async runSilentAiTest() {
+        const payload = {
+            aiProvider: this.aiProvider.value.trim().toLowerCase(),
+            apiUrl: this.aiApiUrl.value.trim(),
+            token: this.aiToken.value.trim(),
+            model: this.aiModel.value.trim(),
+            setupValidationTimeoutMs: this.getAiValidationTimeoutMs()
+        };
+
+        try {
+            const result = await this.request('/api/setup/ai/test', payload);
+            this.aiTestState.ran = true;
+            this.aiTestState.success = Boolean(result.success);
+
+            if (result.resolvedApiUrl && this.aiApiUrl) {
+                this.aiApiUrl.value = String(result.resolvedApiUrl).trim();
+            }
+
+            this.setPillState(this.aiTestStatePill, result.success ? 'success' : 'error', result.success ? 'Connection valid' : 'Test failed');
+            return { success: Boolean(result.success), message: result.message || '' };
+        } catch (error) {
+            const errorDetails = this.getOperationErrorDetails('AI response', error, payload.setupValidationTimeoutMs);
+            this.aiTestState.ran = true;
+            this.aiTestState.success = false;
+            this.setPillState(this.aiTestStatePill, 'error', errorDetails.isTimeout ? 'Timeout reached' : 'Test failed');
+            return { success: false, message: errorDetails.message };
+        }
+    }
+
+    async runSilentOcrTest() {
+        const payload = {
+            enabled: this.mistralOcrEnabled.value === 'yes',
+            provider: (this.ocrProvider.value || 'mistral').toLowerCase(),
+            apiUrl: this.normalizeOcrApiUrlForProvider(this.ocrProvider.value, this.ocrApiUrl.value),
+            apiKey: this.ocrApiKey.value.trim(),
+            model: this.mistralOcrModel.value.trim() || 'mistral-ocr-latest',
+            setupOcrValidationTimeoutMs: this.getOcrValidationTimeoutMs()
+        };
+
+        try {
+            const result = await this.request('/api/setup/ocr/test', payload);
+            this.ocrTestState.ran = true;
+            this.ocrTestState.success = Boolean(result.success);
+
+            if (result.resolvedApiUrl && this.ocrApiUrl) {
+                this.ocrApiUrl.value = String(result.resolvedApiUrl).trim();
+            }
+
+            this.setPillState(this.ocrTestStatePill, result.success ? 'success' : 'error', result.success ? 'Connection valid' : 'Test failed');
+            return { success: Boolean(result.success), message: result.message || '' };
+        } catch (error) {
+            const errorDetails = this.getOperationErrorDetails('OCR response', error, payload.setupOcrValidationTimeoutMs);
+            this.ocrTestState.ran = true;
+            this.ocrTestState.success = false;
+            this.setPillState(this.ocrTestStatePill, 'error', errorDetails.isTimeout ? 'Timeout reached' : 'Test failed');
+            return { success: false, message: errorDetails.message };
+        }
+    }
+
+    async runQuickstartSaveFlow() {
+        if (this.quickstartState.mode !== 'quickstart' || !this.quickstartState.detected) {
+            await this.showPopup({ icon: 'warning', title: 'Detection required', text: 'Run "Detect models" first.' });
+            return;
+        }
+
+        const aiModel = String(this.quickstartAiModel?.value || '').trim();
+        if (!aiModel) {
+            await this.showPopup({ icon: 'warning', title: 'No AI model selected', text: 'Choose an AI model first.' });
+            return;
+        }
+
+        this.applyQuickstartToManualFields();
+
+        const ocrEnabled = this.mistralOcrEnabled.value === 'yes';
+        const ocrModel = String(this.mistralOcrModel?.value || '').trim();
+
+        this.setModelTestRowState('modelTestAiRow', 'pending', `AI model "${aiModel}": testing...`);
+        this.setModelTestRowState(
+            'modelTestOcrRow',
+            ocrEnabled ? 'pending' : 'skipped',
+            ocrEnabled ? `OCR model "${ocrModel}": waiting...` : 'OCR fallback disabled — test skipped.'
+        );
+        this.toggleModelTestOverlay(true, 'Validating the selected models against your AI server…');
+
+        const aiResult = await this.runSilentAiTest();
+        this.setModelTestRowState(
+            'modelTestAiRow',
+            aiResult.success ? 'success' : 'error',
+            aiResult.success ? `AI model "${aiModel}": connection valid` : `AI model "${aiModel}": test failed`
+        );
+
+        let ocrResult = { success: true, message: '' };
+        if (ocrEnabled) {
+            this.setModelTestRowState('modelTestOcrRow', 'pending', `OCR model "${ocrModel}": testing...`);
+            ocrResult = await this.runSilentOcrTest();
+            this.setModelTestRowState(
+                'modelTestOcrRow',
+                ocrResult.success ? 'success' : 'error',
+                ocrResult.success ? `OCR model "${ocrModel}": connection valid` : `OCR model "${ocrModel}": test failed`
+            );
+        }
+
+        // Keep the final row states visible for a moment before moving on.
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        this.toggleModelTestOverlay(false);
+
+        if (!aiResult.success || !ocrResult.success) {
+            const failures = [];
+            if (!aiResult.success) {
+                failures.push(`AI model "${aiModel}": ${aiResult.message || 'test failed'}`);
+            }
+            if (!ocrResult.success) {
+                failures.push(`OCR model "${ocrModel}": ${ocrResult.message || 'test failed'}`);
+            }
+
+            await this.showPopup({
+                icon: 'error',
+                title: 'Model test failed',
+                text: `${failures.join('\n')}\n\nAdjust the model selection and try again.`
+            });
+            return;
+        }
+
+        await this.finalizeSetup({ skipConfirm: true });
     }
 
     fillDatalist(datalistElement, values) {
@@ -1530,7 +1703,7 @@ class SetupWizard {
         };
     }
 
-    async finalizeSetup() {
+    async finalizeSetup(options = {}) {
         const validations = [];
         for (let index = 0; index <= 5; index += 1) {
             // eslint-disable-next-line no-await-in-loop
@@ -1548,17 +1721,20 @@ class SetupWizard {
 
         this.renderEnvPreview();
 
-        const confirm = await this.showPopup({
-            icon: 'question',
-            title: 'Finalize setup?',
-            text: 'This writes your .env configuration and restarts the container.',
-            showCancelButton: true,
-            confirmButtonText: 'Finalize now',
-            cancelButtonText: 'Cancel'
-        });
+        // Quickstart save flow already confirmed intent via its own button.
+        if (!options.skipConfirm) {
+            const confirm = await this.showPopup({
+                icon: 'question',
+                title: 'Finalize setup?',
+                text: 'This writes your .env configuration and restarts the container.',
+                showCancelButton: true,
+                confirmButtonText: 'Finalize now',
+                cancelButtonText: 'Cancel'
+            });
 
-        if (!confirm.isConfirmed) {
-            return;
+            if (!confirm.isConfirmed) {
+                return;
+            }
         }
 
         this.setButtonLoading(this.finalizeSetupBtn, true, 'Finalizing...');

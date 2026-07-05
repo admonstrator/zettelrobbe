@@ -275,6 +275,13 @@
                             <label for="quickstartEnableOcr" class="text-sm font-medium">Also configure OCR fallback with this endpoint</label>
                         </div>
                         <p id="quickstartOcrHint" class="setup-hint hidden"></p>
+                        <div class="flex flex-wrap items-center gap-3 hidden" id="quickstartSaveRow">
+                            <button type="button" id="quickstartSaveBtn" class="setup-btn setup-btn-primary flex items-center gap-2">
+                                <i class="fas fa-floppy-disk"></i>
+                                <span>Test models &amp; finish setup</span>
+                            </button>
+                            <span class="setup-hint">Tests the selected models, then saves and restarts.</span>
+                        </div>
                     </div>
 
                     <div id="aiManualPanel" class="hidden mt-4">
@@ -422,6 +429,8 @@
             </form>
         </section>
     </main>
+
+    <%- include('partials/model-test-overlay') %>
 
     <script>
         window.__SETUP_BOOTSTRAP__ = <%- JSON.stringify({

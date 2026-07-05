@@ -1032,62 +1032,212 @@ function initializeFormHandlers() {
         });
     }
 
+    const applyQuickstartDetectionToForm = async () => {
+        if (!quickstartDetection) {
+            await Swal.fire({ icon: 'warning', title: 'Detection required', text: 'Run detection first.' });
+            return null;
+        }
+
+        const selectedAiModel = String(quickstartAiModelSelect?.value || '').trim();
+        if (!selectedAiModel) {
+            await Swal.fire({ icon: 'warning', title: 'No AI model selected', text: 'Choose an AI model before applying.' });
+            return null;
+        }
+
+        const detectedProvider = quickstartDetection.aiProvider === 'ollama' ? 'ollama' : 'custom';
+        const quickstartKey = String(quickstartApiKeyInput?.value || '').trim();
+
+        if (aiProviderSelect) {
+            aiProviderSelect.value = detectedProvider;
+            aiProviderSelect.dispatchEvent(new Event('change'));
+        }
+
+        if (detectedProvider === 'ollama') {
+            if (ollamaUrlInput) ollamaUrlInput.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
+            populateModelSelect(ollamaModelInput, [selectedAiModel], 'Select Ollama model');
+            if (ollamaModelInput) ollamaModelInput.value = selectedAiModel;
+        } else {
+            if (customBaseUrlInput) customBaseUrlInput.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
+            if (customApiKeyInput) customApiKeyInput.value = quickstartKey;
+            populateModelSelect(customModelInput, [selectedAiModel], 'Select custom model');
+            if (customModelInput) customModelInput.value = selectedAiModel;
+        }
+
+        const applyOcr = Boolean(quickstartEnableOcrCheckbox?.checked);
+        const selectedOcrModel = String(quickstartOcrModelSelect?.value || '').trim();
+        let appliedOcr = false;
+
+        if (applyOcr && selectedOcrModel) {
+            if (ocrEnabledSelect) ocrEnabledSelect.value = 'yes';
+            if (ocrProviderSelect) ocrProviderSelect.value = 'custom';
+            if (ocrApiUrlInput) ocrApiUrlInput.value = String(quickstartDetection.resolvedOcrApiUrl || '').trim();
+            if (ocrApiKeyInput) ocrApiKeyInput.value = quickstartKey;
+            if (ocrModelInput) {
+                populateModelSelect(ocrModelInput, [selectedOcrModel], 'Select OCR model');
+                ocrModelInput.value = selectedOcrModel;
+            }
+            toggleOcrFields();
+            setOcrTestPill('default', 'Not tested');
+            appliedOcr = true;
+        }
+
+        refreshAiPresetSelection();
+
+        return {
+            provider: detectedProvider,
+            aiApiUrl: String(quickstartDetection.resolvedAiApiUrl || '').trim(),
+            aiModel: selectedAiModel,
+            apiKey: quickstartKey,
+            appliedOcr,
+            ocrApiUrl: String(quickstartDetection.resolvedOcrApiUrl || '').trim(),
+            ocrModel: selectedOcrModel
+        };
+    };
+
     if (quickstartApplyBtn) {
         quickstartApplyBtn.addEventListener('click', async () => {
-            if (!quickstartDetection) {
-                await Swal.fire({ icon: 'warning', title: 'Detection required', text: 'Run detection first.' });
+            const applied = await applyQuickstartDetectionToForm();
+            if (!applied) {
                 return;
             }
-
-            const selectedAiModel = String(quickstartAiModelSelect?.value || '').trim();
-            if (!selectedAiModel) {
-                await Swal.fire({ icon: 'warning', title: 'No AI model selected', text: 'Choose an AI model before applying.' });
-                return;
-            }
-
-            const detectedProvider = quickstartDetection.aiProvider === 'ollama' ? 'ollama' : 'custom';
-            const quickstartKey = String(quickstartApiKeyInput?.value || '').trim();
-
-            if (aiProviderSelect) {
-                aiProviderSelect.value = detectedProvider;
-                aiProviderSelect.dispatchEvent(new Event('change'));
-            }
-
-            if (detectedProvider === 'ollama') {
-                if (ollamaUrlInput) ollamaUrlInput.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
-                populateModelSelect(ollamaModelInput, [selectedAiModel], 'Select Ollama model');
-                if (ollamaModelInput) ollamaModelInput.value = selectedAiModel;
-            } else {
-                if (customBaseUrlInput) customBaseUrlInput.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
-                if (customApiKeyInput) customApiKeyInput.value = quickstartKey;
-                populateModelSelect(customModelInput, [selectedAiModel], 'Select custom model');
-                if (customModelInput) customModelInput.value = selectedAiModel;
-            }
-
-            const applyOcr = Boolean(quickstartEnableOcrCheckbox?.checked);
-            const selectedOcrModel = String(quickstartOcrModelSelect?.value || '').trim();
-            let appliedOcr = false;
-
-            if (applyOcr && selectedOcrModel) {
-                if (ocrEnabledSelect) ocrEnabledSelect.value = 'yes';
-                if (ocrProviderSelect) ocrProviderSelect.value = 'custom';
-                if (ocrApiUrlInput) ocrApiUrlInput.value = String(quickstartDetection.resolvedOcrApiUrl || '').trim();
-                if (ocrApiKeyInput) ocrApiKeyInput.value = quickstartKey;
-                if (ocrModelInput) {
-                    populateModelSelect(ocrModelInput, [selectedOcrModel], 'Select OCR model');
-                    ocrModelInput.value = selectedOcrModel;
-                }
-                toggleOcrFields();
-                setOcrTestPill('default', 'Not tested');
-                appliedOcr = true;
-            }
-
-            refreshAiPresetSelection();
 
             if (quickstartApplyHint) {
-                quickstartApplyHint.textContent = appliedOcr
+                quickstartApplyHint.textContent = applied.appliedOcr
                     ? 'AI and OCR fields were prefilled — review the OCR tab, then save.'
                     : 'AI fields were prefilled — review, then save.';
+            }
+        });
+    }
+
+    const setQuickstartTestRowState = (rowId, state, text) => {
+        const row = document.getElementById(rowId);
+        if (!row) {
+            return;
+        }
+
+        const iconPresets = {
+            pending: { className: 'fas fa-spinner fa-spin', color: '' },
+            success: { className: 'fas fa-circle-check', color: '#16a34a' },
+            error: { className: 'fas fa-circle-xmark', color: '#dc2626' },
+            skipped: { className: 'fas fa-circle-minus', color: '#94a3b8' }
+        };
+        const preset = iconPresets[state] || iconPresets.pending;
+
+        row.innerHTML = '';
+        const icon = document.createElement('i');
+        icon.className = preset.className;
+        if (preset.color) {
+            icon.style.color = preset.color;
+        }
+        row.appendChild(icon);
+        row.appendChild(document.createTextNode(` ${text}`));
+    };
+
+    const toggleModelTestOverlay = (visible, statusText = '') => {
+        const overlay = document.getElementById('modelTestOverlay');
+        if (overlay) {
+            overlay.classList.toggle('hidden', !visible);
+        }
+
+        const status = document.getElementById('modelTestOverlayStatus');
+        if (status && statusText) {
+            status.textContent = statusText;
+        }
+    };
+
+    const runQuickstartModelTest = async (url, payload, scope) => {
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(result.error || result.message || `${scope} test failed`);
+            }
+            return { success: Boolean(result.success), message: result.message || '' };
+        } catch (error) {
+            const errorDetails = getTimeoutAwareErrorDetails(scope, error, null);
+            return { success: false, message: errorDetails.message };
+        }
+    };
+
+    const quickstartSaveBtn = document.getElementById('settingsQuickstartSaveBtn');
+    if (quickstartSaveBtn) {
+        quickstartSaveBtn.addEventListener('click', async () => {
+            const applied = await applyQuickstartDetectionToForm();
+            if (!applied) {
+                return;
+            }
+
+            setQuickstartTestRowState('modelTestAiRow', 'pending', `AI model "${applied.aiModel}": testing...`);
+            setQuickstartTestRowState(
+                'modelTestOcrRow',
+                applied.appliedOcr ? 'pending' : 'skipped',
+                applied.appliedOcr ? `OCR model "${applied.ocrModel}": waiting...` : 'OCR fallback disabled — test skipped.'
+            );
+            toggleModelTestOverlay(true, 'Validating the selected models against your AI server…');
+
+            const aiResult = await runQuickstartModelTest('/api/settings/ai/test', {
+                aiProvider: applied.provider,
+                apiUrl: applied.aiApiUrl,
+                token: applied.apiKey,
+                model: applied.aiModel
+            }, 'AI connection test');
+            setQuickstartTestRowState(
+                'modelTestAiRow',
+                aiResult.success ? 'success' : 'error',
+                aiResult.success ? `AI model "${applied.aiModel}": connection valid` : `AI model "${applied.aiModel}": test failed`
+            );
+
+            let ocrResult = { success: true, message: '' };
+            if (applied.appliedOcr) {
+                setQuickstartTestRowState('modelTestOcrRow', 'pending', `OCR model "${applied.ocrModel}": testing...`);
+                ocrResult = await runQuickstartModelTest('/api/settings/ocr/test', {
+                    enabled: true,
+                    provider: 'custom',
+                    apiUrl: applied.ocrApiUrl,
+                    apiKey: applied.apiKey,
+                    model: applied.ocrModel,
+                    setupOcrValidationTimeoutMs: getOcrValidationTimeoutMs()
+                }, 'OCR connection test');
+                setQuickstartTestRowState(
+                    'modelTestOcrRow',
+                    ocrResult.success ? 'success' : 'error',
+                    ocrResult.success ? `OCR model "${applied.ocrModel}": connection valid` : `OCR model "${applied.ocrModel}": test failed`
+                );
+                if (ocrResult.success) {
+                    setOcrTestPill('success', 'Connection valid');
+                } else {
+                    setOcrTestPill('error', 'Test failed');
+                }
+            }
+
+            // Keep the final row states visible for a moment before moving on.
+            await new Promise((resolve) => setTimeout(resolve, 900));
+            toggleModelTestOverlay(false);
+
+            if (!aiResult.success || !ocrResult.success) {
+                const failures = [];
+                if (!aiResult.success) {
+                    failures.push(`AI model "${applied.aiModel}": ${aiResult.message || 'test failed'}`);
+                }
+                if (!ocrResult.success) {
+                    failures.push(`OCR model "${applied.ocrModel}": ${ocrResult.message || 'test failed'}`);
+                }
+
+                await Swal.fire({
+                    icon: 'error',
+                    title: 'Model test failed',
+                    text: `${failures.join('\n')}\n\nAdjust the model selection and try again.`
+                });
+                return;
+            }
+
+            const settingsForm = document.getElementById('setupForm');
+            if (settingsForm) {
+                settingsForm.requestSubmit();
             }
         });
     }
@@ -1739,8 +1889,8 @@ function initializeFormHandlers() {
             const ocrEnabled = String(formData.get('mistralOcrEnabled') || 'no').trim().toLowerCase() === 'yes';
             const ocrProvider = String(formData.get('ocrProvider') || 'mistral').trim().toLowerCase();
             const ocrTimeoutSeconds = Number.parseInt(String(formData.get('ocrValidationTimeout') || '30').trim(), 10);
-            if (!Number.isFinite(ocrTimeoutSeconds) || ocrTimeoutSeconds < 1 || ocrTimeoutSeconds > 120) {
-                throw new Error('OCR timeout must be between 1 and 120 seconds.');
+            if (!Number.isFinite(ocrTimeoutSeconds) || ocrTimeoutSeconds < 1 || ocrTimeoutSeconds > 7200) {
+                throw new Error('OCR timeout must be between 1 and 7200 seconds.');
             }
             if (ocrEnabled && !String(formData.get('mistralOcrModel') || '').trim()) {
                 const payload = {

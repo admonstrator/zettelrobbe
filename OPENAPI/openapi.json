@@ -2630,6 +2630,66 @@
         }
       }
     },
+    "/api/settings/ai/test": {
+      "post": {
+        "summary": "Test AI provider connectivity from the settings page",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "aiProvider"
+                ],
+                "properties": {
+                  "aiProvider": {
+                    "type": "string",
+                    "enum": [
+                      "openai",
+                      "ollama",
+                      "custom",
+                      "azure"
+                    ]
+                  },
+                  "apiUrl": {
+                    "type": "string"
+                  },
+                  "token": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "setupValidationTimeoutMs": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AI connectivity result returned"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/api/settings/quickstart/detect": {
       "post": {
         "summary": "Auto-detect API flavor and classify models from a single base URL",

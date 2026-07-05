@@ -347,9 +347,13 @@
                                         <label for="settingsQuickstartEnableOcr" class="text-sm font-medium">Also configure OCR fallback with this endpoint</label>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-3">
-                                        <button type="button" id="settingsQuickstartApplyBtn" class="toolbar-btn toolbar-btn--primary flex items-center gap-2">
+                                        <button type="button" id="settingsQuickstartApplyBtn" class="toolbar-btn toolbar-btn--neutral flex items-center gap-2">
                                             <i class="fas fa-wand-magic-sparkles"></i>
                                             <span>Apply to fields</span>
+                                        </button>
+                                        <button type="button" id="settingsQuickstartSaveBtn" class="toolbar-btn toolbar-btn--primary flex items-center gap-2">
+                                            <i class="fas fa-floppy-disk"></i>
+                                            <span>Test models &amp; save</span>
                                         </button>
                                         <span id="settingsQuickstartApplyHint" class="text-xs text-gray-500"></span>
                                     </div>
@@ -890,6 +894,7 @@
     </div>
 
     <%- include('partials/restart-overlay') %>
+    <%- include('partials/model-test-overlay') %>
 
     <script>
         window.__SETTINGS_BOOTSTRAP__ = {

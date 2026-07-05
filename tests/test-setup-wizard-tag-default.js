@@ -112,6 +112,8 @@ const elementIds = [
   'quickstartOcrModel',
   'quickstartEnableOcr',
   'quickstartOcrHint',
+  'quickstartSaveRow',
+  'quickstartSaveBtn',
   'ocrQuickstartNotice',
   'mistralOcrEnabled',
   'mistralFields',
@@ -161,7 +163,8 @@ global.document = {
 
 global.Swal = {
   fire: async () => ({ isConfirmed: false }),
-  update: () => {}
+  update: () => {},
+  close: () => {}
 };
 
 global.navigator = {

@@ -112,6 +112,8 @@ const elementIds = [
   'quickstartOcrModel',
   'quickstartEnableOcr',
   'quickstartOcrHint',
+  'quickstartSaveRow',
+  'quickstartSaveBtn',
   'ocrQuickstartNotice',
   'mistralOcrEnabled',
   'mistralFields',
@@ -165,13 +167,22 @@ const detectionResponse = {
 
 let lastFetchUrl = null;
 let lastFetchBody = null;
+const fetchedUrls = [];
+
+const responsesByUrl = {
+  '/api/setup/quickstart/detect': detectionResponse,
+  '/api/setup/ai/test': { success: true, message: 'AI provider is reachable.' },
+  '/api/setup/ocr/test': { success: true, message: 'OCR connection is valid.' },
+  '/api/setup/complete': { success: true, restart: false, message: 'Setup completed.' }
+};
 
 const mockFetch = async (url, options = {}) => {
   lastFetchUrl = url;
   lastFetchBody = options.body ? JSON.parse(options.body) : null;
+  fetchedUrls.push(url);
   return {
     ok: true,
-    json: async () => detectionResponse
+    json: async () => responsesByUrl[url] || detectionResponse
   };
 };
 
@@ -198,7 +209,8 @@ global.document = {
 
 global.Swal = {
   fire: async () => ({ isConfirmed: false }),
-  update: () => {}
+  update: () => {},
+  close: () => {}
 };
 
 global.navigator = {
@@ -281,6 +293,40 @@ wizard.quickstartApiKey.value = 'test-key';
   wizard.aiTestState.success = true;
   wizard.applyQuickstartToManualFields();
   assert.strictEqual(wizard.aiTestState.success, true, 'Re-applying unchanged values must not reset the AI test state');
+
+  // The save row becomes visible after a successful detection
+  assert.strictEqual(wizard.quickstartSaveRow.classList.contains('hidden'), false, 'Save row should be visible after detection');
+
+  // Save flow: fill the earlier wizard steps so finalize re-validation passes,
+  // then verify both model tests run and setup completes.
+  wizard.adminUsername.value = 'admin';
+  wizard.adminPassword.value = 'password123';
+  wizard.confirmPassword.value = 'password123';
+  wizard.enableMfa.value = 'no';
+  wizard.paperlessUrl.value = 'http://paperless:8000';
+  wizard.paperlessUsername.value = 'admin';
+  wizard.paperlessToken.value = 'token';
+  wizard.paperlessTestState = { ran: true, success: true, allowFailure: false };
+  wizard.metadataState.loaded = true;
+  wizard.scanAllDocuments.checked = true;
+  wizard.aiValidationTimeout.value = '30';
+  wizard.ocrValidationTimeout.value = '30';
+
+  fetchedUrls.length = 0;
+  await wizard.runQuickstartSaveFlow();
+
+  assert.ok(fetchedUrls.includes('/api/setup/ai/test'), 'Save flow should test the AI model');
+  assert.ok(fetchedUrls.includes('/api/setup/ocr/test'), 'Save flow should test the OCR model');
+  assert.ok(fetchedUrls.includes('/api/setup/complete'), 'Save flow should finalize setup after successful tests');
+  assert.strictEqual(wizard.aiTestState.success, true, 'AI test state should be marked successful');
+  assert.strictEqual(wizard.ocrTestState.success, true, 'OCR test state should be marked successful');
+
+  // Failing AI test must block finalize
+  responsesByUrl['/api/setup/ai/test'] = { success: false, message: 'Model not reachable.' };
+  fetchedUrls.length = 0;
+  await wizard.runQuickstartSaveFlow();
+  assert.ok(fetchedUrls.includes('/api/setup/ai/test'), 'Failing save flow should still run the AI test');
+  assert.ok(!fetchedUrls.includes('/api/setup/complete'), 'Failing AI test must not finalize setup');
 
   console.log('✅ test-setup-wizard-quickstart passed');
 })().catch((error) => {

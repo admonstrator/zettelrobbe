@@ -1,0 +1,16 @@
+<div id="modelTestOverlay" class="restart-overlay hidden fixed inset-0 z-[12000] flex items-center justify-center px-4" aria-live="polite" aria-busy="true">
+    <div class="restart-overlay-card w-full max-w-lg rounded-2xl border border-white/20 bg-white/90 shadow-2xl p-6">
+        <div class="flex items-center gap-3 mb-4">
+            <span class="restart-seal text-4xl" aria-hidden="true">🦭</span>
+            <div>
+                <h3 class="text-lg font-semibold">Testing models</h3>
+                <p id="modelTestOverlayStatus" class="restart-overlay-status text-sm text-gray-600">Validating the selected models against your AI server…</p>
+            </div>
+        </div>
+
+        <div class="space-y-2">
+            <div id="modelTestAiRow" class="text-sm"></div>
+            <div id="modelTestOcrRow" class="text-sm"></div>
+        </div>
+    </div>
+</div>
