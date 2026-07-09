@@ -55,6 +55,7 @@ function shouldUseSecureCookies(req) {
 const SETTINGS_SECRET_FIELDS = [
   'PAPERLESS_API_TOKEN',
   'OPENAI_API_KEY',
+  'OLLAMA_API_KEY',
   'CUSTOM_API_KEY',
   'AZURE_API_KEY',
   'OCR_API_KEY',
@@ -3345,6 +3346,7 @@ function toEnvPreviewLines(config) {
     'OPENAI_API_KEY',
     'OPENAI_MODEL',
     'OLLAMA_API_URL',
+    'OLLAMA_API_KEY',
     'OLLAMA_MODEL',
     'CUSTOM_BASE_URL',
     'CUSTOM_API_KEY',
@@ -3393,6 +3395,28 @@ async function loadAiProviderPresets() {
     console.warn('[WARN] Could not load AI provider presets from config/ai-provider-presets.json:', error.message);
     return DEFAULT_AI_PROVIDER_PRESETS;
   }
+}
+
+// Settings pages leave secret inputs empty to mean "keep the configured
+// value", so requests from there may carry an empty token even though the
+// endpoint requires auth. Fall back to the stored key for the provider.
+function resolveStoredAiToken(aiProvider) {
+  const provider = String(aiProvider || '').trim().toLowerCase();
+  if (provider === 'ollama') return process.env.OLLAMA_API_KEY || '';
+  if (provider === 'custom') return process.env.CUSTOM_API_KEY || '';
+  if (provider === 'openai') return process.env.OPENAI_API_KEY || '';
+  if (provider === 'azure') return process.env.AZURE_API_KEY || '';
+  return '';
+}
+
+function resolveSettingsAiToken(aiProvider, token) {
+  const normalizedToken = String(token || '').trim();
+  return normalizedToken || resolveStoredAiToken(aiProvider);
+}
+
+function resolveSettingsOcrApiKey(apiKey) {
+  const normalizedApiKey = String(apiKey || '').trim();
+  return normalizedApiKey || process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '';
 }
 
 async function validatePaperlessConnectionForSetup(paperlessUrl, paperlessToken) {
@@ -3476,7 +3500,7 @@ async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, 
 
       const valid = detection?.mode === 'openai'
         ? await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel)
-        : await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel);
+        : await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel, normalizedToken);
 
       return {
         success: valid,
@@ -3522,7 +3546,7 @@ async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, 
     });
     const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl).trim();
     const valid = detection?.mode === 'ollama'
-      ? await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel)
+      ? await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel, normalizedToken)
       : await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel);
 
     return {
@@ -3759,6 +3783,7 @@ function sanitizeConfigForBootstrap(config) {
   const secretFields = [
     'PAPERLESS_API_TOKEN',
     'OPENAI_API_KEY',
+    'OLLAMA_API_KEY',
     'CUSTOM_API_KEY',
     'AZURE_API_KEY',
     'OCR_API_KEY',
@@ -4392,7 +4417,7 @@ router.post('/api/settings/ai/test', isAuthenticated, express.json(), async (req
     const validation = await validateAiConnectionForSetup({
       aiProvider: req.body?.aiProvider,
       apiUrl: req.body?.apiUrl,
-      token: req.body?.token,
+      token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
       model: req.body?.model,
       azureApiVersion: req.body?.azureApiVersion,
       setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
@@ -4414,7 +4439,7 @@ router.post('/api/settings/ocr/test', isAuthenticated, express.json(), async (re
       enabled: req.body?.enabled,
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
-      apiKey: req.body?.apiKey,
+      apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
       model: req.body?.model,
       setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
     });
@@ -4434,7 +4459,7 @@ router.post('/api/settings/ai/models', isAuthenticated, express.json(), async (r
     const result = await discoverAiModelsForSetup({
       aiProvider: req.body?.aiProvider,
       apiUrl: req.body?.apiUrl,
-      token: req.body?.token,
+      token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
       setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
     });
 
@@ -4469,7 +4494,7 @@ router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (
     const result = await discoverOcrModelsForSetup({
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
-      apiKey: req.body?.apiKey,
+      apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
       setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
     });
 
@@ -4735,6 +4760,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       finalConfig.OPENAI_MODEL = aiModel || 'gpt-4o-mini';
     } else if (aiProvider === 'ollama') {
       finalConfig.OLLAMA_API_URL = aiApiUrl || 'http://localhost:11434';
+      finalConfig.OLLAMA_API_KEY = aiToken;
       finalConfig.OLLAMA_MODEL = aiModel || 'llama3.2';
     } else if (aiProvider === 'azure') {
       finalConfig.AZURE_ENDPOINT = aiApiUrl;
@@ -5775,13 +5801,14 @@ router.get('/settings', async (req, res) => {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
     OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
+    OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
     OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
     SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
     RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
     RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
     SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
     PROCESS_PREDEFINED_DOCUMENTS: process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
-    
+
     TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
     RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
     AI_TEMPERATURE_ANALYSIS: process.env.AI_TEMPERATURE_ANALYSIS || '0.3',
@@ -6905,6 +6932,10 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: URL for Ollama API (required when aiProvider is 'ollama')
  *                 example: "http://localhost:11434"
+ *               ollamaApiKey:
+ *                 type: string
+ *                 description: Optional bearer token for Ollama endpoints that require authentication (leave empty to keep the configured value)
+ *                 example: "ollama-abc123"
  *               ollamaModel:
  *                 type: string
  *                 description: Ollama model to use for analysis
@@ -7055,6 +7086,7 @@ router.post('/settings', express.json(), async (req, res) => {
       openaiKey,
       openaiModel,
       ollamaUrl,
+      ollamaApiKey,
       ollamaModel,
       scanInterval,
       systemPrompt,
@@ -7118,6 +7150,7 @@ router.post('/settings', express.json(), async (req, res) => {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
       OPENAI_MODEL: process.env.OPENAI_MODEL || '',
       OLLAMA_API_URL: process.env.OLLAMA_API_URL || '',
+      OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
       OLLAMA_MODEL: process.env.OLLAMA_MODEL || '',
       SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
       RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
@@ -7187,6 +7220,8 @@ router.post('/settings', express.json(), async (req, res) => {
     const effectivePaperlessToken = hasPaperlessTokenInput ? paperlessToken.trim() : currentConfig.PAPERLESS_API_TOKEN;
     const hasOpenAiKeyInput = hasValue(openaiKey);
     const effectiveOpenAiKey = hasOpenAiKeyInput ? openaiKey.trim() : currentConfig.OPENAI_API_KEY;
+    const hasOllamaApiKeyInput = hasValue(ollamaApiKey);
+    const effectiveOllamaApiKey = hasOllamaApiKeyInput ? ollamaApiKey.trim() : currentConfig.OLLAMA_API_KEY;
     const hasCustomApiKeyInput = hasValue(customApiKey);
     const effectiveCustomApiKey = hasCustomApiKeyInput ? customApiKey.trim() : currentConfig.CUSTOM_API_KEY;
     const hasAzureApiKeyInput = hasValue(azureApiKey);
@@ -7366,7 +7401,7 @@ router.post('/settings', express.json(), async (req, res) => {
         const effectiveOllamaModel = ollamaModel || currentConfig.OLLAMA_MODEL;
         const urlChanged = hasValue(ollamaUrl) && normalizeCompare(ollamaUrl) !== normalizeCompare(currentConfig.OLLAMA_API_URL);
         const modelChanged = hasValue(ollamaModel) && normalizeCompare(ollamaModel) !== normalizeCompare(currentConfig.OLLAMA_MODEL);
-        const shouldValidateOllama = providerChanged || urlChanged || modelChanged;
+        const shouldValidateOllama = providerChanged || urlChanged || modelChanged || hasOllamaApiKeyInput;
 
         if (!effectiveOllamaUrl || !effectiveOllamaModel) {
           return res.status(400).json({
@@ -7377,16 +7412,18 @@ router.post('/settings', express.json(), async (req, res) => {
         if (shouldValidateOllama) {
           const isOllamaValid = await setupService.validateOllamaConfig(
             effectiveOllamaUrl,
-            effectiveOllamaModel
+            effectiveOllamaModel,
+            effectiveOllamaApiKey
           );
           if (!isOllamaValid) {
-            return res.status(400).json({ 
-              error: `Ollama connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL and model.`
+            return res.status(400).json({
+              error: `Ollama connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, optional API key and model.`
             });
           }
         }
 
         if (ollamaUrl) updatedConfig.OLLAMA_API_URL = ollamaUrl;
+        if (hasOllamaApiKeyInput) updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
       } else if (selectedAiProvider === 'custom') {
         const effectiveCustomBaseUrl = customBaseUrl || currentConfig.CUSTOM_BASE_URL;

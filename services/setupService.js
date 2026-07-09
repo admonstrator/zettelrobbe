@@ -362,7 +362,7 @@ class SetupService {
 
 
 
-  async validateOllamaConfig(url, model) {
+  async validateOllamaConfig(url, model, apiKey = '') {
     try {
       // Validate URL to prevent SSRF attacks
       // Allow private IPs since Ollama is typically hosted locally
@@ -372,21 +372,37 @@ class SetupService {
         return false;
       }
 
+      const headers = { 'Content-Type': 'application/json' };
+      const normalizedApiKey = String(apiKey || '').trim();
+      if (normalizedApiKey) {
+        headers.Authorization = `Bearer ${normalizedApiKey}`;
+      }
+
       const response = await this.withValidationTimeout(
         axios.post(
           `${url}/api/generate`,
           {
             model: model || 'llama3.2',
             prompt: 'Test',
-            stream: false
+            stream: false,
+            options: {
+              // The test only proves reachability, auth, and model existence.
+              // Cap generation so slow CPU-only hosts finish within the
+              // validation timeout instead of generating a full answer.
+              num_predict: 10
+            }
           },
           {
+            headers,
             timeout: this.getValidationTimeoutMs()
           }
         ),
         'Ollama validation'
       );
-      return response.data && response.data.response;
+      // A 200 with a response field means auth and model resolution worked;
+      // thinking models may return an empty visible response for tiny
+      // num_predict budgets, so do not require non-empty text.
+      return Boolean(response.data) && typeof response.data.response === 'string';
     } catch (error) {
       console.error('Ollama validation error:', error.message);
       return false;
@@ -1131,7 +1147,8 @@ class SetupService {
     } else if (aiProvider === 'ollama') {
       const ollamaValid = await this.validateOllamaConfig(
         config.OLLAMA_API_URL || 'http://localhost:11434',
-        config.OLLAMA_MODEL
+        config.OLLAMA_MODEL,
+        config.OLLAMA_API_KEY
       );
       if (!ollamaValid) {
         throw new Error('Invalid Ollama configuration');

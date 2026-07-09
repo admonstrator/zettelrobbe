@@ -1630,6 +1630,7 @@ class SetupWizard {
             preview.push(`OPENAI_MODEL=${this.aiModel.value.trim()}`);
         } else if (provider === 'ollama') {
             preview.push(`OLLAMA_API_URL=${this.aiApiUrl.value.trim()}`);
+            preview.push(`OLLAMA_API_KEY=${this.aiToken.value.trim()}`);
             preview.push(`OLLAMA_MODEL=${this.aiModel.value.trim()}`);
         } else if (provider === 'azure') {
             preview.push(`AZURE_ENDPOINT=${this.aiApiUrl.value.trim()}`);

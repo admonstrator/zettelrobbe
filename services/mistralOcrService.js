@@ -24,7 +24,14 @@ class MistralOcrService {
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   get apiKey() {
-    return config.mistralOcr?.apiKey || process.env.MISTRAL_API_KEY || '';
+    const configuredKey = config.mistralOcr?.apiKey || process.env.MISTRAL_API_KEY || '';
+    if (configuredKey || this.provider !== 'ollama') {
+      return configuredKey;
+    }
+
+    // Local OCR without a dedicated key: reuse the Ollama bearer token so a
+    // token-protected Ollama host works for OCR without duplicate config.
+    return process.env.OLLAMA_API_KEY || config.ollama?.apiKey || '';
   }
 
   get model() {

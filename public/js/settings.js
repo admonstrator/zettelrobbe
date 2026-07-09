@@ -502,6 +502,7 @@ function initializeFormHandlers() {
     const aiPresetHint = document.getElementById('aiPresetHint');
     const aiProviderSelect = document.getElementById('aiProvider');
     const ollamaUrlInput = document.getElementById('ollamaUrl');
+    const ollamaApiKeyInput = document.getElementById('ollamaApiKey');
     const ollamaModelInput = document.getElementById('ollamaModel');
     const customBaseUrlInput = document.getElementById('customBaseUrl');
     const customApiKeyInput = document.getElementById('customApiKey');
@@ -787,7 +788,7 @@ function initializeFormHandlers() {
                 const result = await fetchModels('/api/settings/ai/models', {
                     aiProvider: provider,
                     apiUrl,
-                    token: ''
+                    token: String(ollamaApiKeyInput?.value || '').trim()
                 });
                 const models = result.models;
 
@@ -1054,6 +1055,7 @@ function initializeFormHandlers() {
 
         if (detectedProvider === 'ollama') {
             if (ollamaUrlInput) ollamaUrlInput.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
+            if (ollamaApiKeyInput) ollamaApiKeyInput.value = quickstartKey;
             populateModelSelect(ollamaModelInput, [selectedAiModel], 'Select Ollama model');
             if (ollamaModelInput) ollamaModelInput.value = selectedAiModel;
         } else {
@@ -1852,7 +1854,7 @@ function initializeFormHandlers() {
                 const discovery = await resolveModels('/api/settings/ai/models', {
                     aiProvider: 'ollama',
                     apiUrl: String(formData.get('ollamaUrl') || '').trim(),
-                    token: ''
+                    token: String(formData.get('ollamaApiKey') || '').trim()
                 });
                 const models = discovery.models;
                 if (discovery.resolvedApiUrl) {
@@ -2545,6 +2547,7 @@ function initializeRuntimeOverridePills() {
         { selector: '#openaiKey', envKey: 'OPENAI_API_KEY' },
         { selector: '#openaiModel', envKey: 'OPENAI_MODEL' },
         { selector: '#ollamaUrl', envKey: 'OLLAMA_API_URL' },
+        { selector: '#ollamaApiKey', envKey: 'OLLAMA_API_KEY' },
         { selector: '#ollamaModel', envKey: 'OLLAMA_MODEL' },
         { selector: '#customBaseUrl', envKey: 'CUSTOM_BASE_URL' },
         { selector: '#customApiKey', envKey: 'CUSTOM_API_KEY' },

@@ -3499,6 +3499,11 @@
                     "description": "URL for Ollama API (required when aiProvider is 'ollama')",
                     "example": "http://localhost:11434"
                   },
+                  "ollamaApiKey": {
+                    "type": "string",
+                    "description": "Optional bearer token for Ollama endpoints that require authentication (leave empty to keep the configured value)",
+                    "example": "ollama-abc123"
+                  },
                   "ollamaModel": {
                     "type": "string",
                     "description": "Ollama model to use for analysis",
