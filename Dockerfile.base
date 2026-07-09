@@ -25,5 +25,10 @@ RUN npm install pm2 -g
 COPY package*.json ./
 
 # Install node dependencies with clean install using cache mount
+# npm >= 12 blocks dependency install scripts unless allowlisted via
+# the "allowScripts" field in package.json (needed for better-sqlite3)
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --only=production
+    npm ci --omit=dev
+
+# Fail the build if native bindings are missing instead of shipping a broken image
+RUN node -e "new (require('better-sqlite3'))(':memory:').close()"
