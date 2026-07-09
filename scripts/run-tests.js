@@ -32,6 +32,7 @@ function formatStatus(status) {
 const TESTS = {
   'chat-document-search': 'test-chat-document-search.js',
   'chat-documents-service-search': 'test-chat-documents-service-search.js',
+  'custom-field-longtext-ui': 'test-custom-field-longtext-ui.js',
   'document-type-restriction': 'test-document-type-restriction.js',
   'effective-document-count-cache': 'test-effective-document-count-cache.js',
   'failed-reset-all': 'test-failed-reset-all.js',
@@ -65,6 +66,7 @@ const AREAS = {
   ocr: ['ocr-fallback-ai-errors', 'ocr-startup-recovery'],
   observability: ['log-level-config', 'log-level-logger'],
   processing: [
+    'custom-field-longtext-ui',
     'document-type-restriction',
     'ignore-tags-filter',
     'effective-document-count-cache',
