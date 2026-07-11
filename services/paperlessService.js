@@ -1706,6 +1706,26 @@ async getOrCreateDocumentType(name, options = {}) {
   }
 
   /**
+   * Add a note to a document via the Paperless notes API.
+   * Uses POST /api/documents/{id}/notes/ with {"note": "..."}.
+   * @param {number} documentId
+   * @param {string} noteText - The note content
+   * @returns {Promise<Object|null>} Created note or null on failure
+   */
+  async addDocumentNote(documentId, noteText) {
+    this.initialize();
+    if (!this.client || !noteText) return null;
+    try {
+      const response = await this.client.post(`/documents/${documentId}/notes/`, { note: noteText });
+      console.log(`[SUCCESS] Added note to document ${documentId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`[ERROR] Adding note to document ${documentId}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Restore a document to its original state (before AI processing).
    * Unlike updateDocument(), this method does NOT merge tags or skip correspondents —
    * it sends the original values directly as an exact PATCH.

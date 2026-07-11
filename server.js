@@ -748,6 +748,11 @@ async function buildUpdateData(analysis, doc) {
     }
   }
 
+  // Process notes (added as a note via API, not via PATCH)
+  if (config.limitFunctions?.activateNotes !== 'no' && analysis.document.notes) {
+    updateData._notesForPost = analysis.document.notes;
+  }
+
   // Only process correspondent if correspondent detection is activated
   if (config.limitFunctions?.activateCorrespondents !== 'no' && analysis.document.correspondent) {
     try {
@@ -783,9 +788,18 @@ async function saveDocumentChanges(docId, updateData, analysis, originalData) {
 
   await documentModel.saveOriginalData(docId, originalTags, originalCorrespondent, originalTitle, origDocType, origLanguage);
 
+  // Extract notes before removing from updateData
+  const noteText = updateData._notesForPost || null;
+  delete updateData._notesForPost;
+
   const updatedDocument = await paperlessService.updateDocument(docId, updateData);
   if (!updatedDocument) {
     throw new Error(`Paperless update failed for document ${docId}`);
+  }
+
+  // Add note via Paperless notes API (POST /api/documents/{id}/notes/)
+  if (noteText) {
+    await paperlessService.addDocumentNote(docId, noteText);
   }
 
   const persistenceTasks = [
