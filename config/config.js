@@ -281,7 +281,7 @@ startupLog(logLevel, 'info', 'Configuration loaded:', {
 });
 
 module.exports = {
-  PAPERLESS_AI_VERSION: 'v2026.07.01',
+  PAPERLESS_AI_VERSION: 'v2026.07.02',
   CONFIGURED: false,
   configSourceMode: CONFIG_SOURCE_MODE,
   getApiKey,
@@ -332,6 +332,7 @@ module.exports = {
   },
   ollama: {
     apiUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
+    apiKey: process.env.OLLAMA_API_KEY || '',
     model: process.env.OLLAMA_MODEL || 'llama3.2',
     // Strict opt-in: only literal "true" enables thinking mode.
     think: String(process.env.OLLAMA_THINK || '').trim().toLowerCase() === 'true'

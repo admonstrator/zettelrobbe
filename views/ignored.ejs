@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full<%= theme === 'dark' ? ' dark' : '' %>" data-theme="<%= theme || 'light' %>">
+<%- include('partials/shell/head-start', { pageTitle: 'Ignored Documents - Paperless-AI' }) %>
+    <link rel="stylesheet" href="/css/failed.css">
+<%- include('partials/shell/head-end') %>
+<%- include('partials/shell/body-open', {
+    version: typeof version !== 'undefined' ? version : '',
+    chatEnabled: typeof chatEnabled !== 'undefined' ? chatEnabled : false
+}) %>
+            <div class="content-wrapper">
+                <div class="content-header">
+                    <div class="content-header-main">
+                        <h1 class="content-title">Ignored Documents</h1>
+                        <p class="content-subtitle">
+                            These documents are permanently skipped by automatic scanning. Use this for encrypted or otherwise unprocessable files.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="material-card mb-4">
+                    <div class="px-4 pt-4 pb-3">
+                        <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Add document to ignore list</h2>
+                        <div class="flex gap-2 flex-wrap">
+                            <input type="number" id="ignoreDocIdInput" placeholder="Document ID" min="1"
+                                class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 dark:text-gray-100 w-40">
+                            <input type="text" id="ignoreReasonInput" placeholder="Reason (optional)"
+                                class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 dark:text-gray-100 flex-1 min-w-32">
+                            <button id="ignoreAddBtn" class="toolbar-btn toolbar-btn--primary toolbar-btn--sm">
+                                <i class="fas fa-eye-slash"></i> Ignore
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="material-card">
+                    <div class="overflow-x-auto">
+                        <table id="ignoredTable" class="w-full">
+                            <thead>
+                                <tr>
+                                    <th class="text-left py-3 px-4">Doc ID</th>
+                                    <th class="text-left py-3 px-4">Title</th>
+                                    <th class="text-left py-3 px-4">Reason</th>
+                                    <th class="text-left py-3 px-4">Added</th>
+                                    <th class="text-left py-3 px-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ignoredTableBody">
+                                <tr>
+                                    <td colspan="5" class="text-center py-8 text-gray-400">
+                                        <i class="fas fa-spinner fa-spin mr-2"></i> Loading ignored documents…
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="flex justify-between items-center mt-4 px-4 pb-4 flex-wrap gap-2">
+                        <span id="ignoredTableInfo" class="text-sm text-gray-500"></span>
+                        <div class="flex gap-2">
+                            <button id="ignoredClearAllBtn" class="toolbar-btn toolbar-btn--danger toolbar-btn--sm" disabled>
+                                <i class="fas fa-trash"></i> Clear All
+                            </button>
+                            <button id="ignoredPrevPageBtn" class="toolbar-btn toolbar-btn--ghost toolbar-btn--sm" disabled>
+                                <i class="fas fa-chevron-left"></i> Prev
+                            </button>
+                            <button id="ignoredNextPageBtn" class="toolbar-btn toolbar-btn--ghost toolbar-btn--sm" disabled>
+                                Next <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="toastNotification" class="fixed bottom-6 right-6 z-50 hidden" style="z-index:9999;">
+        <div id="toastInner" class="bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
+            <i id="toastIcon" class="fas fa-check-circle"></i>
+            <span id="toastMessage">Done</span>
+        </div>
+    </div>
+
+    <script src="/js/ignored.js"></script>
+    <%- include('partials/shell/footer') %>
+    <%- include('partials/shell/body-close') %>

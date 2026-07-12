@@ -313,6 +313,53 @@
 
                         <div id="ai-tab" class="settings-tab-content space-y-6 hidden">
                             <section class="space-y-4 settings-section-card">
+                                <h3 class="text-lg font-semibold">Quickstart auto-detect</h3>
+                                <p class="text-xs text-gray-500">Point at a local AI server (LM Studio, Ollama, or any OpenAI-compatible endpoint). Detection lists the running models and classifies them for AI analysis and OCR.</p>
+                                <div class="space-y-2">
+                                    <label for="settingsQuickstartUrl" class="text-sm font-medium">AI server URL</label>
+                                    <input type="text" id="settingsQuickstartUrl" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="http://192.168.1.5:1234 (LM Studio) or http://host:11434 (Ollama)">
+                                </div>
+                                <div class="space-y-2">
+                                    <label for="settingsQuickstartApiKey" class="text-sm font-medium">API key (optional)</label>
+                                    <input type="password" id="settingsQuickstartApiKey" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Only needed if your endpoint requires a token">
+                                </div>
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <button type="button" id="settingsQuickstartDetectBtn" class="toolbar-btn toolbar-btn--warning flex items-center gap-2">
+                                        <i class="fas fa-magnifying-glass"></i>
+                                        <span>Detect models</span>
+                                    </button>
+                                    <span id="settingsQuickstartState" class="text-xs text-gray-500">Not detected</span>
+                                </div>
+                                <div id="settingsQuickstartResults" class="space-y-4 hidden">
+                                    <p id="settingsQuickstartHint" class="text-xs text-gray-500"></p>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div class="space-y-2">
+                                            <label for="settingsQuickstartAiModel" class="text-sm font-medium">Suggested AI model</label>
+                                            <select id="settingsQuickstartAiModel" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></select>
+                                        </div>
+                                        <div class="space-y-2">
+                                            <label for="settingsQuickstartOcrModel" class="text-sm font-medium">Suggested OCR model (vision-capable)</label>
+                                            <select id="settingsQuickstartOcrModel" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></select>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <input type="checkbox" id="settingsQuickstartEnableOcr">
+                                        <label for="settingsQuickstartEnableOcr" class="text-sm font-medium">Also configure OCR fallback with this endpoint</label>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <button type="button" id="settingsQuickstartApplyBtn" class="toolbar-btn toolbar-btn--neutral flex items-center gap-2">
+                                            <i class="fas fa-wand-magic-sparkles"></i>
+                                            <span>Apply to fields</span>
+                                        </button>
+                                        <button type="button" id="settingsQuickstartSaveBtn" class="toolbar-btn toolbar-btn--primary flex items-center gap-2">
+                                            <i class="fas fa-floppy-disk"></i>
+                                            <span>Test models &amp; save</span>
+                                        </button>
+                                        <span id="settingsQuickstartApplyHint" class="text-xs text-gray-500"></span>
+                                    </div>
+                                </div>
+                            </section>
+                            <section class="space-y-4 settings-section-card">
                                 <h3 class="text-lg font-semibold">Provider</h3>
                                 <div class="space-y-2">
                                     <label for="aiPreset" class="text-sm font-medium">Provider preset</label>
@@ -356,6 +403,14 @@
                                         <label for="ollamaUrl" class="text-sm font-medium">Ollama API URL</label>
                                         <input type="text" id="ollamaUrl" name="ollamaUrl" value="<%= config.OLLAMA_API_URL %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <p class="text-xs text-gray-500">ENV: OLLAMA_API_URL · Restart required</p>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <label for="ollamaApiKey" class="text-sm font-medium">Ollama API Key (optional)</label>
+                                        <div class="relative">
+                                            <input type="password" id="ollamaApiKey" name="ollamaApiKey" value="" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="<%= configuredSecrets.OLLAMA_API_KEY ? 'Configured (leave empty to keep current value)' : 'Only needed if your endpoint requires a token' %>">
+                                            <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" data-input="ollamaApiKey"><i class="fas fa-eye"></i></button>
+                                        </div>
+                                        <p class="text-xs text-gray-500">ENV: OLLAMA_API_KEY · Restart required</p>
                                     </div>
                                     <div class="space-y-2">
                                         <label for="ollamaModel" class="text-sm font-medium">Ollama Model</label>
@@ -672,10 +727,10 @@
                                 <div class="space-y-2">
                                     <label for="ocrValidationTimeout" class="text-sm font-medium">OCR Timeout</label>
                                     <div class="flex items-center gap-3">
-                                        <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="120" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS || 30000) / 1000) %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS || 30000) / 1000) %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <span class="text-xs text-gray-500 whitespace-nowrap">seconds</span>
                                     </div>
-                                    <p class="text-xs text-gray-500">ENV: SETUP_OCR_VALIDATION_TIMEOUT_MS · Used for OCR model loading and OCR connection tests</p>
+                                    <p class="text-xs text-gray-500">ENV: SETUP_OCR_VALIDATION_TIMEOUT_MS · Used for OCR model loading, connection tests and document processing</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-3">
                                     <button type="button" id="testOcrBtn" class="toolbar-btn toolbar-btn--warning flex items-center gap-2">
@@ -847,6 +902,7 @@
     </div>
 
     <%- include('partials/restart-overlay') %>
+    <%- include('partials/model-test-overlay') %>
 
     <script>
         window.__SETTINGS_BOOTSTRAP__ = {

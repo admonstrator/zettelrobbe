@@ -226,6 +226,12 @@ class ManualService {
         
         const numCtx = calculateNumCtx(promptTokenCount, expectedResponseTokens);
         
+        const ollamaHeaders = { 'Content-Type': 'application/json' };
+        const ollamaApiKey = process.env.OLLAMA_API_KEY || config.ollama.apiKey || '';
+        if (ollamaApiKey) {
+            ollamaHeaders.Authorization = `Bearer ${ollamaApiKey}`;
+        }
+
         const response = await this.ollama.post(`${config.ollama.apiUrl}/api/generate`, {
             model: config.ollama.model,
             prompt: prompt,
@@ -236,7 +242,7 @@ class ManualService {
             repeat_penalty: 1.1,
             num_ctx: numCtx,
             }
-        });
+        }, { headers: ollamaHeaders });
     
         if (!response.data || !response.data.response) {
             console.error('Unexpected Ollama response format:', response);

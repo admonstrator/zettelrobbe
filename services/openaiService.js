@@ -24,7 +24,9 @@ class OpenAIService {
     if (!this.client && config.aiProvider === 'ollama') {
       this.client = new OpenAI({
         baseURL: config.ollama.apiUrl + '/v1',
-        apiKey: 'ollama'
+        // Ollama ignores the key unless the endpoint enforces auth (e.g. a
+        // reverse proxy); the OpenAI SDK requires a non-empty value.
+        apiKey: config.ollama.apiKey || 'ollama'
       });
     } else if (!this.client && config.aiProvider === 'custom') {
       this.client = new OpenAI({

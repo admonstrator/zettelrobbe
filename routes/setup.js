@@ -21,6 +21,7 @@ const cookieParser = require('cookie-parser');
 const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const customService = require('../services/customService.js');
 const mistralOcrService = require('../services/mistralOcrService');
+const quickstartService = require('../services/quickstartService');
 const reconciliationService = require('../services/reconciliationService');
 const { THUMBNAIL_CACHE_DIR, getThumbnailCachePath } = require('../services/thumbnailCachePaths');
 const config = require('../config/config.js');
@@ -54,6 +55,7 @@ function shouldUseSecureCookies(req) {
 const SETTINGS_SECRET_FIELDS = [
   'PAPERLESS_API_TOKEN',
   'OPENAI_API_KEY',
+  'OLLAMA_API_KEY',
   'CUSTOM_API_KEY',
   'AZURE_API_KEY',
   'OCR_API_KEY',
@@ -3344,6 +3346,7 @@ function toEnvPreviewLines(config) {
     'OPENAI_API_KEY',
     'OPENAI_MODEL',
     'OLLAMA_API_URL',
+    'OLLAMA_API_KEY',
     'OLLAMA_MODEL',
     'CUSTOM_BASE_URL',
     'CUSTOM_API_KEY',
@@ -3392,6 +3395,28 @@ async function loadAiProviderPresets() {
     console.warn('[WARN] Could not load AI provider presets from config/ai-provider-presets.json:', error.message);
     return DEFAULT_AI_PROVIDER_PRESETS;
   }
+}
+
+// Settings pages leave secret inputs empty to mean "keep the configured
+// value", so requests from there may carry an empty token even though the
+// endpoint requires auth. Fall back to the stored key for the provider.
+function resolveStoredAiToken(aiProvider) {
+  const provider = String(aiProvider || '').trim().toLowerCase();
+  if (provider === 'ollama') return process.env.OLLAMA_API_KEY || '';
+  if (provider === 'custom') return process.env.CUSTOM_API_KEY || '';
+  if (provider === 'openai') return process.env.OPENAI_API_KEY || '';
+  if (provider === 'azure') return process.env.AZURE_API_KEY || '';
+  return '';
+}
+
+function resolveSettingsAiToken(aiProvider, token) {
+  const normalizedToken = String(token || '').trim();
+  return normalizedToken || resolveStoredAiToken(aiProvider);
+}
+
+function resolveSettingsOcrApiKey(apiKey) {
+  const normalizedApiKey = String(apiKey || '').trim();
+  return normalizedApiKey || process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '';
 }
 
 async function validatePaperlessConnectionForSetup(paperlessUrl, paperlessToken) {
@@ -3475,7 +3500,7 @@ async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, 
 
       const valid = detection?.mode === 'openai'
         ? await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel)
-        : await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel);
+        : await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel, normalizedToken);
 
       return {
         success: valid,
@@ -3521,7 +3546,7 @@ async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, 
     });
     const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl).trim();
     const valid = detection?.mode === 'ollama'
-      ? await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel)
+      ? await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel, normalizedToken)
       : await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel);
 
     return {
@@ -3579,6 +3604,32 @@ async function discoverAiModelsForSetup({ aiProvider, apiUrl, token, setupValida
     const normalizedApiUrl = String(apiUrl || '').trim();
     const normalizedToken = String(token || '').trim();
 
+    // For local providers, classify models via quickstart detection so
+    // embedding-only models are excluded from the AI model dropdown.
+    if (['custom', 'ollama'].includes(provider) && normalizedApiUrl) {
+      try {
+        const classification = await quickstartService.detectAndClassify({
+          baseUrl: normalizedApiUrl,
+          apiKey: normalizedToken
+        });
+
+        if (classification.textModels.length > 0) {
+          const excludedCount = classification.models.length - classification.textModels.length;
+          return {
+            success: true,
+            models: classification.textModels,
+            resolvedApiUrl: classification.resolvedAiApiUrl,
+            message: excludedCount > 0
+              ? `Discovered ${classification.textModels.length} model(s) (${excludedCount} embedding-only model(s) excluded).`
+              : `Discovered ${classification.textModels.length} model(s).`
+          };
+        }
+      } catch {
+        // Classification probe failed; fall through to the legacy unfiltered
+        // discovery below so existing setups keep working.
+      }
+    }
+
     const detection = await setupService.detectAiApiUrlForSetup({
       provider,
       apiUrl: normalizedApiUrl,
@@ -3608,6 +3659,44 @@ async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey, setupOcrVal
     const normalizedProvider = String(provider || 'mistral').trim().toLowerCase();
     const normalizedApiUrl = String(apiUrl || '').trim();
     const normalizedApiKey = String(apiKey || '').trim();
+
+    // For local providers, classify models via quickstart detection so the
+    // OCR dropdown only offers vision-capable models (metadata-first via
+    // LM Studio /api/v0/models or Ollama /api/show, heuristics otherwise).
+    if (['custom', 'ollama'].includes(normalizedProvider) && normalizedApiUrl) {
+      try {
+        const classification = await quickstartService.detectAndClassify({
+          baseUrl: normalizedApiUrl,
+          apiKey: normalizedApiKey
+        });
+
+        if (classification.visionModels.length > 0) {
+          return {
+            success: true,
+            models: classification.visionModels,
+            resolvedApiUrl: classification.resolvedOcrApiUrl,
+            message: `Discovered ${classification.visionModels.length} vision-capable OCR model(s) out of ${classification.models.length} total.`
+          };
+        }
+
+        // Nothing classified as vision-capable: fall back to the full list so
+        // the user can still pick manually (classification may be incomplete
+        // for generic endpoints without model metadata).
+        const allModels = classification.models.map((model) => model.id);
+        return {
+          success: true,
+          models: allModels,
+          resolvedApiUrl: classification.resolvedOcrApiUrl,
+          message: allModels.length > 0
+            ? `No vision-capable models detected; showing all ${allModels.length} model(s). OCR requires a vision model.`
+            : 'No OCR models discovered for this provider.'
+        };
+      } catch {
+        // Classification probe failed; fall through to the legacy unfiltered
+        // discovery below so existing setups keep working.
+      }
+    }
+
     const detection = await setupService.detectOcrApiUrlForSetup({
       provider: normalizedProvider,
       apiUrl: normalizedApiUrl,
@@ -3628,6 +3717,21 @@ async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey, setupOcrVal
       message: models.length > 0
         ? `Discovered ${models.length} OCR model(s).`
         : 'No OCR models discovered for this provider.'
+    };
+  });
+}
+
+async function detectQuickstartForSetup({ baseUrl, apiKey, setupValidationTimeoutMs }) {
+  return setupService.withTemporaryValidationTimeout(setupValidationTimeoutMs, async () => {
+    const detection = await quickstartService.detectAndClassify({
+      baseUrl: String(baseUrl || '').trim(),
+      apiKey: String(apiKey || '').trim()
+    });
+
+    return {
+      success: true,
+      detection,
+      message: quickstartService.buildDetectionSummaryMessage(detection)
     };
   });
 }
@@ -3679,6 +3783,7 @@ function sanitizeConfigForBootstrap(config) {
   const secretFields = [
     'PAPERLESS_API_TOKEN',
     'OPENAI_API_KEY',
+    'OLLAMA_API_KEY',
     'CUSTOM_API_KEY',
     'AZURE_API_KEY',
     'OCR_API_KEY',
@@ -4220,13 +4325,121 @@ router.post('/api/setup/ocr/models', express.json(), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/setup/quickstart/detect:
+ *   post:
+ *     summary: Auto-detect API flavor and classify models from a single base URL during setup
+ *     tags:
+ *       - Setup
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - baseUrl
+ *             properties:
+ *               baseUrl:
+ *                 type: string
+ *                 example: http://192.168.1.5:1234
+ *               apiKey:
+ *                 type: string
+ *               setupValidationTimeoutMs:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Detection result with classified models and suggestions
+ *       400:
+ *         description: Detection failed (unreachable URL, blocked URL, or no compatible API)
+ */
+router.post('/api/setup/quickstart/detect', express.json(), async (req, res) => {
+  try {
+    if (!(await ensureSetupOpenOrRespond(res))) {
+      return;
+    }
+
+    const result = await detectQuickstartForSetup({
+      baseUrl: req.body?.baseUrl,
+      apiKey: req.body?.apiKey,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/setup/quickstart/detect:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Quickstart detection failed.'
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/settings/ai/test:
+ *   post:
+ *     summary: Test AI provider connectivity from the settings page
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - aiProvider
+ *             properties:
+ *               aiProvider:
+ *                 type: string
+ *                 enum: [openai, ollama, custom, azure]
+ *               apiUrl:
+ *                 type: string
+ *               token:
+ *                 type: string
+ *               model:
+ *                 type: string
+ *               setupValidationTimeoutMs:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: AI connectivity result returned
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/api/settings/ai/test', isAuthenticated, express.json(), async (req, res) => {
+  try {
+    const validation = await validateAiConnectionForSetup({
+      aiProvider: req.body?.aiProvider,
+      apiUrl: req.body?.apiUrl,
+      token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
+      model: req.body?.model,
+      azureApiVersion: req.body?.azureApiVersion,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+    });
+
+    return res.json(validation);
+  } catch (error) {
+    console.error('[ERROR] POST /api/settings/ai/test:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Could not test AI connection.'
+    });
+  }
+});
+
 router.post('/api/settings/ocr/test', isAuthenticated, express.json(), async (req, res) => {
   try {
     const validation = await validateOcrConnectionForSetup({
       enabled: req.body?.enabled,
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
-      apiKey: req.body?.apiKey,
+      apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
       model: req.body?.model,
       setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
     });
@@ -4246,7 +4459,7 @@ router.post('/api/settings/ai/models', isAuthenticated, express.json(), async (r
     const result = await discoverAiModelsForSetup({
       aiProvider: req.body?.aiProvider,
       apiUrl: req.body?.apiUrl,
-      token: req.body?.token,
+      token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
       setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
     });
 
@@ -4281,7 +4494,7 @@ router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (
     const result = await discoverOcrModelsForSetup({
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
-      apiKey: req.body?.apiKey,
+      apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
       setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
     });
 
@@ -4291,6 +4504,58 @@ router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (
     return res.status(400).json({
       success: false,
       error: error.message || 'Could not discover OCR models.'
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/settings/quickstart/detect:
+ *   post:
+ *     summary: Auto-detect API flavor and classify models from a single base URL
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - baseUrl
+ *             properties:
+ *               baseUrl:
+ *                 type: string
+ *                 example: http://192.168.1.5:1234
+ *               apiKey:
+ *                 type: string
+ *               setupValidationTimeoutMs:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Detection result with classified models and suggestions
+ *       400:
+ *         description: Detection failed (unreachable URL, blocked URL, or no compatible API)
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/api/settings/quickstart/detect', isAuthenticated, express.json(), async (req, res) => {
+  try {
+    const result = await detectQuickstartForSetup({
+      baseUrl: req.body?.baseUrl,
+      apiKey: req.body?.apiKey,
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[ERROR] POST /api/settings/quickstart/detect:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Quickstart detection failed.'
     });
   }
 });
@@ -4495,6 +4760,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       finalConfig.OPENAI_MODEL = aiModel || 'gpt-4o-mini';
     } else if (aiProvider === 'ollama') {
       finalConfig.OLLAMA_API_URL = aiApiUrl || 'http://localhost:11434';
+      finalConfig.OLLAMA_API_KEY = aiToken;
       finalConfig.OLLAMA_MODEL = aiModel || 'llama3.2';
     } else if (aiProvider === 'azure') {
       finalConfig.AZURE_ENDPOINT = aiApiUrl;
@@ -5535,13 +5801,14 @@ router.get('/settings', async (req, res) => {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
     OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
+    OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
     OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
     SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
     RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
     RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
     SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
     PROCESS_PREDEFINED_DOCUMENTS: process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
-    
+
     TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
     RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
     AI_TEMPERATURE_ANALYSIS: process.env.AI_TEMPERATURE_ANALYSIS || '0.3',
@@ -6665,6 +6932,10 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: URL for Ollama API (required when aiProvider is 'ollama')
  *                 example: "http://localhost:11434"
+ *               ollamaApiKey:
+ *                 type: string
+ *                 description: Optional bearer token for Ollama endpoints that require authentication (leave empty to keep the configured value)
+ *                 example: "ollama-abc123"
  *               ollamaModel:
  *                 type: string
  *                 description: Ollama model to use for analysis
@@ -6815,6 +7086,7 @@ router.post('/settings', express.json(), async (req, res) => {
       openaiKey,
       openaiModel,
       ollamaUrl,
+      ollamaApiKey,
       ollamaModel,
       scanInterval,
       systemPrompt,
@@ -6878,6 +7150,7 @@ router.post('/settings', express.json(), async (req, res) => {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
       OPENAI_MODEL: process.env.OPENAI_MODEL || '',
       OLLAMA_API_URL: process.env.OLLAMA_API_URL || '',
+      OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
       OLLAMA_MODEL: process.env.OLLAMA_MODEL || '',
       SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
       RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
@@ -6947,6 +7220,8 @@ router.post('/settings', express.json(), async (req, res) => {
     const effectivePaperlessToken = hasPaperlessTokenInput ? paperlessToken.trim() : currentConfig.PAPERLESS_API_TOKEN;
     const hasOpenAiKeyInput = hasValue(openaiKey);
     const effectiveOpenAiKey = hasOpenAiKeyInput ? openaiKey.trim() : currentConfig.OPENAI_API_KEY;
+    const hasOllamaApiKeyInput = hasValue(ollamaApiKey);
+    const effectiveOllamaApiKey = hasOllamaApiKeyInput ? ollamaApiKey.trim() : currentConfig.OLLAMA_API_KEY;
     const hasCustomApiKeyInput = hasValue(customApiKey);
     const effectiveCustomApiKey = hasCustomApiKeyInput ? customApiKey.trim() : currentConfig.CUSTOM_API_KEY;
     const hasAzureApiKeyInput = hasValue(azureApiKey);
@@ -7126,7 +7401,7 @@ router.post('/settings', express.json(), async (req, res) => {
         const effectiveOllamaModel = ollamaModel || currentConfig.OLLAMA_MODEL;
         const urlChanged = hasValue(ollamaUrl) && normalizeCompare(ollamaUrl) !== normalizeCompare(currentConfig.OLLAMA_API_URL);
         const modelChanged = hasValue(ollamaModel) && normalizeCompare(ollamaModel) !== normalizeCompare(currentConfig.OLLAMA_MODEL);
-        const shouldValidateOllama = providerChanged || urlChanged || modelChanged;
+        const shouldValidateOllama = providerChanged || urlChanged || modelChanged || hasOllamaApiKeyInput;
 
         if (!effectiveOllamaUrl || !effectiveOllamaModel) {
           return res.status(400).json({
@@ -7137,16 +7412,18 @@ router.post('/settings', express.json(), async (req, res) => {
         if (shouldValidateOllama) {
           const isOllamaValid = await setupService.validateOllamaConfig(
             effectiveOllamaUrl,
-            effectiveOllamaModel
+            effectiveOllamaModel,
+            effectiveOllamaApiKey
           );
           if (!isOllamaValid) {
-            return res.status(400).json({ 
-              error: `Ollama connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL and model.`
+            return res.status(400).json({
+              error: `Ollama connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, optional API key and model.`
             });
           }
         }
 
         if (ollamaUrl) updatedConfig.OLLAMA_API_URL = ollamaUrl;
+        if (hasOllamaApiKeyInput) updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
       } else if (selectedAiProvider === 'custom') {
         const effectiveCustomBaseUrl = customBaseUrl || currentConfig.CUSTOM_BASE_URL;
@@ -7560,6 +7837,39 @@ router.get('/failed', protectApiRoute, async (req, res) => {
  *     responses:
  *       200:
  *         description: Failed queue page rendered successfully
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       500:
+ *         description: Server error
+ */
+
+// Page: Ignored Documents Queue
+router.get('/ignored', protectApiRoute, async (req, res) => {
+  try {
+    return res.render('ignored', {
+      version: configFile.PAPERLESS_AI_VERSION || ' ',
+    });
+  } catch (error) {
+    console.error('[ERROR] Ignored page:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /ignored:
+ *   get:
+ *     summary: Permanently ignored documents page
+ *     tags:
+ *       - Navigation
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Ignored queue page rendered successfully
  *         content:
  *           text/html:
  *             schema:
@@ -8146,14 +8456,18 @@ router.get('/api/ocr/queue/:documentId/text', isAuthenticated, async (req, res) 
 // API: Get OCR queue statistics
 router.get('/api/ocr/stats', isAuthenticated, async (req, res) => {
   try {
-    const allItems = await documentModel.getOcrQueue();
-    const failedDocs = await documentModel.getFailedDocumentsPaginated({ limit: 1, offset: 0 });
+    const [allItems, failedDocs, ignoredCount] = await Promise.all([
+      documentModel.getOcrQueue(),
+      documentModel.getFailedDocumentsPaginated({ limit: 1, offset: 0 }),
+      documentModel.getIgnoredCount()
+    ]);
     const stats = {
       pending: allItems.filter(i => i.status === 'pending').length,
       processing: allItems.filter(i => i.status === 'processing').length,
       done: allItems.filter(i => i.status === 'done').length,
       failed: allItems.filter(i => i.status === 'failed').length,
       permanentlyFailed: failedDocs.total || 0,
+      ignored: ignoredCount,
       total: allItems.length,
       ocrEnabled: mistralOcrService.isEnabled()
     };
@@ -8311,6 +8625,122 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
  *       500:
  *         description: Server error
  */
+
+// API: Get paginated ignored documents queue
+router.get('/api/ignored/queue', isAuthenticated, async (req, res) => {
+  try {
+    const start = parseInt(req.query.start || '0', 10);
+    const length = parseInt(req.query.length || '25', 10);
+    const search = req.query.search || '';
+
+    const { docs, total } = await documentModel.getIgnoredDocumentsPaginated({
+      search,
+      limit: length,
+      offset: start
+    });
+
+    const paperlessUrl = await paperlessService.getPublicBaseUrl();
+
+    return res.json({
+      success: true,
+      data: docs,
+      recordsTotal: total,
+      recordsFiltered: total,
+      paperlessUrl
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /api/ignored/queue:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Add a document to the ignored list
+router.post('/api/ignored/add', isAuthenticated, async (req, res) => {
+  try {
+    const documentId = parseInt(req.body.documentId, 10);
+    if (isNaN(documentId)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+    }
+
+    const title = req.body.title || '';
+    const reason = req.body.reason || 'manual';
+
+    const added = await documentModel.addIgnoredDocument(documentId, title, reason);
+    return res.json({
+      success: true,
+      message: added
+        ? `Document ${documentId} added to ignored list.`
+        : `Document ${documentId} was already ignored.`
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/ignored/add:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Remove a document from the ignored list (unignore)
+router.delete('/api/ignored/:documentId', isAuthenticated, async (req, res) => {
+  try {
+    const documentId = parseInt(req.params.documentId, 10);
+    if (isNaN(documentId)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+    }
+
+    const removed = await documentModel.removeIgnoredDocument(documentId);
+    return res.json({
+      success: removed,
+      message: removed
+        ? `Document ${documentId} removed from ignored list. It can be scanned again.`
+        : `Document ${documentId} was not in ignored list.`
+    });
+  } catch (error) {
+    console.error('[ERROR] DELETE /api/ignored/:documentId:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Clear all ignored documents
+router.post('/api/ignored/clear-all', isAuthenticated, async (req, res) => {
+  try {
+    const count = await documentModel.clearAllIgnoredDocuments();
+    return res.json({
+      success: true,
+      count,
+      message: count > 0
+        ? `${count} ignored document${count === 1 ? '' : 's'} removed. They can be scanned again.`
+        : 'No ignored documents to remove.'
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/ignored/clear-all:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API: Move a failed document to the ignored list (atomic: add to ignored + remove from failed)
+router.post('/api/failed/ignore/:documentId', isAuthenticated, async (req, res) => {
+  try {
+    const documentId = parseInt(req.params.documentId, 10);
+    if (isNaN(documentId)) {
+      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+    }
+
+    const failedDocs = await documentModel.getFailedDocumentsPaginated({ search: String(documentId), limit: 1, offset: 0 });
+    const failedDoc = failedDocs.docs.find(d => d.document_id === documentId);
+    const title = failedDoc?.title || '';
+
+    await documentModel.addIgnoredDocument(documentId, title, 'failed_document');
+    await documentModel.resetFailedDocument(documentId);
+    await documentModel.clearProcessingStatusByDocumentId(documentId);
+
+    return res.json({
+      success: true,
+      message: `Document ${documentId} moved to ignored list.`
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/failed/ignore/:documentId:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 /**
  * @swagger

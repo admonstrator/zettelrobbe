@@ -44,6 +44,9 @@ const TESTS = {
   'ocr-startup-recovery': 'test-ocr-startup-recovery.js',
   'pr772-fix': 'test-pr772-fix.js',
   'ollama-temperature-wiring': 'test-ollama-temperature-wiring.js',
+  'quickstart-model-classification': 'test-quickstart-model-classification.js',
+  'quickstart-endpoint-protection': 'test-quickstart-endpoint-protection.js',
+  'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
   'rate-limiting': 'test-rate-limiting.js',
   'scan-stop-flow': 'test-scan-stop-flow.js',
   'setup-auth-endpoint-protection': 'test-setup-auth-endpoint-protection.js',
@@ -76,10 +79,16 @@ const AREAS = {
     'thumbnail-startup-migration'
   ],
   prompts: ['restriction-service', 'updated-service'],
+  quickstart: [
+    'quickstart-model-classification',
+    'setup-wizard-quickstart',
+    'quickstart-endpoint-protection'
+  ],
   security: [
     'setup-remote-guard',
     'setup-auth-middleware-guards',
     'setup-auth-endpoint-protection',
+    'quickstart-endpoint-protection',
     'ssrf-url-validation',
     'external-api-ssrf-block',
     'ui-xss-hardening',
@@ -160,7 +169,7 @@ async function getSkipReason(testName) {
     }
   }
 
-  if (testName === 'setup-auth-endpoint-protection') {
+  if (testName === 'setup-auth-endpoint-protection' || testName === 'quickstart-endpoint-protection') {
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
     const reachable = await checkHttpAvailability(baseUrl);
     if (!reachable) {

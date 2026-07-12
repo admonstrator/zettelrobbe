@@ -218,6 +218,16 @@ main {
     background: #b45309;
 }
 
+.setup-mode-btn[aria-pressed="true"] {
+    color: #ffffff;
+    background: linear-gradient(120deg, #0284c7, #0ea5e9);
+    border-color: transparent;
+}
+
+.setup-mode-btn[aria-pressed="true"]:hover:not(:disabled) {
+    background: linear-gradient(120deg, #0284c7, #0ea5e9);
+}
+
 .setup-pill {
     display: inline-flex;
     align-items: center;

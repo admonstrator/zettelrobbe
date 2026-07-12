@@ -99,6 +99,22 @@ const elementIds = [
   'aiValidationTimeout',
   'testAiBtn',
   'aiTestState',
+  'aiModeQuickstartBtn',
+  'aiModeManualBtn',
+  'aiQuickstartPanel',
+  'aiManualPanel',
+  'quickstartBaseUrl',
+  'quickstartApiKey',
+  'quickstartDetectBtn',
+  'quickstartDetectState',
+  'quickstartHint',
+  'quickstartAiModel',
+  'quickstartOcrModel',
+  'quickstartEnableOcr',
+  'quickstartOcrHint',
+  'quickstartSaveRow',
+  'quickstartSaveBtn',
+  'ocrQuickstartNotice',
   'mistralOcrEnabled',
   'mistralFields',
   'ocrProvider',
@@ -147,7 +163,8 @@ global.document = {
 
 global.Swal = {
   fire: async () => ({ isConfirmed: false }),
-  update: () => {}
+  update: () => {},
+  close: () => {}
 };
 
 global.navigator = {
