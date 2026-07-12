@@ -236,6 +236,48 @@ class PaperlessService {
     }
   }
 
+  /**
+   * Fetches a single rendered page of a document as a PNG image buffer.
+   * Uses the Paperless-ngx document image endpoint (?page=N), which renders
+   * the specified page server-side. Useful for full-page OCR.
+   * @param {number} documentId
+   * @param {number} page 1-indexed page number
+   * @returns {Promise<Buffer|null>}
+   */
+  async getDocumentPageImage(documentId, page = 1) {
+    this.initialize();
+    try {
+      const response = await this.client.get(`/documents/${documentId}/image/`, {
+        params: { page },
+        responseType: 'arraybuffer'
+      });
+      if (response.data && response.data.byteLength > 0) {
+        return Buffer.from(response.data);
+      }
+      return null;
+    } catch (error) {
+      console.error(`[ERROR] fetching page ${page} image for document ${documentId}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Returns the number of pages for a document, or null if unknown.
+   * @param {number} documentId
+   * @returns {Promise<number|null>}
+   */
+  async getDocumentPageCount(documentId) {
+    try {
+      const doc = await this.getDocument(documentId);
+      const count = doc && doc.page_count ? Number(doc.page_count) : null;
+      return Number.isFinite(count) && count > 0 ? count : null;
+    } catch (error) {
+      console.error(`[ERROR] fetching page count for document ${documentId}:`, error.message);
+      return null;
+    }
+  }
+
+
 
   // Aktualisiert den Tag-Cache, wenn er älter als CACHE_LIFETIME ist
   async ensureTagCache() {

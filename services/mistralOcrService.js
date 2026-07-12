@@ -171,6 +171,19 @@ class MistralOcrService {
   }
 
   async performOcrWithOllama(base64, mimeType = 'application/pdf', documentId = null) {
+    // When fullPages is enabled and we have a PDF with a known document id,
+    // OCR every page individually for full document coverage (the thumbnail
+    // fallback below only covers page 1).
+    const fullPagesEnabled = config.mistralOcr?.fullPages === 'yes';
+    if (fullPagesEnabled && String(mimeType).toLowerCase().startsWith('application/pdf') && Number.isInteger(Number(documentId))) {
+      const fullText = await this.performOcrOnAllPages(Number(documentId));
+      if (fullText) {
+        return fullText;
+      }
+      // Fall through to thumbnail-based OCR if per-page extraction failed.
+      console.warn(`[OCR] Per-page OCR produced no text for document ${documentId}, falling back to thumbnail.`);
+    }
+
     let imageBase64 = base64;
     let imageMimeType = mimeType;
 
@@ -188,6 +201,54 @@ class MistralOcrService {
       imageMimeType = 'image/png';
     }
 
+    return this.performOcrOnImage(imageBase64, imageMimeType);
+  }
+
+  /**
+   * OCRs every page of a document by rendering each page to an image via the
+   * Paperless-ngx image endpoint, then running local OCR on each image. Page
+   * texts are concatenated in order. Returns null if no page produced text.
+   * @param {number} documentId
+   * @returns {Promise<string|null>}
+   */
+  async performOcrOnAllPages(documentId) {
+    const pageCount = await PaperlessService.getDocumentPageCount(documentId);
+    if (!pageCount || pageCount < 1) {
+      return null;
+    }
+
+    const MAX_PAGES = 100;
+    const limit = Math.min(pageCount, MAX_PAGES);
+    let accumulated = '';
+    let anySuccess = false;
+
+    for (let page = 1; page <= limit; page++) {
+      const pageBuffer = await PaperlessService.getDocumentPageImage(documentId, page);
+      if (!pageBuffer) {
+        break;
+      }
+      try {
+        const pageText = await this.performOcrOnImage(pageBuffer.toString('base64'), 'image/png');
+        if (pageText) {
+          accumulated += (accumulated ? '\n' : '') + pageText;
+          anySuccess = true;
+        }
+      } catch (err) {
+        console.warn(`[OCR] OCR failed for page ${page} of document ${documentId}: ${err.message}`);
+      }
+    }
+
+    return anySuccess ? accumulated : null;
+  }
+
+  /**
+   * Runs local OCR on a single base64-encoded image using the configured
+   * OpenAI-compatible or Ollama-compatible endpoint.
+   * @param {string} imageBase64
+   * @param {string} imageMimeType
+   * @returns {Promise<string>}
+   */
+  async performOcrOnImage(imageBase64, imageMimeType = 'image/png') {
     const normalizedApiBase = await this.resolveLocalOcrApiBase();
     const baseApiUrl = normalizedApiBase.replace(/\/v1$/i, '');
     const openAiApiUrl = /\/v1$/i.test(normalizedApiBase) ? normalizedApiBase : `${baseApiUrl}/v1`;
@@ -294,9 +355,9 @@ class MistralOcrService {
           () => runOpenAiLikeWithFallback(openAiApiUrl)
         ]
         : [
-        () => runOllamaLike(ollamaApiUrl),
-        () => runOpenAiLikeWithFallback(openAiApiUrl)
-      ];
+          () => runOllamaLike(ollamaApiUrl),
+          () => runOpenAiLikeWithFallback(openAiApiUrl)
+        ];
 
     let ocrText = '';
     let lastError;

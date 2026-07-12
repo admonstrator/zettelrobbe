@@ -353,7 +353,8 @@ module.exports = {
     provider: String(process.env.OCR_PROVIDER || process.env.MISTRAL_OCR_PROVIDER || 'mistral').trim().toLowerCase(),
     apiUrl: (process.env.OCR_API_URL || process.env.MISTRAL_OCR_API_URL || '').trim(),
     apiKey: process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '',
-    model: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
+    model: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
+    fullPages: parseEnvBoolean(process.env.MISTRAL_OCR_FULL_PAGES, 'yes')
   },
   customFields: process.env.CUSTOM_FIELDS || '',
   aiProvider: process.env.AI_PROVIDER || 'openai',
