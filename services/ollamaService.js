@@ -44,7 +44,8 @@ class OllamaService {
                 custom_fields: {
                     type: "object",
                     additionalProperties: true
-                }
+                },
+                notes: { type: "string" }
             },
             required: ["title", "correspondent", "tags", "document_type", "document_date", "language"]
         };
@@ -461,6 +462,7 @@ class OllamaService {
                 "document_type": "Invoice/Contract/...",
                 "document_date": "YYYY-MM-DD",
                 "language": "en/de/es/...",
+                "notes": "Brief summary of the document (2-3 sentences)",
                 %CUSTOMFIELDS%
             }
             ALWAYS USE THE INFORMATION TO FILL OUT THE JSON OBJECT. DO NOT ASK BACK QUESTIONS.
@@ -630,7 +632,8 @@ class OllamaService {
                 document_date: responseData.response.document_date || null,
                 document_type: responseData.response.document_type || null,
                 language: responseData.response.language || null,
-                custom_fields: responseData.response.custom_fields || null
+                custom_fields: responseData.response.custom_fields || null,
+                notes: responseData.response.notes || null
             };
         } else if (responseData.response) {
             // Fall back to parsing from text response
@@ -685,7 +688,8 @@ class OllamaService {
                     document_date: result.document_date || null,
                     document_type: result.document_type || null,
                     language: result.language || null,
-                    custom_fields: result.custom_fields || null
+                    custom_fields: result.custom_fields || null,
+                    notes: result.notes || null
                 };
 
             } catch (jsonError) {
@@ -702,7 +706,10 @@ class OllamaService {
                         correspondent: sanitizedResult.correspondent || null,
                         title: sanitizedResult.title || null,
                         document_date: sanitizedResult.document_date || null,
-                        language: sanitizedResult.language || null
+                        document_type: sanitizedResult.document_type || null,
+                        language: sanitizedResult.language || null,
+                        custom_fields: sanitizedResult.custom_fields || null,
+                        notes: sanitizedResult.notes || null
                     };
                 } catch (finalError) {
                     console.error('Final JSON parsing failed after sanitization. This happens when the JSON structure is too complex or invalid. That indicates an issue with the generated JSON string by Ollama. Switch to OpenAI for better results or fine tune your prompt.');

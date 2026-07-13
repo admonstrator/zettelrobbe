@@ -242,7 +242,8 @@ const limitFunctions = {
   activateCorrespondents: parseEnvBoolean(process.env.ACTIVATE_CORRESPONDENTS, 'yes'),
   activateDocumentType: parseEnvBoolean(process.env.ACTIVATE_DOCUMENT_TYPE, 'yes'),
   activateTitle: parseEnvBoolean(process.env.ACTIVATE_TITLE, 'yes'),
-  activateCustomFields: parseEnvBoolean(process.env.ACTIVATE_CUSTOM_FIELDS, 'yes')
+  activateCustomFields: parseEnvBoolean(process.env.ACTIVATE_CUSTOM_FIELDS, 'yes'),
+  activateNotes: parseEnvBoolean(process.env.ACTIVATE_NOTES, 'yes')
 };
 
 // Initialize AI restrictions with defaults
@@ -371,7 +372,8 @@ module.exports = {
     activateCorrespondents: limitFunctions.activateCorrespondents,
     activateDocumentType: limitFunctions.activateDocumentType,
     activateTitle: limitFunctions.activateTitle,
-    activateCustomFields: limitFunctions.activateCustomFields
+    activateCustomFields: limitFunctions.activateCustomFields,
+    activateNotes: limitFunctions.activateNotes
   },
   specialPromptPreDefinedTags: `You are a document analysis AI. You will analyze the document. 
   You take the main information to associate tags with the document. 
@@ -398,6 +400,7 @@ module.exports = {
     "document_type": "Invoice/Contract/...",
     "document_date": "YYYY-MM-DD",
     "language": "en/de/es/...",
+    "notes": "Brief summary of the document: what it is about, key details, amounts, parties involved, deadlines, and any required actions (2-4 sentences)",
     %CUSTOMFIELDS%
   }`,
 };
