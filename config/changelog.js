@@ -23,4 +23,12 @@ module.exports = {
     'Fix: OCR timeout',
     'Fix: Document handling for re-tagged documents',
   ],
+  version: 'v2026.07.02',
+  entries: [
+    'New: Quickstart AI setup routine for AI / OCR',
+    'New: Optional bearer token support for Ollama endpoints (OLLAMA_API_KEY)',
+    'New: Ignored documents queue to permanently exclude documents from AI processing',
+    'Fix: OCR processing timeout is configurable via SETUP_OCR_VALIDATION_TIMEOUT_MS',
+    'Fix: Docker image build on npm 12 (better-sqlite3 native bindings)',
+  ],
 };

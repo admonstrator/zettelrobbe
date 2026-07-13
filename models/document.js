@@ -271,6 +271,21 @@ const MIGRATIONS = [
       // Prevent future duplicates and enable the UPSERT in addToHistory().
       database.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_history_documents_document_id ON history_documents(document_id)');
     }
+  },
+  {
+    version: 8,
+    description: 'Create ignored_documents table for user-permanently-ignored documents',
+    up: (database) => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ignored_documents (
+          id INTEGER PRIMARY KEY,
+          document_id INTEGER UNIQUE,
+          title TEXT,
+          reason TEXT DEFAULT 'manual',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    }
   }
 ];
 
@@ -1148,6 +1163,84 @@ async getCurrentProcessingStatus() {
     } catch (error) {
       console.error('[ERROR] clearing processing status for document:', error);
       return false;
+    }
+  },
+
+  async addIgnoredDocument(documentId, title, reason = 'manual') {
+    try {
+      const result = db.prepare(`
+        INSERT INTO ignored_documents (document_id, title, reason)
+        VALUES (?, ?, ?)
+        ON CONFLICT(document_id) DO UPDATE SET
+          title = excluded.title,
+          reason = excluded.reason
+      `).run(documentId, title, reason);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] adding ignored document:', error);
+      return false;
+    }
+  },
+
+  async removeIgnoredDocument(documentId) {
+    try {
+      const result = db.prepare('DELETE FROM ignored_documents WHERE document_id = ?').run(documentId);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] removing ignored document:', error);
+      return false;
+    }
+  },
+
+  async isDocumentIgnored(documentId) {
+    try {
+      const row = db.prepare('SELECT 1 FROM ignored_documents WHERE document_id = ?').get(documentId);
+      return !!row;
+    } catch (error) {
+      console.error('[ERROR] checking ignored document:', error);
+      return false;
+    }
+  },
+
+  async getIgnoredDocumentsPaginated({ search = '', limit = 25, offset = 0 }) {
+    try {
+      const searchPattern = search ? `%${search}%` : '%';
+      const docs = db.prepare(`
+        SELECT * FROM ignored_documents
+        WHERE (title LIKE ? OR CAST(document_id AS TEXT) LIKE ? OR reason LIKE ?)
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      `).all(searchPattern, searchPattern, searchPattern, limit, offset);
+
+      const countRow = db.prepare(`
+        SELECT COUNT(*) as count FROM ignored_documents
+        WHERE (title LIKE ? OR CAST(document_id AS TEXT) LIKE ? OR reason LIKE ?)
+      `).get(searchPattern, searchPattern, searchPattern);
+
+      return { docs, total: countRow.count };
+    } catch (error) {
+      console.error('[ERROR] getting paginated ignored documents:', error);
+      return { docs: [], total: 0 };
+    }
+  },
+
+  async getIgnoredCount() {
+    try {
+      const row = db.prepare('SELECT COUNT(*) as count FROM ignored_documents').get();
+      return row?.count || 0;
+    } catch (error) {
+      console.error('[ERROR] getting ignored documents count:', error);
+      return 0;
+    }
+  },
+
+  async clearAllIgnoredDocuments() {
+    try {
+      const result = db.prepare('DELETE FROM ignored_documents').run();
+      return result.changes;
+    } catch (error) {
+      console.error('[ERROR] clearing all ignored documents:', error);
+      return 0;
     }
   }
 };

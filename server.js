@@ -543,6 +543,12 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
   if (isProcessed) return null;
 
+  const isIgnored = await documentModel.isDocumentIgnored(doc.id);
+  if (isIgnored) {
+    console.debug(`Document ${doc.id} is marked as ignored, skipping permanently`);
+    return null;
+  }
+
   const isFailed = await documentModel.isDocumentFailed(doc.id);
   if (isFailed) {
     console.debug(`Document ${doc.id} is marked as permanently failed, skipping until reset`);

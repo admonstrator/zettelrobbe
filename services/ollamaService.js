@@ -559,6 +559,21 @@ class OllamaService {
     }
 
     /**
+     * Build request headers, adding bearer auth when an API key is set.
+     * The key is read at request time so runtime config changes apply
+     * without re-instantiating the singleton.
+     * @returns {Object} Headers object
+     */
+    _buildRequestHeaders() {
+        const headers = { 'Content-Type': 'application/json' };
+        const apiKey = process.env.OLLAMA_API_KEY || config.ollama.apiKey || '';
+        if (apiKey) {
+            headers.Authorization = `Bearer ${apiKey}`;
+        }
+        return headers;
+    }
+
+    /**
      * Call Ollama API
      * @param {string} prompt - Prompt text
      * @param {string} systemPrompt - System prompt
@@ -589,7 +604,9 @@ class OllamaService {
             requestBody.think = false;
         }
 
-        const response = await this.client.post(`${this.apiUrl}/api/generate`, requestBody);
+        const response = await this.client.post(`${this.apiUrl}/api/generate`, requestBody, {
+            headers: this._buildRequestHeaders()
+        });
 
         if (!response.data) {
             throw new Error('Invalid response from Ollama API');
@@ -766,7 +783,9 @@ class OllamaService {
                 generateTextBody.think = false;
             }
 
-            const response = await this.client.post(`${this.apiUrl}/api/generate`, generateTextBody);
+            const response = await this.client.post(`${this.apiUrl}/api/generate`, generateTextBody, {
+                headers: this._buildRequestHeaders()
+            });
 
             if (!response.data || !response.data.response) {
                 throw new Error('Invalid response from Ollama API');
@@ -786,7 +805,9 @@ class OllamaService {
     async checkStatus() {
         // use ollama status endpoint
         try {
-            const response = await this.client.get(`${this.apiUrl}/api/ps`);
+            const response = await this.client.get(`${this.apiUrl}/api/ps`, {
+                headers: this._buildRequestHeaders()
+            });
             if (response.status === 200) {
                 const data = response.data;
                 // Ensure data is an array and has at least one model

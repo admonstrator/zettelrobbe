@@ -85,9 +85,12 @@
                 <td class="py-3 px-4"><span class="reason-badge">${reasonLabel}</span></td>
                 <td class="py-3 px-4 text-sm">${sourceLabel}</td>
                 <td class="py-3 px-4 text-sm text-gray-500 whitespace-nowrap">${updated}</td>
-                <td class="py-3 px-4">
+                <td class="py-3 px-4 flex gap-1 flex-wrap">
                     <button class="px-3 py-1 bg-amber-500 text-white rounded-lg text-xs hover:bg-amber-600 transition-colors failed-reset-btn" data-id="${item.document_id}" title="Reset failed state and allow re-scan">
                         <i class="fas fa-rotate-left"></i> Reset
+                    </button>
+                    <button class="px-3 py-1 bg-gray-500 text-white rounded-lg text-xs hover:bg-gray-600 transition-colors failed-ignore-btn" data-id="${item.document_id}" title="Permanently ignore this document (move to ignored list)">
+                        <i class="fas fa-eye-slash"></i> Ignore
                     </button>
                 </td>
             </tr>`;
@@ -96,6 +99,12 @@
         tableBody.querySelectorAll('.failed-reset-btn').forEach(btn => {
             btn.addEventListener('click', function () {
                 resetFailedDocument(parseInt(this.dataset.id, 10));
+            });
+        });
+
+        tableBody.querySelectorAll('.failed-ignore-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                ignoreFailedDocument(parseInt(this.dataset.id, 10));
             });
         });
     }
@@ -134,6 +143,22 @@
                 showToast(data.message || 'Document reset successfully');
             } else {
                 showToast(data.message || data.error || 'Reset failed', 'error');
+            }
+            loadQueue();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    }
+
+    async function ignoreFailedDocument(documentId) {
+        try {
+            const resp = await fetch(`/api/failed/ignore/${documentId}`, { method: 'POST' });
+            const data = await resp.json();
+
+            if (data.success) {
+                showToast(data.message || 'Document moved to ignored list');
+            } else {
+                showToast(data.message || data.error || 'Ignore failed', 'error');
             }
             loadQueue();
         } catch (error) {
