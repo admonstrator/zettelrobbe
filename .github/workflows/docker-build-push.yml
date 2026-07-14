@@ -3,6 +3,10 @@ name: Docker Build and Push
 env:
   DOCKERHUB_REPO: admonstrator/paperless-ai-next
 
+# Least privilege by default; only publish-release needs write (see below).
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -22,6 +26,12 @@ on:
         default: false
         type: boolean
 
+# Serialize manual runs so two dispatches can't race on version-tag
+# generation and release creation. Do not cancel an in-flight publish.
+concurrency:
+  group: docker-build-push
+  cancel-in-progress: false
+
 jobs:
   # Job 0: Generate version tag
   generate-version:
@@ -32,13 +42,13 @@ jobs:
       base_version: ${{ steps.version.outputs.base }}
       commit_sha: ${{ steps.source_commit.outputs.commit_sha }}
       source_ref: ${{ steps.source_ref.outputs.source_ref }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      
+
       - name: Generate version tag
         id: version
         run: |
@@ -76,7 +86,7 @@ jobs:
 
           echo "tag=$VERSION_TAG" >> $GITHUB_OUTPUT
           echo "base=$BASE_VERSION" >> $GITHUB_OUTPUT
-      
+
       - name: Resolve source commit
         id: source_commit
         run: |
@@ -94,13 +104,15 @@ jobs:
   publish-release:
     name: Publish Release and Tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push version-bump commit + create release/tag
     needs: [generate-version, build-push-lite]
     outputs:
       release_commit_sha: ${{ steps.publish.outputs.commit_sha }}
     if: |
       needs.generate-version.result == 'success' &&
       needs.build-push-lite.result == 'success'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -168,14 +180,14 @@ jobs:
       image-digest: ${{ steps.push.outputs.digest }}
       base-image: ${{ steps.base.outputs.base_image }}
       base-digest: ${{ steps.base.outputs.base_digest }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.generate-version.outputs.commit_sha }}
           fetch-depth: 0
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -183,14 +195,14 @@ jobs:
         run: |
           VERSION_TAG="${{ needs.generate-version.outputs.version_tag }}"
           sed -i "s|PAPERLESS_AI_VERSION: '.*'|PAPERLESS_AI_VERSION: '${VERSION_TAG}'|" config/config.js
-      
+
       # Login before build+push
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
-      
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -211,7 +223,7 @@ jobs:
           fi
           echo "base_image=$BASE_IMAGE" >> $GITHUB_OUTPUT
           echo "base_digest=$BASE_DIGEST" >> $GITHUB_OUTPUT
-      
+
       - name: Build and Push Lite Docker image
         id: push
         uses: docker/build-push-action@v7
@@ -235,7 +247,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [generate-version, build-push-lite, publish-release]
     if: always() && needs.generate-version.result == 'success'
-    
+
     steps:
       - name: Generate summary
         run: |
@@ -254,7 +266,7 @@ jobs:
           echo "- **Base:** \`${{ needs.build-push-lite.outputs.base-image }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Base Digest:** \`${{ needs.build-push-lite.outputs.base-digest }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           echo "#### ✅ Image" >> $GITHUB_STEP_SUMMARY
           echo "- **Size:** ~500-700 MB" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.build_arm64 }}" = "true" ]; then

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -58,11 +59,41 @@ const TESTS = {
   'external-api-ssrf-block': 'test-external-api-ssrf-block.js',
   'ui-xss-hardening': 'test-ui-xss-hardening.js',
   'history-xss-hardening': 'test-history-xss-hardening.js',
+  'ai-temperature-config': 'test-ai-temperature-config.js',
+  'custom-field-monetary-normalization':
+    'test-custom-field-monetary-normalization.js',
+  'mistral-ocr-no-processed-on-update-failure':
+    'test-mistral-ocr-no-processed-on-update-failure.js',
+  'ocr-provider-lmstudio-compatible':
+    'test-ocr-provider-lmstudio-compatible.js',
+  'ocr-provider-ollama': 'test-ocr-provider-ollama.js',
+  'ollama-token-metrics': 'test-ollama-token-metrics.js',
+  'reconciliation-service': 'test-reconciliation-service.js',
+  'reset-local-overrides-password-guard':
+    'test-reset-local-overrides-password-guard.js',
+  'runtime-first-setup-state': 'test-runtime-first-setup-state.js',
+  'settings-paperless-url-fallback': 'test-settings-paperless-url-fallback.js',
+  'setup-bootstrap-security': 'test-setup-bootstrap-security.js',
+  'setup-ocr-disabled-skip': 'test-setup-ocr-disabled-skip.js',
+  'setup-route-security': 'test-setup-route-security.js',
+  'setup-wizard-tag-default': 'test-setup-wizard-tag-default.js',
+  'setupservice-ocr-validation': 'test-setupservice-ocr-validation.js',
+  'thumbnail-cache-path-sanitization':
+    'test-thumbnail-cache-path-sanitization.js',
+  'url-base-validation': 'test-url-base-validation.js',
 };
 
 const AREAS = {
   auth: ['login-mfa-flow', 'rate-limiting', 'thumbnail-auth-guard'],
-  ocr: ['ocr-fallback-ai-errors', 'ocr-startup-recovery'],
+  ocr: [
+    'ocr-fallback-ai-errors',
+    'ocr-startup-recovery',
+    'mistral-ocr-no-processed-on-update-failure',
+    'ocr-provider-lmstudio-compatible',
+    'ocr-provider-ollama',
+    'setup-ocr-disabled-skip',
+    'setupservice-ocr-validation',
+  ],
   observability: ['log-level-config', 'log-level-logger'],
   processing: [
     'document-type-restriction',
@@ -74,12 +105,19 @@ const AREAS = {
     'pr772-fix',
     'scan-stop-flow',
     'thumbnail-startup-migration',
+    'ai-temperature-config',
+    'custom-field-monetary-normalization',
+    'ollama-token-metrics',
+    'reconciliation-service',
+    'settings-paperless-url-fallback',
   ],
   prompts: ['restriction-service', 'updated-service'],
   quickstart: [
     'quickstart-model-classification',
     'setup-wizard-quickstart',
     'quickstart-endpoint-protection',
+    'runtime-first-setup-state',
+    'setup-wizard-tag-default',
   ],
   security: [
     'setup-remote-guard',
@@ -90,8 +128,39 @@ const AREAS = {
     'external-api-ssrf-block',
     'ui-xss-hardening',
     'history-xss-hardening',
+    'reset-local-overrides-password-guard',
+    'setup-bootstrap-security',
+    'setup-route-security',
+    'thumbnail-cache-path-sanitization',
+    'url-base-validation',
   ],
 };
+
+// Tests intentionally excluded from the auto-discovery drift check below.
+// Keep empty unless a tests/test-*.js file exists that must NOT be run by the
+// runner (e.g. a shared helper). Prefer registering real tests in TESTS.
+const INTENTIONALLY_UNREGISTERED = new Set([]);
+
+// Guard against registry drift: every tests/test-*.js must be registered in
+// TESTS (or explicitly excluded above). Without this, a newly added test file
+// silently never runs in CI. Returns the list of unregistered file names.
+function findUnregisteredTests() {
+  const testsDir = path.join(__dirname, '..', 'tests');
+  let entries;
+  try {
+    entries = fs.readdirSync(testsDir);
+  } catch {
+    return [];
+  }
+
+  const registered = new Set(Object.values(TESTS));
+  return entries
+    .filter((name) => /^test-.*\.js$/.test(name))
+    .filter(
+      (name) => !registered.has(name) && !INTENTIONALLY_UNREGISTERED.has(name)
+    )
+    .sort();
+}
 
 function hasLoginCredentials() {
   return Boolean(
@@ -191,7 +260,7 @@ function printUsage() {
   console.log('');
   console.log('Examples:');
   console.log('  node scripts/run-tests.js --all');
-  console.log('  node scripts/run-tests.js --area chat');
+  console.log('  node scripts/run-tests.js --area security');
   console.log('  node scripts/run-tests.js --test document-type-restriction');
   console.log('');
   console.log('Areas:', Object.keys(AREAS).join(', '));
@@ -318,6 +387,21 @@ async function runTest(testName) {
 
 async function main() {
   const parsed = parseArgs(process.argv);
+
+  // On the full-suite run (the CI path) fail loudly if any test file is not
+  // registered, so new tests can never silently drop out of CI coverage.
+  if (parsed.all) {
+    const unregistered = findUnregisteredTests();
+    if (unregistered.length > 0) {
+      console.error(
+        `[REGISTRY] ${unregistered.length} test file(s) are not registered in TESTS ` +
+          `(add them, or list in INTENTIONALLY_UNREGISTERED):`
+      );
+      unregistered.forEach((name) => console.error(`- ${name}`));
+      process.exit(1);
+    }
+  }
+
   const selectedTests = resolveSelection(parsed);
   const failures = [];
   const skipped = [];
