@@ -13,6 +13,7 @@
     "test:area:observability": "node scripts/run-tests.js --area observability",
     "test:area:processing": "node scripts/run-tests.js --area processing",
     "test:area:prompts": "node scripts/run-tests.js --area prompts",
+    "test:area:quickstart": "node scripts/run-tests.js --area quickstart",
     "test:document-type-restriction": "node scripts/run-tests.js --test document-type-restriction",
     "test:effective-document-count-cache": "node scripts/run-tests.js --test effective-document-count-cache",
     "test:failed-reset-all": "node scripts/run-tests.js --test failed-reset-all",
