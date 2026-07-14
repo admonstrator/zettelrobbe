@@ -22,12 +22,12 @@ node server.js                     # plain run
 # Tests (custom runner — plain node scripts, no jest/mocha)
 npm run test:all                   # all tests          (node scripts/run-tests.js --all)
 npm run test:list                  # list areas + tests
-npm run test:area:security         # run an area (chat|auth|ocr|observability|processing|prompts|security)
+npm run test:area:security         # run an area (auth|ocr|observability|processing|prompts|security)
 node scripts/run-tests.js --test ssrf-url-validation   # single test by name
 
 # Lint / format
 npx eslint .                       # flat config: eslint.config.mjs
-npx prettier --check .             # prettierrc.json
+npx prettier --check .             # .prettierrc.json + .prettierignore
 
 # Production (what Docker runs)
 pm2-runtime ecosystem.config.js    # via start-services.sh
@@ -83,13 +83,14 @@ cleans up records for documents deleted in Paperless-ngx.
 `routes/setup.js` (setup wizard + history/api endpoints). `schemas.js` holds shared swagger schemas.
 
 ### Document processing flow (the core loop in server.js)
+
 1. `node-cron` fires on `config.scanInterval` (cron syntax, default `*/30 * * * *`).
 2. `scanDocuments()` pulls candidates from Paperless-ngx.
 3. A `retryTracker` Map caps attempts (max 3) to prevent infinite loops.
 4. Docs below `MIN_CONTENT_LENGTH` (default 10) are skipped or routed to OCR.
 5. If `PROCESS_PREDEFINED_DOCUMENTS=yes`, only docs whose tags match the `TAGS` env var are processed.
 6. The factory's AI service analyzes; results are written back via `paperlessService.updateDocument()`.
-A global `__paperlessAiScanControl` object supports stop-requests mid-scan.
+   A global `__paperlessAiScanControl` object supports stop-requests mid-scan.
 
 ## Configuration system (important)
 
@@ -106,6 +107,14 @@ config object you set in code; everything is an env var.**
 - Feature toggles: `activate*` (tagging/correspondents/documentType/title/customFields).
   AI restrictions: `restrictToExisting*`.
 - App version string lives in `PAPERLESS_AI_VERSION` in `config/config.js`.
+
+## CI
+
+Every PR runs `.github/workflows/ci.yml`: ESLint + Prettier on the **files changed in the PR**
+(the legacy codebase is not fully clean yet — anything you touch must pass), the offline test suite
+(`node scripts/run-tests.js --all`), and an OpenAPI drift check (`regen-openapi.js` + `git diff`).
+PRs touching Docker/dependency manifests additionally trigger `docker-check.yml` (build-only).
+`security-audit.yml` runs `npm audit` weekly on a schedule.
 
 ## Conventions (enforced)
 

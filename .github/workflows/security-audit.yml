@@ -1,0 +1,27 @@
+name: Security Audit
+
+# Weekly npm audit against the lockfile. Dependabot remains the primary
+# alert source; this catches advisories between Dependabot runs without
+# costing anything per PR.
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Audit production and dev dependencies
+        run: npm audit --audit-level=moderate

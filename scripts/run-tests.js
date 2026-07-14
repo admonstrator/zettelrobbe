@@ -11,13 +11,13 @@ const COLORS = {
   green: '\x1b[32m',
   yellow: '\x1b[33m',
   red: '\x1b[31m',
-  cyan: '\x1b[36m'
+  cyan: '\x1b[36m',
 };
 
 const STATUS_META = {
   PASSED: { color: COLORS.green, icon: '🟢' },
   SKIPPED: { color: COLORS.yellow, icon: '🟡' },
-  FAILED: { color: COLORS.red, icon: '🔴' }
+  FAILED: { color: COLORS.red, icon: '🔴' },
 };
 
 function colorize(text, color) {
@@ -30,8 +30,6 @@ function formatStatus(status) {
 }
 
 const TESTS = {
-  'chat-document-search': 'test-chat-document-search.js',
-  'chat-documents-service-search': 'test-chat-documents-service-search.js',
   'document-type-restriction': 'test-document-type-restriction.js',
   'effective-document-count-cache': 'test-effective-document-count-cache.js',
   'failed-reset-all': 'test-failed-reset-all.js',
@@ -59,11 +57,10 @@ const TESTS = {
   'ssrf-url-validation': 'test-ssrf-url-validation.js',
   'external-api-ssrf-block': 'test-external-api-ssrf-block.js',
   'ui-xss-hardening': 'test-ui-xss-hardening.js',
-  'history-xss-hardening': 'test-history-xss-hardening.js'
+  'history-xss-hardening': 'test-history-xss-hardening.js',
 };
 
 const AREAS = {
-  chat: ['chat-document-search', 'chat-documents-service-search'],
   auth: ['login-mfa-flow', 'rate-limiting', 'thumbnail-auth-guard'],
   ocr: ['ocr-fallback-ai-errors', 'ocr-startup-recovery'],
   observability: ['log-level-config', 'log-level-logger'],
@@ -76,13 +73,13 @@ const AREAS = {
     'ollama-temperature-wiring',
     'pr772-fix',
     'scan-stop-flow',
-    'thumbnail-startup-migration'
+    'thumbnail-startup-migration',
   ],
   prompts: ['restriction-service', 'updated-service'],
   quickstart: [
     'quickstart-model-classification',
     'setup-wizard-quickstart',
-    'quickstart-endpoint-protection'
+    'quickstart-endpoint-protection',
   ],
   security: [
     'setup-remote-guard',
@@ -92,12 +89,14 @@ const AREAS = {
     'ssrf-url-validation',
     'external-api-ssrf-block',
     'ui-xss-hardening',
-    'history-xss-hardening'
-  ]
+    'history-xss-hardening',
+  ],
 };
 
 function hasLoginCredentials() {
-  return Boolean(process.env.LOGIN_TEST_USERNAME && process.env.LOGIN_TEST_PASSWORD);
+  return Boolean(
+    process.env.LOGIN_TEST_USERNAME && process.env.LOGIN_TEST_PASSWORD
+  );
 }
 
 function checkHttpAvailability(baseUrl, timeoutMs = 1500) {
@@ -105,7 +104,7 @@ function checkHttpAvailability(baseUrl, timeoutMs = 1500) {
     let parsed;
     try {
       parsed = new URL(baseUrl);
-    } catch (_) {
+    } catch {
       resolve(false);
       return;
     }
@@ -118,7 +117,7 @@ function checkHttpAvailability(baseUrl, timeoutMs = 1500) {
         port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
         path: '/health',
         method: 'GET',
-        timeout: timeoutMs
+        timeout: timeoutMs,
       },
       () => {
         resolve(true);
@@ -163,13 +162,18 @@ async function getSkipReason(testName) {
     }
 
     const hasToken = Boolean(process.env.JWT_TOKEN);
-    const hasApiKey = Boolean(process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY);
+    const hasApiKey = Boolean(
+      process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY
+    );
     if (!hasToken && !hasApiKey) {
       return 'missing JWT_TOKEN or API_KEY/PAPERLESS_AI_API_KEY';
     }
   }
 
-  if (testName === 'setup-auth-endpoint-protection' || testName === 'quickstart-endpoint-protection') {
+  if (
+    testName === 'setup-auth-endpoint-protection' ||
+    testName === 'quickstart-endpoint-protection'
+  ) {
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
     const reachable = await checkHttpAvailability(baseUrl);
     if (!reachable) {
@@ -181,7 +185,9 @@ async function getSkipReason(testName) {
 }
 
 function printUsage() {
-  console.log('Usage: node scripts/run-tests.js [--all] [--area <name>] [--test <name>] [--list]');
+  console.log(
+    'Usage: node scripts/run-tests.js [--all] [--area <name>] [--test <name>] [--list]'
+  );
   console.log('');
   console.log('Examples:');
   console.log('  node scripts/run-tests.js --all');
@@ -198,7 +204,7 @@ function parseArgs(argv) {
     list: false,
     all: false,
     area: null,
-    test: null
+    test: null,
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -291,14 +297,14 @@ async function runTest(testName) {
       fileName,
       code: 0,
       skipped: true,
-      skipReason
+      skipReason,
     };
   }
 
   console.log(`\n[TEST] ${testName} -> ${fileName}`);
   const result = spawnSync(process.execPath, [filePath], {
     stdio: 'inherit',
-    env: process.env
+    env: process.env,
   });
 
   return {
@@ -306,7 +312,7 @@ async function runTest(testName) {
     fileName,
     code: typeof result.status === 'number' ? result.status : 1,
     skipped: false,
-    skipReason: null
+    skipReason: null,
   };
 }
 
@@ -325,7 +331,7 @@ async function main() {
       statusRows.push({
         testName: runResult.testName,
         status: 'SKIPPED',
-        detail: runResult.skipReason
+        detail: runResult.skipReason,
       });
       continue;
     }
@@ -335,7 +341,7 @@ async function main() {
       statusRows.push({
         testName: runResult.testName,
         status: 'FAILED',
-        detail: `exit=${runResult.code}`
+        detail: `exit=${runResult.code}`,
       });
       continue;
     }
@@ -344,14 +350,16 @@ async function main() {
     statusRows.push({
       testName: runResult.testName,
       status: 'PASSED',
-      detail: 'passed'
+      detail: 'passed',
     });
   }
 
   console.log('\n========================================');
   console.log(colorize('[STATUS] Test summary:', COLORS.cyan));
   statusRows.forEach((row) => {
-    console.log(`- [${formatStatus(row.status)}] ${row.testName} (${row.detail})`);
+    console.log(
+      `- [${formatStatus(row.status)}] ${row.testName} (${row.detail})`
+    );
   });
 
   console.log('');
@@ -367,13 +375,19 @@ async function main() {
   }
 
   if (failures.length === 0) {
-    console.log(`[RESULT] All runnable tests passed (${selectedTests.length - skipped.length}/${selectedTests.length}).`);
+    console.log(
+      `[RESULT] All runnable tests passed (${selectedTests.length - skipped.length}/${selectedTests.length}).`
+    );
     process.exit(0);
   }
 
-  console.log(`[RESULT] ${failures.length} of ${selectedTests.length} test(s) failed:`);
+  console.log(
+    `[RESULT] ${failures.length} of ${selectedTests.length} test(s) failed:`
+  );
   failures.forEach((failure) => {
-    console.log(`- ${failure.testName} (${failure.fileName}) exit=${failure.code}`);
+    console.log(
+      `- ${failure.testName} (${failure.fileName}) exit=${failure.code}`
+    );
   });
   process.exit(1);
 }
