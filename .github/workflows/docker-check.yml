@@ -1,0 +1,50 @@
+name: Docker Build Check
+
+# Build-only check (no push). Runs solely on PRs that touch the Docker
+# setup or the dependency manifests, since `npm ci` lives in the base image.
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - Dockerfile.base
+      - docker-entrypoint.sh
+      - start-services.sh
+      - ecosystem.config.js
+      - package.json
+      - package-lock.json
+      - .github/workflows/docker-check.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKERHUB_REPO: admonstrator/paperless-ai-next
+
+jobs:
+  build:
+    name: Build base + app image (no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Reuses the public registry build cache of the weekly base build, so
+      # this stays fast unless package-lock.json actually changed.
+      - name: Build base image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.base
+          push: false
+          load: true
+          tags: paperless-ai-next:ci-base
+          cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache-base-lite
+
+      - name: Build app image on top of the freshly built base
+        run: docker build --build-arg BASE_IMAGE=paperless-ai-next:ci-base -t paperless-ai-next:ci .

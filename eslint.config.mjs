@@ -1,13 +1,16 @@
-import globals from "globals";
-import pluginJs from "@eslint/js";
-import prettier from "eslint-config-prettier";
+import globals from 'globals';
+import pluginJs from '@eslint/js';
+import prettier from 'eslint-config-prettier';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   {
-    files: ["**/*.js"],
+    ignores: ['public/vendor/**', 'OPENAPI/**', 'data/**'],
+  },
+  {
+    files: ['**/*.js'],
     languageOptions: {
-      sourceType: "commonjs",
+      sourceType: 'commonjs',
       globals: {
         ...globals.browser,
         ...globals.node,
@@ -15,5 +18,5 @@ export default [
     },
   },
   pluginJs.configs.recommended,
-  prettier, // Prettier integriert
+  prettier, // disables formatting rules that would conflict with Prettier
 ];

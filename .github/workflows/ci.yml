@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint & format (changed files)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # --ignore-scripts skips the better-sqlite3 native build, which
+      # eslint/prettier do not need.
+      - name: Install dependencies (no native builds)
+        run: npm ci --ignore-scripts
+
+      - name: Collect changed files
+        id: changed
+        run: |
+          git diff --name-only --diff-filter=ACMR "origin/${{ github.base_ref }}...HEAD" > /tmp/changed-files.txt
+          grep -E '\.(js|mjs|cjs)$' /tmp/changed-files.txt > /tmp/changed-js.txt || true
+          echo "Changed files:" && cat /tmp/changed-files.txt
+          echo "any=$([ -s /tmp/changed-files.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "js=$([ -s /tmp/changed-js.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: ESLint (changed files)
+        if: steps.changed.outputs.js == 'true'
+        run: xargs -a /tmp/changed-js.txt -d '\n' npx eslint --no-warn-ignored
+
+      - name: Prettier (changed files)
+        if: steps.changed.outputs.any == 'true'
+        run: xargs -a /tmp/changed-files.txt -d '\n' npx prettier --check --ignore-unknown
+
+  test:
+    name: Tests & OpenAPI sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Server-dependent tests self-skip when no server is reachable at
+      # BASE_URL; skips do not fail the run.
+      - name: Run test suite
+        run: node scripts/run-tests.js --all
+
+      - name: Check OpenAPI spec is in sync
+        run: |
+          node scripts/regen-openapi.js
+          if ! git diff --exit-code -- OPENAPI/openapi.json; then
+            echo "::error::OPENAPI/openapi.json is out of sync with the @swagger JSDoc. Run 'node scripts/regen-openapi.js' and commit the result."
+            exit 1
+          fi
