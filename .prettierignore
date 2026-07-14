@@ -1,0 +1,5 @@
+public/vendor/
+OPENAPI/
+data/
+package-lock.json
+THIRD_PARTY_NOTICES.md

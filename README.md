@@ -4,7 +4,7 @@
 
 <h1>Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span></h1>
 
-[![Latest Release](https://img.shields.io/github/v/release/admonstrator/paperless-ai-next?style=for-the-badge&logo=github&color=0ea5e9)](https://github.com/admonstrator/paperless-ai-next/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/admonstrator/paperless-ai-next?style=for-the-badge&logo=docker&color=10b981)](https://hub.docker.com/r/admonstrator/paperless-ai-next) [![Docs](https://img.shields.io/badge/docs-Live-0891b2?style=for-the-badge&logo=readthedocs)](https://paperless-ai-next.admon.me/)
+[![Latest Release](https://img.shields.io/github/v/release/admonstrator/paperless-ai-next?style=for-the-badge&logo=github&color=0ea5e9)](https://github.com/admonstrator/paperless-ai-next/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/admonstrator/paperless-ai-next?style=for-the-badge&logo=docker&color=10b981)](https://hub.docker.com/r/admonstrator/paperless-ai-next) [![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/paperless-ai-next/ci.yml?branch=main&style=for-the-badge&logo=githubactions&label=CI)](https://github.com/admonstrator/paperless-ai-next/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-Live-0891b2?style=for-the-badge&logo=readthedocs)](https://paperless-ai-next.admon.me/)
 
 [🧠 What makes it "Next"](#-the-evolution-what-makes-it-next) | [💖 Fuel the Evolution](#-fuel-the-evolution) | [🚀 Quick Start](#-quick-start) | [💬 Frequently Asked Questions](#-frequently-asked-questions)
 
@@ -17,21 +17,21 @@
 | Feature                                     | Paperless-AI | Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span> |
 | ------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
 | **Core automation**                         |              |                                                                                             |
-| AI-based document classification            | ✅            | ✅                                                                                           |
-| Paperless-ngx integration                   | ✅            | ✅                                                                                           |
-| Basic manual processing flows               | ✅            | ✅                                                                                           |
+| AI-based document classification            | ✅           | ✅                                                                                          |
+| Paperless-ngx integration                   | ✅           | ✅                                                                                          |
+| Basic manual processing flows               | ✅           | ✅                                                                                          |
 | **Performance and scale**                   |              |                                                                                             |
-| Server-side history pagination              | ❌            | ✅                                                                                           |
-| Tag caching with reduced API calls          | ❌            | ✅                                                                                           |
-| Faster dashboard behavior under high volume | ❌            | ✅                                                                                           |
+| Server-side history pagination              | ❌           | ✅                                                                                          |
+| Tag caching with reduced API calls          | ❌           | ✅                                                                                          |
+| Faster dashboard behavior under high volume | ❌           | ✅                                                                                          |
 | **Security and reliability**                |              |                                                                                             |
-| Security-focused dependency maintenance     | ✅            | ✅                                                                                           |
-| Global API + SSE rate limiting              | ❌            | ✅                                                                                           |
-| MFA login support                           | ❌            | ✅                                                                                           |
+| Security-focused dependency maintenance     | ✅           | ✅                                                                                          |
+| Global API + SSE rate limiting              | ❌           | ✅                                                                                          |
+| MFA login support                           | ❌           | ✅                                                                                          |
 | **OCR and recovery workflows**              |              |                                                                                             |
-| Works with blurry documents and images      | ❌            | ✅                                                                                           |
+| Works with blurry documents and images      | ❌           | ✅                                                                                          |
 | **UX and operations**                       |              |                                                                                             |
-| Settings tabs with runtime ENV hints        | ❌            | ✅                                                                                           |
+| Settings tabs with runtime ENV hints        | ❌           | ✅                                                                                          |
 
 ---
 
@@ -108,7 +108,7 @@ services:
     container_name: paperless-ai-next
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - '3000:3000'
     volumes:
       - data:/app/data
 
@@ -127,10 +127,9 @@ Then open [http://localhost:3000](http://localhost:3000) to complete setup.
 
 ### Container Images
 
-| Image Tag                                    | Size        |
-| -------------------------------------------- | ----------- |
-| `admonstrator/paperless-ai-next:latest`      | ~500–700 MB |
-
+| Image Tag                               | Size        |
+| --------------------------------------- | ----------- |
+| `admonstrator/paperless-ai-next:latest` | ~500–700 MB |
 
 **Docker Hub:** [admonstrator/paperless-ai-next](https://hub.docker.com/r/admonstrator/paperless-ai-next)
 

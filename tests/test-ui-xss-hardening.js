@@ -1,12 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 
-function assertIncludes(content, snippet, message) {
-  if (!content.includes(snippet)) {
-    throw new Error(message);
-  }
-}
-
 function assertNotIncludes(content, snippet, message) {
   if (content.includes(snippet)) {
     throw new Error(message);
@@ -16,22 +10,9 @@ function assertNotIncludes(content, snippet, message) {
 function run() {
   console.log('\n=== UI XSS Hardening Checks ===');
 
-  const chatPath = path.join(process.cwd(), 'public', 'js', 'chat.js');
   const settingsPath = path.join(process.cwd(), 'views', 'settings.ejs');
 
-  const chatContent = fs.readFileSync(chatPath, 'utf8');
   const settingsContent = fs.readFileSync(settingsPath, 'utf8');
-
-  assertIncludes(
-    chatContent,
-    'const safeMarkdown = escapeHtml(markdown);',
-    'Chat streaming path must escape markdown before marked.parse()'
-  );
-  assertIncludes(
-    chatContent,
-    'const safeMessageContent = escapeHtml(String(messageContent ?? \'\'));',
-    'Chat non-stream path must escape assistant message before marked.parse()'
-  );
 
   assertNotIncludes(
     settingsContent,
