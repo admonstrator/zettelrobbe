@@ -1083,6 +1083,28 @@ function initializeFormHandlers() {
     });
   }
 
+  // PDF render toggle: the visible switch drives a hidden yes/no input (so the
+  // save handler keeps its string semantics) and shows the sub-options only
+  // when rendering is ON.
+  const ocrPdfRenderSwitch = document.getElementById(
+    'ocrPdfRenderEnabledSwitch'
+  );
+  const ocrPdfRenderValueInput = document.getElementById('ocrPdfRenderEnabled');
+  const ocrPdfRenderOptionsContainer = document.getElementById(
+    'ocrPdfRenderOptionsContainer'
+  );
+  if (ocrPdfRenderSwitch) {
+    ocrPdfRenderSwitch.addEventListener('change', () => {
+      const renderEnabled = ocrPdfRenderSwitch.checked;
+      if (ocrPdfRenderValueInput) {
+        ocrPdfRenderValueInput.value = renderEnabled ? 'yes' : 'no';
+      }
+      if (ocrPdfRenderOptionsContainer) {
+        ocrPdfRenderOptionsContainer.classList.toggle('hidden', !renderEnabled);
+      }
+    });
+  }
+
   const quickstartUrlInput = document.getElementById('settingsQuickstartUrl');
   const quickstartApiKeyInput = document.getElementById(
     'settingsQuickstartApiKey'

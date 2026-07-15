@@ -726,22 +726,28 @@
                                 </div>
                                 <div id="ocrPdfRenderContainer" class="space-y-4">
                                     <div class="space-y-2">
-                                        <label for="ocrPdfRenderEnabled" class="text-sm font-medium">Render PDF Pages (poppler)</label>
-                                        <select id="ocrPdfRenderEnabled" name="ocrPdfRenderEnabled" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="yes" <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? 'selected' : '' %>>Yes</option>
-                                            <option value="no" <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'no' ? 'selected' : '' %>>No</option>
-                                        </select>
+                                        <label class="flex items-center gap-3 cursor-pointer select-none">
+                                            <div class="relative">
+                                                <input type="checkbox" id="ocrPdfRenderEnabledSwitch" class="sr-only peer" <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? 'checked' : '' %>>
+                                                <div class="w-10 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full transition-colors"></div>
+                                                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+                                            </div>
+                                            <span class="text-sm font-medium">Render PDF Pages (poppler)</span>
+                                        </label>
+                                        <input type="hidden" id="ocrPdfRenderEnabled" name="ocrPdfRenderEnabled" value="<%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? 'yes' : 'no' %>">
                                         <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_ENABLED · Render PDF pages with poppler (pdftoppm) so local vision models can OCR multi-page documents; falls back to the first-page thumbnail when poppler is not installed · Restart required</p>
                                     </div>
-                                    <div class="space-y-2">
-                                        <label for="ocrPdfRenderMaxPages" class="text-sm font-medium">Max PDF Pages per Document</label>
-                                        <input type="number" id="ocrPdfRenderMaxPages" name="ocrPdfRenderMaxPages" min="1" max="50" step="1" value="<%= config.OCR_PDF_RENDER_MAX_PAGES || 10 %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                        <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_MAX_PAGES · Each page is one vision model request; pages beyond the limit are skipped · Restart required</p>
-                                    </div>
-                                    <div class="space-y-2">
-                                        <label for="ocrPdfRenderDpi" class="text-sm font-medium">PDF Render Resolution (DPI)</label>
-                                        <input type="number" id="ocrPdfRenderDpi" name="ocrPdfRenderDpi" min="72" max="300" step="1" value="<%= config.OCR_PDF_RENDER_DPI || 150 %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                        <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_DPI · Higher values improve OCR accuracy but increase image size (72–300) · Restart required</p>
+                                    <div id="ocrPdfRenderOptionsContainer" class="space-y-4 <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? '' : 'hidden' %>">
+                                        <div class="space-y-2">
+                                            <label for="ocrPdfRenderMaxPages" class="text-sm font-medium">Max PDF Pages per Document</label>
+                                            <input type="number" id="ocrPdfRenderMaxPages" name="ocrPdfRenderMaxPages" min="1" max="50" step="1" value="<%= config.OCR_PDF_RENDER_MAX_PAGES || 10 %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_MAX_PAGES · Each page is one vision model request; pages beyond the limit are skipped · Restart required</p>
+                                        </div>
+                                        <div class="space-y-2">
+                                            <label for="ocrPdfRenderDpi" class="text-sm font-medium">PDF Render Resolution (DPI)</label>
+                                            <input type="number" id="ocrPdfRenderDpi" name="ocrPdfRenderDpi" min="72" max="300" step="1" value="<%= config.OCR_PDF_RENDER_DPI || 150 %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_DPI · Higher values improve OCR accuracy but increase image size (72–300) · Restart required</p>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="space-y-2">

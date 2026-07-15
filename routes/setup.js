@@ -8134,15 +8134,6 @@ router.post('/settings', express.json(), async (req, res) => {
       : String(currentConfig.MISTRAL_OCR_ENABLED || 'no')
           .trim()
           .toLowerCase();
-    const effectiveOcrApiUrl =
-      normalizedOcrProvider === 'mistral'
-        ? ''
-        : hasValue(ocrApiUrl)
-          ? String(ocrApiUrl).trim()
-          : String(currentConfig.OCR_API_URL || '').trim();
-    const effectiveOcrModel = hasValue(mistralOcrModel)
-      ? String(mistralOcrModel).trim()
-      : String(currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest').trim();
     const effectiveOcrValidationTimeoutMs =
       setupService.normalizeValidationTimeoutMs(
         hasValue(ocrValidationTimeout)
@@ -8150,7 +8141,6 @@ router.post('/settings', express.json(), async (req, res) => {
           : currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS,
         30000
       );
-    const normalizeCompare = (value) => String(value || '').trim();
 
     if (!['mistral', 'custom', 'ollama'].includes(normalizedOcrProvider)) {
       return res.status(400).json({
@@ -8169,48 +8159,9 @@ router.post('/settings', express.json(), async (req, res) => {
       });
     }
 
-    const currentOcrEnabled = String(currentConfig.MISTRAL_OCR_ENABLED || 'no')
-      .trim()
-      .toLowerCase();
-    const currentOcrProvider = String(currentConfig.OCR_PROVIDER || 'mistral')
-      .trim()
-      .toLowerCase();
-    const currentOcrApiUrl = String(currentConfig.OCR_API_URL || '').trim();
-    const currentOcrModel = String(
-      currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
-    ).trim();
-    const shouldValidateOcr =
-      effectiveOcrEnabled === 'yes' &&
-      (currentOcrEnabled !== effectiveOcrEnabled ||
-        currentOcrProvider !== normalizedOcrProvider ||
-        currentOcrApiUrl !== effectiveOcrApiUrl ||
-        currentOcrModel !== effectiveOcrModel ||
-        String(
-          currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS || '30000'
-        ).trim() !== String(effectiveOcrValidationTimeoutMs) ||
-        hasOcrApiKeyInput);
-
-    if (shouldValidateOcr) {
-      const normalizedOcrProviderForValidation =
-        normalizedOcrProvider === 'custom' ? 'ollama' : normalizedOcrProvider;
-      const ocrValid = await setupService.withTemporaryValidationTimeout(
-        effectiveOcrValidationTimeoutMs,
-        async () =>
-          setupService.validateOcrConfig({
-            enabled: effectiveOcrEnabled,
-            provider: normalizedOcrProviderForValidation,
-            apiUrl: effectiveOcrApiUrl,
-            apiKey: effectiveOcrApiKey,
-            model: effectiveOcrModel,
-          })
-      );
-
-      if (!ocrValid) {
-        return res.status(400).json({
-          error: `OCR connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check OCR provider, OCR API URL, API key and model.`,
-        });
-      }
-    }
+    // Saving deliberately runs no live OCR connection test — only the value
+    // checks above. Use the "Test OCR Connection" button (/api/settings/ocr/test)
+    // to verify connectivity on demand.
 
     // Process custom fields
     let processedCustomFields = [];
@@ -8308,39 +8259,20 @@ router.post('/settings', express.json(), async (req, res) => {
       updatedConfig.PAPERLESS_API_TOKEN = effectivePaperlessToken;
     if (paperlessUsername) updatedConfig.PAPERLESS_USERNAME = paperlessUsername;
 
-    // Handle AI provider configuration
+    // Handle AI provider configuration. Saving deliberately runs no live AI
+    // connection tests — only required-field checks. Use the explicit test
+    // buttons/endpoints to verify connectivity on demand.
     if (aiProvider) {
       const selectedAiProvider = String(aiProvider).trim().toLowerCase();
-      const currentAiProvider = String(currentConfig.AI_PROVIDER || '')
-        .trim()
-        .toLowerCase();
-      const providerChanged = selectedAiProvider !== currentAiProvider;
 
       updatedConfig.AI_PROVIDER = selectedAiProvider;
 
       if (selectedAiProvider === 'openai') {
-        const modelChanged =
-          hasValue(openaiModel) &&
-          normalizeCompare(openaiModel) !==
-            normalizeCompare(currentConfig.OPENAI_MODEL);
-        const shouldValidateOpenAi =
-          providerChanged || hasOpenAiKeyInput || modelChanged;
-
         if (!effectiveOpenAiKey) {
           return res.status(400).json({
             error:
               'OpenAI API key is required when OpenAI provider is selected.',
           });
-        }
-
-        if (shouldValidateOpenAi) {
-          const isOpenAIValid =
-            await setupService.validateOpenAIConfig(effectiveOpenAiKey);
-          if (!isOpenAIValid) {
-            return res.status(400).json({
-              error: `OpenAI API Key is not valid or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check the key and connectivity.`,
-            });
-          }
         }
 
         if (hasOpenAiKeyInput) {
@@ -8350,35 +8282,12 @@ router.post('/settings', express.json(), async (req, res) => {
       } else if (selectedAiProvider === 'ollama') {
         const effectiveOllamaUrl = ollamaUrl || currentConfig.OLLAMA_API_URL;
         const effectiveOllamaModel = ollamaModel || currentConfig.OLLAMA_MODEL;
-        const urlChanged =
-          hasValue(ollamaUrl) &&
-          normalizeCompare(ollamaUrl) !==
-            normalizeCompare(currentConfig.OLLAMA_API_URL);
-        const modelChanged =
-          hasValue(ollamaModel) &&
-          normalizeCompare(ollamaModel) !==
-            normalizeCompare(currentConfig.OLLAMA_MODEL);
-        const shouldValidateOllama =
-          providerChanged || urlChanged || modelChanged || hasOllamaApiKeyInput;
 
         if (!effectiveOllamaUrl || !effectiveOllamaModel) {
           return res.status(400).json({
             error:
               'Ollama URL and model are required when Ollama provider is selected.',
           });
-        }
-
-        if (shouldValidateOllama) {
-          const isOllamaValid = await setupService.validateOllamaConfig(
-            effectiveOllamaUrl,
-            effectiveOllamaModel,
-            effectiveOllamaApiKey
-          );
-          if (!isOllamaValid) {
-            return res.status(400).json({
-              error: `Ollama connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, optional API key and model.`,
-            });
-          }
         }
 
         if (ollamaUrl) updatedConfig.OLLAMA_API_URL = ollamaUrl;
@@ -8389,35 +8298,12 @@ router.post('/settings', express.json(), async (req, res) => {
         const effectiveCustomBaseUrl =
           customBaseUrl || currentConfig.CUSTOM_BASE_URL;
         const effectiveCustomModel = customModel || currentConfig.CUSTOM_MODEL;
-        const urlChanged =
-          hasValue(customBaseUrl) &&
-          normalizeCompare(customBaseUrl) !==
-            normalizeCompare(currentConfig.CUSTOM_BASE_URL);
-        const modelChanged =
-          hasValue(customModel) &&
-          normalizeCompare(customModel) !==
-            normalizeCompare(currentConfig.CUSTOM_MODEL);
-        const shouldValidateCustom =
-          providerChanged || hasCustomApiKeyInput || urlChanged || modelChanged;
 
         if (!effectiveCustomBaseUrl || !effectiveCustomModel) {
           return res.status(400).json({
             error:
               'Custom provider URL and model are required when custom provider is selected.',
           });
-        }
-
-        if (shouldValidateCustom) {
-          const isCustomValid = await setupService.validateCustomConfig(
-            effectiveCustomBaseUrl,
-            effectiveCustomApiKey,
-            effectiveCustomModel
-          );
-          if (!isCustomValid) {
-            return res.status(400).json({
-              error: `Custom provider connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, API key and model.`,
-            });
-          }
         }
 
         if (hasCustomApiKeyInput)
@@ -8429,26 +8315,6 @@ router.post('/settings', express.json(), async (req, res) => {
           azureEndpoint || currentConfig.AZURE_ENDPOINT;
         const effectiveAzureDeployment =
           azureDeploymentName || currentConfig.AZURE_DEPLOYMENT_NAME;
-        const effectiveAzureApiVersion =
-          azureApiVersion || currentConfig.AZURE_API_VERSION;
-        const endpointChanged =
-          hasValue(azureEndpoint) &&
-          normalizeCompare(azureEndpoint) !==
-            normalizeCompare(currentConfig.AZURE_ENDPOINT);
-        const deploymentChanged =
-          hasValue(azureDeploymentName) &&
-          normalizeCompare(azureDeploymentName) !==
-            normalizeCompare(currentConfig.AZURE_DEPLOYMENT_NAME);
-        const versionChanged =
-          hasValue(azureApiVersion) &&
-          normalizeCompare(azureApiVersion) !==
-            normalizeCompare(currentConfig.AZURE_API_VERSION);
-        const shouldValidateAzure =
-          providerChanged ||
-          hasAzureApiKeyInput ||
-          endpointChanged ||
-          deploymentChanged ||
-          versionChanged;
 
         if (
           !effectiveAzureEndpoint ||
@@ -8459,20 +8325,6 @@ router.post('/settings', express.json(), async (req, res) => {
             error:
               'Azure endpoint, API key and deployment name are required when Azure provider is selected.',
           });
-        }
-
-        if (shouldValidateAzure) {
-          const isAzureValid = await setupService.validateAzureConfig(
-            effectiveAzureApiKey,
-            effectiveAzureEndpoint,
-            effectiveAzureDeployment,
-            effectiveAzureApiVersion
-          );
-          if (!isAzureValid) {
-            return res.status(400).json({
-              error: `Azure connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, API key, deployment name and API version.`,
-            });
-          }
         }
 
         if (azureEndpoint) updatedConfig.AZURE_ENDPOINT = azureEndpoint;
@@ -8663,7 +8515,10 @@ router.post('/settings', express.json(), async (req, res) => {
       ...updatedConfig,
     };
 
-    await setupService.saveConfig(mergedConfig);
+    // The route has already validated the submitted values (and Paperless
+    // reachability when its settings changed). Skip saveConfig's built-in
+    // validateConfig so saving does not live-test Paperless/AI on every save.
+    await setupService.saveConfig(mergedConfig, { skipValidation: true });
     try {
       for (const field of processedCustomFields) {
         await paperlessService.createCustomFieldSafely(
