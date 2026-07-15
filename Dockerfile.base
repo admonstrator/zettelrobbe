@@ -3,13 +3,15 @@ FROM node:26-slim
 
 WORKDIR /app
 
-# Install system dependencies including build tools for better-sqlite3
+# Install system dependencies including build tools for better-sqlite3 and
+# poppler-utils (pdftoppm/pdfinfo) for multi-page PDF OCR rendering
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     python3 \
     make \
     g++ \
+    poppler-utils \
     procps \
     gosu && \
     apt-get clean && \

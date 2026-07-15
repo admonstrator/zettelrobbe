@@ -7,7 +7,9 @@ function main() {
   const source = fs.readFileSync(setupRoutePath, 'utf8');
 
   assert.ok(
-    source.includes("router.post('/api/settings/reset-local-overrides', isAuthenticated, cacheClearLimiter, express.json(), async (req, res) => {"),
+    source.includes(
+      "router.post(\n  '/api/settings/reset-local-overrides',\n  isAuthenticated,\n  cacheClearLimiter,\n  express.json(),\n  async (req, res) => {"
+    ),
     'Expected reset-local-overrides endpoint to parse JSON request bodies'
   );
 
@@ -17,12 +19,16 @@ function main() {
   );
 
   assert.ok(
-    source.includes("const currentPassword = String(req.body?.currentPassword || '').trim();"),
+    source.includes(
+      "const currentPassword = String(req.body?.currentPassword || '').trim();"
+    ),
     'Expected reset-local-overrides endpoint to read currentPassword from request body'
   );
 
   assert.ok(
-    source.includes('const validPassword = await bcrypt.compare(currentPassword, user.password);'),
+    source.includes(
+      'const validPassword = await bcrypt.compare(\n        currentPassword,\n        user.password\n      );'
+    ),
     'Expected reset-local-overrides endpoint to validate current password'
   );
 
@@ -37,16 +43,22 @@ function main() {
   );
 
   assert.ok(
-    source.includes('setTimeout(() => {') && source.includes('process.exit(0);'),
+    source.includes('setTimeout(() => {') &&
+      source.includes('process.exit(0);'),
     'Expected reset-local-overrides endpoint to trigger process restart after response'
   );
 
-  console.log('[PASS] Reset local overrides endpoint enforces password confirmation in interactive sessions');
+  console.log(
+    '[PASS] Reset local overrides endpoint enforces password confirmation in interactive sessions'
+  );
 }
 
 try {
   main();
 } catch (error) {
-  console.error('[FAIL] Reset local overrides password guard regression failed:', error.message);
+  console.error(
+    '[FAIL] Reset local overrides password guard regression failed:',
+    error.message
+  );
   process.exitCode = 1;
 }

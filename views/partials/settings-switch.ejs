@@ -1,0 +1,23 @@
+<%# Reusable ON/OFF switch row for the settings form, rendered as a bordered
+    row with the toggle in a fixed left column and the label right next to it
+    (same visual language as the bordered checkbox tiles used elsewhere).
+    The visible checkbox drives a hidden yes/no input (id/name = `id`) so the
+    save handler and API keep their string semantics. A generic initializer in
+    public/js/settings.js syncs the hidden input and re-emits 'change' on it.
+    Params: id (string), label (string), checked (boolean), hint (string, optional) %>
+<div class="space-y-2">
+    <div class="flex items-center gap-3 border border-gray-200 rounded-lg px-4 py-3">
+        <label class="relative shrink-0 cursor-pointer select-none">
+            <input type="checkbox" id="<%= id %>Switch" class="sr-only peer" data-switch-target="<%= id %>" <%= checked ? 'checked' : '' %>>
+            <div class="w-10 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full transition-colors"></div>
+            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+        </label>
+        <div class="min-w-0">
+            <label for="<%= id %>Switch" class="block text-sm font-medium cursor-pointer"><%= label %></label>
+            <% if (typeof hint === 'string' && hint) { %>
+            <p class="text-xs text-gray-500 mt-0.5"><%= hint %></p>
+            <% } %>
+        </div>
+    </div>
+    <input type="hidden" id="<%= id %>" name="<%= id %>" value="<%= checked ? 'yes' : 'no' %>">
+</div>
