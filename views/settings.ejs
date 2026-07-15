@@ -149,15 +149,17 @@
                                 </div>
 
                                 <div class="space-y-2">
-                                    <label class="flex items-center justify-between gap-3 cursor-pointer select-none">
-                                        <span class="text-sm font-medium">Disable automatic processing</span>
-                                        <div class="relative shrink-0">
+                                    <div class="flex items-center justify-between gap-4 border border-gray-200 rounded-lg px-4 py-3">
+                                        <div class="min-w-0">
+                                            <label for="disableAutomaticProcessing" class="block text-sm font-medium cursor-pointer">Disable automatic processing</label>
+                                            <p class="text-xs text-gray-500 mt-1">If enabled, scans are not processed by AI automatically · ENV: DISABLE_AUTOMATIC_PROCESSING · Restart required</p>
+                                        </div>
+                                        <label class="relative shrink-0 cursor-pointer select-none">
                                             <input type="checkbox" id="disableAutomaticProcessing" class="sr-only peer" <%= config.DISABLE_AUTOMATIC_PROCESSING === 'yes' ? 'checked' : '' %>>
                                             <div class="w-10 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full transition-colors"></div>
                                             <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
-                                        </div>
-                                    </label>
-                                    <p class="text-xs text-gray-500">If enabled, scans are not processed by AI automatically · ENV: DISABLE_AUTOMATIC_PROCESSING · Restart required</p>
+                                        </label>
+                                    </div>
                                 </div>
 
                                 <%- include('partials/settings-switch', {
@@ -576,10 +578,17 @@
 
                             <section class="space-y-4 settings-section-card">
                                 <h3 class="text-lg font-semibold">External API</h3>
-                                <label for="externalApiEnabled" class="flex items-center gap-3 border rounded-lg p-3 cursor-pointer">
-                                    <input type="checkbox" id="externalApiEnabled" name="externalApiEnabled" class="w-5 h-5" <%= config.EXTERNAL_API_ENABLED === 'yes' ? 'checked' : '' %>>
-                                    <span>Enable External API Integration</span>
-                                </label>
+                                <div class="flex items-center justify-between gap-4 border border-gray-200 rounded-lg px-4 py-3">
+                                    <div class="min-w-0">
+                                        <label for="externalApiEnabled" class="block text-sm font-medium cursor-pointer">Enable External API Integration</label>
+                                        <p class="text-xs text-gray-500 mt-1">ENV: EXTERNAL_API_ENABLED · Restart required</p>
+                                    </div>
+                                    <label class="relative shrink-0 cursor-pointer select-none">
+                                        <input type="checkbox" id="externalApiEnabled" name="externalApiEnabled" class="sr-only peer" <%= config.EXTERNAL_API_ENABLED === 'yes' ? 'checked' : '' %>>
+                                        <div class="w-10 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full transition-colors"></div>
+                                        <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+                                    </label>
+                                </div>
 
                                 <div id="externalApiSettings" class="space-y-4 <%= config.EXTERNAL_API_ENABLED === 'yes' ? '' : 'hidden' %>">
                                     <div class="space-y-2">
