@@ -6372,20 +6372,6 @@ router.get('/settings', async (req, res) => {
   const injectedEnvSnapshot =
     global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ || {};
   const secretKeys = new Set(SETTINGS_SECRET_FIELDS);
-  const runtimeFirstMode =
-    String(process.env.CONFIG_SOURCE_MODE || 'runtime-first')
-      .trim()
-      .toLowerCase() !== 'legacy';
-  let hasLegacyEnvMigrationNotice = false;
-
-  if (runtimeFirstMode) {
-    try {
-      await fs.access(path.join(process.cwd(), 'data', '.env.migrated'));
-      hasLegacyEnvMigrationNotice = true;
-    } catch {
-      hasLegacyEnvMigrationNotice = false;
-    }
-  }
 
   const formatValueForTooltip = (key, value) => {
     const normalizedValue = value == null ? '' : String(value);
@@ -6592,8 +6578,6 @@ router.get('/settings', async (req, res) => {
     runtimeOverrideDetails,
     lockedEnvKeys,
     lockedEnvDetails,
-    runtimeFirstMode,
-    hasLegacyEnvMigrationNotice,
     aiProviderPresets,
     mfaSettings,
     success: isConfigured
