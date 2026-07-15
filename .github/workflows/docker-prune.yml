@@ -18,6 +18,10 @@ env:
   DOCKERHUB_REPO: admonstrator/paperless-ai-next
   KEEP_COUNT: ${{ inputs.keep_count || '5' }}
 
+# Operates only on Docker Hub (via secrets); no GitHub write needed.
+permissions:
+  contents: read
+
 jobs:
   prune:
     name: Prune Old Docker Hub Tags

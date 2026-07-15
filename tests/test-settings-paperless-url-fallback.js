@@ -12,31 +12,44 @@ function main() {
   );
 
   assert.ok(
-    source.includes("const normalizedCurrentPaperlessUrl = (currentConfig.PAPERLESS_API_URL || '').replace(/\\/api$/, '');"),
+    source.includes(
+      "const normalizedCurrentPaperlessUrl = (\n      currentConfig.PAPERLESS_API_URL || ''\n    ).replace(/\\/api$/, '');"
+    ),
     'Expected POST /settings to normalize existing PAPERLESS_API_URL as fallback source'
   );
 
   assert.ok(
-    source.includes('const effectivePaperlessUrl = hasPaperlessUrlInput ? paperlessUrl : normalizedCurrentPaperlessUrl;'),
+    source.includes(
+      'const effectivePaperlessUrl = hasPaperlessUrlInput\n      ? paperlessUrl\n      : normalizedCurrentPaperlessUrl;'
+    ),
     'Expected POST /settings to derive effectivePaperlessUrl fallback when URL input is missing'
   );
 
   assert.ok(
-    source.includes('await setupService.validatePaperlessConfig(effectivePaperlessUrl, effectivePaperlessToken);'),
+    source.includes(
+      'await setupService.validatePaperlessConfig(\n        effectivePaperlessUrl,\n        effectivePaperlessToken\n      );'
+    ),
     'Expected Paperless validation to run against effectivePaperlessUrl'
   );
 
   assert.ok(
-    source.includes("if (hasPaperlessUrlInput) updatedConfig.PAPERLESS_API_URL = effectivePaperlessUrl;"),
+    source.includes(
+      'if (hasPaperlessUrlInput)\n      updatedConfig.PAPERLESS_API_URL = effectivePaperlessUrl;'
+    ),
     'Expected POST /settings to persist PAPERLESS_API_URL only when user submitted a new URL'
   );
 
-  console.log('[PASS] POST /settings keeps effective Paperless URL fallback for managed/omitted paperlessUrl input');
+  console.log(
+    '[PASS] POST /settings keeps effective Paperless URL fallback for managed/omitted paperlessUrl input'
+  );
 }
 
 try {
   main();
 } catch (error) {
-  console.error('[FAIL] Settings paperless URL fallback regression failed:', error.message);
+  console.error(
+    '[FAIL] Settings paperless URL fallback regression failed:',
+    error.message
+  );
   process.exitCode = 1;
 }

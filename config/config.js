@@ -3,8 +3,16 @@ const fs = require('fs');
 const currentDir = decodeURIComponent(process.cwd());
 const envPath = path.join(currentDir, 'data', '.env');
 const migratedEnvPath = path.join(currentDir, 'data', '.env.migrated');
-const runtimeOverridesPath = path.join(currentDir, 'data', 'runtime-overrides.json');
-const CONFIG_SOURCE_MODE = String(process.env.CONFIG_SOURCE_MODE || 'runtime-first').trim().toLowerCase();
+const runtimeOverridesPath = path.join(
+  currentDir,
+  'data',
+  'runtime-overrides.json'
+);
+const CONFIG_SOURCE_MODE = String(
+  process.env.CONFIG_SOURCE_MODE || 'runtime-first'
+)
+  .trim()
+  .toLowerCase();
 const LEGACY_CONFIG_SOURCE_MODE = 'legacy';
 // Keys baked into the Dockerfile image via ENV — these are image defaults,
 // not operator-injected values, so they must never be treated as locked.
@@ -18,7 +26,7 @@ const LOG_LEVEL_WEIGHTS = {
   debug: 10,
   info: 20,
   warn: 30,
-  error: 40
+  error: 40,
 };
 const VALID_LOG_LEVELS = Object.keys(LOG_LEVEL_WEIGHTS);
 
@@ -32,8 +40,10 @@ const normalizeLogLevel = (value) => {
 };
 
 const shouldLogAtStartup = (currentLevel, messageLevel) => {
-  const currentWeight = LOG_LEVEL_WEIGHTS[currentLevel] || LOG_LEVEL_WEIGHTS.info;
-  const messageWeight = LOG_LEVEL_WEIGHTS[messageLevel] || LOG_LEVEL_WEIGHTS.info;
+  const currentWeight =
+    LOG_LEVEL_WEIGHTS[currentLevel] || LOG_LEVEL_WEIGHTS.info;
+  const messageWeight =
+    LOG_LEVEL_WEIGHTS[messageLevel] || LOG_LEVEL_WEIGHTS.info;
   return messageWeight >= currentWeight;
 };
 
@@ -94,7 +104,12 @@ const migrateLegacyEnvFileToRuntimeOverrides = (currentLevel) => {
           existingOverrides = parsedOverrides;
         }
       } catch (error) {
-        startupLog(currentLevel, 'warn', '[WARN] Failed to parse existing runtime overrides before migration:', error.message);
+        startupLog(
+          currentLevel,
+          'warn',
+          '[WARN] Failed to parse existing runtime overrides before migration:',
+          error.message
+        );
       }
     }
 
@@ -120,14 +135,30 @@ const migrateLegacyEnvFileToRuntimeOverrides = (currentLevel) => {
 
     if (hasChanges) {
       fs.mkdirSync(path.dirname(runtimeOverridesPath), { recursive: true });
-      fs.writeFileSync(runtimeOverridesPath, JSON.stringify(mergedOverrides, null, 2));
-      startupLog(currentLevel, 'info', '[INFO] Migrated legacy data/.env values to runtime overrides.');
+      fs.writeFileSync(
+        runtimeOverridesPath,
+        JSON.stringify(mergedOverrides, null, 2)
+      );
+      startupLog(
+        currentLevel,
+        'info',
+        '[INFO] Migrated legacy data/.env values to runtime overrides.'
+      );
     }
 
     fs.renameSync(envPath, migratedEnvPath);
-    startupLog(currentLevel, 'warn', '[WARN] data/.env has been migrated and renamed to data/.env.migrated.');
+    startupLog(
+      currentLevel,
+      'warn',
+      '[WARN] data/.env has been migrated and renamed to data/.env.migrated.'
+    );
   } catch (error) {
-    startupLog(currentLevel, 'warn', '[WARN] Failed to migrate legacy data/.env:', error.message);
+    startupLog(
+      currentLevel,
+      'warn',
+      '[WARN] Failed to migrate legacy data/.env:',
+      error.message
+    );
   }
 };
 
@@ -165,8 +196,13 @@ applyRuntimeOverrides();
 
 const requestedLogLevel = process.env.LOG_LEVEL;
 const logLevel = normalizeLogLevel(requestedLogLevel);
-if (requestedLogLevel && String(requestedLogLevel).trim().toLowerCase() !== logLevel) {
-  console.warn(`[WARN] Invalid LOG_LEVEL "${requestedLogLevel}". Falling back to "info".`);
+if (
+  requestedLogLevel &&
+  String(requestedLogLevel).trim().toLowerCase() !== logLevel
+) {
+  console.warn(
+    `[WARN] Invalid LOG_LEVEL "${requestedLogLevel}". Falling back to "info".`
+  );
 }
 process.env.LOG_LEVEL = logLevel;
 if (CONFIG_SOURCE_MODE === LEGACY_CONFIG_SOURCE_MODE) {
@@ -179,7 +215,11 @@ startupLog(logLevel, 'debug', 'Runtime overrides path:', runtimeOverridesPath);
 // Helper function to parse boolean-like env vars
 const parseEnvBoolean = (value, defaultValue = 'yes') => {
   if (!value) return defaultValue;
-  return value.toLowerCase() === 'true' || value === '1' || value.toLowerCase() === 'yes' ? 'yes' : 'no';
+  return value.toLowerCase() === 'true' ||
+    value === '1' ||
+    value.toLowerCase() === 'yes'
+    ? 'yes'
+    : 'no';
 };
 
 const parseTemperature = (value, defaultValue, envKey) => {
@@ -190,19 +230,28 @@ const parseTemperature = (value, defaultValue, envKey) => {
 
   const parsed = Number.parseFloat(normalizedValue);
   if (!Number.isFinite(parsed)) {
-    startupLog(logLevel, 'warn', `[WARN] Invalid ${envKey} value "${normalizedValue}". Falling back to ${defaultValue}.`);
+    startupLog(
+      logLevel,
+      'warn',
+      `[WARN] Invalid ${envKey} value "${normalizedValue}". Falling back to ${defaultValue}.`
+    );
     return defaultValue;
   }
 
   if (parsed < 0 || parsed > 2) {
-    startupLog(logLevel, 'warn', `[WARN] Out-of-range ${envKey} value "${normalizedValue}". Falling back to ${defaultValue}.`);
+    startupLog(
+      logLevel,
+      'warn',
+      `[WARN] Out-of-range ${envKey} value "${normalizedValue}". Falling back to ${defaultValue}.`
+    );
     return defaultValue;
   }
 
   return parsed;
 };
 
-const getApiKey = () => process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '';
+const getApiKey = () =>
+  process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '';
 const getJwtSecret = () => process.env.JWT_SECRET || '';
 
 const getTrustProxy = () => {
@@ -228,7 +277,9 @@ const getTrustProxy = () => {
 };
 
 const getCookieSecureMode = () => {
-  const mode = String(process.env.COOKIE_SECURE_MODE || 'auto').trim().toLowerCase();
+  const mode = String(process.env.COOKIE_SECURE_MODE || 'auto')
+    .trim()
+    .toLowerCase();
   if (mode === 'always' || mode === 'never' || mode === 'auto') {
     return mode;
   }
@@ -239,23 +290,43 @@ const getCookieSecureMode = () => {
 // Initialize limit functions with defaults
 const limitFunctions = {
   activateTagging: parseEnvBoolean(process.env.ACTIVATE_TAGGING, 'yes'),
-  activateCorrespondents: parseEnvBoolean(process.env.ACTIVATE_CORRESPONDENTS, 'yes'),
-  activateDocumentType: parseEnvBoolean(process.env.ACTIVATE_DOCUMENT_TYPE, 'yes'),
+  activateCorrespondents: parseEnvBoolean(
+    process.env.ACTIVATE_CORRESPONDENTS,
+    'yes'
+  ),
+  activateDocumentType: parseEnvBoolean(
+    process.env.ACTIVATE_DOCUMENT_TYPE,
+    'yes'
+  ),
   activateTitle: parseEnvBoolean(process.env.ACTIVATE_TITLE, 'yes'),
-  activateCustomFields: parseEnvBoolean(process.env.ACTIVATE_CUSTOM_FIELDS, 'yes')
+  activateCustomFields: parseEnvBoolean(
+    process.env.ACTIVATE_CUSTOM_FIELDS,
+    'yes'
+  ),
 };
 
 // Initialize AI restrictions with defaults
 const aiRestrictions = {
-  restrictToExistingTags: parseEnvBoolean(process.env.RESTRICT_TO_EXISTING_TAGS, 'no'),
-  restrictToExistingCorrespondents: parseEnvBoolean(process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS, 'no'),
-  restrictToExistingDocumentTypes: parseEnvBoolean(process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES, 'no')
+  restrictToExistingTags: parseEnvBoolean(
+    process.env.RESTRICT_TO_EXISTING_TAGS,
+    'no'
+  ),
+  restrictToExistingCorrespondents: parseEnvBoolean(
+    process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS,
+    'no'
+  ),
+  restrictToExistingDocumentTypes: parseEnvBoolean(
+    process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES,
+    'no'
+  ),
 };
 
 startupLog(logLevel, 'debug', 'Loaded restriction settings:', {
   RESTRICT_TO_EXISTING_TAGS: aiRestrictions.restrictToExistingTags,
-  RESTRICT_TO_EXISTING_CORRESPONDENTS: aiRestrictions.restrictToExistingCorrespondents,
-  RESTRICT_TO_EXISTING_DOCUMENT_TYPES: aiRestrictions.restrictToExistingDocumentTypes
+  RESTRICT_TO_EXISTING_CORRESPONDENTS:
+    aiRestrictions.restrictToExistingCorrespondents,
+  RESTRICT_TO_EXISTING_DOCUMENT_TYPES:
+    aiRestrictions.restrictToExistingDocumentTypes,
 });
 
 // Initialize external API configuration
@@ -266,7 +337,7 @@ const externalApiConfig = {
   headers: process.env.EXTERNAL_API_HEADERS || '{}',
   body: process.env.EXTERNAL_API_BODY || '{}',
   timeout: parseInt(process.env.EXTERNAL_API_TIMEOUT || '5000', 10),
-  transformationTemplate: process.env.EXTERNAL_API_TRANSFORM || ''
+  transformationTemplate: process.env.EXTERNAL_API_TRANSFORM || '',
 };
 
 startupLog(logLevel, 'info', 'Configuration loaded:', {
@@ -277,11 +348,11 @@ startupLog(logLevel, 'info', 'Configuration loaded:', {
   PAPERLESS_API_TOKEN: '******',
   LIMIT_FUNCTIONS: limitFunctions,
   AI_RESTRICTIONS: aiRestrictions,
-  EXTERNAL_API: externalApiConfig.enabled === 'yes' ? 'enabled' : 'disabled'
+  EXTERNAL_API: externalApiConfig.enabled === 'yes' ? 'enabled' : 'disabled',
 });
 
 module.exports = {
-  PAPERLESS_AI_VERSION: 'v2026.07.02',
+  PAPERLESS_AI_VERSION: 'v2026.07.03',
   CONFIGURED: false,
   configSourceMode: CONFIG_SOURCE_MODE,
   getApiKey,
@@ -304,7 +375,10 @@ module.exports = {
   logLevel,
   disableAutomaticProcessing: process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
   exposeApiDocs: parseEnvBoolean(process.env.EXPOSE_API_DOCS, 'no'),
-  globalRateLimitWindowMs: parseInt(process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000', 10),
+  globalRateLimitWindowMs: parseInt(
+    process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
+    10
+  ),
   globalRateLimitMax: parseInt(process.env.GLOBAL_RATE_LIMIT_MAX || '1000', 10),
   predefinedMode: process.env.PROCESS_PREDEFINED_DOCUMENTS,
   ignoreTags: process.env.IGNORE_TAGS || '',
@@ -313,54 +387,91 @@ module.exports = {
   // Minimum extracted-text length before a document is sent to AI analysis.
   // Documents below this are skipped or routed to OCR fallback. Default 10.
   minContentLength: parseInt(process.env.MIN_CONTENT_LENGTH || '10', 10),
-  aiTemperatureAnalysis: parseTemperature(process.env.AI_TEMPERATURE_ANALYSIS, 0.3, 'AI_TEMPERATURE_ANALYSIS'),
-  aiTemperatureGeneration: parseTemperature(process.env.AI_TEMPERATURE_GENERATION, 0.7, 'AI_TEMPERATURE_GENERATION'),
+  aiTemperatureAnalysis: parseTemperature(
+    process.env.AI_TEMPERATURE_ANALYSIS,
+    0.3,
+    'AI_TEMPERATURE_ANALYSIS'
+  ),
+  aiTemperatureGeneration: parseTemperature(
+    process.env.AI_TEMPERATURE_GENERATION,
+    0.7,
+    'AI_TEMPERATURE_GENERATION'
+  ),
   addAIProcessedTag: process.env.ADD_AI_PROCESSED_TAG || 'no',
   addAIProcessedTags: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
-  restrictToExistingCorrespondents: aiRestrictions.restrictToExistingCorrespondents,
-  restrictToExistingDocumentTypes: aiRestrictions.restrictToExistingDocumentTypes,
+  restrictToExistingCorrespondents:
+    aiRestrictions.restrictToExistingCorrespondents,
+  restrictToExistingDocumentTypes:
+    aiRestrictions.restrictToExistingDocumentTypes,
   // External API config
   externalApiConfig: externalApiConfig,
   paperless: {
-    apiUrl: (process.env.PAPERLESS_API_URL || '').replace(/\/+$/, '').replace(/\/api$/i, ''),
-    apiToken: process.env.PAPERLESS_API_TOKEN
+    apiUrl: (process.env.PAPERLESS_API_URL || '')
+      .replace(/\/+$/, '')
+      .replace(/\/api$/i, ''),
+    apiToken: process.env.PAPERLESS_API_TOKEN,
   },
   openai: {
-    apiKey: process.env.OPENAI_API_KEY
+    apiKey: process.env.OPENAI_API_KEY,
   },
   ollama: {
     apiUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
     apiKey: process.env.OLLAMA_API_KEY || '',
     model: process.env.OLLAMA_MODEL || 'llama3.2',
     // Strict opt-in: only literal "true" enables thinking mode.
-    think: String(process.env.OLLAMA_THINK || '').trim().toLowerCase() === 'true'
+    think:
+      String(process.env.OLLAMA_THINK || '')
+        .trim()
+        .toLowerCase() === 'true',
   },
   custom: {
     apiUrl: process.env.CUSTOM_BASE_URL || '',
     apiKey: process.env.CUSTOM_API_KEY || '',
-    model: process.env.CUSTOM_MODEL || ''
+    model: process.env.CUSTOM_MODEL || '',
   },
   azure: {
     apiKey: process.env.AZURE_API_KEY || '',
     endpoint: process.env.AZURE_ENDPOINT || '',
     deploymentName: process.env.AZURE_DEPLOYMENT_NAME || '',
-    apiVersion: process.env.AZURE_API_VERSION || '2023-05-15'
+    apiVersion: process.env.AZURE_API_VERSION || '2023-05-15',
   },
   mistralOcr: {
     enabled: parseEnvBoolean(process.env.MISTRAL_OCR_ENABLED, 'no'),
-    provider: String(process.env.OCR_PROVIDER || process.env.MISTRAL_OCR_PROVIDER || 'mistral').trim().toLowerCase(),
-    apiUrl: (process.env.OCR_API_URL || process.env.MISTRAL_OCR_API_URL || '').trim(),
+    provider: String(
+      process.env.OCR_PROVIDER || process.env.MISTRAL_OCR_PROVIDER || 'mistral'
+    )
+      .trim()
+      .toLowerCase(),
+    apiUrl: (
+      process.env.OCR_API_URL ||
+      process.env.MISTRAL_OCR_API_URL ||
+      ''
+    ).trim(),
     apiKey: process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '',
-    model: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
+    model: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
+    // PDF page rendering for local vision OCR (poppler pdftoppm); the Mistral
+    // provider handles PDFs natively and ignores these settings.
+    pdfRenderEnabled: parseEnvBoolean(
+      process.env.OCR_PDF_RENDER_ENABLED,
+      'yes'
+    ),
+    pdfRenderMaxPages: parseInt(
+      process.env.OCR_PDF_RENDER_MAX_PAGES || '10',
+      10
+    ),
+    pdfRenderDpi: parseInt(process.env.OCR_PDF_RENDER_DPI || '150', 10),
   },
   customFields: process.env.CUSTOM_FIELDS || '',
   aiProvider: process.env.AI_PROVIDER || 'openai',
   scanInterval: process.env.SCAN_INTERVAL || '*/30 * * * *',
   // Reconciliation: periodic cleanup of stale documents deleted in Paperless-ngx
   reconciliationInterval: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
-  reconciliationEnabled: parseEnvBoolean(process.env.RECONCILIATION_ENABLED, 'yes'),
+  reconciliationEnabled: parseEnvBoolean(
+    process.env.RECONCILIATION_ENABLED,
+    'yes'
+  ),
   useExistingData: process.env.USE_EXISTING_DATA || 'no',
   // Cache configuration (in seconds)
   // Recommended: 300 (5 min) for balanced performance, 60-900 (1-15 min) for custom needs
@@ -371,7 +482,7 @@ module.exports = {
     activateCorrespondents: limitFunctions.activateCorrespondents,
     activateDocumentType: limitFunctions.activateDocumentType,
     activateTitle: limitFunctions.activateTitle,
-    activateCustomFields: limitFunctions.activateCustomFields
+    activateCustomFields: limitFunctions.activateCustomFields,
   },
   specialPromptPreDefinedTags: `You are a document analysis AI. You will analyze the document. 
   You take the main information to associate tags with the document. 

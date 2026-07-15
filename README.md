@@ -124,6 +124,9 @@ Then open [http://localhost:3000](http://localhost:3000) to complete setup.
 - Local OCR supports model discovery from both `/api/tags` (Ollama-style) and `/v1/models` (OpenAI-compatible)
 - OCR test sends a real PNG image and expects the exact token: `OCR-TEST-182730173401`
 - For OpenAI-compatible endpoints that reject data URLs, OCR validation automatically retries with raw base64 payload
+- Local vision OCR renders multi-page PDFs to per-page images via poppler (`pdftoppm`, bundled in the Docker image) and sends each page to the model. Configure with `OCR_PDF_RENDER_ENABLED` (default `yes`), `OCR_PDF_RENDER_MAX_PAGES` (default `10`, each page is one model request), and `OCR_PDF_RENDER_DPI` (default `150`)
+- On bare-metal installs, install `poppler-utils` to enable multi-page PDF OCR; without it the app falls back to OCRing only the first-page thumbnail
+- The Mistral OCR provider processes PDFs natively and ignores the `OCR_PDF_RENDER_*` settings
 
 ### Container Images
 

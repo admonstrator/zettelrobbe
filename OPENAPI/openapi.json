@@ -2758,7 +2758,7 @@
     "/manual/preview/{id}": {
       "get": {
         "summary": "Document preview",
-        "description": "Fetches and returns the content of a specific document from Paperless-ngx \nfor preview in the manual document review interface.\n\nThis endpoint retrieves document details including content, title, ID, and tags,\nallowing users to view the document text before applying changes or processing\nit with AI tools. The document content is retrieved directly from Paperless-ngx\nusing the system's configured API credentials.\n",
+        "description": "Fetches and returns the content of a specific document from Paperless-ngx\nfor preview in the manual document review interface.\n\nThis endpoint retrieves document details including content, title, ID, and tags,\nallowing users to view the document text before applying changes or processing\nit with AI tools. The document content is retrieved directly from Paperless-ngx\nusing the system's configured API credentials.\n",
         "tags": [
           "Documents",
           "API"
@@ -2860,7 +2860,7 @@
     "/manual": {
       "get": {
         "summary": "Document review page",
-        "description": "Renders the manual document review page that allows users to browse, \nview and manually process documents from Paperless-ngx.\n\nThis interface enables users to review documents, view their content, and \nmanage tags, correspondents, and document metadata without AI assistance.\nUsers can apply manual changes to documents based on their own judgment,\nwhich is particularly useful for correction or verification of AI-processed documents.\n",
+        "description": "Renders the manual document review page that allows users to browse,\nview and manually process documents from Paperless-ngx.\n\nThis interface enables users to review documents, view their content, and\nmanage tags, correspondents, and document metadata without AI assistance.\nUsers can apply manual changes to documents based on their own judgment,\nwhich is particularly useful for correction or verification of AI-processed documents.\n",
         "tags": [
           "Navigation",
           "Documents"
@@ -3021,7 +3021,7 @@
     "/api/correspondentsCount": {
       "get": {
         "summary": "Get count of correspondents",
-        "description": "Retrieves the list of correspondents with their document counts.\nThis endpoint returns all correspondents in the system along with \nthe number of documents associated with each correspondent.\n",
+        "description": "Retrieves the list of correspondents with their document counts.\nThis endpoint returns all correspondents in the system along with\nthe number of documents associated with each correspondent.\n",
         "tags": [
           "API",
           "Metadata"
@@ -3098,7 +3098,7 @@
     "/api/tagsCount": {
       "get": {
         "summary": "Get count of tags",
-        "description": "Retrieves the list of tags with their document counts.\nThis endpoint returns all tags in the system along with \nthe number of documents associated with each tag.\n",
+        "description": "Retrieves the list of tags with their document counts.\nThis endpoint returns all tags in the system along with\nthe number of documents associated with each tag.\n",
         "tags": [
           "API",
           "Metadata"
@@ -3305,7 +3305,7 @@
     "/dashboard": {
       "get": {
         "summary": "Main dashboard page",
-        "description": "Renders the main dashboard page of the application with summary statistics and visualizations.\nThe dashboard provides an overview of processed documents, system metrics, and important statistics\nabout document processing including tag counts, correspondent counts, and token usage.\n\nThe page displays visualizations for document processing status, token distribution, \nprocessing time statistics, and document type categorization to help administrators\nunderstand system performance and document processing patterns.\n",
+        "description": "Renders the main dashboard page of the application with summary statistics and visualizations.\nThe dashboard provides an overview of processed documents, system metrics, and important statistics\nabout document processing including tag counts, correspondent counts, and token usage.\n\nThe page displays visualizations for document processing status, token distribution,\nprocessing time statistics, and document type categorization to help administrators\nunderstand system performance and document processing patterns.\n",
         "tags": [
           "Navigation",
           "System"
@@ -3390,7 +3390,7 @@
     "/settings": {
       "get": {
         "summary": "Application settings page",
-        "description": "Renders the application settings page where users can modify configuration\nafter initial setup.\n\nThis page allows administrators to update connections to Paperless-ngx, \nAI provider settings, processing parameters, feature toggles, and custom fields.\nThe interface provides validation for connection settings and displays the current\nconfiguration values.\n\nChanges made on this page require application restart to take full effect.\n",
+        "description": "Renders the application settings page where users can modify configuration\nafter initial setup.\n\nThis page allows administrators to update connections to Paperless-ngx,\nAI provider settings, processing parameters, feature toggles, and custom fields.\nThe interface provides validation for connection settings and displays the current\nconfiguration values.\n\nChanges made on this page require application restart to take full effect.\n",
         "tags": [
           "Navigation",
           "Setup",
@@ -3441,7 +3441,7 @@
       },
       "post": {
         "summary": "Update application settings",
-        "description": "Updates the configuration settings of the Paperless-AI next application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx, \nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n",
+        "description": "Updates the configuration settings of the Paperless-AI next application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx,\nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n",
         "tags": [
           "System",
           "Setup"
@@ -3528,6 +3528,16 @@
                     "type": "number",
                     "description": "Interval in minutes for scanning new documents",
                     "example": 15
+                  },
+                  "reconciliationEnabled": {
+                    "type": "string",
+                    "description": "Enable automatic history reconciliation (yes/no)",
+                    "example": "yes"
+                  },
+                  "reconciliationInterval": {
+                    "type": "string",
+                    "description": "Cron expression for the reconciliation schedule",
+                    "example": "0 * * * *"
                   },
                   "systemPrompt": {
                     "type": "string",
