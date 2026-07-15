@@ -724,6 +724,26 @@
                                     </div>
                                     <p class="text-xs text-gray-500">ENV: MISTRAL_OCR_MODEL · Restart required</p>
                                 </div>
+                                <div id="ocrPdfRenderContainer" class="space-y-4">
+                                    <div class="space-y-2">
+                                        <label for="ocrPdfRenderEnabled" class="text-sm font-medium">Render PDF Pages (poppler)</label>
+                                        <select id="ocrPdfRenderEnabled" name="ocrPdfRenderEnabled" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="yes" <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? 'selected' : '' %>>Yes</option>
+                                            <option value="no" <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'no' ? 'selected' : '' %>>No</option>
+                                        </select>
+                                        <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_ENABLED · Render PDF pages with poppler (pdftoppm) so local vision models can OCR multi-page documents; falls back to the first-page thumbnail when poppler is not installed · Restart required</p>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <label for="ocrPdfRenderMaxPages" class="text-sm font-medium">Max PDF Pages per Document</label>
+                                        <input type="number" id="ocrPdfRenderMaxPages" name="ocrPdfRenderMaxPages" min="1" max="50" step="1" value="<%= config.OCR_PDF_RENDER_MAX_PAGES || 10 %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_MAX_PAGES · Each page is one vision model request; pages beyond the limit are skipped · Restart required</p>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <label for="ocrPdfRenderDpi" class="text-sm font-medium">PDF Render Resolution (DPI)</label>
+                                        <input type="number" id="ocrPdfRenderDpi" name="ocrPdfRenderDpi" min="72" max="300" step="1" value="<%= config.OCR_PDF_RENDER_DPI || 150 %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <p class="text-xs text-gray-500">ENV: OCR_PDF_RENDER_DPI · Higher values improve OCR accuracy but increase image size (72–300) · Restart required</p>
+                                    </div>
+                                </div>
                                 <div class="space-y-2">
                                     <label for="ocrValidationTimeout" class="text-sm font-medium">OCR Timeout</label>
                                     <div class="flex items-center gap-3">

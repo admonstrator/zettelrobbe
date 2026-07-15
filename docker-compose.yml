@@ -6,10 +6,10 @@ services:
       dockerfile: Dockerfile
     image: paperless-ai-next:local
     pull_policy: never
-    
+
     # To use Docker Hub images instead, replace with:
     # image: admonstrator/paperless-ai-next:latest
-    
+
     container_name: paperless-ai-next
     network_mode: bridge
     restart: unless-stopped
@@ -30,11 +30,15 @@ services:
       # - MISTRAL_OCR_ENABLED=yes
       # - MISTRAL_API_KEY=your_key_here
       # - MISTRAL_OCR_MODEL=mistral-ocr-latest
+      # PDF page rendering for local vision OCR (poppler, bundled in the image)
+      # - OCR_PDF_RENDER_ENABLED=yes
+      # - OCR_PDF_RENDER_MAX_PAGES=10
+      # - OCR_PDF_RENDER_DPI=150
       # Reconciliation (optional) – remove stale history entries for deleted documents
       # - RECONCILIATION_ENABLED=yes
       # - RECONCILIATION_INTERVAL=0 * * * *
     ports:
-      - "3000:${PAPERLESS_AI_PORT:-3000}"
+      - '3000:${PAPERLESS_AI_PORT:-3000}'
     volumes:
       - paperless-ai-next_data:/app/data
 

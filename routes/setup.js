@@ -13,25 +13,33 @@ const documentsService = require('../services/documentsService.js');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
-const { validateApiUrl, validateCustomFieldValue, shouldQueueForOcrOnAiError, classifyOcrQueueReasonFromAiError } = require('../services/serviceUtils');
+const {
+  validateApiUrl,
+  validateCustomFieldValue,
+  shouldQueueForOcrOnAiError,
+  classifyOcrQueueReasonFromAiError,
+} = require('../services/serviceUtils');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const QRCode = require('qrcode');
-const cookieParser = require('cookie-parser');
-const { authenticateJWT, isAuthenticated } = require('./auth.js');
+const { isAuthenticated } = require('./auth.js');
 const customService = require('../services/customService.js');
 const mistralOcrService = require('../services/mistralOcrService');
 const quickstartService = require('../services/quickstartService');
 const reconciliationService = require('../services/reconciliationService');
-const { THUMBNAIL_CACHE_DIR, getThumbnailCachePath } = require('../services/thumbnailCachePaths');
+const {
+  THUMBNAIL_CACHE_DIR,
+  getThumbnailCachePath,
+} = require('../services/thumbnailCachePaths');
 const config = require('../config/config.js');
 require('dotenv').config({ path: '../data/.env' });
-
 
 function getCookieSecureMode() {
   return typeof config.getCookieSecureMode === 'function'
     ? config.getCookieSecureMode()
-    : String(process.env.COOKIE_SECURE_MODE || 'auto').trim().toLowerCase();
+    : String(process.env.COOKIE_SECURE_MODE || 'auto')
+        .trim()
+        .toLowerCase();
 }
 
 function shouldUseSecureCookies(req) {
@@ -60,7 +68,7 @@ const SETTINGS_SECRET_FIELDS = [
   'AZURE_API_KEY',
   'OCR_API_KEY',
   'MISTRAL_API_KEY',
-  'API_KEY'
+  'API_KEY',
 ];
 
 function formatBytes(bytes) {
@@ -70,15 +78,20 @@ function formatBytes(bytes) {
     return '0 B';
   }
 
-  const unitIndex = Math.min(Math.floor(Math.log(safeBytes) / Math.log(1024)), units.length - 1);
-  const value = safeBytes / (1024 ** unitIndex);
+  const unitIndex = Math.min(
+    Math.floor(Math.log(safeBytes) / Math.log(1024)),
+    units.length - 1
+  );
+  const value = safeBytes / 1024 ** unitIndex;
   const decimals = unitIndex === 0 ? 0 : 2;
   return `${value.toFixed(decimals)} ${units[unitIndex]}`;
 }
 
 async function getThumbnailCacheStats() {
   try {
-    const entries = await fs.readdir(THUMBNAIL_CACHE_DIR, { withFileTypes: true });
+    const entries = await fs.readdir(THUMBNAIL_CACHE_DIR, {
+      withFileTypes: true,
+    });
     let fileCount = 0;
     let totalBytes = 0;
 
@@ -97,21 +110,24 @@ async function getThumbnailCacheStats() {
         totalBytes += stat.size;
         fileCount += 1;
       } catch (statError) {
-        console.warn(`[WARN] Failed to read thumbnail cache file stats for ${filePath}:`, statError.message);
+        console.warn(
+          `[WARN] Failed to read thumbnail cache file stats for ${filePath}:`,
+          statError.message
+        );
       }
     }
 
     return {
       fileCount,
       totalBytes,
-      totalSizeHuman: formatBytes(totalBytes)
+      totalSizeHuman: formatBytes(totalBytes),
     };
   } catch (error) {
     if (error.code === 'ENOENT') {
       return {
         fileCount: 0,
         totalBytes: 0,
-        totalSizeHuman: '0 B'
+        totalSizeHuman: '0 B',
       };
     }
     throw error;
@@ -120,7 +136,9 @@ async function getThumbnailCacheStats() {
 
 async function clearThumbnailCache() {
   try {
-    const entries = await fs.readdir(THUMBNAIL_CACHE_DIR, { withFileTypes: true });
+    const entries = await fs.readdir(THUMBNAIL_CACHE_DIR, {
+      withFileTypes: true,
+    });
     let removedFiles = 0;
     let freedBytes = 0;
 
@@ -137,7 +155,10 @@ async function clearThumbnailCache() {
         fileSize = stat.size;
       } catch (statError) {
         if (statError.code !== 'ENOENT') {
-          console.warn(`[WARN] Failed to stat thumbnail file before delete ${filePath}:`, statError.message);
+          console.warn(
+            `[WARN] Failed to stat thumbnail file before delete ${filePath}:`,
+            statError.message
+          );
         }
       }
 
@@ -147,7 +168,10 @@ async function clearThumbnailCache() {
         freedBytes += fileSize;
       } catch (unlinkError) {
         if (unlinkError.code !== 'ENOENT') {
-          console.warn(`[WARN] Failed to delete thumbnail cache file ${filePath}:`, unlinkError.message);
+          console.warn(
+            `[WARN] Failed to delete thumbnail cache file ${filePath}:`,
+            unlinkError.message
+          );
         }
       }
     }
@@ -155,14 +179,14 @@ async function clearThumbnailCache() {
     return {
       removedFiles,
       freedBytes,
-      freedSizeHuman: formatBytes(freedBytes)
+      freedSizeHuman: formatBytes(freedBytes),
     };
   } catch (error) {
     if (error.code === 'ENOENT') {
       return {
         removedFiles: 0,
         freedBytes: 0,
-        freedSizeHuman: '0 B'
+        freedSizeHuman: '0 B',
       };
     }
     throw error;
@@ -195,7 +219,10 @@ async function removeThumbnailCacheForDocumentIds(ids) {
       removedIds.push(id);
     } catch (error) {
       if (error.code !== 'ENOENT') {
-        console.warn(`[WARN] Failed to delete cached thumbnail ${thumbnailPath}:`, error.message);
+        console.warn(
+          `[WARN] Failed to delete cached thumbnail ${thumbnailPath}:`,
+          error.message
+        );
       }
     }
   }
@@ -206,7 +233,7 @@ async function removeThumbnailCacheForDocumentIds(ids) {
 /**
  * Rate limiter for cache clearing operations
  * Prevents abuse of cache invalidation endpoints by limiting requests to 10 per 15 minutes per IP
- * 
+ *
  * @see https://github.com/admonstrator/paperless-ai-next/security/code-scanning/143
  */
 const cacheClearLimiter = rateLimit({
@@ -215,7 +242,7 @@ const cacheClearLimiter = rateLimit({
   message: {
     success: false,
     error: 'Too many cache clear requests. Please try again later.',
-    retryAfter: '15 minutes'
+    retryAfter: '15 minutes',
   },
   standardHeaders: true, // Return rate limit info in RateLimit-* headers
   legacyHeaders: false, // Disable X-RateLimit-* headers
@@ -224,9 +251,8 @@ const cacheClearLimiter = rateLimit({
     const apiKey = req.headers['x-api-key'];
     const currentApiKey = config.getApiKey();
     return currentApiKey && apiKey && apiKey === currentApiKey;
-  }
+  },
 });
-
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -235,9 +261,10 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   handler: (_req, res) => {
     return renderLoginView(res, {
-      error: 'Too many login attempts. Please wait a few minutes and try again.'
+      error:
+        'Too many login attempts. Please wait a few minutes and try again.',
     });
-  }
+  },
 });
 
 /**
@@ -347,16 +374,8 @@ const loginLimiter = rateLimit({
  *           example: "#FF5733"
  */
 
-// API endpoints that should not redirect
-const API_ENDPOINTS = ['/health'];
 // Routes that don't require authentication
-let PUBLIC_ROUTES = [
-  '/health',
-  '/login',
-  '/logout',
-  '/setup',
-  '/api/setup'
-];
+let PUBLIC_ROUTES = ['/health', '/login', '/logout', '/setup', '/api/setup'];
 
 /**
  * Returns true if the incoming request originates from localhost.
@@ -424,7 +443,7 @@ router.use(async (req, res, next) => {
       success: false,
       error:
         'Remote access to the setup API is disabled. ' +
-        'Set ALLOW_REMOTE_SETUP=yes to enable it, or complete setup from localhost.'
+        'Set ALLOW_REMOTE_SETUP=yes to enable it, or complete setup from localhost.',
     });
   }
 
@@ -449,7 +468,7 @@ router.use(async (req, res, next) => {
   const jwtSecret = config.getJwtSecret();
 
   // Public route check
-  if (PUBLIC_ROUTES.some(route => req.path.startsWith(route))) {
+  if (PUBLIC_ROUTES.some((route) => req.path.startsWith(route))) {
     return next();
   }
 
@@ -459,7 +478,9 @@ router.use(async (req, res, next) => {
   } else {
     // Fallback to JWT authentication
     if (!jwtSecret) {
-      return res.status(500).send('Server misconfiguration: JWT secret missing');
+      return res
+        .status(500)
+        .send('Server misconfiguration: JWT secret missing');
     }
 
     if (!token) {
@@ -469,7 +490,7 @@ router.use(async (req, res, next) => {
     try {
       const decoded = jwt.verify(token, jwtSecret);
       req.user = decoded;
-    } catch (error) {
+    } catch {
       res.clearCookie('jwt');
       return res.redirect('/login');
     }
@@ -478,17 +499,26 @@ router.use(async (req, res, next) => {
   // Setup check
   try {
     const isConfigured = await setupService.isConfigured();
- 
-    if (!isConfigured && (!process.env.PAPERLESS_AI_INITIAL_SETUP || process.env.PAPERLESS_AI_INITIAL_SETUP === 'no') && !req.path.startsWith('/setup')) {
+
+    if (
+      !isConfigured &&
+      (!process.env.PAPERLESS_AI_INITIAL_SETUP ||
+        process.env.PAPERLESS_AI_INITIAL_SETUP === 'no') &&
+      !req.path.startsWith('/setup')
+    ) {
       return res.redirect('/setup');
-    } else if (!isConfigured && process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes' && !req.path.startsWith('/settings')) {
+    } else if (
+      !isConfigured &&
+      process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes' &&
+      !req.path.startsWith('/settings')
+    ) {
       return res.redirect('/settings');
     }
   } catch (error) {
     console.error('Error checking setup configuration:', error);
     return res.status(500).send('Internal Server Error');
   }
-  
+
   next();
 });
 
@@ -498,9 +528,11 @@ const protectApiRoute = (req, res, next) => {
   const jwtSecret = config.getJwtSecret();
 
   if (!jwtSecret) {
-    return res.status(500).json({ message: 'Server misconfiguration: JWT secret missing' });
+    return res
+      .status(500)
+      .json({ message: 'Server misconfiguration: JWT secret missing' });
   }
-  
+
   if (!token) {
     return res.status(401).json({ message: 'Authentication required' });
   }
@@ -509,7 +541,7 @@ const protectApiRoute = (req, res, next) => {
     const decoded = jwt.verify(token, jwtSecret);
     req.user = decoded;
     next();
-  } catch (error) {
+  } catch {
     return res.status(403).json({ message: 'Invalid or expired token' });
   }
 };
@@ -523,7 +555,7 @@ const protectApiRoute = (req, res, next) => {
  *       Serves the login page for user authentication to the Paperless-AI next application.
  *       If no users exist in the database, the endpoint automatically redirects to the setup page
  *       to complete the initial application configuration.
- *       
+ *
  *       This endpoint handles both new user sessions and returning users whose
  *       sessions have expired.
  *     tags:
@@ -604,7 +636,7 @@ function generateTotpToken(secret, unixTimeSeconds) {
     ((hmac[offset + 2] & 0xff) << 8) |
     (hmac[offset + 3] & 0xff);
 
-  return String(code % (10 ** TOTP_DIGITS)).padStart(TOTP_DIGITS, '0');
+  return String(code % 10 ** TOTP_DIGITS).padStart(TOTP_DIGITS, '0');
 }
 
 function generateBase32Secret(length = 32) {
@@ -627,7 +659,7 @@ function buildOtpAuthUri(secret, username) {
     issuer,
     algorithm: 'SHA1',
     digits: String(TOTP_DIGITS),
-    period: String(TOTP_STEP_SECONDS)
+    period: String(TOTP_STEP_SECONDS),
   });
 
   return `otpauth://totp/${encodeURIComponent(accountLabel)}?${params.toString()}`;
@@ -653,12 +685,20 @@ function verifyTotpToken(secret, inputToken) {
 
   const now = Math.floor(Date.now() / 1000);
   for (let offset = -TOTP_WINDOW; offset <= TOTP_WINDOW; offset += 1) {
-    const expected = generateTotpToken(secret, now + offset * TOTP_STEP_SECONDS);
+    const expected = generateTotpToken(
+      secret,
+      now + offset * TOTP_STEP_SECONDS
+    );
     if (!expected || expected.length !== normalizedInput.length) {
       continue;
     }
 
-    if (crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(normalizedInput))) {
+    if (
+      crypto.timingSafeEqual(
+        Buffer.from(expected),
+        Buffer.from(normalizedInput)
+      )
+    ) {
       return true;
     }
   }
@@ -670,7 +710,7 @@ function renderLoginView(res, options = {}) {
   return res.render('login', {
     error: options.error || null,
     mfaRequired: Boolean(options.mfaRequired),
-    username: options.username || ''
+    username: options.username || '',
   });
 }
 
@@ -681,7 +721,7 @@ function isMfaEnabledForUser(user) {
 router.get('/login', (req, res) => {
   //check if a user exists beforehand
   documentModel.getUsers().then((users) => {
-    if(users.length === 0) {
+    if (users.length === 0) {
       res.redirect('setup');
     } else {
       renderLoginView(res);
@@ -702,7 +742,7 @@ router.get('/login', (req, res) => {
  *       second step accepts a TOTP authentication code and completes sign-in.
  *       If authentication is successful, a JWT token is generated and stored in a secure HTTP-only
  *       cookie for subsequent requests.
- *       
+ *
  *       Failed login attempts are logged for security purposes, and multiple failures
  *       may result in temporary account lockout depending on configuration.
  *     tags:
@@ -756,7 +796,9 @@ router.post('/login', loginLimiter, async (req, res) => {
   try {
     const jwtSecret = config.getJwtSecret();
     if (!jwtSecret) {
-      return res.status(500).render('login', { error: 'Server misconfiguration: JWT secret missing' });
+      return res.status(500).render('login', {
+        error: 'Server misconfiguration: JWT secret missing',
+      });
     }
 
     if (submittingMfaStep) {
@@ -764,14 +806,14 @@ router.post('/login', loginLimiter, async (req, res) => {
         return renderLoginView(res, {
           error: 'Authentication code is required.',
           mfaRequired: true,
-          username
+          username,
         });
       }
 
       const mfaChallengeToken = req.cookies[MFA_CHALLENGE_COOKIE];
       if (!mfaChallengeToken) {
         return renderLoginView(res, {
-          error: 'Your verification session expired. Please sign in again.'
+          error: 'Your verification session expired. Please sign in again.',
         });
       }
 
@@ -781,10 +823,10 @@ router.post('/login', loginLimiter, async (req, res) => {
         if (challengePayload.challengeType !== 'mfa-login') {
           throw new Error('Invalid challenge type');
         }
-      } catch (challengeError) {
+      } catch {
         res.clearCookie(MFA_CHALLENGE_COOKIE);
         return renderLoginView(res, {
-          error: 'Your verification session expired. Please sign in again.'
+          error: 'Your verification session expired. Please sign in again.',
         });
       }
 
@@ -794,7 +836,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       if (!user || !isMfaEnabledForUser(user) || !mfaSecret) {
         res.clearCookie(MFA_CHALLENGE_COOKIE);
         return renderLoginView(res, {
-          error: 'MFA is not configured for this user. Please sign in again.'
+          error: 'MFA is not configured for this user. Please sign in again.',
         });
       }
 
@@ -802,14 +844,14 @@ router.post('/login', loginLimiter, async (req, res) => {
         return renderLoginView(res, {
           error: 'Invalid authentication code. Please try again.',
           mfaRequired: true,
-          username: challengePayload.username
+          username: challengePayload.username,
         });
       }
 
       const token = jwt.sign(
         {
           id: user.id,
-          username: user.username
+          username: user.username,
         },
         jwtSecret,
         { expiresIn: '24h' }
@@ -819,7 +861,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         secure: shouldUseSecureCookies(req),
         sameSite: 'lax',
         path: '/',
-        maxAge: 24 * 60 * 60 * 1000
+        maxAge: 24 * 60 * 60 * 1000,
       });
       res.clearCookie(MFA_CHALLENGE_COOKIE);
       return res.redirect('/dashboard');
@@ -842,7 +884,7 @@ router.post('/login', loginLimiter, async (req, res) => {
           {
             id: user.id,
             username: user.username,
-            challengeType: 'mfa-login'
+            challengeType: 'mfa-login',
           },
           jwtSecret,
           { expiresIn: '5m' }
@@ -851,19 +893,19 @@ router.post('/login', loginLimiter, async (req, res) => {
           httpOnly: true,
           secure: shouldUseSecureCookies(req),
           sameSite: 'lax',
-          path: '/'
+          path: '/',
         });
 
         return renderLoginView(res, {
           mfaRequired: true,
-          username: user.username
+          username: user.username,
         });
       }
 
       const token = jwt.sign(
-        { 
-          id: user.id, 
-          username: user.username 
+        {
+          id: user.id,
+          username: user.username,
         },
         jwtSecret,
         { expiresIn: '24h' }
@@ -871,13 +913,13 @@ router.post('/login', loginLimiter, async (req, res) => {
       res.cookie('jwt', token, {
         httpOnly: true,
         secure: shouldUseSecureCookies(req),
-        sameSite: 'lax', 
+        sameSite: 'lax',
         path: '/',
-        maxAge: 24 * 60 * 60 * 1000 
+        maxAge: 24 * 60 * 60 * 1000,
       });
 
       return res.redirect('/dashboard');
-    }else{
+    } else {
       return renderLoginView(res, { error: 'Invalid credentials', username });
     }
   } catch (error) {
@@ -896,7 +938,7 @@ router.post('/login', loginLimiter, async (req, res) => {
  *     description: |
  *       Terminates the current user session by invalidating and clearing the JWT authentication
  *       cookie. After logging out, the user is redirected to the login page.
- *       
+ *
  *       This endpoint also clears any session-related data stored on the server side
  *       for the current user.
  *     tags:
@@ -937,7 +979,7 @@ router.get('/logout', (req, res) => {
  *     description: |
  *       Retrieves sample data extracted from a document, including processed text content
  *       and any metadata that has been extracted or processed by the AI.
- *       
+ *
  *       This endpoint is commonly used for previewing document data in the UI before
  *       completing document processing or updating metadata.
  *     tags:
@@ -1001,8 +1043,7 @@ router.get('/sampleData/:id', async (req, res) => {
   try {
     //get all correspondents from one document by id
     const document = await paperlessService.getDocument(req.params.id);
-    const correspondents = await paperlessService.getCorrespondentsFromDocument(document.id);
-
+    await paperlessService.getCorrespondentsFromDocument(document.id);
   } catch (error) {
     console.error('[ERRO] loading sample data:', error);
     res.status(500).json({ error: 'Error loading sample data' });
@@ -1017,12 +1058,12 @@ router.get('/sampleData/:id', async (req, res) => {
  *     summary: AI playground testing environment
  *     description: |
  *       Renders the AI playground page for experimenting with document analysis.
- *       
+ *
  *       This interactive environment allows users to test different AI providers and prompts
  *       on document content without affecting the actual document processing workflow.
  *       Users can paste document text, customize prompts, and see raw AI responses
  *       to better understand how the AI models analyze document content.
- *       
+ *
  *       The playground is useful for fine-tuning prompts and testing AI capabilities
  *       before applying them to actual document processing.
  *     tags:
@@ -1065,23 +1106,20 @@ router.get('/playground', protectApiRoute, async (req, res) => {
 
 router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
   try {
-    const {
-      documents,
-      tagNames,
-      correspondentNames
-    } = await documentsService.getDocumentsWithMetadata();
+    const { documents, tagNames, correspondentNames } =
+      await documentsService.getDocumentsWithMetadata();
 
     res.json({
       success: true,
       documents,
       tagNames,
-      correspondentNames
+      correspondentNames,
     });
   } catch (error) {
     console.error('[ERROR] loading playground bootstrap data:', error);
     res.status(500).json({
       success: false,
-      error: 'Error loading playground data'
+      error: 'Error loading playground data',
     });
   }
 });
@@ -1145,51 +1183,60 @@ router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
  */
 router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
   try {
-    const query = String(req.query?.q || '').trim().toLowerCase();
-    const requestedLimit = Number.parseInt(String(req.query?.limit || '100'), 10);
+    const query = String(req.query?.q || '')
+      .trim()
+      .toLowerCase();
+    const requestedLimit = Number.parseInt(
+      String(req.query?.limit || '100'),
+      10
+    );
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(Math.max(requestedLimit, 1), 200)
       : 100;
 
-    const {
-      documents,
-      correspondentNames
-    } = await documentsService.getDocumentsWithMetadata(limit);
+    const { documents, correspondentNames } =
+      await documentsService.getDocumentsWithMetadata(limit);
 
-    const normalizedDocuments = (Array.isArray(documents) ? documents : []).map((doc) => {
-      const correspondentId = Number(doc?.correspondent);
-      const correspondentName = Number.isInteger(correspondentId)
-        ? (correspondentNames?.[correspondentId] || '')
-        : '';
+    const normalizedDocuments = (Array.isArray(documents) ? documents : []).map(
+      (doc) => {
+        const correspondentId = Number(doc?.correspondent);
+        const correspondentName = Number.isInteger(correspondentId)
+          ? correspondentNames?.[correspondentId] || ''
+          : '';
 
-      return {
-        id: doc?.id,
-        title: doc?.title || '',
-        created: doc?.created || doc?.created_date || doc?.added || null,
-        correspondent: correspondentName
-      };
-    });
+        return {
+          id: doc?.id,
+          title: doc?.title || '',
+          created: doc?.created || doc?.created_date || doc?.added || null,
+          correspondent: correspondentName,
+        };
+      }
+    );
 
     const filteredDocuments = query
       ? normalizedDocuments.filter((doc) => {
-        const idMatches = String(doc.id || '').includes(query);
-        const titleMatches = String(doc.title || '').toLowerCase().includes(query);
-        const correspondentMatches = String(doc.correspondent || '').toLowerCase().includes(query);
-        return idMatches || titleMatches || correspondentMatches;
-      })
+          const idMatches = String(doc.id || '').includes(query);
+          const titleMatches = String(doc.title || '')
+            .toLowerCase()
+            .includes(query);
+          const correspondentMatches = String(doc.correspondent || '')
+            .toLowerCase()
+            .includes(query);
+          return idMatches || titleMatches || correspondentMatches;
+        })
       : normalizedDocuments;
 
     return res.json({
       success: true,
       data: {
-        documents: filteredDocuments.slice(0, limit)
-      }
+        documents: filteredDocuments.slice(0, limit),
+      },
     });
   } catch (error) {
     console.error('[ERROR] GET /api/chat/documents:', error);
     return res.status(500).json({
       success: false,
-      error: 'Error loading chat documents'
+      error: 'Error loading chat documents',
     });
   }
 });
@@ -1241,7 +1288,7 @@ router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
  *       Retrieves the thumbnail image for a specific document from the Paperless-ngx system.
  *       This endpoint proxies the request to the Paperless-ngx API and returns the thumbnail
  *       image for display in the UI.
- *       
+ *
  *       The thumbnail is returned as an image file in the format provided by Paperless-ngx,
  *       typically JPEG or PNG.
  *     tags:
@@ -1301,12 +1348,17 @@ router.get('/thumb/:documentId', isAuthenticated, async (req, res) => {
       return res.sendFile(cachePath);
     } catch (cacheError) {
       if (cacheError.code !== 'ENOENT') {
-        console.warn(`[WARN] Failed to access thumbnail cache file ${cachePath}:`, cacheError.message);
+        console.warn(
+          `[WARN] Failed to access thumbnail cache file ${cachePath}:`,
+          cacheError.message
+        );
       }
 
       console.log('Thumbnail not cached, fetching from Paperless');
 
-      const thumbnailData = await paperlessService.getThumbnailImage(req.params.documentId);
+      const thumbnailData = await paperlessService.getThumbnailImage(
+        req.params.documentId
+      );
 
       if (!thumbnailData) {
         return res.status(404).send('Thumbnail not found');
@@ -1324,7 +1376,6 @@ router.get('/thumb/:documentId', isAuthenticated, async (req, res) => {
   }
 });
 
-
 /**
  * @swagger
  * /history:
@@ -1334,7 +1385,7 @@ router.get('/thumb/:documentId', isAuthenticated, async (req, res) => {
  *       Renders the document history page with filtering options.
  *       This page displays a list of all documents that have been processed by Paperless-AI,
  *       showing the changes made to the documents through AI processing.
- *       
+ *
  *       The page includes filtering capabilities by correspondent, tag, and free text search,
  *       allowing users to easily find specific documents or categories of processed documents.
  *       Each entry includes links to the original document in Paperless-ngx.
@@ -1373,9 +1424,9 @@ router.get('/history', async (req, res) => {
     res.render('history', {
       version: configFile.PAPERLESS_AI_VERSION,
       filters: {
-        allTags: [],  // Will be loaded by JavaScript via /api/history/load-progress
-        allCorrespondents: []  // Will be populated when DataTable loads
-      }
+        allTags: [], // Will be loaded by JavaScript via /api/history/load-progress
+        allCorrespondents: [], // Will be populated when DataTable loads
+      },
     });
   } catch (error) {
     console.error('[ERROR] loading history page:', error);
@@ -1392,7 +1443,7 @@ router.get('/history', async (req, res) => {
  *       Returns a paginated list of documents that have been processed by Paperless-AI.
  *       Supports filtering by tag, correspondent, and search term.
  *       Designed for integration with DataTables jQuery plugin.
- *       
+ *
  *       This endpoint provides comprehensive information about each processed document,
  *       including its metadata before and after AI processing, allowing users to track
  *       changes made by the system.
@@ -1559,7 +1610,7 @@ router.get('/history', async (req, res) => {
  *               type: string
  *               example: |
  *                 data: {"type":"progress","percentage":10,"message":"Loading history entries..."}
- *                 
+ *
  *                 data: {"type":"complete","message":"Loaded 150 documents with 25 tags","count":150}
  *       401:
  *         description: Unauthorized - authentication required
@@ -1568,7 +1619,7 @@ router.get('/api/history/load-progress', isAuthenticated, async (req, res) => {
   try {
     // Check if force reload is requested (bypass cache)
     const forceReload = req.query.force === 'true';
-    
+
     // Set headers for Server-Sent Events
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -1583,62 +1634,66 @@ router.get('/api/history/load-progress', isAuthenticated, async (req, res) => {
     };
 
     // Step 1: Start
-    sendProgress({ 
-      type: 'progress', 
-      percentage: 0, 
+    sendProgress({
+      type: 'progress',
+      percentage: 0,
       step: 1,
       totalSteps: 3,
-      message: forceReload ? 'Force reloading filters...' : 'Connecting to database...' 
+      message: forceReload
+        ? 'Force reloading filters...'
+        : 'Connecting to database...',
     });
-    
+
     // Small delay to ensure first message is received
-    await new Promise(resolve => setTimeout(resolve, 50));
-    
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
     // Step 2: Load filter data only (not all documents)
-    sendProgress({ 
-      type: 'progress', 
-      percentage: 10, 
+    sendProgress({
+      type: 'progress',
+      percentage: 10,
       step: 1,
       totalSteps: 2,
-      message: forceReload ? 'Force loading tags from Paperless...' : 'Loading tags from Paperless...' 
+      message: forceReload
+        ? 'Force loading tags from Paperless...'
+        : 'Loading tags from Paperless...',
     });
-    
+
     // Load tags from centralized cache
     const allTags = await paperlessService.getTags();
-    
-    sendProgress({ 
-      type: 'progress', 
-      percentage: 50, 
+
+    sendProgress({
+      type: 'progress',
+      percentage: 50,
       step: 1,
       totalSteps: 2,
       message: `Loaded ${allTags.length} tags`,
-      details: { tags: allTags.length }
+      details: { tags: allTags.length },
     });
-    
+
     // Step 3: Load correspondents from DB (fast query)
-    sendProgress({ 
-      type: 'progress', 
-      percentage: 70, 
+    sendProgress({
+      type: 'progress',
+      percentage: 70,
       step: 2,
       totalSteps: 2,
-      message: 'Loading correspondents...' 
+      message: 'Loading correspondents...',
     });
-    
+
     const allCorrespondents = await documentModel.getDistinctCorrespondents();
     const docCount = await documentModel.getHistoryDocumentsCount();
-    
+
     // Step 4: Complete with filter data
-    sendProgress({ 
-      type: 'complete', 
+    sendProgress({
+      type: 'complete',
       message: `Ready: ${docCount} documents with ${allTags.length} tags`,
       count: docCount,
       details: { documents: docCount, tags: allTags.length },
       filters: {
         tags: allTags,
-        correspondents: allCorrespondents
-      }
+        correspondents: allCorrespondents,
+      },
     });
-    
+
     res.end();
   } catch (error) {
     console.error('[ERROR] loading history with progress:', error);
@@ -1681,7 +1736,7 @@ router.get('/api/history', isAuthenticated, async (req, res) => {
       sortColumn,
       sortDir,
       limit: length,
-      offset: start
+      offset: start,
     });
 
     // Get total counts
@@ -1689,16 +1744,18 @@ router.get('/api/history', isAuthenticated, async (req, res) => {
     const filteredCount = await documentModel.getHistoryCountFiltered({
       search,
       tagFilter,
-      correspondentFilter
+      correspondentFilter,
     });
 
     // Get tags from centralized cache
     const allTags = await paperlessService.getTags();
-    const tagMap = new Map(allTags.map(tag => [tag.id, tag]));
+    const tagMap = new Map(allTags.map((tag) => [tag.id, tag]));
     // Format documents with tag resolution
-    const formattedDocs = docs.map(doc => {
+    const formattedDocs = docs.map((doc) => {
       const tagIds = doc.tags === '[]' ? [] : JSON.parse(doc.tags || '[]');
-      const resolvedTags = tagIds.map(id => tagMap.get(parseInt(id))).filter(Boolean);
+      const resolvedTags = tagIds
+        .map((id) => tagMap.get(parseInt(id)))
+        .filter(Boolean);
       resolvedTags.sort((a, b) => a.name.localeCompare(b.name));
 
       return {
@@ -1707,7 +1764,7 @@ router.get('/api/history', isAuthenticated, async (req, res) => {
         created_at: doc.created_at,
         tags: resolvedTags,
         correspondent: doc.correspondent || 'Not assigned',
-        link: `/dashboard/doc/${doc.document_id}`
+        link: `/dashboard/doc/${doc.document_id}`,
       };
     });
 
@@ -1715,7 +1772,7 @@ router.get('/api/history', isAuthenticated, async (req, res) => {
       draw: draw,
       recordsTotal: totalCount,
       recordsFiltered: filteredCount,
-      data: formattedDocs
+      data: formattedDocs,
     });
   } catch (error) {
     console.error('[ERROR] loading history data:', error);
@@ -1731,7 +1788,7 @@ router.get('/api/history', isAuthenticated, async (req, res) => {
  *     description: |
  *       Deletes all processing records from the database, allowing documents to be processed again.
  *       This doesn't delete the actual documents from Paperless-ngx, only their processing status in Paperless-AI.
- *       
+ *
  *       This operation can be useful when changing AI models or prompts, as it allows reprocessing
  *       all documents with the updated configuration.
  *     tags:
@@ -1805,16 +1862,21 @@ router.get('/api/history', isAuthenticated, async (req, res) => {
  *       429:
  *         description: Too many requests - rate limit exceeded
  */
-router.post('/api/history/clear-cache', isAuthenticated, cacheClearLimiter, async (req, res) => {
-  try {
-    // Clear centralized tag cache
-    paperlessService.clearTagCache();
-    res.json({ success: true, message: 'Cache cleared successfully' });
-  } catch (error) {
-    console.error('[ERROR] clearing cache:', error);
-    res.status(500).json({ error: 'Error clearing cache' });
+router.post(
+  '/api/history/clear-cache',
+  isAuthenticated,
+  cacheClearLimiter,
+  async (req, res) => {
+    try {
+      // Clear centralized tag cache
+      paperlessService.clearTagCache();
+      res.json({ success: true, message: 'Cache cleared successfully' });
+    } catch (error) {
+      console.error('[ERROR] clearing cache:', error);
+      res.status(500).json({ error: 'Error clearing cache' });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -1852,47 +1914,69 @@ router.get('/api/history/:id/detail', isAuthenticated, async (req, res) => {
   try {
     const documentId = parseInt(req.params.id, 10);
     if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
     }
 
     const [history, metrics, allTags] = await Promise.all([
       documentModel.getHistoryByDocumentId(documentId),
       documentModel.getMetricsByDocumentId(documentId),
-      paperlessService.getTags()
+      paperlessService.getTags(),
     ]);
 
     if (!history) {
-      return res.status(404).json({ success: false, error: 'No history entry found for this document' });
+      return res.status(404).json({
+        success: false,
+        error: 'No history entry found for this document',
+      });
     }
 
-    const tagMap = new Map(allTags.map(tag => [tag.id, tag]));
-    const historyTagIds = JSON.parse(history.tags || '[]').map(id => parseInt(id));
+    const tagMap = new Map(allTags.map((tag) => [tag.id, tag]));
+    const historyTagIds = JSON.parse(history.tags || '[]').map((id) =>
+      parseInt(id)
+    );
 
     // Try to fetch live document for tag diff
     let liveTagIds = null;
     try {
       const liveDoc = await paperlessService.getDocument(documentId);
-      liveTagIds = (liveDoc.tags || []).map(id => parseInt(id));
+      liveTagIds = (liveDoc.tags || []).map((id) => parseInt(id));
     } catch (e) {
-      console.warn(`[WARN] Could not fetch live document ${documentId} for diff:`, e.message);
+      console.warn(
+        `[WARN] Could not fetch live document ${documentId} for diff:`,
+        e.message
+      );
     }
 
     // Build AI-set tag list with live diff status
-    const aiTags = historyTagIds.map(id => {
+    const aiTags = historyTagIds.map((id) => {
       const tag = tagMap.get(id);
-      if (!tag) return { id, name: `Tag #${id}`, color: '#999999', status: 'unknown' };
-      const status = liveTagIds === null ? 'unknown'
-        : liveTagIds.includes(id) ? 'active' : 'removed';
+      if (!tag)
+        return { id, name: `Tag #${id}`, color: '#999999', status: 'unknown' };
+      const status =
+        liveTagIds === null
+          ? 'unknown'
+          : liveTagIds.includes(id)
+            ? 'active'
+            : 'removed';
       return { id: tag.id, name: tag.name, color: tag.color, status };
     });
 
     // Tags in Paperless that were NOT set by AI (added externally)
     const externalTags = liveTagIds
       ? liveTagIds
-          .filter(id => !historyTagIds.includes(id))
-          .map(id => {
+          .filter((id) => !historyTagIds.includes(id))
+          .map((id) => {
             const tag = tagMap.get(id);
-            return tag ? { id: tag.id, name: tag.name, color: tag.color, status: 'added_externally' } : null;
+            return tag
+              ? {
+                  id: tag.id,
+                  name: tag.name,
+                  color: tag.color,
+                  status: 'added_externally',
+                }
+              : null;
           })
           .filter(Boolean)
       : [];
@@ -1901,8 +1985,8 @@ router.get('/api/history/:id/detail', isAuthenticated, async (req, res) => {
     let customFields = [];
     try {
       customFields = JSON.parse(history.custom_fields || '[]');
-    } catch (e) {
-      customFields = []; 
+    } catch {
+      customFields = [];
     }
 
     // Load original data for Restore feature
@@ -1910,11 +1994,11 @@ router.get('/api/history/:id/detail', isAuthenticated, async (req, res) => {
     let originalData = null;
     if (originalRow) {
       originalData = {
-        title:         originalRow.title,
+        title: originalRow.title,
         correspondent: originalRow.correspondent,
-        tags:          JSON.parse(originalRow.tags || '[]'),
-        documentType:  originalRow.document_type ?? null,
-        language:      originalRow.language ?? null
+        tags: JSON.parse(originalRow.tags || '[]'),
+        documentType: originalRow.document_type ?? null,
+        language: originalRow.language ?? null,
       };
     }
 
@@ -1922,25 +2006,27 @@ router.get('/api/history/:id/detail', isAuthenticated, async (req, res) => {
       success: true,
       document_id: documentId,
       history: {
-        title:              history.title,
-        correspondent:      history.correspondent,
-        custom_fields:      customFields,
+        title: history.title,
+        correspondent: history.correspondent,
+        custom_fields: customFields,
         document_type_name: history.document_type_name ?? null,
-        language:           history.language ?? null,
-        created_at:         history.created_at
+        language: history.language ?? null,
+        created_at: history.created_at,
       },
       tags: {
-        aiSet:         aiTags,
-        external:      externalTags,
-        liveAvailable: liveTagIds !== null
+        aiSet: aiTags,
+        external: externalTags,
+        liveAvailable: liveTagIds !== null,
       },
-      metrics: metrics ? {
-        promptTokens:     metrics.promptTokens,
-        completionTokens: metrics.completionTokens,
-        totalTokens:      metrics.totalTokens
-      } : null,
+      metrics: metrics
+        ? {
+            promptTokens: metrics.promptTokens,
+            completionTokens: metrics.completionTokens,
+            totalTokens: metrics.totalTokens,
+          }
+        : null,
       original: originalData,
-      link: `/dashboard/doc/${documentId}`
+      link: `/dashboard/doc/${documentId}`,
     });
   } catch (error) {
     console.error('[ERROR] /api/history/:id/detail:', error);
@@ -1989,12 +2075,17 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
   try {
     const documentId = parseInt(req.params.id, 10);
     if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
     }
 
     const originalRow = await documentModel.getOriginalData(documentId);
     if (!originalRow) {
-      return res.status(404).json({ success: false, error: 'No original data found for this document' });
+      return res.status(404).json({
+        success: false,
+        error: 'No original data found for this document',
+      });
     }
 
     // Parse and sanitise — SQLite stores IDs as TEXT which can come back
@@ -2002,22 +2093,34 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
     // a JS number that went through JSON serialisation. Paperless-ngx
     // requires proper integers; parseInt handles both '593', '593.0' and 593.
     const rawCorrespondent = originalRow.correspondent;
-    const rawDocType       = originalRow.document_type;
+    const rawDocType = originalRow.document_type;
 
     const original = {
-      tags:          JSON.parse(originalRow.tags || '[]').map(id => parseInt(id, 10)).filter(id => !isNaN(id)),
-      title:         originalRow.title,
-      correspondent: rawCorrespondent != null ? parseInt(rawCorrespondent, 10) || null : null,
-      documentType:  rawDocType       != null ? parseInt(rawDocType,       10) || null : null,
-      language:      originalRow.language ?? null
+      tags: JSON.parse(originalRow.tags || '[]')
+        .map((id) => parseInt(id, 10))
+        .filter((id) => !isNaN(id)),
+      title: originalRow.title,
+      correspondent:
+        rawCorrespondent != null
+          ? parseInt(rawCorrespondent, 10) || null
+          : null,
+      documentType:
+        rawDocType != null ? parseInt(rawDocType, 10) || null : null,
+      language: originalRow.language ?? null,
     };
 
     const result = await paperlessService.restoreDocument(documentId, original);
     if (!result) {
-      return res.status(500).json({ success: false, error: 'Failed to restore document in Paperless-ngx' });
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to restore document in Paperless-ngx',
+      });
     }
 
-    res.json({ success: true, message: 'Document restored to its original state.' });
+    res.json({
+      success: true,
+      message: 'Document restored to its original state.',
+    });
   } catch (error) {
     console.error('[ERROR] /api/history/:id/restore:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
@@ -2063,14 +2166,16 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
   try {
     const documentId = parseInt(req.params.id, 10);
     if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
     }
 
     await rescanDocumentsByIds([documentId]);
 
     res.json({
       success: true,
-      message: 'Document queued for reprocessing.'
+      message: 'Document queued for reprocessing.',
     });
   } catch (error) {
     console.error('[ERROR] /api/history/:id/rescan:', error);
@@ -2138,14 +2243,18 @@ router.post('/api/history/rescan', isAuthenticated, async (req, res) => {
   try {
     const { ids } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ success: false, error: 'Invalid document IDs' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document IDs' });
     }
 
     const { queued, notFound } = await rescanDocumentsByIds(ids);
     res.json({ success: true, queued, notFound });
   } catch (error) {
     console.error('[ERROR] /api/history/rescan:', error);
-    res.status(500).json({ success: false, error: 'Error queuing documents for rescan' });
+    res
+      .status(500)
+      .json({ success: false, error: 'Error queuing documents for rescan' });
   }
 });
 
@@ -2179,22 +2288,28 @@ router.post('/api/history/rescan', isAuthenticated, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/api/settings/clear-tag-cache', isAuthenticated, cacheClearLimiter, async (req, res) => {
-  try {
-    paperlessService.clearTagCache();
-    console.log('[INFO] Tag cache cleared manually by user');
-    res.json({ 
-      success: true, 
-      message: 'Tag cache cleared successfully. Cache will refresh on next use.' 
-    });
-  } catch (error) {
-    console.error('[ERROR] clearing tag cache:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to clear tag cache' 
-    });
+router.post(
+  '/api/settings/clear-tag-cache',
+  isAuthenticated,
+  cacheClearLimiter,
+  async (req, res) => {
+    try {
+      paperlessService.clearTagCache();
+      console.log('[INFO] Tag cache cleared manually by user');
+      res.json({
+        success: true,
+        message:
+          'Tag cache cleared successfully. Cache will refresh on next use.',
+      });
+    } catch (error) {
+      console.error('[ERROR] clearing tag cache:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to clear tag cache',
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -2229,21 +2344,25 @@ router.post('/api/settings/clear-tag-cache', isAuthenticated, cacheClearLimiter,
  *       500:
  *         description: Server error
  */
-router.get('/api/settings/thumbnail-cache', isAuthenticated, async (req, res) => {
-  try {
-    const stats = await getThumbnailCacheStats();
-    return res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error) {
-    console.error('[ERROR] reading thumbnail cache stats:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to read thumbnail cache stats'
-    });
+router.get(
+  '/api/settings/thumbnail-cache',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const stats = await getThumbnailCacheStats();
+      return res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      console.error('[ERROR] reading thumbnail cache stats:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to read thumbnail cache stats',
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -2288,27 +2407,32 @@ router.get('/api/settings/thumbnail-cache', isAuthenticated, async (req, res) =>
  *       500:
  *         description: Server error
  */
-router.post('/api/settings/thumbnail-cache/clear', isAuthenticated, cacheClearLimiter, async (req, res) => {
-  try {
-    const cleanup = await clearThumbnailCache();
-    const remaining = await getThumbnailCacheStats();
+router.post(
+  '/api/settings/thumbnail-cache/clear',
+  isAuthenticated,
+  cacheClearLimiter,
+  async (req, res) => {
+    try {
+      const cleanup = await clearThumbnailCache();
+      const remaining = await getThumbnailCacheStats();
 
-    return res.json({
-      success: true,
-      message: `Thumbnail cache cleared. Removed ${cleanup.removedFiles} files (${cleanup.freedSizeHuman}).`,
-      removedFiles: cleanup.removedFiles,
-      freedBytes: cleanup.freedBytes,
-      freedSizeHuman: cleanup.freedSizeHuman,
-      remaining
-    });
-  } catch (error) {
-    console.error('[ERROR] clearing thumbnail cache:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to clear thumbnail cache'
-    });
+      return res.json({
+        success: true,
+        message: `Thumbnail cache cleared. Removed ${cleanup.removedFiles} files (${cleanup.freedSizeHuman}).`,
+        removedFiles: cleanup.removedFiles,
+        freedBytes: cleanup.freedBytes,
+        freedSizeHuman: cleanup.freedSizeHuman,
+        remaining,
+      });
+    } catch (error) {
+      console.error('[ERROR] clearing thumbnail cache:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to clear thumbnail cache',
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -2362,62 +2486,71 @@ router.post('/api/settings/thumbnail-cache/clear', isAuthenticated, cacheClearLi
  *         description: Server error
  */
 
-router.post('/api/settings/reset-local-overrides', isAuthenticated, cacheClearLimiter, express.json(), async (req, res) => {
-  try {
-    const username = getAuthenticatedSettingsUsername(req);
-    if (!username) {
-      return res.status(403).json({
+router.post(
+  '/api/settings/reset-local-overrides',
+  isAuthenticated,
+  cacheClearLimiter,
+  express.json(),
+  async (req, res) => {
+    try {
+      const username = getAuthenticatedSettingsUsername(req);
+      if (!username) {
+        return res.status(403).json({
+          success: false,
+          error: 'Reset local overrides requires a signed-in user session.',
+        });
+      }
+
+      const currentPassword = String(req.body?.currentPassword || '').trim();
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          error: 'Current password is required.',
+        });
+      }
+
+      const user = await documentModel.getUser(username);
+      if (!user || !user.password) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found.',
+        });
+      }
+
+      const validPassword = await bcrypt.compare(
+        currentPassword,
+        user.password
+      );
+      if (!validPassword) {
+        return res.status(401).json({
+          success: false,
+          error: 'Current password is invalid.',
+        });
+      }
+
+      const hadOverrides = await setupService.clearRuntimeOverrides();
+
+      res.json({
+        success: true,
+        hadOverrides,
+        restart: true,
+        message: hadOverrides
+          ? 'Local runtime overrides have been removed. Restarting service to apply injected environment values.'
+          : 'No local runtime overrides were found. Restarting service to reload injected environment values.',
+      });
+
+      setTimeout(() => {
+        process.exit(0);
+      }, 5000);
+    } catch (error) {
+      console.error('[ERROR] resetting local runtime overrides:', error);
+      res.status(500).json({
         success: false,
-        error: 'Reset local overrides requires a signed-in user session.'
+        error: 'Failed to reset local runtime overrides',
       });
     }
-
-    const currentPassword = String(req.body?.currentPassword || '').trim();
-    if (!currentPassword) {
-      return res.status(400).json({
-        success: false,
-        error: 'Current password is required.'
-      });
-    }
-
-    const user = await documentModel.getUser(username);
-    if (!user || !user.password) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found.'
-      });
-    }
-
-    const validPassword = await bcrypt.compare(currentPassword, user.password);
-    if (!validPassword) {
-      return res.status(401).json({
-        success: false,
-        error: 'Current password is invalid.'
-      });
-    }
-
-    const hadOverrides = await setupService.clearRuntimeOverrides();
-
-    res.json({
-      success: true,
-      hadOverrides,
-      restart: true,
-      message: hadOverrides
-        ? 'Local runtime overrides have been removed. Restarting service to apply injected environment values.'
-        : 'No local runtime overrides were found. Restarting service to reload injected environment values.'
-    });
-
-    setTimeout(() => {
-      process.exit(0);
-    }, 5000);
-  } catch (error) {
-    console.error('[ERROR] resetting local runtime overrides:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to reset local runtime overrides'
-    });
   }
-});
+);
 
 /**
  * @swagger
@@ -2448,49 +2581,68 @@ router.post('/api/settings/reset-local-overrides', isAuthenticated, cacheClearLi
  *       500:
  *         description: Server error during reconciliation
  */
-router.post('/api/settings/reconcile-history', isAuthenticated, cacheClearLimiter, async (req, res) => {
-  try {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Starting reconciliation...' })}\n\n`);
-    if (res.flush) res.flush();
-
-    const result = await reconciliationService.reconcileAllDocuments();
-
-    if (result && result.skipped) {
-      res.write(`data: ${JSON.stringify({ type: 'complete', skipped: true, removed: 0, durationMs: result.durationMs || 0, message: 'Reconciliation skipped: a scan or reconciliation is already in progress.' })}\n\n`);
-    } else {
-      const removed = result ? result.removed : 0;
-      const durationMs = result ? result.durationMs : 0;
-      res.write(`data: ${JSON.stringify({ type: 'complete', skipped: false, removed, durationMs, message: removed > 0 ? `Removed ${removed} stale entries.` : 'No stale entries found.' })}\n\n`);
-    }
-
-    if (res.flush) res.flush();
-    res.end();
-  } catch (error) {
-    console.error('[ERROR] manual reconciliation:', error);
+router.post(
+  '/api/settings/reconcile-history',
+  isAuthenticated,
+  cacheClearLimiter,
+  async (req, res) => {
     try {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Reconciliation failed. Check server logs.' })}\n\n`);
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      res.write(
+        `data: ${JSON.stringify({ type: 'progress', message: 'Starting reconciliation...' })}\n\n`
+      );
+      if (res.flush) res.flush();
+
+      const result = await reconciliationService.reconcileAllDocuments();
+
+      if (result && result.skipped) {
+        res.write(
+          `data: ${JSON.stringify({ type: 'complete', skipped: true, removed: 0, durationMs: result.durationMs || 0, message: 'Reconciliation skipped: a scan or reconciliation is already in progress.' })}\n\n`
+        );
+      } else {
+        const removed = result ? result.removed : 0;
+        const durationMs = result ? result.durationMs : 0;
+        res.write(
+          `data: ${JSON.stringify({ type: 'complete', skipped: false, removed, durationMs, message: removed > 0 ? `Removed ${removed} stale entries.` : 'No stale entries found.' })}\n\n`
+        );
+      }
+
       if (res.flush) res.flush();
       res.end();
-    } catch (_) { /* client disconnected */ }
+    } catch (error) {
+      console.error('[ERROR] manual reconciliation:', error);
+      try {
+        res.write(
+          `data: ${JSON.stringify({ type: 'error', error: 'Reconciliation failed. Check server logs.' })}\n\n`
+        );
+        if (res.flush) res.flush();
+        res.end();
+      } catch {
+        /* client disconnected */
+      }
+    }
   }
-});
+);
 
-router.post('/api/reset-all-documents', isAuthenticated, cacheClearLimiter, async (req, res) => {
-  try {
-    await documentModel.deleteAllDocuments();
-    res.json({ success: true });
+router.post(
+  '/api/reset-all-documents',
+  isAuthenticated,
+  cacheClearLimiter,
+  async (req, res) => {
+    try {
+      await documentModel.deleteAllDocuments();
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ERROR] resetting documents:', error);
+      res.status(500).json({ error: 'Error resetting documents' });
+    }
   }
-  catch (error) {
-    console.error('[ERROR] resetting documents:', error);
-    res.status(500).json({ error: 'Error resetting documents' });
-  }
-});
+);
 
 /**
  * @swagger
@@ -2500,7 +2652,7 @@ router.post('/api/reset-all-documents', isAuthenticated, cacheClearLimiter, asyn
  *     description: |
  *       Deletes processing records for specific documents, allowing them to be processed again.
  *       This doesn't delete the actual documents from Paperless-ngx, only their processing status in Paperless-AI.
- *       
+ *
  *       This operation is useful when you want to reprocess only selected documents after changes to
  *       the AI model, prompt, or document metadata configuration.
  *     tags:
@@ -2566,22 +2718,26 @@ router.post('/api/reset-all-documents', isAuthenticated, cacheClearLimiter, asyn
  *                   type: string
  *                   example: "Error resetting documents"
  */
-router.post('/api/reset-documents', cacheClearLimiter, isAuthenticated, async (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!ids || !Array.isArray(ids)) {
-      return res.status(400).json({ error: 'Invalid document IDs' });
-    }
+router.post(
+  '/api/reset-documents',
+  cacheClearLimiter,
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!ids || !Array.isArray(ids)) {
+        return res.status(400).json({ error: 'Invalid document IDs' });
+      }
 
-    await documentModel.deleteDocumentsIdList(ids);
-    await removeThumbnailCacheForDocumentIds(ids);
-    res.json({ success: true });
+      await documentModel.deleteDocumentsIdList(ids);
+      await removeThumbnailCacheForDocumentIds(ids);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[ERROR] resetting documents:', error);
+      res.status(500).json({ error: 'Error resetting documents' });
+    }
   }
-  catch (error) {
-    console.error('[ERROR] resetting documents:', error);
-    res.status(500).json({ error: 'Error resetting documents' });
-  }
-});
+);
 
 /**
  * @swagger
@@ -2608,7 +2764,7 @@ router.post('/api/reset-documents', cacheClearLimiter, isAuthenticated, async (r
  *               type: string
  *               example: |
  *                 data: {"type":"progress","current":50,"total":100,"missing":3,"percentage":50}
- *                 
+ *
  *                 data: {"type":"complete","missing":[{"document_id":123,"title":"Test Doc"}]}
  *       401:
  *         description: Unauthorized - authentication required
@@ -2626,9 +2782,11 @@ router.get('/api/history/validate', isAuthenticated, async (req, res) => {
     // Get all history entries from local DB
     const allHistory = await documentModel.getAllHistory();
     const total = allHistory.length;
-    
+
     // Send initial progress
-    res.write(`data: ${JSON.stringify({ type: 'progress', current: 0, total, missing: 0 })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({ type: 'progress', current: 0, total, missing: 0 })}\n\n`
+    );
 
     // Process documents in parallel batches for faster validation
     const missing = [];
@@ -2638,39 +2796,41 @@ router.get('/api/history/validate', isAuthenticated, async (req, res) => {
     // Split into batches
     for (let i = 0; i < allHistory.length; i += BATCH_SIZE) {
       const batch = allHistory.slice(i, i + BATCH_SIZE);
-      
+
       // Process batch in parallel
       const results = await Promise.allSettled(
         batch.map(async (h) => {
           try {
             await paperlessService.getDocument(h.document_id);
             return { success: true, doc: h };
-          } catch (error) {
+          } catch {
             return { success: false, doc: h };
           }
         })
       );
-      
+
       // Collect missing documents from this batch
       results.forEach((result) => {
         if (result.status === 'fulfilled' && !result.value.success) {
-          missing.push({ 
-            document_id: result.value.doc.document_id, 
-            title: result.value.doc.title || null 
+          missing.push({
+            document_id: result.value.doc.document_id,
+            title: result.value.doc.title || null,
           });
         }
       });
-      
+
       processed += batch.length;
-      
+
       // Send progress update after each batch
-      res.write(`data: ${JSON.stringify({ 
-        type: 'progress', 
-        current: processed, 
-        total, 
-        missing: missing.length,
-        percentage: Math.round((processed / total) * 100)
-      })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'progress',
+          current: processed,
+          total,
+          missing: missing.length,
+          percentage: Math.round((processed / total) * 100),
+        })}\n\n`
+      );
     }
 
     // Send final result
@@ -2678,7 +2838,9 @@ router.get('/api/history/validate', isAuthenticated, async (req, res) => {
     res.end();
   } catch (error) {
     console.error('[ERROR] validating history:', error);
-    res.write(`data: ${JSON.stringify({ type: 'error', error: 'Error validating history' })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({ type: 'error', error: 'Error validating history' })}\n\n`
+    );
     res.end();
   }
 });
@@ -2691,13 +2853,13 @@ router.get('/api/history/validate', isAuthenticated, async (req, res) => {
  *     description: |
  *       Initiates an immediate scan of documents in Paperless-ngx that haven't been processed yet.
  *       This endpoint can be used to manually trigger processing without waiting for the scheduled interval.
- *       
+ *
  *       The scan will:
  *       - Connect to Paperless-ngx API
  *       - Fetch all unprocessed documents
  *       - Process each document with the configured AI service
  *       - Update documents in Paperless-ngx with generated metadata
- *       
+ *
  *       The process respects the function limitations set in the configuration.
  *     tags:
  *       - Documents
@@ -2752,7 +2914,7 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
     if (!isConfigured) {
       return res.status(400).json({
         success: false,
-        error: 'Setup not completed'
+        error: 'Setup not completed',
       });
     }
 
@@ -2760,7 +2922,7 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
     if (!userId) {
       return res.status(500).json({
         success: false,
-        error: 'Failed to resolve Paperless user ID'
+        error: 'Failed to resolve Paperless user ID',
       });
     }
 
@@ -2768,20 +2930,21 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
     if (typeof triggerScanNow !== 'function') {
       return res.status(503).json({
         success: false,
-        error: 'Scan control is not available yet. Please try again in a moment.'
+        error:
+          'Scan control is not available yet. Please try again in a moment.',
       });
     }
 
     const result = await triggerScanNow('api-manual');
     return res.json({
       success: true,
-      ...result
+      ...result,
     });
   } catch (error) {
     console.error('[ERROR] /api/scan/now:', error);
     return res.status(500).json({
       success: false,
-      error: 'Error during document scan trigger'
+      error: 'Error during document scan trigger',
     });
   }
 });
@@ -2822,12 +2985,16 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
 router.post('/api/scan/stop', isAuthenticated, async (req, res) => {
   try {
     const requestScanStop = global.__paperlessAiRequestScanStop;
-    const scanState = global.__paperlessAiScanControl || { running: false, stopRequested: false };
+    const scanState = global.__paperlessAiScanControl || {
+      running: false,
+      stopRequested: false,
+    };
 
     if (typeof requestScanStop !== 'function') {
       return res.status(503).json({
         success: false,
-        error: 'Scan control is not available yet. Please try again in a moment.'
+        error:
+          'Scan control is not available yet. Please try again in a moment.',
       });
     }
 
@@ -2838,57 +3005,87 @@ router.post('/api/scan/stop', isAuthenticated, async (req, res) => {
       stopRequested: Boolean(scanState.stopRequested),
       message: requested
         ? 'Stop requested. The current document will finish before scan stops.'
-        : 'No active scan to stop.'
+        : 'No active scan to stop.',
     });
   } catch (error) {
     console.error('[ERROR] /api/scan/stop:', error);
     return res.status(500).json({
       success: false,
-      error: 'Error while requesting scan stop'
+      error: 'Error while requesting scan stop',
     });
   }
 });
 
-async function processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt = null) {
+async function processDocument(
+  doc,
+  existingTags,
+  existingCorrespondentList,
+  existingDocumentTypesList,
+  ownUserId,
+  customPrompt = null
+) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
   if (isProcessed) {
-    console.log(`[DEBUG] Document ${doc.id} already in processed_documents — skipping. Remove via Rescan to reprocess.`);
+    console.log(
+      `[DEBUG] Document ${doc.id} already in processed_documents — skipping. Remove via Rescan to reprocess.`
+    );
     return null;
   }
 
   const isFailed = await documentModel.isDocumentFailed(doc.id);
   if (isFailed) {
-    console.log(`[DEBUG] Document ${doc.id} is marked as permanently failed, skipping until reset`);
+    console.log(
+      `[DEBUG] Document ${doc.id} is marked as permanently failed, skipping until reset`
+    );
     return null;
   }
 
   await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
 
-  const documentEditable = await paperlessService.getPermissionOfDocument(doc.id);
+  const documentEditable = await paperlessService.getPermissionOfDocument(
+    doc.id
+  );
   if (!documentEditable) {
-    console.log(`[DEBUG] Document belongs to: ${documentEditable}, skipping analysis`);
-    console.log(`[DEBUG] Document ${doc.id} Not Editable by Paper-Ai User, skipping analysis`);
+    console.log(
+      `[DEBUG] Document belongs to: ${documentEditable}, skipping analysis`
+    );
+    console.log(
+      `[DEBUG] Document ${doc.id} Not Editable by Paper-Ai User, skipping analysis`
+    );
     return null;
-  }else {
+  } else {
     console.log(`[DEBUG] Document ${doc.id} rights for AI User - processed`);
   }
 
   let [content, originalData] = await Promise.all([
     paperlessService.getDocumentContent(doc.id),
-    paperlessService.getDocument(doc.id)
+    paperlessService.getDocument(doc.id),
   ]);
 
   const minContentLength = config.minContentLength;
   if (!content || content.length < minContentLength) {
-    console.log(`[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${minContentLength}), skipping analysis`);
+    console.log(
+      `[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${minContentLength}), skipping analysis`
+    );
     if (mistralOcrService.isEnabled()) {
-      const added = await documentModel.addToOcrQueue(doc.id, doc.title, `short_content_lt_${minContentLength}`);
+      const added = await documentModel.addToOcrQueue(
+        doc.id,
+        doc.title,
+        `short_content_lt_${minContentLength}`
+      );
       if (added) {
-        console.log(`[OCR] Document ${doc.id} queued for Mistral OCR (short_content)`);
+        console.log(
+          `[OCR] Document ${doc.id} queued for Mistral OCR (short_content)`
+        );
       }
     } else {
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(doc.id, doc.title, `insufficient_content_lt_${minContentLength}`, 'ai');
+      await documentModel.addFailedDocument(
+        doc.id,
+        doc.title,
+        `insufficient_content_lt_${minContentLength}`,
+        'ai'
+      );
     }
     return null;
   }
@@ -2900,7 +3097,8 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
   // Prepare options for AI service
   const options = {
     restrictToExistingTags: config.restrictToExistingTags === 'yes',
-    restrictToExistingCorrespondents: config.restrictToExistingCorrespondents === 'yes'
+    restrictToExistingCorrespondents:
+      config.restrictToExistingCorrespondents === 'yes',
   };
 
   // Get external API data if enabled
@@ -2910,39 +3108,79 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
       const externalData = await externalApiService.fetchData();
       if (externalData) {
         options.externalApiData = externalData;
-        console.log('[DEBUG] Retrieved external API data for prompt enrichment');
+        console.log(
+          '[DEBUG] Retrieved external API data for prompt enrichment'
+        );
       }
     } catch (error) {
-      console.error('[ERROR] Failed to fetch external API data:', error.message);
+      console.error(
+        '[ERROR] Failed to fetch external API data:',
+        error.message
+      );
     }
   }
 
   const aiService = AIServiceFactory.getService();
   let analysis;
-  if(customPrompt) {
+  if (customPrompt) {
     console.log('[DEBUG] Starting document analysis with custom prompt');
-    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id, customPrompt, options);
-  }else{
-    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id, null, options);
+    analysis = await aiService.analyzeDocument(
+      content,
+      existingTags,
+      existingCorrespondentList,
+      existingDocumentTypesList,
+      doc.id,
+      customPrompt,
+      options
+    );
+  } else {
+    analysis = await aiService.analyzeDocument(
+      content,
+      existingTags,
+      existingCorrespondentList,
+      existingDocumentTypesList,
+      doc.id,
+      null,
+      options
+    );
   }
   console.log('Repsonse from AI service:', analysis);
   if (analysis.error) {
     let queuedForOcr = false;
-    if (mistralOcrService.isEnabled() && shouldQueueForOcrOnAiError(analysis.error)) {
+    if (
+      mistralOcrService.isEnabled() &&
+      shouldQueueForOcrOnAiError(analysis.error)
+    ) {
       const queueReason = classifyOcrQueueReasonFromAiError(analysis.error);
-      const added = await documentModel.addToOcrQueue(doc.id, doc.title, queueReason);
+      const added = await documentModel.addToOcrQueue(
+        doc.id,
+        doc.title,
+        queueReason
+      );
       if (added) {
-        console.log(`[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${analysis.error})`);
+        console.log(
+          `[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${analysis.error})`
+        );
       }
       queuedForOcr = true;
     }
 
     if (!mistralOcrService.isEnabled()) {
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(doc.id, doc.title, 'ai_failed_ocr_disabled', 'ai');
+      await documentModel.addFailedDocument(
+        doc.id,
+        doc.title,
+        'ai_failed_ocr_disabled',
+        'ai'
+      );
     } else if (!queuedForOcr) {
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(doc.id, doc.title, 'ai_failed_without_ocr_fallback', 'ai');
+      await documentModel.addFailedDocument(
+        doc.id,
+        doc.title,
+        'ai_failed_without_ocr_fallback',
+        'ai'
+      );
     }
     throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
   }
@@ -2955,26 +3193,42 @@ async function buildUpdateData(analysis, doc) {
 
   // Create options object with restriction settings
   const options = {
-    restrictToExistingTags: config.restrictToExistingTags === 'yes' ? true : false,
-    restrictToExistingCorrespondents: config.restrictToExistingCorrespondents === 'yes' ? true : false,
-    restrictToExistingDocumentTypes: config.restrictToExistingDocumentTypes === 'yes' ? true : false
+    restrictToExistingTags:
+      config.restrictToExistingTags === 'yes' ? true : false,
+    restrictToExistingCorrespondents:
+      config.restrictToExistingCorrespondents === 'yes' ? true : false,
+    restrictToExistingDocumentTypes:
+      config.restrictToExistingDocumentTypes === 'yes' ? true : false,
   };
 
-  console.log(`[DEBUG] Building update data with restrictions: tags=${options.restrictToExistingTags}, correspondents=${options.restrictToExistingCorrespondents}, documentTypes=${options.restrictToExistingDocumentTypes}`);
+  console.log(
+    `[DEBUG] Building update data with restrictions: tags=${options.restrictToExistingTags}, correspondents=${options.restrictToExistingCorrespondents}, documentTypes=${options.restrictToExistingDocumentTypes}`
+  );
 
   // Only process tags if tagging is activated
   if (config.limitFunctions?.activateTagging !== 'no') {
-    const { tagIds, errors } = await paperlessService.processTags(analysis.document.tags, options);
+    const { tagIds, errors } = await paperlessService.processTags(
+      analysis.document.tags,
+      options
+    );
     if (errors.length > 0) {
       console.warn('[ERROR] Some tags could not be processed:', errors);
     }
     updateData.tags = tagIds;
-  } else if (config.limitFunctions?.activateTagging === 'no' && config.addAIProcessedTag === 'yes') {
+  } else if (
+    config.limitFunctions?.activateTagging === 'no' &&
+    config.addAIProcessedTag === 'yes'
+  ) {
     // Add AI processed tags to the document (processTags function awaits a tags array)
     // get tags from .env file and split them by comma and make an array
-    console.log('[DEBUG] Tagging is deactivated but AI processed tag will be added');
+    console.log(
+      '[DEBUG] Tagging is deactivated but AI processed tag will be added'
+    );
     const tags = config.addAIProcessedTags.split(',');
-    const { tagIds, errors } = await paperlessService.processTags(tags, options);
+    const { tagIds, errors } = await paperlessService.processTags(
+      tags,
+      options
+    );
     if (errors.length > 0) {
       console.warn('[ERROR] Some tags could not be processed:', errors);
     }
@@ -2991,9 +3245,15 @@ async function buildUpdateData(analysis, doc) {
   updateData.created = analysis.document.document_date || doc.created;
 
   // Only process document type if document type classification is activated
-  if (config.limitFunctions?.activateDocumentType !== 'no' && analysis.document.document_type) {
+  if (
+    config.limitFunctions?.activateDocumentType !== 'no' &&
+    analysis.document.document_type
+  ) {
     try {
-      const documentType = await paperlessService.getOrCreateDocumentType(analysis.document.document_type, options);
+      const documentType = await paperlessService.getOrCreateDocumentType(
+        analysis.document.document_type,
+        options
+      );
       if (documentType) {
         updateData.document_type = documentType.id;
       }
@@ -3003,13 +3263,18 @@ async function buildUpdateData(analysis, doc) {
   }
 
   // Only process custom fields if custom fields detection is activated
-  if (config.limitFunctions?.activateCustomFields !== 'no' && analysis.document.custom_fields) {
+  if (
+    config.limitFunctions?.activateCustomFields !== 'no' &&
+    analysis.document.custom_fields
+  ) {
     const customFields = analysis.document.custom_fields;
     const processedFields = [];
     const customFieldsForHistory = [];
 
     // Get existing custom fields
-    const existingFields = await paperlessService.getExistingCustomFields(doc.id);
+    const existingFields = await paperlessService.getExistingCustomFields(
+      doc.id
+    );
     console.log(`[DEBUG] Found existing fields:`, existingFields);
 
     // Keep track of which fields we've processed to avoid duplicates
@@ -3022,25 +3287,36 @@ async function buildUpdateData(analysis, doc) {
         continue;
       }
 
-      if (!customField.field_name || (customField.value === null || customField.value === undefined || String(customField.value).trim() === '')) {
+      if (
+        !customField.field_name ||
+        customField.value === null ||
+        customField.value === undefined ||
+        String(customField.value).trim() === ''
+      ) {
         console.log(`[DEBUG] Skipping empty/invalid custom field`);
         continue;
       }
 
-      const fieldDetails = await paperlessService.findExistingCustomField(customField.field_name);
+      const fieldDetails = await paperlessService.findExistingCustomField(
+        customField.field_name
+      );
       if (fieldDetails?.id) {
-        const validation = validateCustomFieldValue(customField.field_name, customField.value, fieldDetails.data_type);
+        const validation = validateCustomFieldValue(
+          customField.field_name,
+          customField.value,
+          fieldDetails.data_type
+        );
         if (validation.skip) {
           if (validation.warn) console.warn(validation.warn);
           continue;
         }
         processedFields.push({
           field: fieldDetails.id,
-          value: validation.value
+          value: validation.value,
         });
         customFieldsForHistory.push({
           field_name: customField.field_name,
-          value: validation.value
+          value: validation.value,
         });
         processedFieldIds.add(fieldDetails.id);
       }
@@ -3062,9 +3338,15 @@ async function buildUpdateData(analysis, doc) {
   }
 
   // Only process correspondent if correspondent detection is activated
-  if (config.limitFunctions?.activateCorrespondents !== 'no' && analysis.document.correspondent) {
+  if (
+    config.limitFunctions?.activateCorrespondents !== 'no' &&
+    analysis.document.correspondent
+  ) {
     try {
-      const correspondent = await paperlessService.getOrCreateCorrespondent(analysis.document.correspondent, options);
+      const correspondent = await paperlessService.getOrCreateCorrespondent(
+        analysis.document.correspondent,
+        options
+      );
       if (correspondent) {
         updateData.correspondent = correspondent.id;
       }
@@ -3082,27 +3364,46 @@ async function buildUpdateData(analysis, doc) {
 }
 
 async function saveDocumentChanges(docId, updateData, analysis, originalData) {
-  const { tags: originalTags, correspondent: originalCorrespondent, title: originalTitle } = originalData;
-  
+  const {
+    tags: originalTags,
+    correspondent: originalCorrespondent,
+    title: originalTitle,
+  } = originalData;
+
   const historyCustomFields = updateData._customFieldsForHistory || null;
   delete updateData._customFieldsForHistory;
 
   const historyDocTypeName = analysis.document.document_type ?? null;
-  const historyLanguage    = analysis.document.language ?? null;
-  const origDocType        = originalData.document_type ?? null;
-  const origLanguage       = originalData.language ?? null;
+  const historyLanguage = analysis.document.language ?? null;
+  const origDocType = originalData.document_type ?? null;
+  const origLanguage = originalData.language ?? null;
 
   await Promise.all([
-    documentModel.saveOriginalData(docId, originalTags, originalCorrespondent, originalTitle, origDocType, origLanguage),
+    documentModel.saveOriginalData(
+      docId,
+      originalTags,
+      originalCorrespondent,
+      originalTitle,
+      origDocType,
+      origLanguage
+    ),
     paperlessService.updateDocument(docId, updateData),
     documentModel.addProcessedDocument(docId, updateData.title),
     documentModel.addOpenAIMetrics(
-      docId, 
+      docId,
       analysis.metrics.promptTokens,
       analysis.metrics.completionTokens,
       analysis.metrics.totalTokens
     ),
-    documentModel.addToHistory(docId, updateData.tags, updateData.title, analysis.document.correspondent, historyCustomFields, historyDocTypeName, historyLanguage)
+    documentModel.addToHistory(
+      docId,
+      updateData.tags,
+      updateData.title,
+      analysis.document.correspondent,
+      historyCustomFields,
+      historyDocTypeName,
+      historyLanguage
+    ),
   ]);
 }
 
@@ -3114,10 +3415,10 @@ async function saveDocumentChanges(docId, updateData, analysis, originalData) {
  *     description: |
  *       Generates a new random API key for the application and updates the .env file.
  *       The previous API key will be invalidated immediately after generation.
- *       
+ *
  *       This API key can be used for programmatic access to the API endpoints
  *       by sending it in the `x-api-key` header of subsequent requests.
- *       
+ *
  *       **Security Notice**: This operation invalidates any existing API key.
  *       All systems using the previous key will need to be updated.
  *     tags:
@@ -3167,9 +3468,12 @@ router.post('/api/key-regenerate', isAuthenticated, async (req, res) => {
     const fs = require('fs');
     const path = require('path');
     const dotenv = require('dotenv');
-    const crypto = require('crypto');    
+    const crypto = require('crypto');
     const envPath = path.join(__dirname, '../data/', '.env');
-    const legacyMode = String(process.env.CONFIG_SOURCE_MODE || 'runtime-first').trim().toLowerCase() === 'legacy';
+    const legacyMode =
+      String(process.env.CONFIG_SOURCE_MODE || 'runtime-first')
+        .trim()
+        .toLowerCase() === 'legacy';
     let envConfig = {};
     if (legacyMode && fs.existsSync(envPath)) {
       envConfig = dotenv.parse(fs.readFileSync(envPath));
@@ -3191,7 +3495,7 @@ router.post('/api/key-regenerate', isAuthenticated, async (req, res) => {
     process.env.API_KEY = apiKey;
     await setupService.saveRuntimeOverrides({
       ...(await setupService.loadRuntimeOverrides()),
-      API_KEY: apiKey
+      API_KEY: apiKey,
     });
 
     // Return response
@@ -3202,12 +3506,14 @@ router.post('/api/key-regenerate', isAuthenticated, async (req, res) => {
   }
 });
 
-
 const normalizeArray = (value) => {
   if (!value) return [];
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') {
-    return value.split(',').map(item => item.trim()).filter(Boolean);
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
   return [];
 };
@@ -3222,7 +3528,7 @@ const DEFAULT_AI_PROVIDER_PRESETS = [
     provider: 'openai',
     apiUrl: 'https://api.openai.com/v1',
     model: 'gpt-4o-mini',
-    tokenPlaceholder: 'sk-...'
+    tokenPlaceholder: 'sk-...',
   },
   {
     id: 'lmstudio-local',
@@ -3230,7 +3536,7 @@ const DEFAULT_AI_PROVIDER_PRESETS = [
     provider: 'custom',
     apiUrl: 'http://127.0.0.1:1234/v1',
     model: 'qwen2.5-7b-instruct',
-    tokenPlaceholder: 'lm-studio-token'
+    tokenPlaceholder: 'lm-studio-token',
   },
   {
     id: 'ollama-local',
@@ -3238,7 +3544,7 @@ const DEFAULT_AI_PROVIDER_PRESETS = [
     provider: 'ollama',
     apiUrl: 'http://localhost:11434',
     model: 'llama3.2',
-    tokenPlaceholder: ''
+    tokenPlaceholder: '',
   },
   {
     id: 'ionos-openai-compatible',
@@ -3246,8 +3552,8 @@ const DEFAULT_AI_PROVIDER_PRESETS = [
     provider: 'custom',
     apiUrl: 'https://openai.inference.de-txl.ionos.com/v1',
     model: 'meta-llama/llama-3.3-70b-instruct',
-    tokenPlaceholder: 'ionos-api-key'
-  }
+    tokenPlaceholder: 'ionos-api-key',
+  },
 ];
 
 function cleanupExpiredSetupMfaChallenges() {
@@ -3260,7 +3566,10 @@ function cleanupExpiredSetupMfaChallenges() {
 }
 
 function normalizeSetupBaseUrl(url) {
-  return String(url || '').trim().replace(/\/+$/, '').replace(/\/api$/, '');
+  return String(url || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '');
 }
 
 function parseBooleanInput(value, defaultValue = false) {
@@ -3284,7 +3593,10 @@ function parseBooleanInput(value, defaultValue = false) {
 function getSetupUrlValidationOptions() {
   return {
     allowPrivateIPs: true,
-    allowLocalhost: parseBooleanInput(process.env.PAPERLESS_AI_SETUP_ALLOW_LOCALHOST, false)
+    allowLocalhost: parseBooleanInput(
+      process.env.PAPERLESS_AI_SETUP_ALLOW_LOCALHOST,
+      false
+    ),
   };
 }
 
@@ -3310,7 +3622,7 @@ function getDefaultScanInterval() {
 async function isInitialSetupOpen() {
   const [isEnvConfigured, users] = await Promise.all([
     setupService.isConfigured(),
-    documentModel.getUsers()
+    documentModel.getUsers(),
   ]);
 
   const hasUsers = Array.isArray(users) && users.length > 0;
@@ -3322,7 +3634,7 @@ async function ensureSetupOpenOrRespond(res) {
   if (!setupOpen) {
     res.status(403).json({
       success: false,
-      error: 'Initial setup is already complete.'
+      error: 'Initial setup is already complete.',
     });
     return false;
   }
@@ -3360,7 +3672,10 @@ function toEnvPreviewLines(config) {
     'OCR_API_URL',
     'OCR_API_KEY',
     'MISTRAL_API_KEY',
-    'MISTRAL_OCR_MODEL'
+    'MISTRAL_OCR_MODEL',
+    'OCR_PDF_RENDER_ENABLED',
+    'OCR_PDF_RENDER_MAX_PAGES',
+    'OCR_PDF_RENDER_DPI',
   ];
 
   return previewKeys
@@ -3370,7 +3685,11 @@ function toEnvPreviewLines(config) {
 }
 
 async function loadAiProviderPresets() {
-  const presetsPath = path.join(process.cwd(), 'config', 'ai-provider-presets.json');
+  const presetsPath = path.join(
+    process.cwd(),
+    'config',
+    'ai-provider-presets.json'
+  );
 
   try {
     const raw = await fs.readFile(presetsPath, 'utf8');
@@ -3388,11 +3707,18 @@ async function loadAiProviderPresets() {
         provider: String(item.provider || 'custom'),
         apiUrl: String(item.apiUrl || item.baseUrl || ''),
         model: String(item.model || ''),
-        tokenPlaceholder: String(item.tokenPlaceholder || item.apiKeyPlaceholder || '')
+        tokenPlaceholder: String(
+          item.tokenPlaceholder || item.apiKeyPlaceholder || ''
+        ),
       }))
-      .filter((item) => ['openai', 'ollama', 'custom', 'azure'].includes(item.provider));
+      .filter((item) =>
+        ['openai', 'ollama', 'custom', 'azure'].includes(item.provider)
+      );
   } catch (error) {
-    console.warn('[WARN] Could not load AI provider presets from config/ai-provider-presets.json:', error.message);
+    console.warn(
+      '[WARN] Could not load AI provider presets from config/ai-provider-presets.json:',
+      error.message
+    );
     return DEFAULT_AI_PROVIDER_PRESETS;
   }
 }
@@ -3401,7 +3727,9 @@ async function loadAiProviderPresets() {
 // value", so requests from there may carry an empty token even though the
 // endpoint requires auth. Fall back to the stored key for the provider.
 function resolveStoredAiToken(aiProvider) {
-  const provider = String(aiProvider || '').trim().toLowerCase();
+  const provider = String(aiProvider || '')
+    .trim()
+    .toLowerCase();
   if (provider === 'ollama') return process.env.OLLAMA_API_KEY || '';
   if (provider === 'custom') return process.env.CUSTOM_API_KEY || '';
   if (provider === 'openai') return process.env.OPENAI_API_KEY || '';
@@ -3416,324 +3744,445 @@ function resolveSettingsAiToken(aiProvider, token) {
 
 function resolveSettingsOcrApiKey(apiKey) {
   const normalizedApiKey = String(apiKey || '').trim();
-  return normalizedApiKey || process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '';
+  return (
+    normalizedApiKey ||
+    process.env.OCR_API_KEY ||
+    process.env.MISTRAL_API_KEY ||
+    ''
+  );
 }
 
-async function validatePaperlessConnectionForSetup(paperlessUrl, paperlessToken) {
+async function validatePaperlessConnectionForSetup(
+  paperlessUrl,
+  paperlessToken
+) {
   const normalizedUrl = normalizeSetupBaseUrl(paperlessUrl);
   if (!normalizedUrl || !paperlessToken) {
     return {
       success: false,
       stage: 'input',
-      message: 'Paperless API URL and API token are required.'
+      message: 'Paperless API URL and API token are required.',
     };
   }
 
-  const isReachable = await setupService.validatePaperlessConfig(normalizedUrl, paperlessToken);
+  const isReachable = await setupService.validatePaperlessConfig(
+    normalizedUrl,
+    paperlessToken
+  );
   if (!isReachable) {
     return {
       success: false,
       stage: 'reachability',
-      message: 'Paperless-ngx could not be reached with the provided URL and token.'
+      message:
+        'Paperless-ngx could not be reached with the provided URL and token.',
     };
   }
 
-  const permissionResult = await setupService.validateApiPermissions(normalizedUrl, paperlessToken);
+  const permissionResult = await setupService.validateApiPermissions(
+    normalizedUrl,
+    paperlessToken
+  );
   if (!permissionResult.success) {
     return {
       success: false,
       stage: 'permissions',
-      message: permissionResult.message || 'Paperless-ngx API permissions are insufficient.'
+      message:
+        permissionResult.message ||
+        'Paperless-ngx API permissions are insufficient.',
     };
   }
 
   return {
     success: true,
     stage: 'ok',
-    message: 'Paperless-ngx connection and permissions are valid.'
+    message: 'Paperless-ngx connection and permissions are valid.',
   };
 }
 
-async function validateAiConnectionForSetup({ aiProvider, apiUrl, token, model, azureApiVersion, setupValidationTimeoutMs }) {
-  return setupService.withTemporaryValidationTimeout(setupValidationTimeoutMs, async () => {
-    const provider = String(aiProvider || '').trim().toLowerCase();
-    const normalizedApiUrl = String(apiUrl || '').trim();
-    const normalizedToken = String(token || '').trim();
-    const normalizedModel = String(model || '').trim();
+async function validateAiConnectionForSetup({
+  aiProvider,
+  apiUrl,
+  token,
+  model,
+  azureApiVersion,
+  setupValidationTimeoutMs,
+}) {
+  return setupService.withTemporaryValidationTimeout(
+    setupValidationTimeoutMs,
+    async () => {
+      const provider = String(aiProvider || '')
+        .trim()
+        .toLowerCase();
+      const normalizedApiUrl = String(apiUrl || '').trim();
+      const normalizedToken = String(token || '').trim();
+      const normalizedModel = String(model || '').trim();
 
-    if (!provider || !['openai', 'ollama', 'custom', 'azure'].includes(provider)) {
-      return {
-        success: false,
-        message: 'A valid AI provider is required.'
-      };
-    }
-
-    if (provider === 'openai') {
-      if (!normalizedToken) {
+      if (
+        !provider ||
+        !['openai', 'ollama', 'custom', 'azure'].includes(provider)
+      ) {
         return {
           success: false,
-          message: 'An API token is required for OpenAI.'
+          message: 'A valid AI provider is required.',
         };
       }
 
-      const valid = await setupService.validateOpenAIConfig(normalizedToken);
-      return {
-        success: valid,
-        message: valid ? 'OpenAI credentials are valid.' : 'OpenAI test failed. Check token and network access.'
-      };
-    }
+      if (provider === 'openai') {
+        if (!normalizedToken) {
+          return {
+            success: false,
+            message: 'An API token is required for OpenAI.',
+          };
+        }
 
-    if (provider === 'ollama') {
-      if (!normalizedModel) {
+        const valid = await setupService.validateOpenAIConfig(normalizedToken);
+        return {
+          success: valid,
+          message: valid
+            ? 'OpenAI credentials are valid.'
+            : 'OpenAI test failed. Check token and network access.',
+        };
+      }
+
+      if (provider === 'ollama') {
+        if (!normalizedModel) {
+          return {
+            success: false,
+            message: 'Model is required for Ollama.',
+          };
+        }
+
+        const detection = await setupService.detectAiApiUrlForSetup({
+          provider,
+          apiUrl: normalizedApiUrl,
+          apiKey: normalizedToken,
+        });
+        const resolvedApiUrl = String(
+          detection?.resolvedApiUrl || normalizedApiUrl || ''
+        ).trim();
+
+        const valid =
+          detection?.mode === 'openai'
+            ? await setupService.validateCustomConfig(
+                resolvedApiUrl,
+                normalizedToken,
+                normalizedModel
+              )
+            : await setupService.validateOllamaConfig(
+                resolvedApiUrl,
+                normalizedModel,
+                normalizedToken
+              );
+
+        return {
+          success: valid,
+          resolvedApiUrl,
+          message: valid
+            ? 'Ollama connection is valid.'
+            : 'Ollama test failed. Check URL and model.',
+        };
+      }
+
+      if (provider === 'azure') {
+        if (!normalizedApiUrl || !normalizedToken || !normalizedModel) {
+          return {
+            success: false,
+            message:
+              'Endpoint, token, and deployment/model are required for Azure.',
+          };
+        }
+
+        const valid = await setupService.validateAzureConfig(
+          normalizedToken,
+          normalizedApiUrl,
+          normalizedModel,
+          azureApiVersion || '2023-05-15'
+        );
+
+        return {
+          success: valid,
+          message: valid
+            ? 'Azure connection is valid.'
+            : 'Azure test failed. Check endpoint, token, deployment, and API version.',
+        };
+      }
+
+      if (!normalizedApiUrl || !normalizedModel) {
         return {
           success: false,
-          message: 'Model is required for Ollama.'
+          message: 'API URL and model are required for custom providers.',
         };
       }
 
       const detection = await setupService.detectAiApiUrlForSetup({
         provider,
         apiUrl: normalizedApiUrl,
-        apiKey: normalizedToken
+        apiKey: normalizedToken,
       });
-      const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl || '').trim();
-
-      const valid = detection?.mode === 'openai'
-        ? await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel)
-        : await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel, normalizedToken);
+      const resolvedApiUrl = String(
+        detection?.resolvedApiUrl || normalizedApiUrl
+      ).trim();
+      const valid =
+        detection?.mode === 'ollama'
+          ? await setupService.validateOllamaConfig(
+              resolvedApiUrl,
+              normalizedModel,
+              normalizedToken
+            )
+          : await setupService.validateCustomConfig(
+              resolvedApiUrl,
+              normalizedToken,
+              normalizedModel
+            );
 
       return {
         success: valid,
         resolvedApiUrl,
         message: valid
-          ? 'Ollama connection is valid.'
-          : 'Ollama test failed. Check URL and model.'
+          ? 'Custom provider connection is valid.'
+          : 'Custom provider test failed. Check URL, optional token, and model.',
       };
     }
+  );
+}
 
-    if (provider === 'azure') {
-      if (!normalizedApiUrl || !normalizedToken || !normalizedModel) {
+async function validateOcrConnectionForSetup({
+  enabled,
+  provider,
+  apiUrl,
+  apiKey,
+  model,
+  setupOcrValidationTimeoutMs,
+}) {
+  return setupService.withTemporaryValidationTimeout(
+    setupOcrValidationTimeoutMs,
+    async () => {
+      // Correctly handles both boolean (true/false) and string ('yes'/'no') values.
+      // Using a truthy check on a string would misinterpret 'no' as enabled.
+      const normalizedEnabled =
+        enabled === true ||
+        String(enabled ?? '')
+          .trim()
+          .toLowerCase() === 'yes'
+          ? 'yes'
+          : 'no';
+      if (normalizedEnabled !== 'yes') {
         return {
-          success: false,
-          message: 'Endpoint, token, and deployment/model are required for Azure.'
+          success: true,
+          message: 'OCR fallback is disabled.',
         };
       }
 
-      const valid = await setupService.validateAzureConfig(
-        normalizedToken,
-        normalizedApiUrl,
-        normalizedModel,
-        azureApiVersion || '2023-05-15'
-      );
+      const normalizedProviderInput = String(provider || 'mistral')
+        .trim()
+        .toLowerCase();
+      const normalizedProvider =
+        normalizedProviderInput === 'custom'
+          ? 'ollama'
+          : normalizedProviderInput;
+      const detection = await setupService.detectOcrApiUrlForSetup({
+        provider: normalizedProvider,
+        apiUrl: String(apiUrl || '').trim(),
+        apiKey: String(apiKey || '').trim(),
+      });
+      const resolvedApiUrl = String(
+        detection?.resolvedApiUrl || apiUrl || ''
+      ).trim();
+
+      const valid = await setupService.validateOcrConfig({
+        enabled: normalizedEnabled,
+        provider: normalizedProvider,
+        apiUrl: resolvedApiUrl,
+        apiKey: String(apiKey || '').trim(),
+        model: String(model || '').trim() || 'mistral-ocr-latest',
+      });
 
       return {
         success: valid,
-        message: valid ? 'Azure connection is valid.' : 'Azure test failed. Check endpoint, token, deployment, and API version.'
+        resolvedApiUrl,
+        message: valid
+          ? 'OCR connection is valid.'
+          : 'OCR connection test failed. Check OCR provider, OCR API URL, API key and model.',
       };
     }
-
-    if (!normalizedApiUrl || !normalizedModel) {
-      return {
-        success: false,
-        message: 'API URL and model are required for custom providers.'
-      };
-    }
-
-    const detection = await setupService.detectAiApiUrlForSetup({
-      provider,
-      apiUrl: normalizedApiUrl,
-      apiKey: normalizedToken
-    });
-    const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl).trim();
-    const valid = detection?.mode === 'ollama'
-      ? await setupService.validateOllamaConfig(resolvedApiUrl, normalizedModel, normalizedToken)
-      : await setupService.validateCustomConfig(resolvedApiUrl, normalizedToken, normalizedModel);
-
-    return {
-      success: valid,
-      resolvedApiUrl,
-      message: valid
-        ? 'Custom provider connection is valid.'
-        : 'Custom provider test failed. Check URL, optional token, and model.'
-    };
-  });
+  );
 }
 
-async function validateOcrConnectionForSetup({ enabled, provider, apiUrl, apiKey, model, setupOcrValidationTimeoutMs }) {
-  return setupService.withTemporaryValidationTimeout(setupOcrValidationTimeoutMs, async () => {
-    // Correctly handles both boolean (true/false) and string ('yes'/'no') values.
-    // Using a truthy check on a string would misinterpret 'no' as enabled.
-    const normalizedEnabled = (enabled === true || String(enabled ?? '').trim().toLowerCase() === 'yes') ? 'yes' : 'no';
-    if (normalizedEnabled !== 'yes') {
+async function discoverAiModelsForSetup({
+  aiProvider,
+  apiUrl,
+  token,
+  setupValidationTimeoutMs,
+}) {
+  return setupService.withTemporaryValidationTimeout(
+    setupValidationTimeoutMs,
+    async () => {
+      const provider = String(aiProvider || '')
+        .trim()
+        .toLowerCase();
+      const normalizedApiUrl = String(apiUrl || '').trim();
+      const normalizedToken = String(token || '').trim();
+
+      // For local providers, classify models via quickstart detection so
+      // embedding-only models are excluded from the AI model dropdown.
+      if (['custom', 'ollama'].includes(provider) && normalizedApiUrl) {
+        try {
+          const classification = await quickstartService.detectAndClassify({
+            baseUrl: normalizedApiUrl,
+            apiKey: normalizedToken,
+          });
+
+          if (classification.textModels.length > 0) {
+            const excludedCount =
+              classification.models.length - classification.textModels.length;
+            return {
+              success: true,
+              models: classification.textModels,
+              resolvedApiUrl: classification.resolvedAiApiUrl,
+              message:
+                excludedCount > 0
+                  ? `Discovered ${classification.textModels.length} model(s) (${excludedCount} embedding-only model(s) excluded).`
+                  : `Discovered ${classification.textModels.length} model(s).`,
+            };
+          }
+        } catch {
+          // Classification probe failed; fall through to the legacy unfiltered
+          // discovery below so existing setups keep working.
+        }
+      }
+
+      const detection = await setupService.detectAiApiUrlForSetup({
+        provider,
+        apiUrl: normalizedApiUrl,
+        apiKey: normalizedToken,
+      });
+      const resolvedApiUrl = String(
+        detection?.resolvedApiUrl || normalizedApiUrl || ''
+      ).trim();
+
+      const models = await setupService.discoverAiModels({
+        provider,
+        apiUrl: resolvedApiUrl,
+        apiKey: normalizedToken,
+      });
+
       return {
         success: true,
-        message: 'OCR fallback is disabled.'
+        models,
+        resolvedApiUrl,
+        message:
+          models.length > 0
+            ? `Discovered ${models.length} model(s).`
+            : 'No models discovered for this provider.',
       };
     }
-
-    const normalizedProviderInput = String(provider || 'mistral').trim().toLowerCase();
-    const normalizedProvider = normalizedProviderInput === 'custom' ? 'ollama' : normalizedProviderInput;
-    const detection = await setupService.detectOcrApiUrlForSetup({
-      provider: normalizedProvider,
-      apiUrl: String(apiUrl || '').trim(),
-      apiKey: String(apiKey || '').trim()
-    });
-    const resolvedApiUrl = String(detection?.resolvedApiUrl || apiUrl || '').trim();
-
-    const valid = await setupService.validateOcrConfig({
-      enabled: normalizedEnabled,
-      provider: normalizedProvider,
-      apiUrl: resolvedApiUrl,
-      apiKey: String(apiKey || '').trim(),
-      model: String(model || '').trim() || 'mistral-ocr-latest'
-    });
-
-    return {
-      success: valid,
-      resolvedApiUrl,
-      message: valid
-        ? 'OCR connection is valid.'
-        : 'OCR connection test failed. Check OCR provider, OCR API URL, API key and model.'
-    };
-  });
+  );
 }
 
-async function discoverAiModelsForSetup({ aiProvider, apiUrl, token, setupValidationTimeoutMs }) {
-  return setupService.withTemporaryValidationTimeout(setupValidationTimeoutMs, async () => {
-    const provider = String(aiProvider || '').trim().toLowerCase();
-    const normalizedApiUrl = String(apiUrl || '').trim();
-    const normalizedToken = String(token || '').trim();
+async function discoverOcrModelsForSetup({
+  provider,
+  apiUrl,
+  apiKey,
+  setupOcrValidationTimeoutMs,
+}) {
+  return setupService.withTemporaryValidationTimeout(
+    setupOcrValidationTimeoutMs,
+    async () => {
+      const normalizedProvider = String(provider || 'mistral')
+        .trim()
+        .toLowerCase();
+      const normalizedApiUrl = String(apiUrl || '').trim();
+      const normalizedApiKey = String(apiKey || '').trim();
 
-    // For local providers, classify models via quickstart detection so
-    // embedding-only models are excluded from the AI model dropdown.
-    if (['custom', 'ollama'].includes(provider) && normalizedApiUrl) {
-      try {
-        const classification = await quickstartService.detectAndClassify({
-          baseUrl: normalizedApiUrl,
-          apiKey: normalizedToken
-        });
+      // For local providers, classify models via quickstart detection so the
+      // OCR dropdown only offers vision-capable models (metadata-first via
+      // LM Studio /api/v0/models or Ollama /api/show, heuristics otherwise).
+      if (
+        ['custom', 'ollama'].includes(normalizedProvider) &&
+        normalizedApiUrl
+      ) {
+        try {
+          const classification = await quickstartService.detectAndClassify({
+            baseUrl: normalizedApiUrl,
+            apiKey: normalizedApiKey,
+          });
 
-        if (classification.textModels.length > 0) {
-          const excludedCount = classification.models.length - classification.textModels.length;
+          if (classification.visionModels.length > 0) {
+            return {
+              success: true,
+              models: classification.visionModels,
+              resolvedApiUrl: classification.resolvedOcrApiUrl,
+              message: `Discovered ${classification.visionModels.length} vision-capable OCR model(s) out of ${classification.models.length} total.`,
+            };
+          }
+
+          // Nothing classified as vision-capable: fall back to the full list so
+          // the user can still pick manually (classification may be incomplete
+          // for generic endpoints without model metadata).
+          const allModels = classification.models.map((model) => model.id);
           return {
             success: true,
-            models: classification.textModels,
-            resolvedApiUrl: classification.resolvedAiApiUrl,
-            message: excludedCount > 0
-              ? `Discovered ${classification.textModels.length} model(s) (${excludedCount} embedding-only model(s) excluded).`
-              : `Discovered ${classification.textModels.length} model(s).`
-          };
-        }
-      } catch {
-        // Classification probe failed; fall through to the legacy unfiltered
-        // discovery below so existing setups keep working.
-      }
-    }
-
-    const detection = await setupService.detectAiApiUrlForSetup({
-      provider,
-      apiUrl: normalizedApiUrl,
-      apiKey: normalizedToken
-    });
-    const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl || '').trim();
-
-    const models = await setupService.discoverAiModels({
-      provider,
-      apiUrl: resolvedApiUrl,
-      apiKey: normalizedToken
-    });
-
-    return {
-      success: true,
-      models,
-      resolvedApiUrl,
-      message: models.length > 0
-        ? `Discovered ${models.length} model(s).`
-        : 'No models discovered for this provider.'
-    };
-  });
-}
-
-async function discoverOcrModelsForSetup({ provider, apiUrl, apiKey, setupOcrValidationTimeoutMs }) {
-  return setupService.withTemporaryValidationTimeout(setupOcrValidationTimeoutMs, async () => {
-    const normalizedProvider = String(provider || 'mistral').trim().toLowerCase();
-    const normalizedApiUrl = String(apiUrl || '').trim();
-    const normalizedApiKey = String(apiKey || '').trim();
-
-    // For local providers, classify models via quickstart detection so the
-    // OCR dropdown only offers vision-capable models (metadata-first via
-    // LM Studio /api/v0/models or Ollama /api/show, heuristics otherwise).
-    if (['custom', 'ollama'].includes(normalizedProvider) && normalizedApiUrl) {
-      try {
-        const classification = await quickstartService.detectAndClassify({
-          baseUrl: normalizedApiUrl,
-          apiKey: normalizedApiKey
-        });
-
-        if (classification.visionModels.length > 0) {
-          return {
-            success: true,
-            models: classification.visionModels,
+            models: allModels,
             resolvedApiUrl: classification.resolvedOcrApiUrl,
-            message: `Discovered ${classification.visionModels.length} vision-capable OCR model(s) out of ${classification.models.length} total.`
+            message:
+              allModels.length > 0
+                ? `No vision-capable models detected; showing all ${allModels.length} model(s). OCR requires a vision model.`
+                : 'No OCR models discovered for this provider.',
           };
+        } catch {
+          // Classification probe failed; fall through to the legacy unfiltered
+          // discovery below so existing setups keep working.
         }
-
-        // Nothing classified as vision-capable: fall back to the full list so
-        // the user can still pick manually (classification may be incomplete
-        // for generic endpoints without model metadata).
-        const allModels = classification.models.map((model) => model.id);
-        return {
-          success: true,
-          models: allModels,
-          resolvedApiUrl: classification.resolvedOcrApiUrl,
-          message: allModels.length > 0
-            ? `No vision-capable models detected; showing all ${allModels.length} model(s). OCR requires a vision model.`
-            : 'No OCR models discovered for this provider.'
-        };
-      } catch {
-        // Classification probe failed; fall through to the legacy unfiltered
-        // discovery below so existing setups keep working.
       }
+
+      const detection = await setupService.detectOcrApiUrlForSetup({
+        provider: normalizedProvider,
+        apiUrl: normalizedApiUrl,
+        apiKey: normalizedApiKey,
+      });
+      const resolvedApiUrl = String(
+        detection?.resolvedApiUrl || normalizedApiUrl
+      ).trim();
+
+      const models = await setupService.discoverOcrModels({
+        provider: normalizedProvider,
+        apiUrl: resolvedApiUrl,
+        apiKey: normalizedApiKey,
+      });
+
+      return {
+        success: true,
+        models,
+        resolvedApiUrl,
+        message:
+          models.length > 0
+            ? `Discovered ${models.length} OCR model(s).`
+            : 'No OCR models discovered for this provider.',
+      };
     }
-
-    const detection = await setupService.detectOcrApiUrlForSetup({
-      provider: normalizedProvider,
-      apiUrl: normalizedApiUrl,
-      apiKey: normalizedApiKey
-    });
-    const resolvedApiUrl = String(detection?.resolvedApiUrl || normalizedApiUrl).trim();
-
-    const models = await setupService.discoverOcrModels({
-      provider: normalizedProvider,
-      apiUrl: resolvedApiUrl,
-      apiKey: normalizedApiKey
-    });
-
-    return {
-      success: true,
-      models,
-      resolvedApiUrl,
-      message: models.length > 0
-        ? `Discovered ${models.length} OCR model(s).`
-        : 'No OCR models discovered for this provider.'
-    };
-  });
+  );
 }
 
-async function detectQuickstartForSetup({ baseUrl, apiKey, setupValidationTimeoutMs }) {
-  return setupService.withTemporaryValidationTimeout(setupValidationTimeoutMs, async () => {
-    const detection = await quickstartService.detectAndClassify({
-      baseUrl: String(baseUrl || '').trim(),
-      apiKey: String(apiKey || '').trim()
-    });
+async function detectQuickstartForSetup({
+  baseUrl,
+  apiKey,
+  setupValidationTimeoutMs,
+}) {
+  return setupService.withTemporaryValidationTimeout(
+    setupValidationTimeoutMs,
+    async () => {
+      const detection = await quickstartService.detectAndClassify({
+        baseUrl: String(baseUrl || '').trim(),
+        apiKey: String(apiKey || '').trim(),
+      });
 
-    return {
-      success: true,
-      detection,
-      message: quickstartService.buildDetectionSummaryMessage(detection)
-    };
-  });
+      return {
+        success: true,
+        detection,
+        message: quickstartService.buildDetectionSummaryMessage(detection),
+      };
+    }
+  );
 }
 
 /**
@@ -3743,11 +4192,11 @@ async function detectQuickstartForSetup({ baseUrl, apiKey, setupValidationTimeou
  *     summary: Application setup page
  *     description: |
  *       Renders the application setup page for initial configuration.
- *       
+ *
  *       This page allows configuring the connection to Paperless-ngx, AI services,
  *       and other application settings. It loads existing configuration if available
  *       and redirects to dashboard if setup is already complete.
- *       
+ *
  *       The setup page is the entry point for new installations and guides users through
  *       the process of connecting to Paperless-ngx, configuring AI providers, and setting up
  *       admin credentials.
@@ -3787,9 +4236,9 @@ function sanitizeConfigForBootstrap(config) {
     'CUSTOM_API_KEY',
     'AZURE_API_KEY',
     'OCR_API_KEY',
-    'MISTRAL_API_KEY'
+    'MISTRAL_API_KEY',
   ];
-  secretFields.forEach(field => {
+  secretFields.forEach((field) => {
     delete sanitized[field];
   });
   return sanitized;
@@ -3803,20 +4252,33 @@ router.get('/setup', async (req, res) => {
     // If system is in degraded state (config exists but database corrupted),
     // refuse to render setup page with embedded config
     if (setupState === 'degraded') {
-      console.warn('[SECURITY] Attempting to access /setup in degraded state (corrupted database)');
-      return res.status(500).render('setup-error', {
-        title: 'System Configuration Error',
-        errorMessage: 'The system configuration exists but the database is inaccessible or corrupted. This is an administrative error state. Please check system logs and database integrity.',
-        supportText: 'This may occur if: (1) the database file was deleted or corrupted, (2) file permissions changed, or (3) the database is locked. Restart the application after verifying database and permissions.'
-      }).catch(() => {
-        // Fallback if setup-error template doesn't exist
-        res.status(500).send('<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>');
-      });
+      console.warn(
+        '[SECURITY] Attempting to access /setup in degraded state (corrupted database)'
+      );
+      return res
+        .status(500)
+        .render('setup-error', {
+          title: 'System Configuration Error',
+          errorMessage:
+            'The system configuration exists but the database is inaccessible or corrupted. This is an administrative error state. Please check system logs and database integrity.',
+          supportText:
+            'This may occur if: (1) the database file was deleted or corrupted, (2) file permissions changed, or (3) the database is locked. Restart the application after verifying database and permissions.',
+        })
+        .catch(() => {
+          // Fallback if setup-error template doesn't exist
+          res
+            .status(500)
+            .send(
+              '<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>'
+            );
+        });
     }
 
     // Base configuration object - load this FIRST, before any checks
     let config = {
-      PAPERLESS_API_URL: (process.env.PAPERLESS_API_URL || 'http://localhost:8000').replace(/\/api$/, ''),
+      PAPERLESS_API_URL: (
+        process.env.PAPERLESS_API_URL || 'http://localhost:8000'
+      ).replace(/\/api$/, ''),
       PAPERLESS_API_TOKEN: process.env.PAPERLESS_API_TOKEN || '',
       PAPERLESS_USERNAME: process.env.PAPERLESS_USERNAME || '',
       AI_PROVIDER: process.env.AI_PROVIDER || 'openai',
@@ -3826,20 +4288,24 @@ router.get('/setup', async (req, res) => {
       OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
       SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
       SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
-      PROCESS_PREDEFINED_DOCUMENTS: process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
+      PROCESS_PREDEFINED_DOCUMENTS:
+        process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
       TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
       RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
       TAGS: normalizeArray(process.env.TAGS),
       IGNORE_TAGS: normalizeArray(process.env.IGNORE_TAGS),
       ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
-      AI_PROCESSED_TAG_NAME: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
+      AI_PROCESSED_TAG_NAME:
+        process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
       USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
       PROMPT_TAGS: normalizeArray(process.env.PROMPT_TAGS),
       PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
-      PROCESS_ONLY_NEW_DOCUMENTS: process.env.PROCESS_ONLY_NEW_DOCUMENTS || 'yes',
+      PROCESS_ONLY_NEW_DOCUMENTS:
+        process.env.PROCESS_ONLY_NEW_DOCUMENTS || 'yes',
       USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
-      DISABLE_AUTOMATIC_PROCESSING: process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
-      AZURE_ENDPOINT: process.env.AZURE_ENDPOINT|| '',
+      DISABLE_AUTOMATIC_PROCESSING:
+        process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
+      AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
       AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
@@ -3849,14 +4315,18 @@ router.get('/setup', async (req, res) => {
       OCR_API_KEY: process.env.OCR_API_KEY || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
       MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
-      SETUP_VALIDATION_TIMEOUT_MS: process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
-      SETUP_OCR_VALIDATION_TIMEOUT_MS: process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000'
+      SETUP_VALIDATION_TIMEOUT_MS:
+        process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
+      SETUP_OCR_VALIDATION_TIMEOUT_MS:
+        process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
+        process.env.SETUP_VALIDATION_TIMEOUT_MS ||
+        '30000',
     };
 
     // Check both configuration and users
     const [isEnvConfigured, users] = await Promise.all([
       setupService.isConfigured(),
-      documentModel.getUsers()
+      documentModel.getUsers(),
     ]);
     const aiProviderPresets = await loadAiProviderPresets();
 
@@ -3865,7 +4335,10 @@ router.get('/setup', async (req, res) => {
       const savedConfig = await setupService.loadConfig();
       if (savedConfig) {
         if (savedConfig.PAPERLESS_API_URL) {
-          savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+          savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(
+            /\/api$/,
+            ''
+          );
         }
 
         savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
@@ -3888,9 +4361,11 @@ router.get('/setup', async (req, res) => {
     // Generate appropriate success message
     let successMessage;
     if (isEnvConfigured && !hasUsers) {
-      successMessage = 'Environment is configured, but no users exist. Please create at least one user.';
+      successMessage =
+        'Environment is configured, but no users exist. Please create at least one user.';
     } else if (isEnvConfigured) {
-      successMessage = 'The application is already configured. You can update the configuration below.';
+      successMessage =
+        'The application is already configured. You can update the configuration below.';
     }
 
     // If everything is configured and we have users, redirect to dashboard
@@ -3908,8 +4383,8 @@ router.get('/setup', async (req, res) => {
       success: successMessage,
       aiProviderPresets,
       defaults: {
-        scanInterval: getDefaultScanInterval()
-      }
+        scanInterval: getDefaultScanInterval(),
+      },
     });
   } catch (error) {
     console.error('Setup route error:', error);
@@ -3919,8 +4394,8 @@ router.get('/setup', async (req, res) => {
       error: 'An error occurred while loading the setup page.',
       aiProviderPresets,
       defaults: {
-        scanInterval: getDefaultScanInterval()
-      }
+        scanInterval: getDefaultScanInterval(),
+      },
     });
   }
 });
@@ -3945,13 +4420,13 @@ router.get('/api/setup/presets', async (_req, res) => {
     const presets = await loadAiProviderPresets();
     return res.json({
       success: true,
-      presets
+      presets,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/setup/presets:', error);
     return res.status(500).json({
       success: false,
-      error: 'Could not load AI provider presets.'
+      error: 'Could not load AI provider presets.',
     });
   }
 });
@@ -3979,7 +4454,7 @@ router.post('/api/setup/mfa/setup', express.json(), async (req, res) => {
     if (!username) {
       return res.status(400).json({
         success: false,
-        error: 'Username is required for MFA setup.'
+        error: 'Username is required for MFA setup.',
       });
     }
 
@@ -3989,7 +4464,7 @@ router.post('/api/setup/mfa/setup', express.json(), async (req, res) => {
       errorCorrectionLevel: 'M',
       margin: 1,
       width: 220,
-      color: { dark: '#0f172a', light: '#ffffff' }
+      color: { dark: '#0f172a', light: '#ffffff' },
     });
 
     const challengeId = crypto.randomBytes(24).toString('hex');
@@ -3997,7 +4472,7 @@ router.post('/api/setup/mfa/setup', express.json(), async (req, res) => {
       username,
       secret,
       verified: false,
-      createdAt: Date.now()
+      createdAt: Date.now(),
     });
 
     return res.json({
@@ -4006,13 +4481,13 @@ router.post('/api/setup/mfa/setup', express.json(), async (req, res) => {
       secret,
       otpauthUri,
       qrDataUrl,
-      expiresInSeconds: Math.floor(SETUP_MFA_CHALLENGE_TTL_MS / 1000)
+      expiresInSeconds: Math.floor(SETUP_MFA_CHALLENGE_TTL_MS / 1000),
     });
   } catch (error) {
     console.error('[ERROR] POST /api/setup/mfa/setup:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to initialize MFA setup.'
+      error: 'Failed to initialize MFA setup.',
     });
   }
 });
@@ -4042,7 +4517,7 @@ router.post('/api/setup/mfa/confirm', express.json(), async (req, res) => {
     if (!challengeId || !token) {
       return res.status(400).json({
         success: false,
-        error: 'Challenge ID and authentication code are required.'
+        error: 'Challenge ID and authentication code are required.',
       });
     }
 
@@ -4050,14 +4525,14 @@ router.post('/api/setup/mfa/confirm', express.json(), async (req, res) => {
     if (!challenge) {
       return res.status(400).json({
         success: false,
-        error: 'MFA setup session expired. Start setup again.'
+        error: 'MFA setup session expired. Start setup again.',
       });
     }
 
     if (!verifyTotpToken(challenge.secret, token)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid authentication code. Please try again.'
+        error: 'Invalid authentication code. Please try again.',
       });
     }
 
@@ -4066,13 +4541,13 @@ router.post('/api/setup/mfa/confirm', express.json(), async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'MFA code validated.'
+      message: 'MFA code validated.',
     });
   } catch (error) {
     console.error('[ERROR] POST /api/setup/mfa/confirm:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to validate MFA code.'
+      error: 'Failed to validate MFA code.',
     });
   }
 });
@@ -4096,14 +4571,17 @@ router.post('/api/setup/paperless/test', express.json(), async (req, res) => {
 
     const paperlessUrl = String(req.body?.paperlessUrl || '').trim();
     const paperlessToken = String(req.body?.paperlessToken || '').trim();
-    const validation = await validatePaperlessConnectionForSetup(paperlessUrl, paperlessToken);
+    const validation = await validatePaperlessConnectionForSetup(
+      paperlessUrl,
+      paperlessToken
+    );
 
     return res.json(validation);
   } catch (error) {
     console.error('[ERROR] POST /api/setup/paperless/test:', error);
     return res.status(500).json({
       success: false,
-      error: 'Could not test Paperless-ngx connection.'
+      error: 'Could not test Paperless-ngx connection.',
     });
   }
 });
@@ -4119,71 +4597,82 @@ router.post('/api/setup/paperless/test', express.json(), async (req, res) => {
  *       200:
  *         description: Metadata loaded successfully
  */
-router.post('/api/setup/paperless/metadata', express.json(), async (req, res) => {
-  try {
-    if (!(await ensureSetupOpenOrRespond(res))) {
-      return;
-    }
+router.post(
+  '/api/setup/paperless/metadata',
+  express.json(),
+  async (req, res) => {
+    try {
+      if (!(await ensureSetupOpenOrRespond(res))) {
+        return;
+      }
 
-    const paperlessUrl = String(req.body?.paperlessUrl || '').trim();
-    const paperlessToken = String(req.body?.paperlessToken || '').trim();
-    const normalizedUrl = normalizeSetupBaseUrl(paperlessUrl);
+      const paperlessUrl = String(req.body?.paperlessUrl || '').trim();
+      const paperlessToken = String(req.body?.paperlessToken || '').trim();
+      const normalizedUrl = normalizeSetupBaseUrl(paperlessUrl);
 
-    if (!normalizedUrl || !paperlessToken) {
-      return res.status(400).json({
+      if (!normalizedUrl || !paperlessToken) {
+        return res.status(400).json({
+          success: false,
+          error: 'Paperless API URL and API token are required.',
+        });
+      }
+
+      const urlValidation = await validateApiUrl(
+        normalizedUrl,
+        getSetupUrlValidationOptions()
+      );
+      if (!urlValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid Paperless API URL: ${urlValidation.error}`,
+        });
+      }
+
+      const initialized = await paperlessService.initializeWithCredentials(
+        normalizedUrl,
+        paperlessToken
+      );
+      if (!initialized) {
+        return res.status(400).json({
+          success: false,
+          error: 'Failed to initialize Paperless-ngx client.',
+        });
+      }
+
+      const [documentCount, correspondentCount, tagCount, tags] =
+        await Promise.all([
+          paperlessService.getDocumentCount(),
+          paperlessService.getCorrespondentCount(),
+          paperlessService.getTagCount(),
+          paperlessService.getTags(),
+        ]);
+
+      const tagNames = Array.from(
+        new Set(
+          (Array.isArray(tags) ? tags : [])
+            .map((tag) => String(tag?.name || '').trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b));
+
+      return res.json({
+        success: true,
+        metadata: {
+          documents: Number(documentCount || 0),
+          correspondents: Number(correspondentCount || 0),
+          tags: Number(tagCount || 0),
+        },
+        tagNames,
+      });
+    } catch (error) {
+      console.error('[ERROR] POST /api/setup/paperless/metadata:', error);
+      return res.status(500).json({
         success: false,
-        error: 'Paperless API URL and API token are required.'
+        error: 'Could not load Paperless metadata.',
       });
     }
-
-    const urlValidation = await validateApiUrl(normalizedUrl, getSetupUrlValidationOptions());
-    if (!urlValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid Paperless API URL: ${urlValidation.error}`
-      });
-    }
-
-    const initialized = await paperlessService.initializeWithCredentials(normalizedUrl, paperlessToken);
-    if (!initialized) {
-      return res.status(400).json({
-        success: false,
-        error: 'Failed to initialize Paperless-ngx client.'
-      });
-    }
-
-    const [documentCount, correspondentCount, tagCount, tags] = await Promise.all([
-      paperlessService.getDocumentCount(),
-      paperlessService.getCorrespondentCount(),
-      paperlessService.getTagCount(),
-      paperlessService.getTags()
-    ]);
-
-    const tagNames = Array.from(
-      new Set(
-        (Array.isArray(tags) ? tags : [])
-          .map((tag) => String(tag?.name || '').trim())
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b));
-
-    return res.json({
-      success: true,
-      metadata: {
-        documents: Number(documentCount || 0),
-        correspondents: Number(correspondentCount || 0),
-        tags: Number(tagCount || 0)
-      },
-      tagNames
-    });
-  } catch (error) {
-    console.error('[ERROR] POST /api/setup/paperless/metadata:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Could not load Paperless metadata.'
-    });
   }
-});
+);
 
 /**
  * @swagger
@@ -4208,7 +4697,7 @@ router.post('/api/setup/ai/test', express.json(), async (req, res) => {
       token: req.body?.token,
       model: req.body?.model,
       azureApiVersion: req.body?.azureApiVersion,
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
     });
 
     return res.json(validation);
@@ -4216,7 +4705,7 @@ router.post('/api/setup/ai/test', express.json(), async (req, res) => {
     console.error('[ERROR] POST /api/setup/ai/test:', error);
     return res.status(500).json({
       success: false,
-      error: 'Could not test AI connection.'
+      error: 'Could not test AI connection.',
     });
   }
 });
@@ -4242,7 +4731,7 @@ router.post('/api/setup/ai/models', express.json(), async (req, res) => {
       aiProvider: req.body?.aiProvider,
       apiUrl: req.body?.apiUrl,
       token: req.body?.token,
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
     });
 
     return res.json(result);
@@ -4250,7 +4739,7 @@ router.post('/api/setup/ai/models', express.json(), async (req, res) => {
     console.error('[ERROR] POST /api/setup/ai/models:', error);
     return res.status(400).json({
       success: false,
-      error: error.message || 'Could not discover AI models.'
+      error: error.message || 'Could not discover AI models.',
     });
   }
 });
@@ -4278,7 +4767,7 @@ router.post('/api/setup/ocr/test', express.json(), async (req, res) => {
       apiUrl: req.body?.apiUrl,
       apiKey: req.body?.apiKey,
       model: req.body?.model,
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
     });
 
     return res.json(validation);
@@ -4286,7 +4775,7 @@ router.post('/api/setup/ocr/test', express.json(), async (req, res) => {
     console.error('[ERROR] POST /api/setup/ocr/test:', error);
     return res.status(500).json({
       success: false,
-      error: 'Could not test OCR connection.'
+      error: 'Could not test OCR connection.',
     });
   }
 });
@@ -4312,7 +4801,7 @@ router.post('/api/setup/ocr/models', express.json(), async (req, res) => {
       provider: req.body?.provider,
       apiUrl: req.body?.apiUrl,
       apiKey: req.body?.apiKey,
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
+      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
     });
 
     return res.json(result);
@@ -4320,7 +4809,7 @@ router.post('/api/setup/ocr/models', express.json(), async (req, res) => {
     console.error('[ERROR] POST /api/setup/ocr/models:', error);
     return res.status(400).json({
       success: false,
-      error: error.message || 'Could not discover OCR models.'
+      error: error.message || 'Could not discover OCR models.',
     });
   }
 });
@@ -4354,27 +4843,31 @@ router.post('/api/setup/ocr/models', express.json(), async (req, res) => {
  *       400:
  *         description: Detection failed (unreachable URL, blocked URL, or no compatible API)
  */
-router.post('/api/setup/quickstart/detect', express.json(), async (req, res) => {
-  try {
-    if (!(await ensureSetupOpenOrRespond(res))) {
-      return;
+router.post(
+  '/api/setup/quickstart/detect',
+  express.json(),
+  async (req, res) => {
+    try {
+      if (!(await ensureSetupOpenOrRespond(res))) {
+        return;
+      }
+
+      const result = await detectQuickstartForSetup({
+        baseUrl: req.body?.baseUrl,
+        apiKey: req.body?.apiKey,
+        setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
+      });
+
+      return res.json(result);
+    } catch (error) {
+      console.error('[ERROR] POST /api/setup/quickstart/detect:', error);
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Quickstart detection failed.',
+      });
     }
-
-    const result = await detectQuickstartForSetup({
-      baseUrl: req.body?.baseUrl,
-      apiKey: req.body?.apiKey,
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
-    });
-
-    return res.json(result);
-  } catch (error) {
-    console.error('[ERROR] POST /api/setup/quickstart/detect:', error);
-    return res.status(400).json({
-      success: false,
-      error: error.message || 'Quickstart detection failed.'
-    });
   }
-});
+);
 
 /**
  * @swagger
@@ -4412,101 +4905,125 @@ router.post('/api/setup/quickstart/detect', express.json(), async (req, res) => 
  *       401:
  *         description: Unauthorized
  */
-router.post('/api/settings/ai/test', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const validation = await validateAiConnectionForSetup({
-      aiProvider: req.body?.aiProvider,
-      apiUrl: req.body?.apiUrl,
-      token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
-      model: req.body?.model,
-      azureApiVersion: req.body?.azureApiVersion,
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
-    });
+router.post(
+  '/api/settings/ai/test',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const validation = await validateAiConnectionForSetup({
+        aiProvider: req.body?.aiProvider,
+        apiUrl: req.body?.apiUrl,
+        token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
+        model: req.body?.model,
+        azureApiVersion: req.body?.azureApiVersion,
+        setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
+      });
 
-    return res.json(validation);
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/ai/test:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Could not test AI connection.'
-    });
+      return res.json(validation);
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/ai/test:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Could not test AI connection.',
+      });
+    }
   }
-});
+);
 
-router.post('/api/settings/ocr/test', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const validation = await validateOcrConnectionForSetup({
-      enabled: req.body?.enabled,
-      provider: req.body?.provider,
-      apiUrl: req.body?.apiUrl,
-      apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
-      model: req.body?.model,
-      setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
-    });
+router.post(
+  '/api/settings/ocr/test',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const validation = await validateOcrConnectionForSetup({
+        enabled: req.body?.enabled,
+        provider: req.body?.provider,
+        apiUrl: req.body?.apiUrl,
+        apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
+        model: req.body?.model,
+        setupOcrValidationTimeoutMs:
+          req.body?.setupOcrValidationTimeoutMs ??
+          req.body?.setupValidationTimeoutMs,
+      });
 
-    return res.json(validation);
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/ocr/test:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Could not test OCR connection.'
-    });
+      return res.json(validation);
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/ocr/test:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Could not test OCR connection.',
+      });
+    }
   }
-});
+);
 
-router.post('/api/settings/ai/models', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const result = await discoverAiModelsForSetup({
-      aiProvider: req.body?.aiProvider,
-      apiUrl: req.body?.apiUrl,
-      token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
-    });
+router.post(
+  '/api/settings/ai/models',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const result = await discoverAiModelsForSetup({
+        aiProvider: req.body?.aiProvider,
+        apiUrl: req.body?.apiUrl,
+        token: resolveSettingsAiToken(req.body?.aiProvider, req.body?.token),
+        setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
+      });
 
-    return res.json(result);
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/ai/models:', error);
-    return res.status(400).json({
-      success: false,
-      error: error.message || 'Could not discover AI models.'
-    });
+      return res.json(result);
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/ai/models:', error);
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Could not discover AI models.',
+      });
+    }
   }
-});
+);
 
 router.get('/api/settings/ai/presets', isAuthenticated, async (_req, res) => {
   try {
     const presets = await loadAiProviderPresets();
     return res.json({
       success: true,
-      presets
+      presets,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/settings/ai/presets:', error);
     return res.status(500).json({
       success: false,
-      error: 'Could not load AI provider presets.'
+      error: 'Could not load AI provider presets.',
     });
   }
 });
 
-router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const result = await discoverOcrModelsForSetup({
-      provider: req.body?.provider,
-      apiUrl: req.body?.apiUrl,
-      apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
-      setupOcrValidationTimeoutMs: req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs
-    });
+router.post(
+  '/api/settings/ocr/models',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const result = await discoverOcrModelsForSetup({
+        provider: req.body?.provider,
+        apiUrl: req.body?.apiUrl,
+        apiKey: resolveSettingsOcrApiKey(req.body?.apiKey),
+        setupOcrValidationTimeoutMs:
+          req.body?.setupOcrValidationTimeoutMs ??
+          req.body?.setupValidationTimeoutMs,
+      });
 
-    return res.json(result);
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/ocr/models:', error);
-    return res.status(400).json({
-      success: false,
-      error: error.message || 'Could not discover OCR models.'
-    });
+      return res.json(result);
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/ocr/models:', error);
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Could not discover OCR models.',
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -4542,23 +5059,28 @@ router.post('/api/settings/ocr/models', isAuthenticated, express.json(), async (
  *       401:
  *         description: Unauthorized
  */
-router.post('/api/settings/quickstart/detect', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const result = await detectQuickstartForSetup({
-      baseUrl: req.body?.baseUrl,
-      apiKey: req.body?.apiKey,
-      setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs
-    });
+router.post(
+  '/api/settings/quickstart/detect',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const result = await detectQuickstartForSetup({
+        baseUrl: req.body?.baseUrl,
+        apiKey: req.body?.apiKey,
+        setupValidationTimeoutMs: req.body?.setupValidationTimeoutMs,
+      });
 
-    return res.json(result);
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/quickstart/detect:', error);
-    return res.status(400).json({
-      success: false,
-      error: error.message || 'Quickstart detection failed.'
-    });
+      return res.json(result);
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/quickstart/detect:', error);
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Quickstart detection failed.',
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -4588,97 +5110,135 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const paperlessUsername = String(req.body?.paperlessUsername || '').trim();
     const paperlessToken = String(req.body?.paperlessToken || '').trim();
 
-    const scanAllDocuments = parseBooleanInput(req.body?.scanAllDocuments, false);
+    const scanAllDocuments = parseBooleanInput(
+      req.body?.scanAllDocuments,
+      false
+    );
     const includeTags = normalizeTagListInput(req.body?.includeTags);
     const includeTag = String(req.body?.includeTag || '').trim();
-    const effectiveIncludeTags = Array.from(new Set([
-      ...includeTags,
-      ...(includeTag ? [includeTag] : [])
-    ]));
+    const effectiveIncludeTags = Array.from(
+      new Set([...includeTags, ...(includeTag ? [includeTag] : [])])
+    );
     const excludeTags = normalizeTagListInput(req.body?.excludeTags);
     const processedTag = String(req.body?.processedTag || '').trim();
-    const effectiveExcludeTags = Array.from(new Set([
-      ...excludeTags,
-      ...(processedTag ? [processedTag] : [])
-    ]));
-    const automaticScanEnabled = parseBooleanInput(req.body?.automaticScanEnabled, true);
-    const scanInterval = String(req.body?.scanInterval || getDefaultScanInterval()).trim() || getDefaultScanInterval();
+    const effectiveExcludeTags = Array.from(
+      new Set([...excludeTags, ...(processedTag ? [processedTag] : [])])
+    );
+    const automaticScanEnabled = parseBooleanInput(
+      req.body?.automaticScanEnabled,
+      true
+    );
+    const scanInterval =
+      String(req.body?.scanInterval || getDefaultScanInterval()).trim() ||
+      getDefaultScanInterval();
 
-    const aiProvider = String(req.body?.aiProvider || '').trim().toLowerCase();
+    const aiProvider = String(req.body?.aiProvider || '')
+      .trim()
+      .toLowerCase();
     const aiApiUrl = String(req.body?.aiApiUrl || '').trim();
     const aiToken = String(req.body?.aiToken || '').trim();
     const aiModel = String(req.body?.aiModel || '').trim();
-    const aiAzureApiVersion = String(req.body?.aiAzureApiVersion || '2023-05-15').trim() || '2023-05-15';
-    const setupValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(req.body?.setupValidationTimeoutMs, 30000);
-    const setupOcrValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(
-      req.body?.setupOcrValidationTimeoutMs ?? req.body?.setupValidationTimeoutMs,
+    const aiAzureApiVersion =
+      String(req.body?.aiAzureApiVersion || '2023-05-15').trim() ||
+      '2023-05-15';
+    const setupValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(
+      req.body?.setupValidationTimeoutMs,
       30000
     );
+    const setupOcrValidationTimeoutMs =
+      setupService.normalizeValidationTimeoutMs(
+        req.body?.setupOcrValidationTimeoutMs ??
+          req.body?.setupValidationTimeoutMs,
+        30000
+      );
 
-    const allowFailedPaperlessTest = parseBooleanInput(req.body?.allowFailedPaperlessTest, false);
-    const allowFailedAiTest = parseBooleanInput(req.body?.allowFailedAiTest, false);
+    const allowFailedPaperlessTest = parseBooleanInput(
+      req.body?.allowFailedPaperlessTest,
+      false
+    );
+    const allowFailedAiTest = parseBooleanInput(
+      req.body?.allowFailedAiTest,
+      false
+    );
 
-    const mistralOcrEnabled = parseBooleanInput(req.body?.mistralOcrEnabled, false);
-    const ocrProvider = String(req.body?.ocrProvider || 'mistral').trim().toLowerCase();
+    const mistralOcrEnabled = parseBooleanInput(
+      req.body?.mistralOcrEnabled,
+      false
+    );
+    const ocrProvider = String(req.body?.ocrProvider || 'mistral')
+      .trim()
+      .toLowerCase();
     const ocrApiUrlRaw = String(req.body?.ocrApiUrl || '').trim();
     const ocrApiUrl = ocrProvider === 'mistral' ? '' : ocrApiUrlRaw;
-    const ocrApiKey = String(req.body?.ocrApiKey || req.body?.mistralApiKey || '').trim();
-    const mistralOcrModel = String(req.body?.mistralOcrModel || 'mistral-ocr-latest').trim() || 'mistral-ocr-latest';
+    const ocrApiKey = String(
+      req.body?.ocrApiKey || req.body?.mistralApiKey || ''
+    ).trim();
+    const mistralOcrModel =
+      String(req.body?.mistralOcrModel || 'mistral-ocr-latest').trim() ||
+      'mistral-ocr-latest';
 
     if (!['mistral', 'custom', 'ollama'].includes(ocrProvider)) {
       return res.status(400).json({
         success: false,
-        error: 'A valid OCR provider is required.'
+        error: 'A valid OCR provider is required.',
       });
     }
 
     if (mistralOcrEnabled && ocrProvider === 'mistral' && !ocrApiKey) {
       return res.status(400).json({
         success: false,
-        error: 'Mistral API key is required when OCR provider is set to mistral.'
+        error:
+          'Mistral API key is required when OCR provider is set to mistral.',
       });
     }
 
     if (!adminUsername || !adminPassword) {
       return res.status(400).json({
         success: false,
-        error: 'Admin username and password are required.'
+        error: 'Admin username and password are required.',
       });
     }
 
     if (adminPassword.length < 8) {
       return res.status(400).json({
         success: false,
-        error: 'Password must be at least 8 characters long.'
+        error: 'Password must be at least 8 characters long.',
       });
     }
 
     if (!paperlessUrl || !paperlessUsername || !paperlessToken) {
       return res.status(400).json({
         success: false,
-        error: 'Paperless URL, username, and token are required.'
+        error: 'Paperless URL, username, and token are required.',
       });
     }
 
     if (!scanAllDocuments && effectiveIncludeTags.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Select at least one tag for scanned documents or enable scanning all documents.'
+        error:
+          'Select at least one tag for scanned documents or enable scanning all documents.',
       });
     }
 
-    if (!aiProvider || !['openai', 'ollama', 'custom', 'azure'].includes(aiProvider)) {
+    if (
+      !aiProvider ||
+      !['openai', 'ollama', 'custom', 'azure'].includes(aiProvider)
+    ) {
       return res.status(400).json({
         success: false,
-        error: 'A valid AI provider is required.'
+        error: 'A valid AI provider is required.',
       });
     }
 
-    const paperlessValidation = await validatePaperlessConnectionForSetup(paperlessUrl, paperlessToken);
+    const paperlessValidation = await validatePaperlessConnectionForSetup(
+      paperlessUrl,
+      paperlessToken
+    );
     if (!paperlessValidation.success && !allowFailedPaperlessTest) {
       return res.status(400).json({
         success: false,
-        error: paperlessValidation.message
+        error: paperlessValidation.message,
       });
     }
 
@@ -4688,36 +5248,39 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       token: aiToken,
       model: aiModel,
       azureApiVersion: aiAzureApiVersion,
-      setupValidationTimeoutMs
+      setupValidationTimeoutMs,
     });
 
     if (!aiValidation.success && !allowFailedAiTest) {
       return res.status(400).json({
         success: false,
-        error: aiValidation.message
+        error: aiValidation.message,
       });
     }
 
-    const ocrProviderForValidation = ocrProvider === 'custom' ? 'ollama' : ocrProvider;
+    const ocrProviderForValidation =
+      ocrProvider === 'custom' ? 'ollama' : ocrProvider;
     const ocrValidation = await validateOcrConnectionForSetup({
       enabled: mistralOcrEnabled ? 'yes' : 'no',
       provider: ocrProviderForValidation,
       apiUrl: ocrApiUrl,
       apiKey: ocrApiKey,
       model: mistralOcrModel,
-      setupOcrValidationTimeoutMs
+      setupOcrValidationTimeoutMs,
     });
 
     if (!ocrValidation.success) {
       return res.status(400).json({
         success: false,
-        error: ocrValidation.message
+        error: ocrValidation.message,
       });
     }
 
     const tagsForProcessing = scanAllDocuments ? [] : effectiveIncludeTags;
-    const apiToken = process.env.API_KEY || crypto.randomBytes(64).toString('hex');
-    const jwtToken = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+    const apiToken =
+      process.env.API_KEY || crypto.randomBytes(64).toString('hex');
+    const jwtToken =
+      process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 
     const finalConfig = {
       PAPERLESS_API_URL: paperlessUrl,
@@ -4752,7 +5315,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       MISTRAL_API_KEY: ocrApiKey,
       MISTRAL_OCR_MODEL: mistralOcrModel,
       SETUP_VALIDATION_TIMEOUT_MS: String(setupValidationTimeoutMs),
-      SETUP_OCR_VALIDATION_TIMEOUT_MS: String(setupOcrValidationTimeoutMs)
+      SETUP_OCR_VALIDATION_TIMEOUT_MS: String(setupOcrValidationTimeoutMs),
     };
 
     if (aiProvider === 'openai') {
@@ -4778,7 +5341,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       if (!mfaChallengeId) {
         return res.status(400).json({
           success: false,
-          error: 'MFA setup is incomplete. Generate and confirm a code first.'
+          error: 'MFA setup is incomplete. Generate and confirm a code first.',
         });
       }
 
@@ -4786,14 +5349,14 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       if (!challenge || !challenge.verified) {
         return res.status(400).json({
           success: false,
-          error: 'MFA setup is incomplete or expired. Please repeat MFA setup.'
+          error: 'MFA setup is incomplete or expired. Please repeat MFA setup.',
         });
       }
 
       if (challenge.username !== adminUsername) {
         return res.status(400).json({
           success: false,
-          error: 'MFA setup username does not match the admin username.'
+          error: 'MFA setup username does not match the admin username.',
         });
       }
 
@@ -4801,14 +5364,18 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     }
 
     await setupService.saveConfig(finalConfig, {
-      skipValidation: allowFailedPaperlessTest || allowFailedAiTest
+      skipValidation: allowFailedPaperlessTest || allowFailedAiTest,
     });
 
     const hashedPassword = await bcrypt.hash(adminPassword, 15);
     await documentModel.addUser(adminUsername, hashedPassword);
 
     if (enableMfa && mfaSecretToPersist) {
-      await documentModel.setUserMfaSettings(adminUsername, true, mfaSecretToPersist);
+      await documentModel.setUserMfaSettings(
+        adminUsername,
+        true,
+        mfaSecretToPersist
+      );
       setupMfaChallenges.delete(mfaChallengeId);
     }
 
@@ -4824,7 +5391,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       message: 'Initial setup completed successfully.',
       restart: true,
       redirectTo: '/login',
-      envPreview
+      envPreview,
     });
 
     setTimeout(() => {
@@ -4834,7 +5401,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     console.error('[ERROR] POST /api/setup/complete:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to complete setup: ' + error.message
+      error: 'Failed to complete setup: ' + error.message,
     });
   }
 });
@@ -4845,9 +5412,9 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
  *   get:
  *     summary: Document preview
  *     description: |
- *       Fetches and returns the content of a specific document from Paperless-ngx 
+ *       Fetches and returns the content of a specific document from Paperless-ngx
  *       for preview in the manual document review interface.
- *       
+ *
  *       This endpoint retrieves document details including content, title, ID, and tags,
  *       allowing users to view the document text before applying changes or processing
  *       it with AI tools. The document content is retrieved directly from Paperless-ngx
@@ -4915,39 +5482,49 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
 router.get('/manual/preview/:id', async (req, res) => {
   try {
     const documentId = req.params.id;
-    
+
     // Validate documentId to prevent path traversal and SSRF
     if (!/^\d+$/.test(documentId)) {
       return res.status(400).json({ error: 'Invalid document ID' });
     }
 
     console.log('Fetching content for document:', documentId);
-    
+
     const response = await fetch(
       `${configFile.paperless.apiUrl}/api/documents/${documentId}/`,
       {
         headers: {
-          'Authorization': `Token ${process.env.PAPERLESS_API_TOKEN}`
-        }
+          Authorization: `Token ${process.env.PAPERLESS_API_TOKEN}`,
+        },
       }
     );
-    
+
     if (!response.ok) {
-      throw new Error(`Failed to fetch document content: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `Failed to fetch document content: ${response.status} ${response.statusText}`
+      );
     }
 
     const document = await response.json();
     //map the tags to their names
-    document.tags = await Promise.all(document.tags.map(async tag => {
-      const tagName = await paperlessService.getTagTextFromId(tag);
-      return tagName;
-    }
-    ));
+    document.tags = await Promise.all(
+      document.tags.map(async (tag) => {
+        const tagName = await paperlessService.getTagTextFromId(tag);
+        return tagName;
+      })
+    );
     console.log('Document Data:', document);
-    res.json({ content: document.content, title: document.title, id: document.id, tags: document.tags });
+    res.json({
+      content: document.content,
+      title: document.title,
+      id: document.id,
+      tags: document.tags,
+    });
   } catch (error) {
     console.error('Content fetch error:', error);
-    res.status(500).json({ error: `Error fetching document content: ${error.message}` });
+    res
+      .status(500)
+      .json({ error: `Error fetching document content: ${error.message}` });
   }
 });
 
@@ -4957,10 +5534,10 @@ router.get('/manual/preview/:id', async (req, res) => {
  *   get:
  *     summary: Document review page
  *     description: |
- *       Renders the manual document review page that allows users to browse, 
+ *       Renders the manual document review page that allows users to browse,
  *       view and manually process documents from Paperless-ngx.
- *       
- *       This interface enables users to review documents, view their content, and 
+ *
+ *       This interface enables users to review documents, view their content, and
  *       manage tags, correspondents, and document metadata without AI assistance.
  *       Users can apply manual changes to documents based on their own judgment,
  *       which is particularly useful for correction or verification of AI-processed documents.
@@ -5001,7 +5578,7 @@ router.get('/manual', async (req, res) => {
     version,
     paperlessUrl: process.env.PAPERLESS_API_URL,
     paperlessToken: process.env.PAPERLESS_API_TOKEN,
-    config: {}
+    config: {},
   });
 });
 
@@ -5012,7 +5589,7 @@ router.get('/manual', async (req, res) => {
  *     summary: Get all tags
  *     description: |
  *       Retrieves all tags from Paperless-ngx for use in the manual document review interface.
- *       
+ *
  *       This endpoint returns a complete list of all available tags that can be applied to documents,
  *       including their IDs, names, and colors. The tags are retrieved directly from Paperless-ngx
  *       and used for tag selection in the UI when manually updating document metadata.
@@ -5058,7 +5635,7 @@ router.get('/manual/tags', async (req, res) => {
  *     summary: Get all documents
  *     description: |
  *       Retrieves all documents from Paperless-ngx for display in the manual document review interface.
- *       
+ *
  *       This endpoint returns a list of all available documents that can be manually reviewed,
  *       including their basic metadata such as ID, title, and creation date. The documents are
  *       retrieved directly from Paperless-ngx and presented in the UI for selection and processing.
@@ -5103,9 +5680,9 @@ router.get('/manual/documents', async (req, res) => {
  *     summary: Get count of correspondents
  *     description: |
  *       Retrieves the list of correspondents with their document counts.
- *       This endpoint returns all correspondents in the system along with 
+ *       This endpoint returns all correspondents in the system along with
  *       the number of documents associated with each correspondent.
- *     tags: 
+ *     tags:
  *       - API
  *       - Metadata
  *     security:
@@ -5163,9 +5740,9 @@ router.get('/api/correspondentsCount', async (req, res) => {
  *     summary: Get count of tags
  *     description: |
  *       Retrieves the list of tags with their document counts.
- *       This endpoint returns all tags in the system along with 
+ *       This endpoint returns all tags in the system along with
  *       the number of documents associated with each tag.
- *     tags: 
+ *     tags:
  *       - API
  *       - Metadata
  *     security:
@@ -5233,13 +5810,15 @@ async function processQueue(customPrompt) {
   }
 
   if (isProcessing || documentQueue.length === 0) return;
-  
+
   isProcessing = true;
-  
+
   try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
-      console.log(`Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`);
+      console.log(
+        `Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`
+      );
       return;
     }
 
@@ -5249,20 +5828,34 @@ async function processQueue(customPrompt) {
       return;
     }
 
-    const [existingTags, existingCorrespondentList, existingDocumentTypes, ownUserId] = await Promise.all([
+    const [
+      existingTags,
+      existingCorrespondentList,
+      existingDocumentTypes,
+      ownUserId,
+    ] = await Promise.all([
       paperlessService.getTags(),
       paperlessService.listCorrespondentsNames(),
       paperlessService.listDocumentTypesNames(),
-      paperlessService.getOwnUserID()
+      paperlessService.getOwnUserID(),
     ]);
 
-    const existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
+    const existingDocumentTypesList = existingDocumentTypes.map(
+      (docType) => docType.name
+    );
 
     while (documentQueue.length > 0) {
       const doc = documentQueue.shift();
-      
+
       try {
-        const result = await processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt);
+        const result = await processDocument(
+          doc,
+          existingTags,
+          existingCorrespondentList,
+          existingDocumentTypesList,
+          ownUserId,
+          customPrompt
+        );
         if (!result) continue;
 
         const { analysis, originalData } = result;
@@ -5322,7 +5915,10 @@ async function rescanDocumentsByIds(ids) {
       documentQueue.push(document);
       queued += 1;
     } catch (error) {
-      console.error(`[ERROR] Failed to fetch document ${id} for rescan:`, error.message);
+      console.error(
+        `[ERROR] Failed to fetch document ${id} for rescan:`,
+        error.message
+      );
       notFound.push(id);
     }
   }
@@ -5344,7 +5940,7 @@ async function rescanDocumentsByIds(ids) {
  *       Processes incoming webhook notifications from Paperless-ngx about document
  *       changes, additions, or deletions. The webhook allows Paperless-AI next to respond
  *       to document changes in real-time.
- *       
+ *
  *       When a new document is added or updated in Paperless-ngx, this endpoint can
  *       trigger automatic AI processing for metadata extraction.
  *     tags:
@@ -5430,40 +6026,38 @@ async function rescanDocumentsByIds(ids) {
 router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
   try {
     const { url, prompt } = req.body;
-    let usePrompt = false;
     if (!url) {
       return res.status(400).send('Missing document URL');
     }
-    
+
     try {
       const documentId = extractDocumentId(url);
       const document = await paperlessService.getDocument(documentId);
-      
+
       if (!document) {
         return res.status(404).send(`Document with ID ${documentId} not found`);
       }
-      
+
       documentQueue.push(document);
       if (prompt) {
-        usePrompt = true;
         console.log('[DEBUG] Using custom prompt:', prompt);
         await processQueue(prompt);
       } else {
         await processQueue();
       }
-      
-      
+
       res.status(202).send({
         message: 'Document accepted for processing',
         documentId: documentId,
-        queuePosition: documentQueue.length
+        queuePosition: documentQueue.length,
       });
-      
     } catch (error) {
-      console.error('[ERROR] Failed to extract document ID or fetch document:', error);
+      console.error(
+        '[ERROR] Failed to extract document ID or fetch document:',
+        error
+      );
       return res.status(200).send('Invalid document URL format');
     }
-    
   } catch (error) {
     console.error('[ERROR] Error in webhook endpoint:', error);
     res.status(200).send('Internal server error');
@@ -5479,8 +6073,8 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
  *       Renders the main dashboard page of the application with summary statistics and visualizations.
  *       The dashboard provides an overview of processed documents, system metrics, and important statistics
  *       about document processing including tag counts, correspondent counts, and token usage.
- *       
- *       The page displays visualizations for document processing status, token distribution, 
+ *
+ *       The page displays visualizations for document processing status, token distribution,
  *       processing time statistics, and document type categorization to help administrators
  *       understand system performance and document processing patterns.
  *     tags:
@@ -5518,11 +6112,14 @@ router.get('/dashboard', async (req, res) => {
   try {
     paperlessUrl = await paperlessService.getPublicBaseUrl();
   } catch (error) {
-    console.warn('[WARN] Could not resolve Paperless public URL for dashboard links:', error.message);
+    console.warn(
+      '[WARN] Could not resolve Paperless public URL for dashboard links:',
+      error.message
+    );
   }
 
-  res.render('dashboard', { 
-    paperless_data: { 
+  res.render('dashboard', {
+    paperless_data: {
       tagCount: 0,
       correspondentCount: 0,
       documentCount: 0,
@@ -5538,14 +6135,14 @@ router.get('/dashboard', async (req, res) => {
       documentTypes: [],
       tokenTrend: [],
       recentActivity: [],
-      languageDistribution: []
-    }, 
-    openai_data: { 
+      languageDistribution: [],
+    },
+    openai_data: {
       averagePromptTokens: 0,
       averageCompletionTokens: 0,
       averageTotalTokens: 0,
-      tokensOverall: 0
-    }, 
+      tokensOverall: 0,
+    },
     version,
     paperlessUrl,
   });
@@ -5568,7 +6165,7 @@ router.get('/api/dashboard/stats', async (req, res) => {
       tokenTrend,
       recentActivity,
       languageDistribution,
-      processingStatus
+      processingStatus,
     ] = await Promise.all([
       paperlessService.getTagCount(),
       paperlessService.getCorrespondentCount(),
@@ -5584,31 +6181,57 @@ router.get('/api/dashboard/stats', async (req, res) => {
       documentModel.getTokenTrend(7),
       documentModel.getRecentHistoryDocuments(3),
       documentModel.getLanguageDistribution(5),
-      documentModel.getCurrentProcessingStatus()
+      documentModel.getCurrentProcessingStatus(),
     ]);
 
-    const processedDocumentCount = Math.min(rawProcessedDocumentCount, documentCount);
+    const processedDocumentCount = Math.min(
+      rawProcessedDocumentCount,
+      documentCount
+    );
     const failedCount = ocrFailedCount + processingFailedCount;
     const queueBacklog = Math.max(0, ocrNeededCount + failedCount);
     const processingAttemptCount = processedDocumentCount + failedCount;
-    const processingEfficiencyRate = processingAttemptCount > 0
-      ? Math.round((processedDocumentCount / processingAttemptCount) * 100)
-      : 0;
-    const failedRate = processingAttemptCount > 0
-      ? Math.round((failedCount / processingAttemptCount) * 100)
-      : 0;
+    const processingEfficiencyRate =
+      processingAttemptCount > 0
+        ? Math.round((processedDocumentCount / processingAttemptCount) * 100)
+        : 0;
+    const failedRate =
+      processingAttemptCount > 0
+        ? Math.round((failedCount / processingAttemptCount) * 100)
+        : 0;
     const processedToday = Number(processingStatus?.processedToday || 0);
 
-    const averagePromptTokens = metrics.length > 0 ? Math.round(metrics.reduce((acc, cur) => acc + cur.promptTokens, 0) / metrics.length) : 0;
-    const averageCompletionTokens = metrics.length > 0 ? Math.round(metrics.reduce((acc, cur) => acc + cur.completionTokens, 0) / metrics.length) : 0;
-    const averageTotalTokens = metrics.length > 0 ? Math.round(metrics.reduce((acc, cur) => acc + cur.totalTokens, 0) / metrics.length) : 0;
-    const tokensOverall = metrics.length > 0 ? metrics.reduce((acc, cur) => acc + cur.totalTokens, 0) : 0;
+    const averagePromptTokens =
+      metrics.length > 0
+        ? Math.round(
+            metrics.reduce((acc, cur) => acc + cur.promptTokens, 0) /
+              metrics.length
+          )
+        : 0;
+    const averageCompletionTokens =
+      metrics.length > 0
+        ? Math.round(
+            metrics.reduce((acc, cur) => acc + cur.completionTokens, 0) /
+              metrics.length
+          )
+        : 0;
+    const averageTotalTokens =
+      metrics.length > 0
+        ? Math.round(
+            metrics.reduce((acc, cur) => acc + cur.totalTokens, 0) /
+              metrics.length
+          )
+        : 0;
+    const tokensOverall =
+      metrics.length > 0
+        ? metrics.reduce((acc, cur) => acc + cur.totalTokens, 0)
+        : 0;
 
     const normalizedTokenTrend = Array.isArray(tokenTrend)
       ? tokenTrend.map((entry) => ({
           day: entry.day,
           documents: Number(entry.documents || 0),
-          totalTokens: Number(entry.totalTokens || 0)
+          totalTokens: Number(entry.totalTokens || 0),
         }))
       : [];
 
@@ -5618,14 +6241,14 @@ router.get('/api/dashboard/stats', async (req, res) => {
           title: entry.title || 'Untitled document',
           correspondent: entry.correspondent || 'Unknown correspondent',
           createdAt: entry.createdAt,
-          language: entry.language || 'Unknown'
+          language: entry.language || 'Unknown',
         }))
       : [];
 
     const normalizedLanguageDistribution = Array.isArray(languageDistribution)
       ? languageDistribution.map((entry) => ({
           language: entry.language || 'Unknown',
-          count: Number(entry.count || 0)
+          count: Number(entry.count || 0),
         }))
       : [];
 
@@ -5647,18 +6270,20 @@ router.get('/api/dashboard/stats', async (req, res) => {
         documentTypes,
         tokenTrend: normalizedTokenTrend,
         recentActivity: normalizedRecentActivity,
-        languageDistribution: normalizedLanguageDistribution
+        languageDistribution: normalizedLanguageDistribution,
       },
       openai_data: {
         averagePromptTokens,
         averageCompletionTokens,
         averageTotalTokens,
-        tokensOverall
-      }
+        tokensOverall,
+      },
     });
   } catch (error) {
     console.error('[ERROR] loading dashboard stats:', error);
-    res.status(500).json({ success: false, error: 'Failed to load dashboard stats' });
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to load dashboard stats' });
   }
 });
 
@@ -5693,12 +6318,12 @@ router.get('/api/dashboard/stats', async (req, res) => {
  *     description: |
  *       Renders the application settings page where users can modify configuration
  *       after initial setup.
- *       
- *       This page allows administrators to update connections to Paperless-ngx, 
+ *
+ *       This page allows administrators to update connections to Paperless-ngx,
  *       AI provider settings, processing parameters, feature toggles, and custom fields.
  *       The interface provides validation for connection settings and displays the current
  *       configuration values.
- *       
+ *
  *       Changes made on this page require application restart to take full effect.
  *     tags:
  *       - Navigation
@@ -5730,31 +6355,34 @@ router.get('/api/dashboard/stats', async (req, res) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/settings', async (req, res) => {
-  const processSystemPrompt = (prompt) => {
-    if (!prompt) return '';
-    return prompt.replace(/\\n/g, '\n');
-  };
-
   const normalizeArray = (value) => {
     if (!value) return [];
     if (Array.isArray(value)) return value;
-    if (typeof value === 'string') return value.split(',').filter(Boolean).map(item => item.trim());
+    if (typeof value === 'string')
+      return value
+        .split(',')
+        .filter(Boolean)
+        .map((item) => item.trim());
     return [];
   };
 
   let showErrorCheckSettings = false;
   const isConfigured = await setupService.isConfigured();
   const runtimeOverrides = await setupService.loadRuntimeOverrides();
-  const injectedEnvSnapshot = global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ || {};
+  const injectedEnvSnapshot =
+    global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ || {};
   const secretKeys = new Set(SETTINGS_SECRET_FIELDS);
-  const runtimeFirstMode = String(process.env.CONFIG_SOURCE_MODE || 'runtime-first').trim().toLowerCase() !== 'legacy';
+  const runtimeFirstMode =
+    String(process.env.CONFIG_SOURCE_MODE || 'runtime-first')
+      .trim()
+      .toLowerCase() !== 'legacy';
   let hasLegacyEnvMigrationNotice = false;
 
   if (runtimeFirstMode) {
     try {
       await fs.access(path.join(process.cwd(), 'data', '.env.migrated'));
       hasLegacyEnvMigrationNotice = true;
-    } catch (_error) {
+    } catch {
       hasLegacyEnvMigrationNotice = false;
     }
   }
@@ -5770,30 +6398,39 @@ router.get('/settings', async (req, res) => {
   const runtimeOverrideDetails = {};
   const runtimeOverrideKeys = new Set(
     Object.keys(runtimeOverrides || {}).filter((key) => {
-      const hasInjectedValue = Object.prototype.hasOwnProperty.call(injectedEnvSnapshot, key);
+      const hasInjectedValue = Object.prototype.hasOwnProperty.call(
+        injectedEnvSnapshot,
+        key
+      );
       if (!hasInjectedValue) {
         return false;
       }
 
-      const injectedValue = injectedEnvSnapshot[key] == null ? '' : String(injectedEnvSnapshot[key]);
-      const overrideValue = runtimeOverrides[key] == null ? '' : String(runtimeOverrides[key]);
+      const injectedValue =
+        injectedEnvSnapshot[key] == null
+          ? ''
+          : String(injectedEnvSnapshot[key]);
+      const overrideValue =
+        runtimeOverrides[key] == null ? '' : String(runtimeOverrides[key]);
       const isOverwritten = injectedValue !== overrideValue;
 
       if (isOverwritten) {
         runtimeOverrideDetails[key] = {
           injected: formatValueForTooltip(key, injectedValue),
-          override: formatValueForTooltip(key, overrideValue)
+          override: formatValueForTooltip(key, overrideValue),
         };
       }
 
       return isOverwritten;
     })
   );
-  if(!isConfigured && process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes') {
+  if (!isConfigured && process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes') {
     showErrorCheckSettings = true;
   }
   let config = {
-    PAPERLESS_API_URL: (process.env.PAPERLESS_API_URL || 'http://localhost:8000').replace(/\/api$/, ''),
+    PAPERLESS_API_URL: (
+      process.env.PAPERLESS_API_URL || 'http://localhost:8000'
+    ).replace(/\/api$/, ''),
     PAPERLESS_PUBLIC_URL: process.env.PAPERLESS_PUBLIC_URL || '',
     PAPERLESS_API_TOKEN: process.env.PAPERLESS_API_TOKEN || '',
     PAPERLESS_USERNAME: process.env.PAPERLESS_USERNAME || '',
@@ -5807,7 +6444,8 @@ router.get('/settings', async (req, res) => {
     RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
     RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
     SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
-    PROCESS_PREDEFINED_DOCUMENTS: process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
+    PROCESS_PREDEFINED_DOCUMENTS:
+      process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
 
     TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
     RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
@@ -5825,13 +6463,15 @@ router.get('/settings', async (req, res) => {
     CUSTOM_API_KEY: process.env.CUSTOM_API_KEY || '',
     CUSTOM_BASE_URL: process.env.CUSTOM_BASE_URL || '',
     CUSTOM_MODEL: process.env.CUSTOM_MODEL || '',
-    AZURE_ENDPOINT: process.env.AZURE_ENDPOINT|| '',
+    AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
     AZURE_API_KEY: process.env.AZURE_API_KEY || '',
     AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
     AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
     RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
-    RESTRICT_TO_EXISTING_CORRESPONDENTS: process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
-    RESTRICT_TO_EXISTING_DOCUMENT_TYPES: process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
+    RESTRICT_TO_EXISTING_CORRESPONDENTS:
+      process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
+    RESTRICT_TO_EXISTING_DOCUMENT_TYPES:
+      process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
     EXTERNAL_API_ENABLED: process.env.EXTERNAL_API_ENABLED || 'no',
     EXTERNAL_API_URL: process.env.EXTERNAL_API_URL || '',
     EXTERNAL_API_METHOD: process.env.EXTERNAL_API_METHOD || 'GET',
@@ -5839,7 +6479,8 @@ router.get('/settings', async (req, res) => {
     EXTERNAL_API_BODY: process.env.EXTERNAL_API_BODY || '{}',
     EXTERNAL_API_TIMEOUT: process.env.EXTERNAL_API_TIMEOUT || '5000',
     EXTERNAL_API_TRANSFORM: process.env.EXTERNAL_API_TRANSFORM || '',
-    EXTERNAL_API_ALLOW_PRIVATE_IPS: process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS || 'no',
+    EXTERNAL_API_ALLOW_PRIVATE_IPS:
+      process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS || 'no',
     TAG_CACHE_TTL_SECONDS: process.env.TAG_CACHE_TTL_SECONDS || '300',
     ACTIVATE_TAGGING: process.env.ACTIVATE_TAGGING || 'yes',
     ACTIVATE_CORRESPONDENTS: process.env.ACTIVATE_CORRESPONDENTS || 'yes',
@@ -5847,28 +6488,42 @@ router.get('/settings', async (req, res) => {
     ACTIVATE_TITLE: process.env.ACTIVATE_TITLE || 'yes',
     ACTIVATE_CUSTOM_FIELDS: process.env.ACTIVATE_CUSTOM_FIELDS || 'yes',
     CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',
-    DISABLE_AUTOMATIC_PROCESSING: process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
+    DISABLE_AUTOMATIC_PROCESSING:
+      process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
     OCR_API_KEY: process.env.OCR_API_KEY || '',
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
     MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
-    SETUP_OCR_VALIDATION_TIMEOUT_MS: process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
-    GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
+    OCR_PDF_RENDER_ENABLED: process.env.OCR_PDF_RENDER_ENABLED || 'yes',
+    OCR_PDF_RENDER_MAX_PAGES: process.env.OCR_PDF_RENDER_MAX_PAGES || '10',
+    OCR_PDF_RENDER_DPI: process.env.OCR_PDF_RENDER_DPI || '150',
+    SETUP_OCR_VALIDATION_TIMEOUT_MS:
+      process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
+      process.env.SETUP_VALIDATION_TIMEOUT_MS ||
+      '30000',
+    GLOBAL_RATE_LIMIT_WINDOW_MS:
+      process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
     GLOBAL_RATE_LIMIT_MAX: process.env.GLOBAL_RATE_LIMIT_MAX || '1000',
-    TRUST_PROXY: typeof process.env.TRUST_PROXY === 'undefined' ? '' : process.env.TRUST_PROXY,
+    TRUST_PROXY:
+      typeof process.env.TRUST_PROXY === 'undefined'
+        ? ''
+        : process.env.TRUST_PROXY,
     COOKIE_SECURE_MODE: process.env.COOKIE_SECURE_MODE || 'auto',
     MIN_CONTENT_LENGTH: process.env.MIN_CONTENT_LENGTH || '10',
     PAPERLESS_AI_PORT: process.env.PAPERLESS_AI_PORT || '3000',
-    LOG_LEVEL: process.env.LOG_LEVEL || 'info'
+    LOG_LEVEL: process.env.LOG_LEVEL || 'info',
   };
-  
+
   if (isConfigured) {
     const savedConfig = await setupService.loadConfig();
     if (savedConfig) {
       if (savedConfig.PAPERLESS_API_URL) {
-        savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
+        savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(
+          /\/api$/,
+          ''
+        );
       }
 
       savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
@@ -5891,8 +6546,8 @@ router.get('/settings', async (req, res) => {
     lockedEnvKeys.map((key) => [
       key,
       {
-        managed: formatValueForTooltip(key, injectedEnvSnapshot[key])
-      }
+        managed: formatValueForTooltip(key, injectedEnvSnapshot[key]),
+      },
     ])
   );
 
@@ -5907,7 +6562,7 @@ router.get('/settings', async (req, res) => {
   let mfaSettings = {
     available: false,
     username: '',
-    enabled: false
+    enabled: false,
   };
 
   const settingsUsername = getAuthenticatedSettingsUsername(req);
@@ -5918,15 +6573,18 @@ router.get('/settings', async (req, res) => {
         mfaSettings = {
           available: true,
           username: settingsUser.username,
-          enabled: isMfaEnabledForUser(settingsUser)
+          enabled: isMfaEnabledForUser(settingsUser),
         };
       }
     } catch (mfaContextError) {
-      console.error('[WARN] Failed to resolve MFA settings context:', mfaContextError);
+      console.error(
+        '[WARN] Failed to resolve MFA settings context:',
+        mfaContextError
+      );
     }
   }
 
-  res.render('settings', { 
+  res.render('settings', {
     version,
     config,
     configuredSecrets,
@@ -5938,8 +6596,12 @@ router.get('/settings', async (req, res) => {
     hasLegacyEnvMigrationNotice,
     aiProviderPresets,
     mfaSettings,
-    success: isConfigured ? 'The application is already configured. You can update the configuration below.' : undefined,
-    settingsError: showErrorCheckSettings ? 'Please check your settings. Something is not working correctly.' : undefined
+    success: isConfigured
+      ? 'The application is already configured. You can update the configuration below.'
+      : undefined,
+    settingsError: showErrorCheckSettings
+      ? 'Please check your settings. Something is not working correctly.'
+      : undefined,
   });
 });
 
@@ -6006,31 +6668,44 @@ router.get('/settings', async (req, res) => {
  */
 router.get('/api/settings/api-key', isAuthenticated, async (req, res) => {
   try {
-    const apiKey = configFile.getApiKey ? configFile.getApiKey() : (process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '');
+    const apiKey = configFile.getApiKey
+      ? configFile.getApiKey()
+      : process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '';
     return res.json({
       success: true,
       configured: Boolean(apiKey),
-      apiKey: apiKey || null
+      apiKey: apiKey || null,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/settings/api-key:', error);
-    return res.status(500).json({ success: false, error: 'Failed to load API key' });
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to load API key' });
   }
 });
 
-router.get('/api/settings/paperless-public-url', isAuthenticated, async (req, res) => {
-  try {
-    const details = await paperlessService.getPublicBaseUrlDetails({ forceRefresh: true });
-    return res.json({
-      success: true,
-      publicUrl: details.url,
-      source: details.source
-    });
-  } catch (error) {
-    console.error('[ERROR] GET /api/settings/paperless-public-url:', error);
-    return res.status(500).json({ success: false, error: 'Failed to detect Paperless public URL' });
+router.get(
+  '/api/settings/paperless-public-url',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const details = await paperlessService.getPublicBaseUrlDetails({
+        forceRefresh: true,
+      });
+      return res.json({
+        success: true,
+        publicUrl: details.url,
+        source: details.source,
+      });
+    } catch (error) {
+      console.error('[ERROR] GET /api/settings/paperless-public-url:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to detect Paperless public URL',
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -6057,7 +6732,10 @@ router.get('/api/settings/mfa/status', isAuthenticated, async (req, res) => {
   try {
     const username = getAuthenticatedSettingsUsername(req);
     if (!username) {
-      return res.status(403).json({ success: false, error: 'MFA settings require a signed-in user session.' });
+      return res.status(403).json({
+        success: false,
+        error: 'MFA settings require a signed-in user session.',
+      });
     }
 
     const user = await documentModel.getUser(username);
@@ -6068,11 +6746,13 @@ router.get('/api/settings/mfa/status', isAuthenticated, async (req, res) => {
     return res.json({
       success: true,
       enabled: isMfaEnabledForUser(user),
-      username: user.username
+      username: user.username,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/settings/mfa/status:', error);
-    return res.status(500).json({ success: false, error: 'Failed to load MFA status.' });
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to load MFA status.' });
   }
 });
 
@@ -6099,71 +6779,96 @@ router.get('/api/settings/mfa/status', isAuthenticated, async (req, res) => {
  *       500:
  *         description: Server error
  */
-router.post('/api/settings/mfa/setup', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const username = getAuthenticatedSettingsUsername(req);
-    if (!username) {
-      return res.status(403).json({ success: false, error: 'MFA settings require a signed-in user session.' });
-    }
+router.post(
+  '/api/settings/mfa/setup',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const username = getAuthenticatedSettingsUsername(req);
+      if (!username) {
+        return res.status(403).json({
+          success: false,
+          error: 'MFA settings require a signed-in user session.',
+        });
+      }
 
-    const currentPassword = String(req.body?.currentPassword || '').trim();
-    if (!currentPassword) {
-      return res.status(400).json({ success: false, error: 'Current password is required.' });
-    }
+      const currentPassword = String(req.body?.currentPassword || '').trim();
+      if (!currentPassword) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Current password is required.' });
+      }
 
-    const user = await documentModel.getUser(username);
-    if (!user || !user.password) {
-      return res.status(404).json({ success: false, error: 'User not found.' });
-    }
+      const user = await documentModel.getUser(username);
+      if (!user || !user.password) {
+        return res
+          .status(404)
+          .json({ success: false, error: 'User not found.' });
+      }
 
-    const validPassword = await bcrypt.compare(currentPassword, user.password);
-    if (!validPassword) {
-      return res.status(401).json({ success: false, error: 'Current password is invalid.' });
-    }
+      const validPassword = await bcrypt.compare(
+        currentPassword,
+        user.password
+      );
+      if (!validPassword) {
+        return res
+          .status(401)
+          .json({ success: false, error: 'Current password is invalid.' });
+      }
 
-    const jwtSecret = config.getJwtSecret();
-    if (!jwtSecret) {
-      return res.status(500).json({ success: false, error: 'Server misconfiguration: JWT secret missing.' });
-    }
+      const jwtSecret = config.getJwtSecret();
+      if (!jwtSecret) {
+        return res.status(500).json({
+          success: false,
+          error: 'Server misconfiguration: JWT secret missing.',
+        });
+      }
 
-    const secret = generateBase32Secret(32);
-    const setupToken = jwt.sign(
-      {
-        username: user.username,
+      const secret = generateBase32Secret(32);
+      const setupToken = jwt.sign(
+        {
+          username: user.username,
+          secret,
+          setupType: 'mfa-setup',
+        },
+        jwtSecret,
+        { expiresIn: '10m' }
+      );
+
+      res.cookie(MFA_SETUP_COOKIE, setupToken, {
+        httpOnly: true,
+        secure: shouldUseSecureCookies(req),
+        sameSite: 'lax',
+        path: '/',
+      });
+
+      return res.json({
+        success: true,
         secret,
-        setupType: 'mfa-setup'
-      },
-      jwtSecret,
-      { expiresIn: '10m' }
-    );
-
-    res.cookie(MFA_SETUP_COOKIE, setupToken, {
-      httpOnly: true,
-      secure: shouldUseSecureCookies(req),
-      sameSite: 'lax',
-      path: '/'
-    });
-
-    return res.json({
-      success: true,
-      secret,
-      otpauthUri: buildOtpAuthUri(secret, user.username),
-      qrDataUrl: await QRCode.toDataURL(buildOtpAuthUri(secret, user.username), {
-        errorCorrectionLevel: 'M',
-        margin: 1,
-        width: 220,
-        color: {
-          dark: '#0f172a',
-          light: '#ffffff'
-        }
-      }),
-      expiresInSeconds: 600
-    });
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/mfa/setup:', error);
-    return res.status(500).json({ success: false, error: 'Failed to start MFA setup.' });
+        otpauthUri: buildOtpAuthUri(secret, user.username),
+        qrDataUrl: await QRCode.toDataURL(
+          buildOtpAuthUri(secret, user.username),
+          {
+            errorCorrectionLevel: 'M',
+            margin: 1,
+            width: 220,
+            color: {
+              dark: '#0f172a',
+              light: '#ffffff',
+            },
+          }
+        ),
+        expiresInSeconds: 600,
+      });
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/mfa/setup:', error);
+      return res
+        .status(500)
+        .json({ success: false, error: 'Failed to start MFA setup.' });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -6188,66 +6893,106 @@ router.post('/api/settings/mfa/setup', isAuthenticated, express.json(), async (r
  *       500:
  *         description: Server error
  */
-router.post('/api/settings/mfa/enable', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const username = getAuthenticatedSettingsUsername(req);
-    if (!username) {
-      return res.status(403).json({ success: false, error: 'MFA settings require a signed-in user session.' });
-    }
-
-    const currentPassword = String(req.body?.currentPassword || '').trim();
-    const token = String(req.body?.token || '').trim();
-    if (!currentPassword || !token) {
-      return res.status(400).json({ success: false, error: 'Current password and authentication code are required.' });
-    }
-
-    const user = await documentModel.getUser(username);
-    if (!user || !user.password) {
-      return res.status(404).json({ success: false, error: 'User not found.' });
-    }
-
-    const validPassword = await bcrypt.compare(currentPassword, user.password);
-    if (!validPassword) {
-      return res.status(401).json({ success: false, error: 'Current password is invalid.' });
-    }
-
-    const setupToken = req.cookies[MFA_SETUP_COOKIE];
-    if (!setupToken) {
-      return res.status(401).json({ success: false, error: 'No active MFA setup challenge found. Start setup again.' });
-    }
-
-    const jwtSecret = config.getJwtSecret();
-    if (!jwtSecret) {
-      return res.status(500).json({ success: false, error: 'Server misconfiguration: JWT secret missing.' });
-    }
-
-    let payload;
+router.post(
+  '/api/settings/mfa/enable',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
     try {
-      payload = jwt.verify(setupToken, jwtSecret);
-      if (payload.setupType !== 'mfa-setup' || payload.username !== username) {
-        throw new Error('Invalid setup payload');
+      const username = getAuthenticatedSettingsUsername(req);
+      if (!username) {
+        return res.status(403).json({
+          success: false,
+          error: 'MFA settings require a signed-in user session.',
+        });
       }
-    } catch (tokenError) {
+
+      const currentPassword = String(req.body?.currentPassword || '').trim();
+      const token = String(req.body?.token || '').trim();
+      if (!currentPassword || !token) {
+        return res.status(400).json({
+          success: false,
+          error: 'Current password and authentication code are required.',
+        });
+      }
+
+      const user = await documentModel.getUser(username);
+      if (!user || !user.password) {
+        return res
+          .status(404)
+          .json({ success: false, error: 'User not found.' });
+      }
+
+      const validPassword = await bcrypt.compare(
+        currentPassword,
+        user.password
+      );
+      if (!validPassword) {
+        return res
+          .status(401)
+          .json({ success: false, error: 'Current password is invalid.' });
+      }
+
+      const setupToken = req.cookies[MFA_SETUP_COOKIE];
+      if (!setupToken) {
+        return res.status(401).json({
+          success: false,
+          error: 'No active MFA setup challenge found. Start setup again.',
+        });
+      }
+
+      const jwtSecret = config.getJwtSecret();
+      if (!jwtSecret) {
+        return res.status(500).json({
+          success: false,
+          error: 'Server misconfiguration: JWT secret missing.',
+        });
+      }
+
+      let payload;
+      try {
+        payload = jwt.verify(setupToken, jwtSecret);
+        if (
+          payload.setupType !== 'mfa-setup' ||
+          payload.username !== username
+        ) {
+          throw new Error('Invalid setup payload');
+        }
+      } catch {
+        res.clearCookie(MFA_SETUP_COOKIE);
+        return res.status(401).json({
+          success: false,
+          error: 'MFA setup session expired. Start setup again.',
+        });
+      }
+
+      if (!verifyTotpToken(payload.secret, token)) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid authentication code.' });
+      }
+
+      const updated = await documentModel.setUserMfaSettings(
+        username,
+        true,
+        payload.secret
+      );
+      if (!updated) {
+        return res
+          .status(500)
+          .json({ success: false, error: 'Failed to enable MFA for user.' });
+      }
+
       res.clearCookie(MFA_SETUP_COOKIE);
-      return res.status(401).json({ success: false, error: 'MFA setup session expired. Start setup again.' });
+      return res.json({ success: true, message: 'MFA has been enabled.' });
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/mfa/enable:', error);
+      return res
+        .status(500)
+        .json({ success: false, error: 'Failed to enable MFA.' });
     }
-
-    if (!verifyTotpToken(payload.secret, token)) {
-      return res.status(400).json({ success: false, error: 'Invalid authentication code.' });
-    }
-
-    const updated = await documentModel.setUserMfaSettings(username, true, payload.secret);
-    if (!updated) {
-      return res.status(500).json({ success: false, error: 'Failed to enable MFA for user.' });
-    }
-
-    res.clearCookie(MFA_SETUP_COOKIE);
-    return res.json({ success: true, message: 'MFA has been enabled.' });
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/mfa/enable:', error);
-    return res.status(500).json({ success: false, error: 'Failed to enable MFA.' });
   }
-});
+);
 
 /**
  * @swagger
@@ -6272,38 +7017,60 @@ router.post('/api/settings/mfa/enable', isAuthenticated, express.json(), async (
  *       500:
  *         description: Server error
  */
-router.post('/api/settings/mfa/verify', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const username = getAuthenticatedSettingsUsername(req);
-    if (!username) {
-      return res.status(403).json({ success: false, error: 'MFA settings require a signed-in user session.' });
-    }
+router.post(
+  '/api/settings/mfa/verify',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const username = getAuthenticatedSettingsUsername(req);
+      if (!username) {
+        return res.status(403).json({
+          success: false,
+          error: 'MFA settings require a signed-in user session.',
+        });
+      }
 
-    const token = String(req.body?.token || '').trim();
-    if (!token) {
-      return res.status(400).json({ success: false, error: 'Authentication code is required.' });
-    }
+      const token = String(req.body?.token || '').trim();
+      if (!token) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Authentication code is required.' });
+      }
 
-    const user = await documentModel.getUser(username);
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found.' });
-    }
+      const user = await documentModel.getUser(username);
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, error: 'User not found.' });
+      }
 
-    if (!isMfaEnabledForUser(user) || !user.mfa_secret) {
-      return res.status(400).json({ success: false, error: 'MFA is not enabled for this user.' });
-    }
+      if (!isMfaEnabledForUser(user) || !user.mfa_secret) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'MFA is not enabled for this user.' });
+      }
 
-    const validCode = verifyTotpToken(user.mfa_secret, token);
-    if (!validCode) {
-      return res.status(400).json({ success: false, error: 'Invalid authentication code.' });
-    }
+      const validCode = verifyTotpToken(user.mfa_secret, token);
+      if (!validCode) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid authentication code.' });
+      }
 
-    return res.json({ success: true, message: 'Authentication code is valid.' });
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/mfa/verify:', error);
-    return res.status(500).json({ success: false, error: 'Failed to verify authentication code.' });
+      return res.json({
+        success: true,
+        message: 'Authentication code is valid.',
+      });
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/mfa/verify:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to verify authentication code.',
+      });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -6330,49 +7097,79 @@ router.post('/api/settings/mfa/verify', isAuthenticated, express.json(), async (
  *       500:
  *         description: Server error
  */
-router.post('/api/settings/mfa/disable', isAuthenticated, express.json(), async (req, res) => {
-  try {
-    const username = getAuthenticatedSettingsUsername(req);
-    if (!username) {
-      return res.status(403).json({ success: false, error: 'MFA settings require a signed-in user session.' });
-    }
+router.post(
+  '/api/settings/mfa/disable',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const username = getAuthenticatedSettingsUsername(req);
+      if (!username) {
+        return res.status(403).json({
+          success: false,
+          error: 'MFA settings require a signed-in user session.',
+        });
+      }
 
-    const currentPassword = String(req.body?.currentPassword || '').trim();
-    const token = String(req.body?.token || '').trim();
-    if (!currentPassword || !token) {
-      return res.status(400).json({ success: false, error: 'Current password and authentication code are required.' });
-    }
+      const currentPassword = String(req.body?.currentPassword || '').trim();
+      const token = String(req.body?.token || '').trim();
+      if (!currentPassword || !token) {
+        return res.status(400).json({
+          success: false,
+          error: 'Current password and authentication code are required.',
+        });
+      }
 
-    const user = await documentModel.getUser(username);
-    if (!user || !user.password) {
-      return res.status(404).json({ success: false, error: 'User not found.' });
-    }
+      const user = await documentModel.getUser(username);
+      if (!user || !user.password) {
+        return res
+          .status(404)
+          .json({ success: false, error: 'User not found.' });
+      }
 
-    const validPassword = await bcrypt.compare(currentPassword, user.password);
-    if (!validPassword) {
-      return res.status(401).json({ success: false, error: 'Current password is invalid.' });
-    }
+      const validPassword = await bcrypt.compare(
+        currentPassword,
+        user.password
+      );
+      if (!validPassword) {
+        return res
+          .status(401)
+          .json({ success: false, error: 'Current password is invalid.' });
+      }
 
-    if (!isMfaEnabledForUser(user) || !user.mfa_secret) {
-      return res.status(400).json({ success: false, error: 'MFA is not enabled for this user.' });
-    }
+      if (!isMfaEnabledForUser(user) || !user.mfa_secret) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'MFA is not enabled for this user.' });
+      }
 
-    if (!verifyTotpToken(user.mfa_secret, token)) {
-      return res.status(400).json({ success: false, error: 'Invalid authentication code.' });
-    }
+      if (!verifyTotpToken(user.mfa_secret, token)) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid authentication code.' });
+      }
 
-    const updated = await documentModel.setUserMfaSettings(username, false, null);
-    if (!updated) {
-      return res.status(500).json({ success: false, error: 'Failed to disable MFA for user.' });
-    }
+      const updated = await documentModel.setUserMfaSettings(
+        username,
+        false,
+        null
+      );
+      if (!updated) {
+        return res
+          .status(500)
+          .json({ success: false, error: 'Failed to disable MFA for user.' });
+      }
 
-    res.clearCookie(MFA_SETUP_COOKIE);
-    return res.json({ success: true, message: 'MFA has been disabled.' });
-  } catch (error) {
-    console.error('[ERROR] POST /api/settings/mfa/disable:', error);
-    return res.status(500).json({ success: false, error: 'Failed to disable MFA.' });
+      res.clearCookie(MFA_SETUP_COOKIE);
+      return res.json({ success: true, message: 'MFA has been disabled.' });
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/mfa/disable:', error);
+      return res
+        .status(500)
+        .json({ success: false, error: 'Failed to disable MFA.' });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -6413,7 +7210,7 @@ router.post('/api/settings/mfa/disable', isAuthenticated, express.json(), async 
  *       Analyzes document content using the configured AI provider and returns structured metadata.
  *       This endpoint processes the document text to extract relevant information such as tags,
  *       correspondent, and document type based on content analysis.
- *       
+ *
  *       The analysis is performed using the AI provider configured in the application settings.
  *     tags:
  *       - Documents
@@ -6497,36 +7294,67 @@ router.post('/api/settings/mfa/disable', isAuthenticated, express.json(), async 
  */
 router.post('/manual/analyze', express.json(), async (req, res) => {
   try {
-    const { content, existingTags, id } = req.body;
-    let existingCorrespondentList = await paperlessService.listCorrespondentsNames();
-    existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
+    const { content, id } = req.body;
+    let existingCorrespondentList =
+      await paperlessService.listCorrespondentsNames();
+    existingCorrespondentList = existingCorrespondentList.map(
+      (correspondent) => correspondent.name
+    );
     let existingTagsList = await paperlessService.listTagNames();
-    existingTagsList = existingTagsList.map(tags => tags.name);
+    existingTagsList = existingTagsList.map((tags) => tags.name);
     let existingDocumentTypes = await paperlessService.listDocumentTypesNames();
-    let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
-    
+    let existingDocumentTypesList = existingDocumentTypes.map(
+      (docType) => docType.name
+    );
+
     if (!content || typeof content !== 'string') {
       console.log('Invalid content received:', content);
-      return res.status(400).json({ error: 'Valid content string is required' });
+      return res
+        .status(400)
+        .json({ error: 'Valid content string is required' });
     }
 
     if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
+      const analyzeDocument = await openaiService.analyzeDocument(
+        content,
+        existingTagsList,
+        existingCorrespondentList,
+        existingDocumentTypesList,
+        id || []
+      );
       await documentModel.addOpenAIMetrics(
-            id, 
-            analyzeDocument.metrics.promptTokens,
-            analyzeDocument.metrics.completionTokens,
-            analyzeDocument.metrics.totalTokens
-          )
+        id,
+        analyzeDocument.metrics.promptTokens,
+        analyzeDocument.metrics.completionTokens,
+        analyzeDocument.metrics.totalTokens
+      );
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
+      const analyzeDocument = await ollamaService.analyzeDocument(
+        content,
+        existingTagsList,
+        existingCorrespondentList,
+        existingDocumentTypesList,
+        id || []
+      );
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'custom') {
-      const analyzeDocument = await customService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
+      const analyzeDocument = await customService.analyzeDocument(
+        content,
+        existingTagsList,
+        existingCorrespondentList,
+        existingDocumentTypesList,
+        id || []
+      );
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'azure') {
-      const analyzeDocument = await azureService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
+      const analyzeDocument = await azureService.analyzeDocument(
+        content,
+        existingTagsList,
+        existingCorrespondentList,
+        existingDocumentTypesList,
+        id || []
+      );
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -6546,7 +7374,7 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
  *       Analyzes document content using a custom user-provided prompt.
  *       This endpoint is primarily used for testing and experimenting with different prompts
  *       without affecting the actual document processing workflow.
- *       
+ *
  *       The analysis is performed using the AI provider configured in the application settings,
  *       but with a custom prompt that overrides the default system prompt.
  *     tags:
@@ -6615,42 +7443,56 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
  */
 router.post('/manual/playground', express.json(), async (req, res) => {
   try {
-    const { content, existingTags, prompt, documentId } = req.body;
-    
+    const { content, prompt, documentId } = req.body;
+
     if (!content || typeof content !== 'string') {
       console.log('Invalid content received:', content);
-      return res.status(400).json({ error: 'Valid content string is required' });
+      return res
+        .status(400)
+        .json({ error: 'Valid content string is required' });
     }
 
     if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzePlayground(content, prompt);
+      const analyzeDocument = await openaiService.analyzePlayground(
+        content,
+        prompt
+      );
       await documentModel.addOpenAIMetrics(
-        documentId, 
+        documentId,
         analyzeDocument.metrics.promptTokens,
         analyzeDocument.metrics.completionTokens,
         analyzeDocument.metrics.totalTokens
-      )
+      );
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzePlayground(content, prompt);
+      const analyzeDocument = await ollamaService.analyzePlayground(
+        content,
+        prompt
+      );
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'custom') {
-      const analyzeDocument = await customService.analyzePlayground(content, prompt);
+      const analyzeDocument = await customService.analyzePlayground(
+        content,
+        prompt
+      );
       await documentModel.addOpenAIMetrics(
-        documentId, 
+        documentId,
         analyzeDocument.metrics.promptTokens,
         analyzeDocument.metrics.completionTokens,
         analyzeDocument.metrics.totalTokens
-      )
+      );
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'azure') {
-      const analyzeDocument = await azureService.analyzePlayground(content, prompt);
+      const analyzeDocument = await azureService.analyzePlayground(
+        content,
+        prompt
+      );
       await documentModel.addOpenAIMetrics(
-        documentId, 
+        documentId,
         analyzeDocument.metrics.promptTokens,
         analyzeDocument.metrics.completionTokens,
         analyzeDocument.metrics.totalTokens
-      )
+      );
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -6670,7 +7512,7 @@ router.post('/manual/playground', express.json(), async (req, res) => {
  *       Updates document metadata such as tags, correspondent and title in the Paperless-ngx system.
  *       This endpoint handles the translation between tag names and IDs, and manages the creation of
  *       new tags or correspondents if they don't exist in the system.
- *       
+ *
  *       The endpoint also removes any unused tags from the document to keep the metadata clean.
  *     tags:
  *       - Documents
@@ -6744,49 +7586,64 @@ router.post('/manual/updateDocument', express.json(), async (req, res) => {
     var { documentId, tags, correspondent, title } = req.body;
     const options = {
       restrictToExistingTags: config.restrictToExistingTags === 'yes',
-      restrictToExistingCorrespondents: config.restrictToExistingCorrespondents === 'yes',
-      restrictToExistingDocumentTypes: config.restrictToExistingDocumentTypes === 'yes'
+      restrictToExistingCorrespondents:
+        config.restrictToExistingCorrespondents === 'yes',
+      restrictToExistingDocumentTypes:
+        config.restrictToExistingDocumentTypes === 'yes',
     };
 
-    console.log("TITLE: ", title);
+    console.log('TITLE: ', title);
     // Convert all tags to names if they are IDs
-    tags = await Promise.all(tags.map(async tag => {
-      console.log('Processing tag:', tag);
-      if (!isNaN(tag)) {
-        const tagName = await paperlessService.getTagTextFromId(Number(tag));
-        console.log('Converted tag ID:', tag, 'to name:', tagName);
-        return tagName;
-      }
-      return tag;
-    }));
+    tags = await Promise.all(
+      tags.map(async (tag) => {
+        console.log('Processing tag:', tag);
+        if (!isNaN(tag)) {
+          const tagName = await paperlessService.getTagTextFromId(Number(tag));
+          console.log('Converted tag ID:', tag, 'to name:', tagName);
+          return tagName;
+        }
+        return tag;
+      })
+    );
 
     // Filter out any null or undefined tags
-    tags = tags.filter(tag => tag != null);
+    tags = tags.filter((tag) => tag != null);
 
     // Process new tags to get their IDs
-    const { tagIds, errors } = await paperlessService.processTags(tags, options);
+    const { tagIds, errors } = await paperlessService.processTags(
+      tags,
+      options
+    );
     if (errors.length > 0) {
       return res.status(400).json({ errors });
     }
 
     // Process correspondent if provided
-    const correspondentData = correspondent ? await paperlessService.getOrCreateCorrespondent(correspondent, options) : null;
-
+    const correspondentData = correspondent
+      ? await paperlessService.getOrCreateCorrespondent(correspondent, options)
+      : null;
 
     await paperlessService.removeUnusedTagsFromDocument(documentId, tagIds);
-    
+
     // Then update with new tags (this will only add new ones since we already removed unused ones)
     const updateData = {
       tags: tagIds,
       correspondent: correspondentData ? correspondentData.id : null,
-      title: title ? title : null
+      title: title ? title : null,
     };
 
-    if(updateData.tags === null && updateData.correspondent === null && updateData.title === null) {
+    if (
+      updateData.tags === null &&
+      updateData.correspondent === null &&
+      updateData.title === null
+    ) {
       return res.status(400).json({ error: 'No changes provided' });
     }
-    const updateDocument = await paperlessService.updateDocument(documentId, updateData);
-    
+    const updateDocument = await paperlessService.updateDocument(
+      documentId,
+      updateData
+    );
+
     // Mark document as processed
     await documentModel.addProcessedDocument(documentId, updateData.title);
 
@@ -6806,7 +7663,7 @@ router.post('/manual/updateDocument', express.json(), async (req, res) => {
  *       Provides information about the current system health status.
  *       This endpoint checks database connectivity and returns system operational status.
  *       Used for monitoring and automated health checks.
- *     tags: 
+ *     tags:
  *       - System
  *     responses:
  *       200:
@@ -6855,26 +7712,26 @@ router.get('/health', async (req, res) => {
   try {
     // const isConfigured = await setupService.isConfigured();
     // if (!isConfigured) {
-    //   return res.status(503).json({ 
+    //   return res.status(503).json({
     //     status: 'not_configured',
     //     message: 'Application setup not completed'
     //   });
     // }
     try {
       await documentModel.isDocumentProcessed(1);
-    } catch (error) {
-      return res.status(503).json({ 
+    } catch {
+      return res.status(503).json({
         status: 'database_error',
-        message: 'Database check failed'
+        message: 'Database check failed',
       });
     }
 
     res.json({ status: 'healthy' });
   } catch (error) {
     console.error('Health check failed:', error);
-    res.status(500).json({ 
-      status: 'error', 
-      message: error.message 
+    res.status(500).json({
+      status: 'error',
+      message: error.message,
     });
   }
 });
@@ -6886,9 +7743,9 @@ router.get('/health', async (req, res) => {
  *     summary: Update application settings
  *     description: |
  *       Updates the configuration settings of the Paperless-AI next application after initial setup.
- *       This endpoint allows administrators to modify connections to Paperless-ngx, 
+ *       This endpoint allows administrators to modify connections to Paperless-ngx,
  *       AI provider settings, processing parameters, and feature toggles.
- *       
+ *
  *       Changes made through this endpoint are applied immediately and affect all future
  *       document processing operations.
  *     tags:
@@ -7078,8 +7935,8 @@ router.get('/health', async (req, res) => {
  */
 router.post('/settings', express.json(), async (req, res) => {
   try {
-    const { 
-      paperlessUrl, 
+    const {
+      paperlessUrl,
       paperlessPublicUrl,
       paperlessToken,
       aiProvider,
@@ -7111,7 +7968,7 @@ router.post('/settings', express.json(), async (req, res) => {
       activateDocumentType,
       activateTitle,
       activateCustomFields,
-      customFields,  // Added parameter
+      customFields, // Added parameter
       disableAutomaticProcessing,
       azureEndpoint,
       azureApiKey,
@@ -7125,6 +7982,9 @@ router.post('/settings', express.json(), async (req, res) => {
       mistralApiKey,
       mistralOcrModel,
       ocrValidationTimeout,
+      ocrPdfRenderEnabled,
+      ocrPdfRenderMaxPages,
+      ocrPdfRenderDpi,
       globalRateLimitWindowMs,
       globalRateLimitMax,
       trustProxy,
@@ -7132,14 +7992,13 @@ router.post('/settings', express.json(), async (req, res) => {
       minContentLength,
       paperlessAiPort,
       externalApiAllowPrivateIps,
-      logLevel
+      logLevel,
     } = req.body;
 
     //replace equal char in system prompt
     const processedPrompt = systemPrompt
       ? systemPrompt.replace(/\r\n/g, '\n').replace(/=/g, '')
       : '';
-
 
     const currentConfig = {
       PAPERLESS_API_URL: process.env.PAPERLESS_API_URL || '',
@@ -7153,10 +8012,12 @@ router.post('/settings', express.json(), async (req, res) => {
       OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
       OLLAMA_MODEL: process.env.OLLAMA_MODEL || '',
       SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
-      RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
+      RECONCILIATION_INTERVAL:
+        process.env.RECONCILIATION_INTERVAL || '0 * * * *',
       RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
       SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
-      PROCESS_PREDEFINED_DOCUMENTS: process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
+      PROCESS_PREDEFINED_DOCUMENTS:
+        process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
       TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
       RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
       AI_TEMPERATURE_ANALYSIS: process.env.AI_TEMPERATURE_ANALYSIS || '0.3',
@@ -7164,7 +8025,8 @@ router.post('/settings', express.json(), async (req, res) => {
       TAGS: process.env.TAGS || '',
       IGNORE_TAGS: process.env.IGNORE_TAGS || '',
       ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
-      AI_PROCESSED_TAG_NAME: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
+      AI_PROCESSED_TAG_NAME:
+        process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
       USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
       PROMPT_TAGS: process.env.PROMPT_TAGS || '',
       USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
@@ -7177,15 +8039,18 @@ router.post('/settings', express.json(), async (req, res) => {
       ACTIVATE_DOCUMENT_TYPE: process.env.ACTIVATE_DOCUMENT_TYPE || 'yes',
       ACTIVATE_TITLE: process.env.ACTIVATE_TITLE || 'yes',
       ACTIVATE_CUSTOM_FIELDS: process.env.ACTIVATE_CUSTOM_FIELDS || 'yes',
-      CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',  // Added default
-      DISABLE_AUTOMATIC_PROCESSING: process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
-      AZURE_ENDPOINT: process.env.AZURE_ENDPOINT|| '',
+      CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}', // Added default
+      DISABLE_AUTOMATIC_PROCESSING:
+        process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
+      AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
       AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
       RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
-      RESTRICT_TO_EXISTING_CORRESPONDENTS: process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
-      RESTRICT_TO_EXISTING_DOCUMENT_TYPES: process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
+      RESTRICT_TO_EXISTING_CORRESPONDENTS:
+        process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
+      RESTRICT_TO_EXISTING_DOCUMENT_TYPES:
+        process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
       EXTERNAL_API_ENABLED: process.env.EXTERNAL_API_ENABLED || 'no',
       EXTERNAL_API_URL: process.env.EXTERNAL_API_URL || '',
       EXTERNAL_API_METHOD: process.env.EXTERNAL_API_METHOD || 'GET',
@@ -7193,7 +8058,8 @@ router.post('/settings', express.json(), async (req, res) => {
       EXTERNAL_API_BODY: process.env.EXTERNAL_API_BODY || '{}',
       EXTERNAL_API_TIMEOUT: process.env.EXTERNAL_API_TIMEOUT || '5000',
       EXTERNAL_API_TRANSFORM: process.env.EXTERNAL_API_TRANSFORM || '',
-      EXTERNAL_API_ALLOW_PRIVATE_IPS: process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS || 'no',
+      EXTERNAL_API_ALLOW_PRIVATE_IPS:
+        process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS || 'no',
       TAG_CACHE_TTL_SECONDS: process.env.TAG_CACHE_TTL_SECONDS || '300',
       MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
       OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
@@ -7201,95 +8067,147 @@ router.post('/settings', express.json(), async (req, res) => {
       OCR_API_KEY: process.env.OCR_API_KEY || '',
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
       MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
-      SETUP_OCR_VALIDATION_TIMEOUT_MS: process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS || process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
-      GLOBAL_RATE_LIMIT_WINDOW_MS: process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
+      SETUP_OCR_VALIDATION_TIMEOUT_MS:
+        process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
+        process.env.SETUP_VALIDATION_TIMEOUT_MS ||
+        '30000',
+      OCR_PDF_RENDER_ENABLED: process.env.OCR_PDF_RENDER_ENABLED || 'yes',
+      OCR_PDF_RENDER_MAX_PAGES: process.env.OCR_PDF_RENDER_MAX_PAGES || '10',
+      OCR_PDF_RENDER_DPI: process.env.OCR_PDF_RENDER_DPI || '150',
+      GLOBAL_RATE_LIMIT_WINDOW_MS:
+        process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
       GLOBAL_RATE_LIMIT_MAX: process.env.GLOBAL_RATE_LIMIT_MAX || '1000',
-      TRUST_PROXY: typeof process.env.TRUST_PROXY === 'undefined' ? '' : process.env.TRUST_PROXY,
+      TRUST_PROXY:
+        typeof process.env.TRUST_PROXY === 'undefined'
+          ? ''
+          : process.env.TRUST_PROXY,
       COOKIE_SECURE_MODE: process.env.COOKIE_SECURE_MODE || 'auto',
       MIN_CONTENT_LENGTH: process.env.MIN_CONTENT_LENGTH || '10',
       PAPERLESS_AI_PORT: process.env.PAPERLESS_AI_PORT || '3000',
-      LOG_LEVEL: process.env.LOG_LEVEL || 'info'
+      LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     };
 
-    const hasValue = (value) => typeof value === 'string' && value.trim() !== '';
+    const hasValue = (value) =>
+      typeof value === 'string' && value.trim() !== '';
 
     const hasPaperlessTokenInput = hasValue(paperlessToken);
     const hasPaperlessUrlInput = hasValue(paperlessUrl);
-    const normalizedCurrentPaperlessUrl = (currentConfig.PAPERLESS_API_URL || '').replace(/\/api$/, '');
-    const effectivePaperlessUrl = hasPaperlessUrlInput ? paperlessUrl : normalizedCurrentPaperlessUrl;
-    const effectivePaperlessToken = hasPaperlessTokenInput ? paperlessToken.trim() : currentConfig.PAPERLESS_API_TOKEN;
+    const normalizedCurrentPaperlessUrl = (
+      currentConfig.PAPERLESS_API_URL || ''
+    ).replace(/\/api$/, '');
+    const effectivePaperlessUrl = hasPaperlessUrlInput
+      ? paperlessUrl
+      : normalizedCurrentPaperlessUrl;
+    const effectivePaperlessToken = hasPaperlessTokenInput
+      ? paperlessToken.trim()
+      : currentConfig.PAPERLESS_API_TOKEN;
     const hasOpenAiKeyInput = hasValue(openaiKey);
-    const effectiveOpenAiKey = hasOpenAiKeyInput ? openaiKey.trim() : currentConfig.OPENAI_API_KEY;
+    const effectiveOpenAiKey = hasOpenAiKeyInput
+      ? openaiKey.trim()
+      : currentConfig.OPENAI_API_KEY;
     const hasOllamaApiKeyInput = hasValue(ollamaApiKey);
-    const effectiveOllamaApiKey = hasOllamaApiKeyInput ? ollamaApiKey.trim() : currentConfig.OLLAMA_API_KEY;
+    const effectiveOllamaApiKey = hasOllamaApiKeyInput
+      ? ollamaApiKey.trim()
+      : currentConfig.OLLAMA_API_KEY;
     const hasCustomApiKeyInput = hasValue(customApiKey);
-    const effectiveCustomApiKey = hasCustomApiKeyInput ? customApiKey.trim() : currentConfig.CUSTOM_API_KEY;
+    const effectiveCustomApiKey = hasCustomApiKeyInput
+      ? customApiKey.trim()
+      : currentConfig.CUSTOM_API_KEY;
     const hasAzureApiKeyInput = hasValue(azureApiKey);
-    const effectiveAzureApiKey = hasAzureApiKeyInput ? azureApiKey.trim() : currentConfig.AZURE_API_KEY;
+    const effectiveAzureApiKey = hasAzureApiKeyInput
+      ? azureApiKey.trim()
+      : currentConfig.AZURE_API_KEY;
     const normalizedOcrApiKeyInput = hasValue(ocrApiKey)
       ? String(ocrApiKey).trim()
       : String(mistralApiKey || '').trim();
     const hasOcrApiKeyInput = hasValue(normalizedOcrApiKeyInput);
     const effectiveOcrApiKey = hasOcrApiKeyInput
       ? normalizedOcrApiKeyInput
-      : (currentConfig.OCR_API_KEY || currentConfig.MISTRAL_API_KEY || '');
-    const normalizedOcrProvider = String(ocrProvider || currentConfig.OCR_PROVIDER || 'mistral').trim().toLowerCase();
+      : currentConfig.OCR_API_KEY || currentConfig.MISTRAL_API_KEY || '';
+    const normalizedOcrProvider = String(
+      ocrProvider || currentConfig.OCR_PROVIDER || 'mistral'
+    )
+      .trim()
+      .toLowerCase();
     const effectiveOcrEnabled = hasValue(mistralOcrEnabled)
       ? String(mistralOcrEnabled).trim().toLowerCase()
-      : String(currentConfig.MISTRAL_OCR_ENABLED || 'no').trim().toLowerCase();
-    const effectiveOcrApiUrl = normalizedOcrProvider === 'mistral'
-      ? ''
-      : (hasValue(ocrApiUrl)
-        ? String(ocrApiUrl).trim()
-        : String(currentConfig.OCR_API_URL || '').trim());
+      : String(currentConfig.MISTRAL_OCR_ENABLED || 'no')
+          .trim()
+          .toLowerCase();
+    const effectiveOcrApiUrl =
+      normalizedOcrProvider === 'mistral'
+        ? ''
+        : hasValue(ocrApiUrl)
+          ? String(ocrApiUrl).trim()
+          : String(currentConfig.OCR_API_URL || '').trim();
     const effectiveOcrModel = hasValue(mistralOcrModel)
       ? String(mistralOcrModel).trim()
       : String(currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest').trim();
-    const effectiveOcrValidationTimeoutMs = setupService.normalizeValidationTimeoutMs(
-      hasValue(ocrValidationTimeout) ? Number.parseInt(String(ocrValidationTimeout).trim(), 10) * 1000 : currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS,
-      30000
-    );
+    const effectiveOcrValidationTimeoutMs =
+      setupService.normalizeValidationTimeoutMs(
+        hasValue(ocrValidationTimeout)
+          ? Number.parseInt(String(ocrValidationTimeout).trim(), 10) * 1000
+          : currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS,
+        30000
+      );
     const normalizeCompare = (value) => String(value || '').trim();
 
     if (!['mistral', 'custom', 'ollama'].includes(normalizedOcrProvider)) {
       return res.status(400).json({
-        error: 'Invalid OCR provider. Allowed values are mistral and custom.'
+        error: 'Invalid OCR provider. Allowed values are mistral and custom.',
       });
     }
 
-    if (effectiveOcrEnabled === 'yes' && normalizedOcrProvider === 'mistral' && !effectiveOcrApiKey) {
+    if (
+      effectiveOcrEnabled === 'yes' &&
+      normalizedOcrProvider === 'mistral' &&
+      !effectiveOcrApiKey
+    ) {
       return res.status(400).json({
-        error: 'Mistral API key is required when OCR fallback is enabled with provider mistral.'
+        error:
+          'Mistral API key is required when OCR fallback is enabled with provider mistral.',
       });
     }
 
-    const currentOcrEnabled = String(currentConfig.MISTRAL_OCR_ENABLED || 'no').trim().toLowerCase();
-    const currentOcrProvider = String(currentConfig.OCR_PROVIDER || 'mistral').trim().toLowerCase();
+    const currentOcrEnabled = String(currentConfig.MISTRAL_OCR_ENABLED || 'no')
+      .trim()
+      .toLowerCase();
+    const currentOcrProvider = String(currentConfig.OCR_PROVIDER || 'mistral')
+      .trim()
+      .toLowerCase();
     const currentOcrApiUrl = String(currentConfig.OCR_API_URL || '').trim();
-    const currentOcrModel = String(currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest').trim();
+    const currentOcrModel = String(
+      currentConfig.MISTRAL_OCR_MODEL || 'mistral-ocr-latest'
+    ).trim();
     const shouldValidateOcr =
-      effectiveOcrEnabled === 'yes' && (
-        currentOcrEnabled !== effectiveOcrEnabled
-        || currentOcrProvider !== normalizedOcrProvider
-        || currentOcrApiUrl !== effectiveOcrApiUrl
-        || currentOcrModel !== effectiveOcrModel
-        || String(currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS || '30000').trim() !== String(effectiveOcrValidationTimeoutMs)
-        || hasOcrApiKeyInput
-      );
+      effectiveOcrEnabled === 'yes' &&
+      (currentOcrEnabled !== effectiveOcrEnabled ||
+        currentOcrProvider !== normalizedOcrProvider ||
+        currentOcrApiUrl !== effectiveOcrApiUrl ||
+        currentOcrModel !== effectiveOcrModel ||
+        String(
+          currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS || '30000'
+        ).trim() !== String(effectiveOcrValidationTimeoutMs) ||
+        hasOcrApiKeyInput);
 
     if (shouldValidateOcr) {
-      const normalizedOcrProviderForValidation = normalizedOcrProvider === 'custom' ? 'ollama' : normalizedOcrProvider;
-      const ocrValid = await setupService.withTemporaryValidationTimeout(effectiveOcrValidationTimeoutMs, async () => setupService.validateOcrConfig({
-        enabled: effectiveOcrEnabled,
-        provider: normalizedOcrProviderForValidation,
-        apiUrl: effectiveOcrApiUrl,
-        apiKey: effectiveOcrApiKey,
-        model: effectiveOcrModel
-      }));
+      const normalizedOcrProviderForValidation =
+        normalizedOcrProvider === 'custom' ? 'ollama' : normalizedOcrProvider;
+      const ocrValid = await setupService.withTemporaryValidationTimeout(
+        effectiveOcrValidationTimeoutMs,
+        async () =>
+          setupService.validateOcrConfig({
+            enabled: effectiveOcrEnabled,
+            provider: normalizedOcrProviderForValidation,
+            apiUrl: effectiveOcrApiUrl,
+            apiKey: effectiveOcrApiKey,
+            model: effectiveOcrModel,
+          })
+      );
 
       if (!ocrValid) {
         return res.status(400).json({
-          error: `OCR connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check OCR provider, OCR API URL, API key and model.`
+          error: `OCR connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check OCR provider, OCR API URL, API key and model.`,
         });
       }
     }
@@ -7298,14 +8216,15 @@ router.post('/settings', express.json(), async (req, res) => {
     let processedCustomFields = [];
     if (customFields) {
       try {
-        const parsedFields = typeof customFields === 'string' 
-          ? JSON.parse(customFields) 
-          : customFields;
-        
-        processedCustomFields = parsedFields.custom_fields.map(field => ({
+        const parsedFields =
+          typeof customFields === 'string'
+            ? JSON.parse(customFields)
+            : customFields;
+
+        processedCustomFields = parsedFields.custom_fields.map((field) => ({
           value: field.value,
           data_type: field.data_type,
-          ...(field.currency && { currency: field.currency })
+          ...(field.currency && { currency: field.currency }),
         }));
       } catch (error) {
         console.error('Error processing custom fields:', error);
@@ -7316,7 +8235,11 @@ router.post('/settings', express.json(), async (req, res) => {
     const normalizeArray = (value) => {
       if (!value) return [];
       if (Array.isArray(value)) return value;
-      if (typeof value === 'string') return value.split(',').filter(Boolean).map(item => item.trim());
+      if (typeof value === 'string')
+        return value
+          .split(',')
+          .filter(Boolean)
+          .map((item) => item.trim());
       return [];
     };
 
@@ -7328,7 +8251,9 @@ router.post('/settings', express.json(), async (req, res) => {
 
       const parsed = Number.parseFloat(normalizedValue);
       if (!Number.isFinite(parsed) || parsed < 0 || parsed > 2) {
-        console.warn(`[WARN] Invalid ${envKey} value: ${normalizedValue}. Using fallback: ${fallbackValue}`);
+        console.warn(
+          `[WARN] Invalid ${envKey} value: ${normalizedValue}. Using fallback: ${fallbackValue}`
+        );
         return fallbackValue;
       }
 
@@ -7336,12 +8261,20 @@ router.post('/settings', express.json(), async (req, res) => {
     };
 
     // Extract tag and correspondent restriction settings with defaults
-    const restrictToExistingTags = req.body.restrictToExistingTags === 'on' || req.body.restrictToExistingTags === 'yes';
-    const restrictToExistingCorrespondents = req.body.restrictToExistingCorrespondents === 'on' || req.body.restrictToExistingCorrespondents === 'yes';
-    const restrictToExistingDocumentTypes = req.body.restrictToExistingDocumentTypes === 'on' || req.body.restrictToExistingDocumentTypes === 'yes';
-    
+    const restrictToExistingTags =
+      req.body.restrictToExistingTags === 'on' ||
+      req.body.restrictToExistingTags === 'yes';
+    const restrictToExistingCorrespondents =
+      req.body.restrictToExistingCorrespondents === 'on' ||
+      req.body.restrictToExistingCorrespondents === 'yes';
+    const restrictToExistingDocumentTypes =
+      req.body.restrictToExistingDocumentTypes === 'on' ||
+      req.body.restrictToExistingDocumentTypes === 'yes';
+
     // Extract external API settings with defaults
-    const externalApiEnabled = req.body.externalApiEnabled === 'on' || req.body.externalApiEnabled === 'yes';
+    const externalApiEnabled =
+      req.body.externalApiEnabled === 'on' ||
+      req.body.externalApiEnabled === 'yes';
     const externalApiUrl = req.body.externalApiUrl || '';
     const externalApiMethod = req.body.externalApiMethod || 'GET';
     const externalApiHeaders = req.body.externalApiHeaders || '{}';
@@ -7349,45 +8282,63 @@ router.post('/settings', express.json(), async (req, res) => {
     const externalApiTimeout = req.body.externalApiTimeout || '5000';
     const externalApiTransform = req.body.externalApiTransform || '';
 
-    if ((effectivePaperlessUrl && effectivePaperlessUrl !== normalizedCurrentPaperlessUrl) || hasPaperlessTokenInput) {
-      const isPaperlessValid = await setupService.validatePaperlessConfig(effectivePaperlessUrl, effectivePaperlessToken);
+    if (
+      (effectivePaperlessUrl &&
+        effectivePaperlessUrl !== normalizedCurrentPaperlessUrl) ||
+      hasPaperlessTokenInput
+    ) {
+      const isPaperlessValid = await setupService.validatePaperlessConfig(
+        effectivePaperlessUrl,
+        effectivePaperlessToken
+      );
       if (!isPaperlessValid) {
-        return res.status(400).json({ 
-          error: 'Paperless-ngx connection failed. Please check URL and Token.'
+        return res.status(400).json({
+          error: 'Paperless-ngx connection failed. Please check URL and Token.',
         });
       }
     }
 
     const updatedConfig = {};
 
-    if (hasPaperlessUrlInput) updatedConfig.PAPERLESS_API_URL = effectivePaperlessUrl;
-    if (typeof paperlessPublicUrl === 'string') updatedConfig.PAPERLESS_PUBLIC_URL = paperlessPublicUrl.trim();
-    if (hasPaperlessTokenInput) updatedConfig.PAPERLESS_API_TOKEN = effectivePaperlessToken;
+    if (hasPaperlessUrlInput)
+      updatedConfig.PAPERLESS_API_URL = effectivePaperlessUrl;
+    if (typeof paperlessPublicUrl === 'string')
+      updatedConfig.PAPERLESS_PUBLIC_URL = paperlessPublicUrl.trim();
+    if (hasPaperlessTokenInput)
+      updatedConfig.PAPERLESS_API_TOKEN = effectivePaperlessToken;
     if (paperlessUsername) updatedConfig.PAPERLESS_USERNAME = paperlessUsername;
 
     // Handle AI provider configuration
     if (aiProvider) {
       const selectedAiProvider = String(aiProvider).trim().toLowerCase();
-      const currentAiProvider = String(currentConfig.AI_PROVIDER || '').trim().toLowerCase();
+      const currentAiProvider = String(currentConfig.AI_PROVIDER || '')
+        .trim()
+        .toLowerCase();
       const providerChanged = selectedAiProvider !== currentAiProvider;
 
       updatedConfig.AI_PROVIDER = selectedAiProvider;
 
       if (selectedAiProvider === 'openai') {
-        const modelChanged = hasValue(openaiModel) && normalizeCompare(openaiModel) !== normalizeCompare(currentConfig.OPENAI_MODEL);
-        const shouldValidateOpenAi = providerChanged || hasOpenAiKeyInput || modelChanged;
+        const modelChanged =
+          hasValue(openaiModel) &&
+          normalizeCompare(openaiModel) !==
+            normalizeCompare(currentConfig.OPENAI_MODEL);
+        const shouldValidateOpenAi =
+          providerChanged || hasOpenAiKeyInput || modelChanged;
 
         if (!effectiveOpenAiKey) {
           return res.status(400).json({
-            error: 'OpenAI API key is required when OpenAI provider is selected.'
+            error:
+              'OpenAI API key is required when OpenAI provider is selected.',
           });
         }
 
         if (shouldValidateOpenAi) {
-          const isOpenAIValid = await setupService.validateOpenAIConfig(effectiveOpenAiKey);
+          const isOpenAIValid =
+            await setupService.validateOpenAIConfig(effectiveOpenAiKey);
           if (!isOpenAIValid) {
-            return res.status(400).json({ 
-              error: `OpenAI API Key is not valid or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check the key and connectivity.`
+            return res.status(400).json({
+              error: `OpenAI API Key is not valid or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check the key and connectivity.`,
             });
           }
         }
@@ -7399,13 +8350,21 @@ router.post('/settings', express.json(), async (req, res) => {
       } else if (selectedAiProvider === 'ollama') {
         const effectiveOllamaUrl = ollamaUrl || currentConfig.OLLAMA_API_URL;
         const effectiveOllamaModel = ollamaModel || currentConfig.OLLAMA_MODEL;
-        const urlChanged = hasValue(ollamaUrl) && normalizeCompare(ollamaUrl) !== normalizeCompare(currentConfig.OLLAMA_API_URL);
-        const modelChanged = hasValue(ollamaModel) && normalizeCompare(ollamaModel) !== normalizeCompare(currentConfig.OLLAMA_MODEL);
-        const shouldValidateOllama = providerChanged || urlChanged || modelChanged || hasOllamaApiKeyInput;
+        const urlChanged =
+          hasValue(ollamaUrl) &&
+          normalizeCompare(ollamaUrl) !==
+            normalizeCompare(currentConfig.OLLAMA_API_URL);
+        const modelChanged =
+          hasValue(ollamaModel) &&
+          normalizeCompare(ollamaModel) !==
+            normalizeCompare(currentConfig.OLLAMA_MODEL);
+        const shouldValidateOllama =
+          providerChanged || urlChanged || modelChanged || hasOllamaApiKeyInput;
 
         if (!effectiveOllamaUrl || !effectiveOllamaModel) {
           return res.status(400).json({
-            error: 'Ollama URL and model are required when Ollama provider is selected.'
+            error:
+              'Ollama URL and model are required when Ollama provider is selected.',
           });
         }
 
@@ -7417,24 +8376,34 @@ router.post('/settings', express.json(), async (req, res) => {
           );
           if (!isOllamaValid) {
             return res.status(400).json({
-              error: `Ollama connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, optional API key and model.`
+              error: `Ollama connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, optional API key and model.`,
             });
           }
         }
 
         if (ollamaUrl) updatedConfig.OLLAMA_API_URL = ollamaUrl;
-        if (hasOllamaApiKeyInput) updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
+        if (hasOllamaApiKeyInput)
+          updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
       } else if (selectedAiProvider === 'custom') {
-        const effectiveCustomBaseUrl = customBaseUrl || currentConfig.CUSTOM_BASE_URL;
+        const effectiveCustomBaseUrl =
+          customBaseUrl || currentConfig.CUSTOM_BASE_URL;
         const effectiveCustomModel = customModel || currentConfig.CUSTOM_MODEL;
-        const urlChanged = hasValue(customBaseUrl) && normalizeCompare(customBaseUrl) !== normalizeCompare(currentConfig.CUSTOM_BASE_URL);
-        const modelChanged = hasValue(customModel) && normalizeCompare(customModel) !== normalizeCompare(currentConfig.CUSTOM_MODEL);
-        const shouldValidateCustom = providerChanged || hasCustomApiKeyInput || urlChanged || modelChanged;
+        const urlChanged =
+          hasValue(customBaseUrl) &&
+          normalizeCompare(customBaseUrl) !==
+            normalizeCompare(currentConfig.CUSTOM_BASE_URL);
+        const modelChanged =
+          hasValue(customModel) &&
+          normalizeCompare(customModel) !==
+            normalizeCompare(currentConfig.CUSTOM_MODEL);
+        const shouldValidateCustom =
+          providerChanged || hasCustomApiKeyInput || urlChanged || modelChanged;
 
         if (!effectiveCustomBaseUrl || !effectiveCustomModel) {
           return res.status(400).json({
-            error: 'Custom provider URL and model are required when custom provider is selected.'
+            error:
+              'Custom provider URL and model are required when custom provider is selected.',
           });
         }
 
@@ -7446,48 +8415,81 @@ router.post('/settings', express.json(), async (req, res) => {
           );
           if (!isCustomValid) {
             return res.status(400).json({
-              error: `Custom provider connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, API key and model.`
+              error: `Custom provider connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, API key and model.`,
             });
           }
         }
 
-        if (hasCustomApiKeyInput) updatedConfig.CUSTOM_API_KEY = effectiveCustomApiKey;
+        if (hasCustomApiKeyInput)
+          updatedConfig.CUSTOM_API_KEY = effectiveCustomApiKey;
         if (customBaseUrl) updatedConfig.CUSTOM_BASE_URL = customBaseUrl;
         if (customModel) updatedConfig.CUSTOM_MODEL = customModel;
       } else if (selectedAiProvider === 'azure') {
-        const effectiveAzureEndpoint = azureEndpoint || currentConfig.AZURE_ENDPOINT;
-        const effectiveAzureDeployment = azureDeploymentName || currentConfig.AZURE_DEPLOYMENT_NAME;
-        const effectiveAzureApiVersion = azureApiVersion || currentConfig.AZURE_API_VERSION;
-        const endpointChanged = hasValue(azureEndpoint) && normalizeCompare(azureEndpoint) !== normalizeCompare(currentConfig.AZURE_ENDPOINT);
-        const deploymentChanged = hasValue(azureDeploymentName) && normalizeCompare(azureDeploymentName) !== normalizeCompare(currentConfig.AZURE_DEPLOYMENT_NAME);
-        const versionChanged = hasValue(azureApiVersion) && normalizeCompare(azureApiVersion) !== normalizeCompare(currentConfig.AZURE_API_VERSION);
-        const shouldValidateAzure = providerChanged || hasAzureApiKeyInput || endpointChanged || deploymentChanged || versionChanged;
+        const effectiveAzureEndpoint =
+          azureEndpoint || currentConfig.AZURE_ENDPOINT;
+        const effectiveAzureDeployment =
+          azureDeploymentName || currentConfig.AZURE_DEPLOYMENT_NAME;
+        const effectiveAzureApiVersion =
+          azureApiVersion || currentConfig.AZURE_API_VERSION;
+        const endpointChanged =
+          hasValue(azureEndpoint) &&
+          normalizeCompare(azureEndpoint) !==
+            normalizeCompare(currentConfig.AZURE_ENDPOINT);
+        const deploymentChanged =
+          hasValue(azureDeploymentName) &&
+          normalizeCompare(azureDeploymentName) !==
+            normalizeCompare(currentConfig.AZURE_DEPLOYMENT_NAME);
+        const versionChanged =
+          hasValue(azureApiVersion) &&
+          normalizeCompare(azureApiVersion) !==
+            normalizeCompare(currentConfig.AZURE_API_VERSION);
+        const shouldValidateAzure =
+          providerChanged ||
+          hasAzureApiKeyInput ||
+          endpointChanged ||
+          deploymentChanged ||
+          versionChanged;
 
-        if (!effectiveAzureEndpoint || !effectiveAzureApiKey || !effectiveAzureDeployment) {
+        if (
+          !effectiveAzureEndpoint ||
+          !effectiveAzureApiKey ||
+          !effectiveAzureDeployment
+        ) {
           return res.status(400).json({
-            error: 'Azure endpoint, API key and deployment name are required when Azure provider is selected.'
+            error:
+              'Azure endpoint, API key and deployment name are required when Azure provider is selected.',
           });
         }
 
         if (shouldValidateAzure) {
-          const isAzureValid = await setupService.validateAzureConfig(effectiveAzureApiKey, effectiveAzureEndpoint, effectiveAzureDeployment, effectiveAzureApiVersion);
+          const isAzureValid = await setupService.validateAzureConfig(
+            effectiveAzureApiKey,
+            effectiveAzureEndpoint,
+            effectiveAzureDeployment,
+            effectiveAzureApiVersion
+          );
           if (!isAzureValid) {
             return res.status(400).json({
-              error: `Azure connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, API key, deployment name and API version.`
+              error: `Azure connection failed or timed out after ${setupService.getValidationTimeoutMs()}ms. Please check URL, API key, deployment name and API version.`,
             });
           }
         }
 
         if (azureEndpoint) updatedConfig.AZURE_ENDPOINT = azureEndpoint;
-        if (hasAzureApiKeyInput) updatedConfig.AZURE_API_KEY = effectiveAzureApiKey;
-        if (azureDeploymentName) updatedConfig.AZURE_DEPLOYMENT_NAME = azureDeploymentName;
+        if (hasAzureApiKeyInput)
+          updatedConfig.AZURE_API_KEY = effectiveAzureApiKey;
+        if (azureDeploymentName)
+          updatedConfig.AZURE_DEPLOYMENT_NAME = azureDeploymentName;
         if (azureApiVersion) updatedConfig.AZURE_API_VERSION = azureApiVersion;
       }
     }
 
     // Update general settings
     if (scanInterval) updatedConfig.SCAN_INTERVAL = scanInterval;
-    if (systemPrompt) updatedConfig.SYSTEM_PROMPT = processedPrompt.replace(/\r\n/g, '\n').replace(/\n/g, '\\n');
+    if (systemPrompt)
+      updatedConfig.SYSTEM_PROMPT = processedPrompt
+        .replace(/\r\n/g, '\n')
+        .replace(/\n/g, '\\n');
     if (showTags) updatedConfig.PROCESS_PREDEFINED_DOCUMENTS = showTags;
     if (tokenLimit) updatedConfig.TOKEN_LIMIT = tokenLimit;
     if (responseTokens) updatedConfig.RESPONSE_TOKENS = responseTokens;
@@ -7506,81 +8508,132 @@ router.post('/settings', express.json(), async (req, res) => {
       );
     }
     if (tags !== undefined) updatedConfig.TAGS = normalizeArray(tags);
-    if (ignoreTags !== undefined) updatedConfig.IGNORE_TAGS = normalizeArray(ignoreTags);
+    if (ignoreTags !== undefined)
+      updatedConfig.IGNORE_TAGS = normalizeArray(ignoreTags);
     if (aiProcessedTag) updatedConfig.ADD_AI_PROCESSED_TAG = aiProcessedTag;
     if (aiTagName) updatedConfig.AI_PROCESSED_TAG_NAME = aiTagName;
     if (usePromptTags) updatedConfig.USE_PROMPT_TAGS = usePromptTags;
     if (promptTags) updatedConfig.PROMPT_TAGS = normalizeArray(promptTags);
     if (useExistingData) updatedConfig.USE_EXISTING_DATA = useExistingData;
-    if (disableAutomaticProcessing) updatedConfig.DISABLE_AUTOMATIC_PROCESSING = disableAutomaticProcessing;
+    if (disableAutomaticProcessing)
+      updatedConfig.DISABLE_AUTOMATIC_PROCESSING = disableAutomaticProcessing;
 
     // Update custom fields
     if (processedCustomFields.length > 0 || customFields) {
-      updatedConfig.CUSTOM_FIELDS = JSON.stringify({ 
-        custom_fields: processedCustomFields 
+      updatedConfig.CUSTOM_FIELDS = JSON.stringify({
+        custom_fields: processedCustomFields,
       });
     }
 
-      // Handle limit functions
-      updatedConfig.ACTIVATE_TAGGING = activateTagging ? 'yes' : 'no';
-      updatedConfig.ACTIVATE_CORRESPONDENTS = activateCorrespondents ? 'yes' : 'no';
-      updatedConfig.ACTIVATE_DOCUMENT_TYPE = activateDocumentType ? 'yes' : 'no';
-      updatedConfig.ACTIVATE_TITLE = activateTitle ? 'yes' : 'no';
-      updatedConfig.ACTIVATE_CUSTOM_FIELDS = activateCustomFields ? 'yes' : 'no';
-      
-      // Handle tag and correspondent restrictions
-      updatedConfig.RESTRICT_TO_EXISTING_TAGS = restrictToExistingTags ? 'yes' : 'no';
-      updatedConfig.RESTRICT_TO_EXISTING_CORRESPONDENTS = restrictToExistingCorrespondents ? 'yes' : 'no';
-      updatedConfig.RESTRICT_TO_EXISTING_DOCUMENT_TYPES = restrictToExistingDocumentTypes ? 'yes' : 'no';
-      
-      // Handle external API integration
-      updatedConfig.EXTERNAL_API_ENABLED = externalApiEnabled ? 'yes' : 'no';
-      updatedConfig.EXTERNAL_API_URL = externalApiUrl || '';
-      updatedConfig.EXTERNAL_API_METHOD = externalApiMethod || 'GET';
-      updatedConfig.EXTERNAL_API_HEADERS = externalApiHeaders || '{}';
-      updatedConfig.EXTERNAL_API_BODY = externalApiBody || '{}';
-      updatedConfig.EXTERNAL_API_TIMEOUT = externalApiTimeout || '5000';
-      updatedConfig.EXTERNAL_API_TRANSFORM = externalApiTransform || '';
-      updatedConfig.EXTERNAL_API_ALLOW_PRIVATE_IPS = externalApiAllowPrivateIps || 'no';
+    // Handle limit functions
+    updatedConfig.ACTIVATE_TAGGING = activateTagging ? 'yes' : 'no';
+    updatedConfig.ACTIVATE_CORRESPONDENTS = activateCorrespondents
+      ? 'yes'
+      : 'no';
+    updatedConfig.ACTIVATE_DOCUMENT_TYPE = activateDocumentType ? 'yes' : 'no';
+    updatedConfig.ACTIVATE_TITLE = activateTitle ? 'yes' : 'no';
+    updatedConfig.ACTIVATE_CUSTOM_FIELDS = activateCustomFields ? 'yes' : 'no';
 
-      if (mistralOcrEnabled) updatedConfig.MISTRAL_OCR_ENABLED = mistralOcrEnabled;
-      if (ocrProvider) updatedConfig.OCR_PROVIDER = String(ocrProvider).trim().toLowerCase();
-      if (normalizedOcrProvider === 'mistral') {
-        updatedConfig.OCR_API_URL = '';
-      } else if (typeof ocrApiUrl === 'string') {
-        updatedConfig.OCR_API_URL = ocrApiUrl.trim();
+    // Handle tag and correspondent restrictions
+    updatedConfig.RESTRICT_TO_EXISTING_TAGS = restrictToExistingTags
+      ? 'yes'
+      : 'no';
+    updatedConfig.RESTRICT_TO_EXISTING_CORRESPONDENTS =
+      restrictToExistingCorrespondents ? 'yes' : 'no';
+    updatedConfig.RESTRICT_TO_EXISTING_DOCUMENT_TYPES =
+      restrictToExistingDocumentTypes ? 'yes' : 'no';
+
+    // Handle external API integration
+    updatedConfig.EXTERNAL_API_ENABLED = externalApiEnabled ? 'yes' : 'no';
+    updatedConfig.EXTERNAL_API_URL = externalApiUrl || '';
+    updatedConfig.EXTERNAL_API_METHOD = externalApiMethod || 'GET';
+    updatedConfig.EXTERNAL_API_HEADERS = externalApiHeaders || '{}';
+    updatedConfig.EXTERNAL_API_BODY = externalApiBody || '{}';
+    updatedConfig.EXTERNAL_API_TIMEOUT = externalApiTimeout || '5000';
+    updatedConfig.EXTERNAL_API_TRANSFORM = externalApiTransform || '';
+    updatedConfig.EXTERNAL_API_ALLOW_PRIVATE_IPS =
+      externalApiAllowPrivateIps || 'no';
+
+    if (mistralOcrEnabled)
+      updatedConfig.MISTRAL_OCR_ENABLED = mistralOcrEnabled;
+    if (ocrProvider)
+      updatedConfig.OCR_PROVIDER = String(ocrProvider).trim().toLowerCase();
+    if (normalizedOcrProvider === 'mistral') {
+      updatedConfig.OCR_API_URL = '';
+    } else if (typeof ocrApiUrl === 'string') {
+      updatedConfig.OCR_API_URL = ocrApiUrl.trim();
+    }
+    if (hasOcrApiKeyInput) {
+      updatedConfig.OCR_API_KEY = effectiveOcrApiKey;
+      updatedConfig.MISTRAL_API_KEY = effectiveOcrApiKey;
+    }
+    if (mistralOcrModel) updatedConfig.MISTRAL_OCR_MODEL = mistralOcrModel;
+    if (typeof ocrPdfRenderEnabled === 'string') {
+      const normalizedPdfRenderEnabled = ocrPdfRenderEnabled
+        .trim()
+        .toLowerCase();
+      if (['yes', 'no'].includes(normalizedPdfRenderEnabled)) {
+        updatedConfig.OCR_PDF_RENDER_ENABLED = normalizedPdfRenderEnabled;
       }
-      if (hasOcrApiKeyInput) {
-        updatedConfig.OCR_API_KEY = effectiveOcrApiKey;
-        updatedConfig.MISTRAL_API_KEY = effectiveOcrApiKey;
+    }
+    if (ocrPdfRenderMaxPages !== undefined) {
+      const pdfRenderMaxPages = parseInt(ocrPdfRenderMaxPages, 10);
+      if (
+        !isNaN(pdfRenderMaxPages) &&
+        pdfRenderMaxPages >= 1 &&
+        pdfRenderMaxPages <= 50
+      ) {
+        updatedConfig.OCR_PDF_RENDER_MAX_PAGES = pdfRenderMaxPages.toString();
+      } else {
+        console.warn(
+          `[WARN] Invalid OCR_PDF_RENDER_MAX_PAGES value: ${ocrPdfRenderMaxPages}. Using default: 10`
+        );
+        updatedConfig.OCR_PDF_RENDER_MAX_PAGES = '10';
       }
-      if (mistralOcrModel) updatedConfig.MISTRAL_OCR_MODEL = mistralOcrModel;
-      updatedConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS = String(effectiveOcrValidationTimeoutMs);
-      if (globalRateLimitWindowMs) updatedConfig.GLOBAL_RATE_LIMIT_WINDOW_MS = globalRateLimitWindowMs;
-      if (globalRateLimitMax) updatedConfig.GLOBAL_RATE_LIMIT_MAX = globalRateLimitMax;
-      if (typeof trustProxy === 'string') updatedConfig.TRUST_PROXY = trustProxy.trim();
-      if (typeof cookieSecureMode === 'string') {
-        const normalizedCookieSecureMode = cookieSecureMode.trim().toLowerCase();
-        if (['auto', 'always', 'never'].includes(normalizedCookieSecureMode)) {
-          updatedConfig.COOKIE_SECURE_MODE = normalizedCookieSecureMode;
-        } else {
-          return res.status(400).json({
-            error: 'Invalid Cookie Secure Mode. Allowed values: auto, always, never.'
-          });
-        }
+    }
+    if (ocrPdfRenderDpi !== undefined) {
+      const pdfRenderDpi = parseInt(ocrPdfRenderDpi, 10);
+      if (!isNaN(pdfRenderDpi) && pdfRenderDpi >= 72 && pdfRenderDpi <= 300) {
+        updatedConfig.OCR_PDF_RENDER_DPI = pdfRenderDpi.toString();
+      } else {
+        console.warn(
+          `[WARN] Invalid OCR_PDF_RENDER_DPI value: ${ocrPdfRenderDpi}. Using default: 150`
+        );
+        updatedConfig.OCR_PDF_RENDER_DPI = '150';
       }
-      if (minContentLength) updatedConfig.MIN_CONTENT_LENGTH = minContentLength;
-      if (paperlessAiPort) updatedConfig.PAPERLESS_AI_PORT = paperlessAiPort;
-      if (typeof logLevel === 'string') {
-        const normalizedLogLevel = logLevel.trim().toLowerCase();
-        if (['debug', 'info', 'warn', 'error'].includes(normalizedLogLevel)) {
-          updatedConfig.LOG_LEVEL = normalizedLogLevel;
-        } else {
-          return res.status(400).json({
-            error: 'Invalid Log Level. Allowed values: debug, info, warn, error.'
-          });
-        }
+    }
+    updatedConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS = String(
+      effectiveOcrValidationTimeoutMs
+    );
+    if (globalRateLimitWindowMs)
+      updatedConfig.GLOBAL_RATE_LIMIT_WINDOW_MS = globalRateLimitWindowMs;
+    if (globalRateLimitMax)
+      updatedConfig.GLOBAL_RATE_LIMIT_MAX = globalRateLimitMax;
+    if (typeof trustProxy === 'string')
+      updatedConfig.TRUST_PROXY = trustProxy.trim();
+    if (typeof cookieSecureMode === 'string') {
+      const normalizedCookieSecureMode = cookieSecureMode.trim().toLowerCase();
+      if (['auto', 'always', 'never'].includes(normalizedCookieSecureMode)) {
+        updatedConfig.COOKIE_SECURE_MODE = normalizedCookieSecureMode;
+      } else {
+        return res.status(400).json({
+          error:
+            'Invalid Cookie Secure Mode. Allowed values: auto, always, never.',
+        });
       }
+    }
+    if (minContentLength) updatedConfig.MIN_CONTENT_LENGTH = minContentLength;
+    if (paperlessAiPort) updatedConfig.PAPERLESS_AI_PORT = paperlessAiPort;
+    if (typeof logLevel === 'string') {
+      const normalizedLogLevel = logLevel.trim().toLowerCase();
+      if (['debug', 'info', 'warn', 'error'].includes(normalizedLogLevel)) {
+        updatedConfig.LOG_LEVEL = normalizedLogLevel;
+      } else {
+        return res.status(400).json({
+          error: 'Invalid Log Level. Allowed values: debug, info, warn, error.',
+        });
+      }
+    }
 
     // Update tag cache TTL (validate range: 60-3600 seconds)
     if (tagCacheTTL !== undefined) {
@@ -7588,13 +8641,17 @@ router.post('/settings', express.json(), async (req, res) => {
       if (!isNaN(ttl) && ttl >= 60 && ttl <= 3600) {
         updatedConfig.TAG_CACHE_TTL_SECONDS = ttl.toString();
       } else {
-        console.warn(`[WARN] Invalid TAG_CACHE_TTL_SECONDS value: ${tagCacheTTL}. Using default: 300`);
+        console.warn(
+          `[WARN] Invalid TAG_CACHE_TTL_SECONDS value: ${tagCacheTTL}. Using default: 300`
+        );
         updatedConfig.TAG_CACHE_TTL_SECONDS = '300';
       }
     }
 
     // Handle API key
-    let apiToken = configFile.getApiKey ? configFile.getApiKey() : (process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '');
+    let apiToken = configFile.getApiKey
+      ? configFile.getApiKey()
+      : process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '';
     if (!apiToken) {
       console.log('Generating new API key');
       apiToken = require('crypto').randomBytes(64).toString('hex');
@@ -7603,22 +8660,26 @@ router.post('/settings', express.json(), async (req, res) => {
 
     const mergedConfig = {
       ...currentConfig,
-      ...updatedConfig
+      ...updatedConfig,
     };
 
     await setupService.saveConfig(mergedConfig);
     try {
       for (const field of processedCustomFields) {
-        await paperlessService.createCustomFieldSafely(field.value, field.data_type, field.currency);
+        await paperlessService.createCustomFieldSafely(
+          field.value,
+          field.data_type,
+          field.currency
+        );
       }
     } catch (error) {
       console.log('[ERROR] Error creating custom fields:', error);
     }
 
-    res.json({ 
+    res.json({
       success: true,
       message: 'Configuration saved successfully.',
-      restart: true
+      restart: true,
     });
 
     // NOTE: paperlessService caches the tag cache TTL (_cacheTTL) in memory.
@@ -7629,11 +8690,10 @@ router.post('/settings', express.json(), async (req, res) => {
     setTimeout(() => {
       process.exit(0);
     }, 5000);
-
   } catch (error) {
     console.error('Settings update error:', error);
-    res.status(500).json({ 
-      error: 'An error occurred: ' + error.message
+    res.status(500).json({
+      error: 'An error occurred: ' + error.message,
     });
   }
 });
@@ -7647,7 +8707,7 @@ router.post('/settings', express.json(), async (req, res) => {
  *       Returns the current status of document processing operations.
  *       This endpoint provides information about documents in the processing queue
  *       and the current processing state (active/idle).
- *       
+ *
  *       The status information can be used by UIs to display progress indicators
  *       and provide real-time feedback about background processing operations.
  *     tags:
@@ -7716,15 +8776,15 @@ router.post('/settings', express.json(), async (req, res) => {
  */
 router.get('/api/processing-status', isAuthenticated, async (req, res) => {
   try {
-      const status = await documentModel.getCurrentProcessingStatus();
-      const scanState = global.__paperlessAiScanControl || {};
-      res.json({
-        ...status,
-        isScanning: Boolean(scanState.running),
-        stopRequested: Boolean(scanState.stopRequested)
-      });
-  } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch processing status' });
+    const status = await documentModel.getCurrentProcessingStatus();
+    const scanState = global.__paperlessAiScanControl || {};
+    res.json({
+      ...status,
+      isScanning: Boolean(scanState.running),
+      stopRequested: Boolean(scanState.stopRequested),
+    });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch processing status' });
   }
 });
 
@@ -7736,7 +8796,9 @@ router.get('/dashboard/doc/:id', async (req, res) => {
   try {
     const paperlessPublicUrl = await paperlessService.getPublicBaseUrl();
     if (!paperlessPublicUrl) {
-      return res.status(500).json({ error: 'Paperless public URL is not configured' });
+      return res
+        .status(500)
+        .json({ error: 'Paperless public URL is not configured' });
     }
 
     const redirectUrl = `${paperlessPublicUrl}/documents/${docId}/details`;
@@ -7781,7 +8843,7 @@ router.get('/ocr', protectApiRoute, async (req, res) => {
   try {
     return res.render('ocr', {
       version: configFile.PAPERLESS_AI_VERSION || ' ',
-      ocrEnabled: configFile.mistralOcr?.enabled === 'yes'
+      ocrEnabled: configFile.mistralOcr?.enabled === 'yes',
     });
   } catch (error) {
     console.error('[ERROR] OCR page:', error);
@@ -7923,19 +8985,21 @@ router.get('/about', protectApiRoute, async (req, res) => {
       trustProxy: String(configFile.trustProxy),
       useExistingData: configFile.useExistingData || 'no',
       restrictToExistingTags: configFile.restrictToExistingTags || 'no',
-      restrictToExistingCorrespondents: configFile.restrictToExistingCorrespondents || 'no',
-      restrictToExistingDocumentTypes: configFile.restrictToExistingDocumentTypes || 'no',
+      restrictToExistingCorrespondents:
+        configFile.restrictToExistingCorrespondents || 'no',
+      restrictToExistingDocumentTypes:
+        configFile.restrictToExistingDocumentTypes || 'no',
       paperlessTokenSet: Boolean(configFile.paperless?.apiToken),
       openAiKeySet: Boolean(configFile.openai?.apiKey),
       customKeySet: Boolean(configFile.custom?.apiKey),
       azureKeySet: Boolean(configFile.azure?.apiKey),
       mistralKeySet: Boolean(configFile.mistralOcr?.apiKey),
-      apiKeySet: Boolean(configFile.getApiKey && configFile.getApiKey())
+      apiKeySet: Boolean(configFile.getApiKey && configFile.getApiKey()),
     };
 
     return res.render('about', {
       version: configFile.PAPERLESS_AI_VERSION || ' ',
-      supportInfo
+      supportInfo,
     });
   } catch (error) {
     console.error('[ERROR] About page:', error);
@@ -7948,7 +9012,8 @@ router.get('/about', protectApiRoute, async (req, res) => {
         nodeVersion: process.version,
         platform: `${process.platform} (${process.arch})`,
         nodeEnv: process.env.NODE_ENV || 'production',
-        aiProvider: configFile.aiProvider || process.env.AI_PROVIDER || 'openai',
+        aiProvider:
+          configFile.aiProvider || process.env.AI_PROVIDER || 'openai',
         ocrEnabled: configFile.mistralOcr?.enabled === 'yes',
         serverTimeUtc: new Date().toISOString(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -7969,15 +9034,17 @@ router.get('/about', protectApiRoute, async (req, res) => {
         trustProxy: String(configFile.trustProxy),
         useExistingData: configFile.useExistingData || 'no',
         restrictToExistingTags: configFile.restrictToExistingTags || 'no',
-        restrictToExistingCorrespondents: configFile.restrictToExistingCorrespondents || 'no',
-        restrictToExistingDocumentTypes: configFile.restrictToExistingDocumentTypes || 'no',
+        restrictToExistingCorrespondents:
+          configFile.restrictToExistingCorrespondents || 'no',
+        restrictToExistingDocumentTypes:
+          configFile.restrictToExistingDocumentTypes || 'no',
         paperlessTokenSet: Boolean(configFile.paperless?.apiToken),
         openAiKeySet: Boolean(configFile.openai?.apiKey),
         customKeySet: Boolean(configFile.custom?.apiKey),
         azureKeySet: Boolean(configFile.azure?.apiKey),
         mistralKeySet: Boolean(configFile.mistralOcr?.apiKey),
-        apiKeySet: Boolean(configFile.getApiKey && configFile.getApiKey())
-      }
+        apiKeySet: Boolean(configFile.getApiKey && configFile.getApiKey()),
+      },
     });
   }
 });
@@ -8016,7 +9083,7 @@ router.get('/api/ocr/queue', isAuthenticated, async (req, res) => {
       search,
       statusFilter,
       limit: length,
-      offset: start
+      offset: start,
     });
 
     const paperlessUrl = await paperlessService.getPublicBaseUrl();
@@ -8026,7 +9093,7 @@ router.get('/api/ocr/queue', isAuthenticated, async (req, res) => {
       data: docs,
       recordsTotal: total,
       recordsFiltered: total,
-      paperlessUrl
+      paperlessUrl,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/ocr/queue:', error);
@@ -8057,17 +9124,25 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
   try {
     const { documentId } = req.body;
     if (documentId === undefined || documentId === null || documentId === '') {
-      return res.status(400).json({ success: false, error: 'documentId is required' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'documentId is required' });
     }
 
     const normalizedDocumentId = String(documentId).trim();
     if (!/^\d+$/.test(normalizedDocumentId)) {
-      return res.status(400).json({ success: false, error: 'documentId must be a positive integer' });
+      return res.status(400).json({
+        success: false,
+        error: 'documentId must be a positive integer',
+      });
     }
 
     const docIdNum = Number(normalizedDocumentId);
     if (!Number.isInteger(docIdNum) || docIdNum <= 0) {
-      return res.status(400).json({ success: false, error: 'documentId must be a positive integer' });
+      return res.status(400).json({
+        success: false,
+        error: 'documentId must be a positive integer',
+      });
     }
 
     let doc;
@@ -8075,24 +9150,37 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
       doc = await paperlessService.getDocument(docIdNum);
     } catch (error) {
       if (error.response?.status === 404) {
-        return res.status(404).json({ success: false, error: `Document ${docIdNum} was not found in Paperless-ngx` });
+        return res.status(404).json({
+          success: false,
+          error: `Document ${docIdNum} was not found in Paperless-ngx`,
+        });
       }
       throw error;
     }
 
     if (!doc || !Number.isInteger(Number(doc.id))) {
-      return res.status(404).json({ success: false, error: `Document ${docIdNum} was not found in Paperless-ngx` });
+      return res.status(404).json({
+        success: false,
+        error: `Document ${docIdNum} was not found in Paperless-ngx`,
+      });
     }
 
-    const title = (typeof doc.title === 'string' && doc.title.trim())
-      ? doc.title.trim()
-      : `Document ${docIdNum}`;
+    const title =
+      typeof doc.title === 'string' && doc.title.trim()
+        ? doc.title.trim()
+        : `Document ${docIdNum}`;
 
     const added = await documentModel.addToOcrQueue(docIdNum, title, 'manual');
     if (!added) {
-      return res.json({ success: false, message: 'Document already in queue or could not be added' });
+      return res.json({
+        success: false,
+        message: 'Document already in queue or could not be added',
+      });
     }
-    return res.json({ success: true, message: `Document ${docIdNum} added to OCR queue` });
+    return res.json({
+      success: true,
+      message: `Document ${docIdNum} added to OCR queue`,
+    });
   } catch (error) {
     console.error('[ERROR] POST /api/ocr/queue/add:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -8134,19 +9222,28 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
  */
 
 // API: Remove a document from OCR queue
-router.delete('/api/ocr/queue/:documentId', isAuthenticated, async (req, res) => {
-  try {
-    const documentId = parseInt(req.params.documentId, 10);
-    if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+router.delete(
+  '/api/ocr/queue/:documentId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId, 10);
+      if (isNaN(documentId)) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid document ID' });
+      }
+      const removed = await documentModel.removeFromOcrQueue(documentId);
+      return res.json({
+        success: removed,
+        message: removed ? 'Removed from queue' : 'Not found in queue',
+      });
+    } catch (error) {
+      console.error('[ERROR] DELETE /api/ocr/queue/:documentId:', error);
+      res.status(500).json({ success: false, error: error.message });
     }
-    const removed = await documentModel.removeFromOcrQueue(documentId);
-    return res.json({ success: removed, message: removed ? 'Removed from queue' : 'Not found in queue' });
-  } catch (error) {
-    console.error('[ERROR] DELETE /api/ocr/queue/:documentId:', error);
-    res.status(500).json({ success: false, error: error.message });
   }
-});
+);
 
 /**
  * @swagger
@@ -8175,46 +9272,56 @@ router.delete('/api/ocr/queue/:documentId', isAuthenticated, async (req, res) =>
  */
 
 // API: Process a single document with OCR fallback (SSE)
-router.post('/api/ocr/process/:documentId', isAuthenticated, async (req, res) => {
-  const documentId = parseInt(req.params.documentId, 10);
-  if (isNaN(documentId)) {
-    return res.status(400).json({ success: false, error: 'Invalid document ID' });
-  }
-
-  const autoAnalyze = req.body?.autoAnalyze === true || req.body?.autoAnalyze === 'true';
-
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'X-Accel-Buffering': 'no',
-    'Connection': 'keep-alive'
-  });
-
-  const send = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-    if (res.flush) res.flush();
-  };
-
-  try {
-    if (!mistralOcrService.isEnabled()) {
-      send({ step: 'error', message: 'OCR fallback is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.' });
-      return res.end();
+router.post(
+  '/api/ocr/process/:documentId',
+  isAuthenticated,
+  async (req, res) => {
+    const documentId = parseInt(req.params.documentId, 10);
+    if (isNaN(documentId)) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
     }
 
-    await mistralOcrService.processQueueItem(documentId, {
-      autoAnalyze,
-      progressCallback: (step, message, data) => {
-        send({ step, message, ...data });
-      }
+    const autoAnalyze =
+      req.body?.autoAnalyze === true || req.body?.autoAnalyze === 'true';
+
+    // Set up SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
     });
 
-  } catch (error) {
-    send({ step: 'error', message: error.message });
-  }
+    const send = (data) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (res.flush) res.flush();
+    };
 
-  res.end();
-});
+    try {
+      if (!mistralOcrService.isEnabled()) {
+        send({
+          step: 'error',
+          message:
+            'OCR fallback is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.',
+        });
+        return res.end();
+      }
+
+      await mistralOcrService.processQueueItem(documentId, {
+        autoAnalyze,
+        progressCallback: (step, message, data) => {
+          send({ step, message, ...data });
+        },
+      });
+    } catch (error) {
+      send({ step: 'error', message: error.message });
+    }
+
+    res.end();
+  }
+);
 
 /**
  * @swagger
@@ -8247,14 +9354,15 @@ router.post('/api/ocr/process/:documentId', isAuthenticated, async (req, res) =>
 
 // API: Process all pending items in OCR queue (SSE)
 router.post('/api/ocr/process-all', isAuthenticated, async (req, res) => {
-  const autoAnalyze = req.body?.autoAnalyze === true || req.body?.autoAnalyze === 'true';
+  const autoAnalyze =
+    req.body?.autoAnalyze === true || req.body?.autoAnalyze === 'true';
 
   // Set up SSE
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     'X-Accel-Buffering': 'no',
-    'Connection': 'keep-alive'
+    Connection: 'keep-alive',
   });
 
   const send = (data) => {
@@ -8264,7 +9372,11 @@ router.post('/api/ocr/process-all', isAuthenticated, async (req, res) => {
 
   try {
     if (!mistralOcrService.isEnabled()) {
-      send({ step: 'error', message: 'OCR fallback is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.' });
+      send({
+        step: 'error',
+        message:
+          'OCR fallback is not enabled. Set MISTRAL_OCR_ENABLED=yes in your .env file.',
+      });
       return res.end();
     }
 
@@ -8282,24 +9394,44 @@ router.post('/api/ocr/process-all', isAuthenticated, async (req, res) => {
     let failed = 0;
 
     for (const item of pendingItems) {
-      send({ step: 'progress', message: `Processing document ${item.document_id} (${item.title})…`, documentId: item.document_id, completed, total });
+      send({
+        step: 'progress',
+        message: `Processing document ${item.document_id} (${item.title})…`,
+        documentId: item.document_id,
+        completed,
+        total,
+      });
 
       try {
         await mistralOcrService.processQueueItem(item.document_id, {
           autoAnalyze,
           progressCallback: (step, message, data) => {
-            send({ step: `item_${step}`, message, documentId: item.document_id, ...data });
-          }
+            send({
+              step: `item_${step}`,
+              message,
+              documentId: item.document_id,
+              ...data,
+            });
+          },
         });
         completed++;
       } catch (err) {
         failed++;
-        send({ step: 'item_error', message: `Document ${item.document_id} failed: ${err.message}`, documentId: item.document_id });
+        send({
+          step: 'item_error',
+          message: `Document ${item.document_id} failed: ${err.message}`,
+          documentId: item.document_id,
+        });
       }
     }
 
-    send({ step: 'done', message: `Batch complete. ${completed} succeeded, ${failed} failed.`, completed, failed, total });
-
+    send({
+      step: 'done',
+      message: `Batch complete. ${completed} succeeded, ${failed} failed.`,
+      completed,
+      failed,
+      total,
+    });
   } catch (error) {
     send({ step: 'error', message: error.message });
   }
@@ -8329,44 +9461,57 @@ router.post('/api/ocr/process-all', isAuthenticated, async (req, res) => {
  */
 
 // API: Trigger AI-only analysis from existing OCR text (SSE)
-router.post('/api/ocr/analyze/:documentId', isAuthenticated, async (req, res) => {
-  const documentId = parseInt(req.params.documentId, 10);
-  if (isNaN(documentId)) {
-    return res.status(400).json({ success: false, error: 'Invalid document ID' });
-  }
-
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'X-Accel-Buffering': 'no',
-    'Connection': 'keep-alive'
-  });
-
-  const send = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-    if (res.flush) res.flush();
-  };
-
-  try {
-    const queueItem = await documentModel.getOcrQueueItem(documentId);
-    if (!queueItem) {
-      send({ step: 'error', message: 'Document not found in OCR queue.' });
-      return res.end();
-    }
-    if (!queueItem.ocr_text || !String(queueItem.ocr_text).trim()) {
-      send({ step: 'error', message: 'No OCR text available yet. Run OCR first.' });
-      return res.end();
+router.post(
+  '/api/ocr/analyze/:documentId',
+  isAuthenticated,
+  async (req, res) => {
+    const documentId = parseInt(req.params.documentId, 10);
+    if (isNaN(documentId)) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
     }
 
-    await mistralOcrService.analyzeFromExistingOcrText(documentId, queueItem.ocr_text, (step, message, data) => {
-      send({ step, message, ...data });
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
     });
-  } catch (error) {
-    send({ step: 'error', message: error.message });
-  }
 
-  res.end();
-});
+    const send = (data) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (res.flush) res.flush();
+    };
+
+    try {
+      const queueItem = await documentModel.getOcrQueueItem(documentId);
+      if (!queueItem) {
+        send({ step: 'error', message: 'Document not found in OCR queue.' });
+        return res.end();
+      }
+      if (!queueItem.ocr_text || !String(queueItem.ocr_text).trim()) {
+        send({
+          step: 'error',
+          message: 'No OCR text available yet. Run OCR first.',
+        });
+        return res.end();
+      }
+
+      await mistralOcrService.analyzeFromExistingOcrText(
+        documentId,
+        queueItem.ocr_text,
+        (step, message, data) => {
+          send({ step, message, ...data });
+        }
+      );
+    } catch (error) {
+      send({ step: 'error', message: error.message });
+    }
+
+    res.end();
+  }
+);
 
 /**
  * @swagger
@@ -8398,32 +9543,40 @@ router.post('/api/ocr/analyze/:documentId', isAuthenticated, async (req, res) =>
  */
 
 // API: Get OCR text for a queue item
-router.get('/api/ocr/queue/:documentId/text', isAuthenticated, async (req, res) => {
-  try {
-    const documentId = parseInt(req.params.documentId, 10);
-    if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
-    }
+router.get(
+  '/api/ocr/queue/:documentId/text',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId, 10);
+      if (isNaN(documentId)) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid document ID' });
+      }
 
-    const queueItem = await documentModel.getOcrQueueItem(documentId);
-    if (!queueItem) {
-      return res.status(404).json({ success: false, error: 'Document not found in OCR queue' });
-    }
+      const queueItem = await documentModel.getOcrQueueItem(documentId);
+      if (!queueItem) {
+        return res
+          .status(404)
+          .json({ success: false, error: 'Document not found in OCR queue' });
+      }
 
-    return res.json({
-      success: true,
-      documentId,
-      title: queueItem.title || null,
-      status: queueItem.status,
-      reason: queueItem.reason,
-      hasOcrText: !!(queueItem.ocr_text && String(queueItem.ocr_text).trim()),
-      ocrText: queueItem.ocr_text || ''
-    });
-  } catch (error) {
-    console.error('[ERROR] GET /api/ocr/queue/:documentId/text:', error);
-    return res.status(500).json({ success: false, error: error.message });
+      return res.json({
+        success: true,
+        documentId,
+        title: queueItem.title || null,
+        status: queueItem.status,
+        reason: queueItem.reason,
+        hasOcrText: !!(queueItem.ocr_text && String(queueItem.ocr_text).trim()),
+        ocrText: queueItem.ocr_text || '',
+      });
+    } catch (error) {
+      console.error('[ERROR] GET /api/ocr/queue/:documentId/text:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -8459,17 +9612,17 @@ router.get('/api/ocr/stats', isAuthenticated, async (req, res) => {
     const [allItems, failedDocs, ignoredCount] = await Promise.all([
       documentModel.getOcrQueue(),
       documentModel.getFailedDocumentsPaginated({ limit: 1, offset: 0 }),
-      documentModel.getIgnoredCount()
+      documentModel.getIgnoredCount(),
     ]);
     const stats = {
-      pending: allItems.filter(i => i.status === 'pending').length,
-      processing: allItems.filter(i => i.status === 'processing').length,
-      done: allItems.filter(i => i.status === 'done').length,
-      failed: allItems.filter(i => i.status === 'failed').length,
+      pending: allItems.filter((i) => i.status === 'pending').length,
+      processing: allItems.filter((i) => i.status === 'processing').length,
+      done: allItems.filter((i) => i.status === 'done').length,
+      failed: allItems.filter((i) => i.status === 'failed').length,
       permanentlyFailed: failedDocs.total || 0,
       ignored: ignoredCount,
       total: allItems.length,
-      ocrEnabled: mistralOcrService.isEnabled()
+      ocrEnabled: mistralOcrService.isEnabled(),
     };
     return res.json({ success: true, stats });
   } catch (error) {
@@ -8505,7 +9658,7 @@ router.get('/api/failed/queue', isAuthenticated, async (req, res) => {
     const { docs, total } = await documentModel.getFailedDocumentsPaginated({
       search,
       limit: length,
-      offset: start
+      offset: start,
     });
 
     const paperlessUrl = await paperlessService.getPublicBaseUrl();
@@ -8515,7 +9668,7 @@ router.get('/api/failed/queue', isAuthenticated, async (req, res) => {
       data: docs,
       recordsTotal: total,
       recordsFiltered: total,
-      paperlessUrl
+      paperlessUrl,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/failed/queue:', error);
@@ -8542,27 +9695,33 @@ router.get('/api/failed/queue', isAuthenticated, async (req, res) => {
  */
 
 // API: Reset terminal failure state for a document
-router.post('/api/failed/reset/:documentId', isAuthenticated, async (req, res) => {
-  try {
-    const documentId = parseInt(req.params.documentId, 10);
-    if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+router.post(
+  '/api/failed/reset/:documentId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId, 10);
+      if (isNaN(documentId)) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid document ID' });
+      }
+
+      const reset = await documentModel.resetFailedDocument(documentId);
+      await documentModel.clearProcessingStatusByDocumentId(documentId);
+
+      return res.json({
+        success: reset,
+        message: reset
+          ? `Document ${documentId} reset. It can be scanned again.`
+          : `Document ${documentId} was not in failed queue.`,
+      });
+    } catch (error) {
+      console.error('[ERROR] POST /api/failed/reset/:documentId:', error);
+      return res.status(500).json({ success: false, error: error.message });
     }
-
-    const reset = await documentModel.resetFailedDocument(documentId);
-    await documentModel.clearProcessingStatusByDocumentId(documentId);
-
-    return res.json({
-      success: reset,
-      message: reset
-        ? `Document ${documentId} reset. It can be scanned again.`
-        : `Document ${documentId} was not in failed queue.`
-    });
-  } catch (error) {
-    console.error('[ERROR] POST /api/failed/reset/:documentId:', error);
-    return res.status(500).json({ success: false, error: error.message });
   }
-});
+);
 
 // API: Reset terminal failure state for all documents in failed queue
 router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
@@ -8572,9 +9731,10 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
     return res.json({
       success: true,
       count,
-      message: count > 0
-        ? `${count} failed document${count === 1 ? '' : 's'} reset. They can be scanned again.`
-        : 'No failed documents to reset.'
+      message:
+        count > 0
+          ? `${count} failed document${count === 1 ? '' : 's'} reset. They can be scanned again.`
+          : 'No failed documents to reset.',
     });
   } catch (error) {
     console.error('[ERROR] POST /api/failed/reset-all:', error);
@@ -8636,7 +9796,7 @@ router.get('/api/ignored/queue', isAuthenticated, async (req, res) => {
     const { docs, total } = await documentModel.getIgnoredDocumentsPaginated({
       search,
       limit: length,
-      offset: start
+      offset: start,
     });
 
     const paperlessUrl = await paperlessService.getPublicBaseUrl();
@@ -8646,7 +9806,7 @@ router.get('/api/ignored/queue', isAuthenticated, async (req, res) => {
       data: docs,
       recordsTotal: total,
       recordsFiltered: total,
-      paperlessUrl
+      paperlessUrl,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/ignored/queue:', error);
@@ -8659,18 +9819,24 @@ router.post('/api/ignored/add', isAuthenticated, async (req, res) => {
   try {
     const documentId = parseInt(req.body.documentId, 10);
     if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
     }
 
     const title = req.body.title || '';
     const reason = req.body.reason || 'manual';
 
-    const added = await documentModel.addIgnoredDocument(documentId, title, reason);
+    const added = await documentModel.addIgnoredDocument(
+      documentId,
+      title,
+      reason
+    );
     return res.json({
       success: true,
       message: added
         ? `Document ${documentId} added to ignored list.`
-        : `Document ${documentId} was already ignored.`
+        : `Document ${documentId} was already ignored.`,
     });
   } catch (error) {
     console.error('[ERROR] POST /api/ignored/add:', error);
@@ -8683,7 +9849,9 @@ router.delete('/api/ignored/:documentId', isAuthenticated, async (req, res) => {
   try {
     const documentId = parseInt(req.params.documentId, 10);
     if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
     }
 
     const removed = await documentModel.removeIgnoredDocument(documentId);
@@ -8691,7 +9859,7 @@ router.delete('/api/ignored/:documentId', isAuthenticated, async (req, res) => {
       success: removed,
       message: removed
         ? `Document ${documentId} removed from ignored list. It can be scanned again.`
-        : `Document ${documentId} was not in ignored list.`
+        : `Document ${documentId} was not in ignored list.`,
     });
   } catch (error) {
     console.error('[ERROR] DELETE /api/ignored/:documentId:', error);
@@ -8706,9 +9874,10 @@ router.post('/api/ignored/clear-all', isAuthenticated, async (req, res) => {
     return res.json({
       success: true,
       count,
-      message: count > 0
-        ? `${count} ignored document${count === 1 ? '' : 's'} removed. They can be scanned again.`
-        : 'No ignored documents to remove.'
+      message:
+        count > 0
+          ? `${count} ignored document${count === 1 ? '' : 's'} removed. They can be scanned again.`
+          : 'No ignored documents to remove.',
     });
   } catch (error) {
     console.error('[ERROR] POST /api/ignored/clear-all:', error);
@@ -8717,30 +9886,46 @@ router.post('/api/ignored/clear-all', isAuthenticated, async (req, res) => {
 });
 
 // API: Move a failed document to the ignored list (atomic: add to ignored + remove from failed)
-router.post('/api/failed/ignore/:documentId', isAuthenticated, async (req, res) => {
-  try {
-    const documentId = parseInt(req.params.documentId, 10);
-    if (isNaN(documentId)) {
-      return res.status(400).json({ success: false, error: 'Invalid document ID' });
+router.post(
+  '/api/failed/ignore/:documentId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId, 10);
+      if (isNaN(documentId)) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid document ID' });
+      }
+
+      const failedDocs = await documentModel.getFailedDocumentsPaginated({
+        search: String(documentId),
+        limit: 1,
+        offset: 0,
+      });
+      const failedDoc = failedDocs.docs.find(
+        (d) => d.document_id === documentId
+      );
+      const title = failedDoc?.title || '';
+
+      await documentModel.addIgnoredDocument(
+        documentId,
+        title,
+        'failed_document'
+      );
+      await documentModel.resetFailedDocument(documentId);
+      await documentModel.clearProcessingStatusByDocumentId(documentId);
+
+      return res.json({
+        success: true,
+        message: `Document ${documentId} moved to ignored list.`,
+      });
+    } catch (error) {
+      console.error('[ERROR] POST /api/failed/ignore/:documentId:', error);
+      return res.status(500).json({ success: false, error: error.message });
     }
-
-    const failedDocs = await documentModel.getFailedDocumentsPaginated({ search: String(documentId), limit: 1, offset: 0 });
-    const failedDoc = failedDocs.docs.find(d => d.document_id === documentId);
-    const title = failedDoc?.title || '';
-
-    await documentModel.addIgnoredDocument(documentId, title, 'failed_document');
-    await documentModel.resetFailedDocument(documentId);
-    await documentModel.clearProcessingStatusByDocumentId(documentId);
-
-    return res.json({
-      success: true,
-      message: `Document ${documentId} moved to ignored list.`
-    });
-  } catch (error) {
-    console.error('[ERROR] POST /api/failed/ignore/:documentId:', error);
-    return res.status(500).json({ success: false, error: error.message });
   }
-});
+);
 
 /**
  * @swagger
@@ -8780,7 +9965,9 @@ router.get('/api/changelog/status', isAuthenticated, async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR] GET /api/changelog/status:', error);
-    return res.status(500).json({ show: false, error: 'Failed to load changelog status' });
+    return res
+      .status(500)
+      .json({ show: false, error: 'Failed to load changelog status' });
   }
 });
 
@@ -8811,11 +9998,16 @@ router.post('/api/changelog/mark-seen', isAuthenticated, async (req, res) => {
       return res.json({ success: true });
     }
 
-    await documentModel.setLastSeenChangelogVersion(username, changelog.version);
+    await documentModel.setLastSeenChangelogVersion(
+      username,
+      changelog.version
+    );
     return res.json({ success: true });
   } catch (error) {
     console.error('[ERROR] POST /api/changelog/mark-seen:', error);
-    return res.status(500).json({ success: false, error: 'Failed to mark changelog as seen' });
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to mark changelog as seen' });
   }
 });
 

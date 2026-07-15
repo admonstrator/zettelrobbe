@@ -67,6 +67,10 @@ const TESTS = {
   'ocr-provider-lmstudio-compatible':
     'test-ocr-provider-lmstudio-compatible.js',
   'ocr-provider-ollama': 'test-ocr-provider-ollama.js',
+  'ocr-pdf-render-multipage': 'test-ocr-pdf-render-multipage.js',
+  'ocr-pdf-render-fallback': 'test-ocr-pdf-render-fallback.js',
+  'ocr-pdf-render-page-failure': 'test-ocr-pdf-render-page-failure.js',
+  'poppler-render-real': 'test-poppler-render-real.js',
   'ollama-token-metrics': 'test-ollama-token-metrics.js',
   'reconciliation-service': 'test-reconciliation-service.js',
   'reset-local-overrides-password-guard':
@@ -91,6 +95,10 @@ const AREAS = {
     'mistral-ocr-no-processed-on-update-failure',
     'ocr-provider-lmstudio-compatible',
     'ocr-provider-ollama',
+    'ocr-pdf-render-multipage',
+    'ocr-pdf-render-fallback',
+    'ocr-pdf-render-page-failure',
+    'poppler-render-real',
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
   ],
@@ -168,6 +176,13 @@ function hasLoginCredentials() {
   );
 }
 
+function checkPdftoppmAvailability() {
+  // Only a missing/inaccessible binary counts as unavailable; poppler's `-v`
+  // exit code is not reliable across versions.
+  const result = spawnSync('pdftoppm', ['-v'], { timeout: 5000 });
+  return !result.error;
+}
+
 function checkHttpAvailability(baseUrl, timeoutMs = 1500) {
   return new Promise((resolve) => {
     let parsed;
@@ -205,6 +220,10 @@ function checkHttpAvailability(baseUrl, timeoutMs = 1500) {
 async function getSkipReason(testName) {
   if (testName === 'login-mfa-flow' && !hasLoginCredentials()) {
     return 'missing LOGIN_TEST_USERNAME/LOGIN_TEST_PASSWORD';
+  }
+
+  if (testName === 'poppler-render-real' && !checkPdftoppmAvailability()) {
+    return 'pdftoppm not installed';
   }
 
   if (testName === 'rate-limiting') {
