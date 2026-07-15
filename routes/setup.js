@@ -7813,6 +7813,14 @@ router.get('/health', async (req, res) => {
  *                 type: number
  *                 description: Interval in minutes for scanning new documents
  *                 example: 15
+ *               reconciliationEnabled:
+ *                 type: string
+ *                 description: Enable automatic history reconciliation (yes/no)
+ *                 example: "yes"
+ *               reconciliationInterval:
+ *                 type: string
+ *                 description: Cron expression for the reconciliation schedule
+ *                 example: "0 * * * *"
  *               systemPrompt:
  *                 type: string
  *                 description: Custom system prompt for document analysis
@@ -7946,6 +7954,8 @@ router.post('/settings', express.json(), async (req, res) => {
       ollamaApiKey,
       ollamaModel,
       scanInterval,
+      reconciliationEnabled,
+      reconciliationInterval,
       systemPrompt,
       showTags,
       tokenLimit,
@@ -8338,6 +8348,20 @@ router.post('/settings', express.json(), async (req, res) => {
 
     // Update general settings
     if (scanInterval) updatedConfig.SCAN_INTERVAL = scanInterval;
+    if (typeof reconciliationEnabled === 'string') {
+      const normalizedReconciliationEnabled = reconciliationEnabled
+        .trim()
+        .toLowerCase();
+      if (['yes', 'no'].includes(normalizedReconciliationEnabled)) {
+        updatedConfig.RECONCILIATION_ENABLED = normalizedReconciliationEnabled;
+      }
+    }
+    if (
+      typeof reconciliationInterval === 'string' &&
+      reconciliationInterval.trim()
+    ) {
+      updatedConfig.RECONCILIATION_INTERVAL = reconciliationInterval.trim();
+    }
     if (systemPrompt)
       updatedConfig.SYSTEM_PROMPT = processedPrompt
         .replace(/\r\n/g, '\n')

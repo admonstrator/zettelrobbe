@@ -1,0 +1,19 @@
+<%# Reusable ON/OFF switch row for the settings form.
+    The visible checkbox drives a hidden yes/no input (id/name = `id`) so the
+    save handler and API keep their string semantics. A generic initializer in
+    public/js/settings.js syncs the hidden input and re-emits 'change' on it.
+    Params: id (string), label (string), checked (boolean), hint (string, optional) %>
+<div class="space-y-2">
+    <label class="flex items-center justify-between gap-3 cursor-pointer select-none">
+        <span class="text-sm font-medium"><%= label %></span>
+        <div class="relative shrink-0">
+            <input type="checkbox" id="<%= id %>Switch" class="sr-only peer" data-switch-target="<%= id %>" <%= checked ? 'checked' : '' %>>
+            <div class="w-10 h-5 bg-gray-300 peer-checked:bg-blue-500 rounded-full transition-colors"></div>
+            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+        </div>
+    </label>
+    <input type="hidden" id="<%= id %>" name="<%= id %>" value="<%= checked ? 'yes' : 'no' %>">
+    <% if (typeof hint === 'string' && hint) { %>
+    <p class="text-xs text-gray-500"><%= hint %></p>
+    <% } %>
+</div>

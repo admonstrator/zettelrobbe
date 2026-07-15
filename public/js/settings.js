@@ -1083,25 +1083,45 @@ function initializeFormHandlers() {
     });
   }
 
-  // PDF render toggle: the visible switch drives a hidden yes/no input (so the
-  // save handler keeps its string semantics) and shows the sub-options only
-  // when rendering is ON.
-  const ocrPdfRenderSwitch = document.getElementById(
-    'ocrPdfRenderEnabledSwitch'
-  );
+  // Generic toggle switches (partials/settings-switch.ejs): each visible
+  // switch drives a hidden yes/no input by id (so save handlers keep their
+  // string semantics) and re-emits 'change' on it so existing listeners that
+  // were written for the former <select> elements keep working.
+  document
+    .querySelectorAll('input[data-switch-target]')
+    .forEach((switchElement) => {
+      const hiddenInput = document.getElementById(
+        switchElement.dataset.switchTarget
+      );
+      if (!hiddenInput) return;
+      switchElement.addEventListener('change', () => {
+        hiddenInput.value = switchElement.checked ? 'yes' : 'no';
+        hiddenInput.dispatchEvent(new Event('change'));
+      });
+    });
+
+  // Programmatic counterpart: sets the hidden yes/no input AND the visible
+  // switch position (used e.g. by the quickstart apply flow).
+  const setSwitchValue = (hiddenInput, value) => {
+    if (!hiddenInput) return;
+    hiddenInput.value = value;
+    const switchElement = document.querySelector(
+      `input[data-switch-target="${hiddenInput.id}"]`
+    );
+    if (switchElement) switchElement.checked = value === 'yes';
+  };
+
+  // PDF render sub-options are only relevant while rendering is ON.
   const ocrPdfRenderValueInput = document.getElementById('ocrPdfRenderEnabled');
   const ocrPdfRenderOptionsContainer = document.getElementById(
     'ocrPdfRenderOptionsContainer'
   );
-  if (ocrPdfRenderSwitch) {
-    ocrPdfRenderSwitch.addEventListener('change', () => {
-      const renderEnabled = ocrPdfRenderSwitch.checked;
-      if (ocrPdfRenderValueInput) {
-        ocrPdfRenderValueInput.value = renderEnabled ? 'yes' : 'no';
-      }
-      if (ocrPdfRenderOptionsContainer) {
-        ocrPdfRenderOptionsContainer.classList.toggle('hidden', !renderEnabled);
-      }
+  if (ocrPdfRenderValueInput && ocrPdfRenderOptionsContainer) {
+    ocrPdfRenderValueInput.addEventListener('change', () => {
+      ocrPdfRenderOptionsContainer.classList.toggle(
+        'hidden',
+        ocrPdfRenderValueInput.value !== 'yes'
+      );
     });
   }
 
@@ -1308,7 +1328,7 @@ function initializeFormHandlers() {
     let appliedOcr = false;
 
     if (applyOcr && selectedOcrModel) {
-      if (ocrEnabledSelect) ocrEnabledSelect.value = 'yes';
+      setSwitchValue(ocrEnabledSelect, 'yes');
       if (ocrProviderSelect) ocrProviderSelect.value = 'custom';
       if (ocrApiUrlInput)
         ocrApiUrlInput.value = String(
@@ -3078,6 +3098,11 @@ function initializeRuntimeOverridePills() {
     { selector: '#cookieSecureMode', envKey: 'COOKIE_SECURE_MODE' },
     { selector: '#minContentLength', envKey: 'MIN_CONTENT_LENGTH' },
     { selector: '#paperlessAiPort', envKey: 'PAPERLESS_AI_PORT' },
+    { selector: '#reconciliationEnabled', envKey: 'RECONCILIATION_ENABLED' },
+    {
+      selector: '#reconciliationInterval',
+      envKey: 'RECONCILIATION_INTERVAL',
+    },
     {
       selector: '#externalApiAllowPrivateIps',
       envKey: 'EXTERNAL_API_ALLOW_PRIVATE_IPS',

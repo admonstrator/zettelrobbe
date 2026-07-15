@@ -3529,6 +3529,16 @@
                     "description": "Interval in minutes for scanning new documents",
                     "example": 15
                   },
+                  "reconciliationEnabled": {
+                    "type": "string",
+                    "description": "Enable automatic history reconciliation (yes/no)",
+                    "example": "yes"
+                  },
+                  "reconciliationInterval": {
+                    "type": "string",
+                    "description": "Cron expression for the reconciliation schedule",
+                    "example": "0 * * * *"
+                  },
                   "systemPrompt": {
                     "type": "string",
                     "description": "Custom system prompt for document analysis",
