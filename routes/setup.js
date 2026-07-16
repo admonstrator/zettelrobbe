@@ -6184,10 +6184,7 @@ router.get('/api/dashboard/stats', async (req, res) => {
       documentModel.getCurrentProcessingStatus(),
     ]);
 
-    const processedDocumentCount = Math.min(
-      rawProcessedDocumentCount,
-      documentCount
-    );
+    const processedDocumentCount = rawProcessedDocumentCount;
     const failedCount = ocrFailedCount + processingFailedCount;
     const queueBacklog = Math.max(0, ocrNeededCount + failedCount);
     const processingAttemptCount = processedDocumentCount + failedCount;

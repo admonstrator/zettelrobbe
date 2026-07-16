@@ -151,6 +151,7 @@ class DashboardStatsLoader {
         this.loadingSubtext = document.getElementById('dashboardLoadingSubtext');
         this.loadingBannerTimer = null;
         this.loadingBannerVisible = false;
+        this.refreshInFlight = false;
     }
 
     setLoadingProgress(percent, message = '', subtext = '', options = {}) {
@@ -488,14 +489,18 @@ class DashboardStatsLoader {
 
     updateCards(stats) {
         const documentCount = stats.paperless_data.documentCount;
-        const processedCount = Math.min(stats.paperless_data.processedDocumentCount, documentCount);
+        const processedCount = Math.max(0, Number(stats.paperless_data.processedDocumentCount || 0));
         const ocrNeededCount = Math.max(0, stats.paperless_data.ocrNeededCount || 0);
         const failedCount = Math.max(0, stats.paperless_data.failedCount || 0);
         const queueBacklog = Math.max(0, stats.paperless_data.queueBacklog || 0);
         const efficiencyRate = Math.max(0, Number(stats.paperless_data.processingEfficiencyRate || 0));
         const failedRate = Math.max(0, Number(stats.paperless_data.failedRate || 0));
         const processedToday = Math.max(0, Number(stats.paperless_data.processedToday || 0));
-        const unprocessedCount = Math.max(0, documentCount - processedCount - ocrNeededCount - failedCount);
+        // Only the "Unprocessed" card needs processedCount capped to documentCount, so that
+        // an all-time processed total exceeding the current live scan-scope count can't push
+        // this figure negative. The headline processedCount above must stay uncapped.
+        const chartSafeProcessedCount = Math.min(processedCount, documentCount);
+        const unprocessedCount = Math.max(0, documentCount - chartSafeProcessedCount - ocrNeededCount - failedCount);
 
         this.setText('processedCountValue', this.formatNumber(processedCount));
         this.setText('ocrNeededCountValue', this.formatNumber(ocrNeededCount));
@@ -579,6 +584,56 @@ class DashboardStatsLoader {
             }
             this.setLoadingProgress(100, 'Dashboard ready', 'Live updates will continue in the background.');
             this.setLoadingState(false);
+        }
+    }
+
+    // Silent background refresh used for live updates (e.g. a document just finished
+    // processing). Unlike load(), this never toggles the loading skeletons, so the
+    // cards and activity list update in place without flickering.
+    async refresh() {
+        if (this.refreshInFlight) return;
+        this.refreshInFlight = true;
+
+        try {
+            const abortController = new AbortController();
+            const timeoutId = setTimeout(() => abortController.abort(), this.requestTimeoutMs);
+
+            const response = await fetch('/api/dashboard/stats', {
+                signal: abortController.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error('Failed to refresh dashboard stats');
+            }
+
+            const payload = await response.json();
+            if (!payload?.success) {
+                throw new Error(payload?.error || 'Invalid dashboard stats response');
+            }
+
+            window.dashboardData = {
+                documentCount: payload.paperless_data.documentCount,
+                processedCount: payload.paperless_data.processedDocumentCount,
+                ocrNeededCount: payload.paperless_data.ocrNeededCount,
+                failedCount: payload.paperless_data.failedCount,
+                tokenDistribution: payload.paperless_data.tokenDistribution,
+                documentTypes: payload.paperless_data.documentTypes,
+                tokenTrend: payload.paperless_data.tokenTrend,
+                recentActivity: payload.paperless_data.recentActivity,
+                languageDistribution: payload.paperless_data.languageDistribution,
+                queueBacklog: payload.paperless_data.queueBacklog,
+                processingEfficiencyRate: payload.paperless_data.processingEfficiencyRate,
+                failedRate: payload.paperless_data.failedRate,
+                processedToday: payload.paperless_data.processedToday
+            };
+
+            this.updateCards(payload);
+            this.updateCharts(payload);
+        } catch (error) {
+            console.error('Error refreshing dashboard stats:', error);
+        } finally {
+            this.refreshInFlight = false;
         }
     }
 }
