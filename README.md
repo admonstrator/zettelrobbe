@@ -48,8 +48,12 @@ Connect to OpenAI, Ollama, or any OpenAI-compatible API. We've moved beyond simp
 Waging war against blurry scans, shaky smartphone photos, and handwritten scribbles that standard OCR usually chokes on. You can run OCR with:
 
 - Mistral OCR (`provider: mistral`)
-- local OpenAI-compatible vision APIs (`provider: ollama` + `/v1` endpoint, e.g. LM Studio-compatible)
+- local OpenAI-compatible vision APIs (`provider: ollama` + `/v1` endpoint, e.g. LM Studio, vLLM, or any other OpenAI-compatible server)
 - native Ollama chat vision APIs (`provider: ollama` + `/api/chat` endpoint)
+
+This isn't locked to one model. **Any vision-capable model your endpoint serves works** — for example `llama3.2-vision`, `gemma3`, `qwen2-vl`, `minicpm-v`, `moondream`, `pixtral`, `internvl`, or `llava`. During setup, **Quickstart** probes your endpoint and automatically detects which of its models are vision-capable, so you don't have to guess.
+
+Multi-page PDFs are also fully supported for local vision models: pages are rendered to images via `poppler` and sent to the model one by one, instead of only OCRing a single-page thumbnail (see [OCR Provider Notes](#ocr-provider-notes) below). Mistral OCR handles PDFs natively.
 
 The OCR setup now also validates real image reading instead of only checking endpoint reachability.
 

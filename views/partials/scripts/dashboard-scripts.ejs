@@ -373,12 +373,20 @@
         }
     }
 
+    let lastSeenProcessedDocId = null;
+
     function updateProcessingStatus() {
         fetch('/api/processing-status')
             .then(response => response.json())
             .then(data => {
                 console.log('Processing status data:', data);
-                
+
+                const currentProcessedDocId = data.lastProcessed ? data.lastProcessed.documentId : null;
+                if (lastSeenProcessedDocId !== null && currentProcessedDocId !== null && currentProcessedDocId !== lastSeenProcessedDocId) {
+                    window.dashboardStatsLoader?.refresh();
+                }
+                lastSeenProcessedDocId = currentProcessedDocId;
+
                 const processingContainer = document.getElementById('processingContainer');
                 const idleContainer = document.getElementById('idleContainer');
                 const isScanning = Boolean(data.isScanning || data.currentlyProcessing);

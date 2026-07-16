@@ -44,10 +44,10 @@ const RELEASES = [
   {
     version: 'v2026.07.03',
     entries: [
-      'New: Multi-page PDF OCR for local vision models - PDF pages are rendered via poppler (pdftoppm) and sent page by page (OCR_PDF_RENDER_ENABLED, OCR_PDF_RENDER_MAX_PAGES, OCR_PDF_RENDER_DPI)',
+      'New: Multi-page PDF OCR for local vision models - PDF pages are rendered via poppler (pdftoppm) and sent page by page',
       'Improvement: Saving settings no longer runs live AI/OCR connection tests - use the explicit test buttons to verify connectivity on demand',
       'Improvement: Settings page cleaned up - unified ON/OFF switches and clearer section grouping',
-      'Fix: Reconciliation settings (RECONCILIATION_ENABLED, RECONCILIATION_INTERVAL) are now actually persisted when saved from the settings page',
+      'Fix: Reconciliation settings are now actually persisted when saved from the settings page',
       'Removed: Legacy data/.env migration notice on the settings page',
     ],
   },
