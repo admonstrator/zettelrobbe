@@ -38,6 +38,7 @@ const TESTS = {
   'injected-env-priority': 'test-injected-env-priority.js',
   'log-level-config': 'test-log-level-config.js',
   'log-level-logger': 'test-log-level-logger.js',
+  'native-install-log-paths': 'test-native-install-log-paths.js',
   'login-mfa-flow': 'test-login-mfa-flow.js',
   'ocr-fallback-ai-errors': 'test-ocr-fallback-ai-errors.js',
   'ocr-startup-recovery': 'test-ocr-startup-recovery.js',
@@ -103,7 +104,11 @@ const AREAS = {
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
   ],
-  observability: ['log-level-config', 'log-level-logger'],
+  observability: [
+    'log-level-config',
+    'log-level-logger',
+    'native-install-log-paths',
+  ],
   processing: [
     'document-type-restriction',
     'ignore-tags-filter',
