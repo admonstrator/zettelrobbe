@@ -153,4 +153,40 @@ assert.deepStrictEqual(
 );
 assert.strictEqual(quickstartService.normalizeBaseUrls('   '), null, 'Blank input should return null');
 
+// ── resolveOcrProviderDefault ────────────────────────────────────────────────
+// Regression coverage for issue #236: the OCR dropdown must never be gated on
+// the vision name-heuristic (a dedicated OCR model like Mistral's
+// `mistral-ocr-latest` matches no vision hint and would classify as
+// ['text'] below, exactly like a plain chat model). Only the OCR
+// *provider* default is host-based, and only for the one endpoint this
+// codebase already special-cases elsewhere (services/setupService.js
+// getMistralUrlValidationOptions).
+
+assert.deepStrictEqual(
+  quickstartService.classifyModelName('mistral-ocr-latest'),
+  ['text'],
+  'A dedicated OCR model with an unfamiliar name must not be silently excluded from the OCR dropdown just because it fails the vision heuristic'
+);
+
+assert.strictEqual(
+  quickstartService.resolveOcrProviderDefault('https://api.mistral.ai'),
+  'mistral',
+  'The detected Mistral API host should default the OCR provider to the dedicated Mistral OCR path'
+);
+assert.strictEqual(
+  quickstartService.resolveOcrProviderDefault('https://api.mistral.ai/v1'),
+  'mistral',
+  'A versioned Mistral URL should still resolve to the mistral OCR provider default'
+);
+assert.strictEqual(
+  quickstartService.resolveOcrProviderDefault('http://192.168.1.5:1234'),
+  'custom',
+  'A local/non-Mistral host should default to the custom (chat-completions) OCR provider'
+);
+assert.strictEqual(
+  quickstartService.resolveOcrProviderDefault(''),
+  'custom',
+  'A blank host should fall back to the custom OCR provider default'
+);
+
 console.log('✅ test-quickstart-model-classification passed');

@@ -181,6 +181,17 @@ class QuickstartService {
     return headers;
   }
 
+  // Which OCR provider to default the wizard to. This is deliberately not a
+  // per-model capability guess (those can miss real OCR-capable models with
+  // unfamiliar names); it only checks the one endpoint this codebase already
+  // knows has a dedicated /ocr path (see
+  // setupService.getMistralUrlValidationOptions). The "OCR fallback" wizard
+  // step always lets the user override this before finishing setup.
+  resolveOcrProviderDefault(bareBaseUrl) {
+    const normalized = String(bareBaseUrl || '').trim().toLowerCase();
+    return normalized.includes('api.mistral.ai') ? 'mistral' : 'custom';
+  }
+
   buildLoopbackBlockedError(validationError) {
     return new Error(
       `URL validation failed: ${validationError} — localhost URLs are blocked by default. `
@@ -371,9 +382,7 @@ class QuickstartService {
       flavor: probeResult.flavor,
       aiProvider: isOllama ? 'ollama' : 'custom',
       resolvedAiApiUrl: isOllama ? urls.bareBaseUrl : urls.versionedBaseUrl,
-      // The wizard/settings OCR provider is always "custom" for local
-      // endpoints (the backend aliases custom -> ollama internally).
-      ocrProvider: 'custom',
+      ocrProvider: this.resolveOcrProviderDefault(urls.bareBaseUrl),
       resolvedOcrApiUrl: isOllama ? urls.bareBaseUrl : urls.versionedBaseUrl,
       models: models.map((m) => ({
         id: m.id,
