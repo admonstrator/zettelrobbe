@@ -163,7 +163,7 @@ async function truncateToTokenLimit(text, maxTokens, model = process.env.OPENAI_
 }
 
 // Write prompt and content to a file with size management
-async function writePromptToFile(systemPrompt, truncatedContent, filePath = '/app/data/logs/prompt.txt', maxSize = 10 * 1024 * 1024) {
+async function writePromptToFile(systemPrompt, truncatedContent, filePath = path.join(process.cwd(), 'data', 'logs', 'prompt.txt'), maxSize = 10 * 1024 * 1024) {
     try {
         // Ensure the logs directory exists
         await fs.mkdir(path.dirname(filePath), { recursive: true });

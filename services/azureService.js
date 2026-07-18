@@ -14,7 +14,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const { THUMBNAIL_CACHE_DIR, getThumbnailCachePath } = require('./thumbnailCachePaths');
 const RestrictionPromptService = require('./restrictionPromptService');
-const responseLogPath = path.join('/app', 'data', 'logs', 'response.txt');
+const responseLogPath = path.join(process.cwd(), 'data', 'logs', 'response.txt');
 
 class AzureOpenAIService {
   constructor() {
