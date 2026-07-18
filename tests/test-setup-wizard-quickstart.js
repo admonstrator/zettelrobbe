@@ -165,6 +165,32 @@ const detectionResponse = {
   message: 'Detected LM Studio: 3 models (2 text, 1 vision, 1 embedding).'
 };
 
+// Regression fixture for issue #236: a dedicated OCR model (like Mistral's
+// mistral-ocr-latest) matches no vision name-heuristic hint, so it only ever
+// shows up in textModels, never visionModels. The OCR dropdown must still
+// offer it, and a detected api.mistral.ai host must default the OCR
+// provider to 'mistral' instead of 'custom'.
+const mistralDetectionResponse = {
+  success: true,
+  detection: {
+    flavor: 'openai-compatible',
+    aiProvider: 'custom',
+    resolvedAiApiUrl: 'https://api.mistral.ai/v1',
+    ocrProvider: 'mistral',
+    resolvedOcrApiUrl: 'https://api.mistral.ai/v1',
+    models: [
+      { id: 'mistral-small-latest', capabilities: ['text'], state: null, source: 'heuristic' },
+      { id: 'mistral-ocr-latest', capabilities: ['text'], state: null, source: 'heuristic' }
+    ],
+    textModels: ['mistral-small-latest', 'mistral-ocr-latest'],
+    visionModels: [],
+    embeddingModels: [],
+    suggestedAiModel: 'mistral-small-latest',
+    suggestedOcrModel: null
+  },
+  message: 'Detected an OpenAI-compatible API: 2 models (2 text, 0 vision, 0 embedding).'
+};
+
 let lastFetchUrl = null;
 let lastFetchBody = null;
 const fetchedUrls = [];
@@ -327,6 +353,26 @@ wizard.quickstartApiKey.value = 'test-key';
   await wizard.runQuickstartSaveFlow();
   assert.ok(fetchedUrls.includes('/api/setup/ai/test'), 'Failing save flow should still run the AI test');
   assert.ok(!fetchedUrls.includes('/api/setup/complete'), 'Failing AI test must not finalize setup');
+
+  // Regression for #236: a dedicated OCR model with no vision-heuristic
+  // match must still be selectable, and a detected Mistral host must
+  // default the OCR provider to 'mistral' instead of always 'custom'.
+  responsesByUrl['/api/setup/quickstart/detect'] = mistralDetectionResponse;
+  wizard.quickstartBaseUrl.value = 'https://api.mistral.ai/v1';
+  wizard.quickstartApiKey.value = 'mistral-key';
+  await wizard.runQuickstartDetect();
+
+  assert.strictEqual(wizard.quickstartOcrModel.disabled, false, 'OCR model dropdown must stay enabled even when no model matches the vision name-heuristic, as long as candidate models exist');
+  assert.strictEqual(wizard.quickstartEnableOcr.disabled, false, 'Enable-OCR checkbox must stay enabled when any candidate model exists');
+  assert.strictEqual(wizard.quickstartEnableOcr.checked, true, 'Enable-OCR checkbox should default to checked when candidate models exist');
+
+  // No vision-heuristic match means no suggestedOcrModel; the user picks
+  // the dedicated OCR model manually.
+  wizard.quickstartOcrModel.value = 'mistral-ocr-latest';
+  wizard.applyQuickstartToManualFields();
+
+  assert.strictEqual(wizard.mistralOcrModel.value, 'mistral-ocr-latest', 'Manually selecting the dedicated OCR model should flow through to the manual OCR model field');
+  assert.strictEqual(wizard.ocrProvider.value, 'mistral', 'A detected api.mistral.ai host should default the OCR provider to mistral');
 
   console.log('✅ test-setup-wizard-quickstart passed');
 })().catch((error) => {

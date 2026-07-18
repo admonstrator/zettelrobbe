@@ -981,7 +981,14 @@ class SetupWizard {
             this.quickstartState.detection = detection;
 
             const textModels = Array.isArray(detection.textModels) ? detection.textModels : [];
-            const visionModels = Array.isArray(detection.visionModels) ? detection.visionModels : [];
+            // Every detected model that isn't embedding-only is a valid OCR
+            // candidate (textModels already excludes embedding-only models -
+            // see quickstartService.classifyModelName). Rather than also
+            // gating on the vision name-heuristic (which can miss real
+            // OCR-capable models with unfamiliar names, e.g. dedicated OCR
+            // models), offer the full list here and let the user pick; a
+            // heuristic "suggested" default is still pre-selected below.
+            const ocrCandidateModels = textModels;
 
             this.setModelSelectOptions(this.quickstartAiModel, textModels, textModels.length > 0 ? 'Select AI model' : 'No text-capable models found');
             this.quickstartAiModel.disabled = textModels.length === 0;
@@ -989,20 +996,20 @@ class SetupWizard {
                 this.quickstartAiModel.value = detection.suggestedAiModel;
             }
 
-            this.setModelSelectOptions(this.quickstartOcrModel, visionModels, visionModels.length > 0 ? 'Select OCR model' : 'No vision-capable models found');
-            this.quickstartOcrModel.disabled = visionModels.length === 0;
+            this.setModelSelectOptions(this.quickstartOcrModel, ocrCandidateModels, ocrCandidateModels.length > 0 ? 'Select OCR model' : 'No models found');
+            this.quickstartOcrModel.disabled = ocrCandidateModels.length === 0;
             if (detection.suggestedOcrModel) {
                 this.quickstartOcrModel.value = detection.suggestedOcrModel;
             }
 
-            const hasVisionModels = visionModels.length > 0;
-            this.quickstartEnableOcr.disabled = !hasVisionModels;
-            this.quickstartEnableOcr.checked = hasVisionModels;
+            const hasOcrCandidateModels = ocrCandidateModels.length > 0;
+            this.quickstartEnableOcr.disabled = !hasOcrCandidateModels;
+            this.quickstartEnableOcr.checked = hasOcrCandidateModels;
             if (this.quickstartOcrHint) {
-                this.quickstartOcrHint.classList.toggle('hidden', hasVisionModels);
-                this.quickstartOcrHint.textContent = hasVisionModels
+                this.quickstartOcrHint.classList.toggle('hidden', hasOcrCandidateModels);
+                this.quickstartOcrHint.textContent = hasOcrCandidateModels
                     ? ''
-                    : 'No vision-capable model found — OCR fallback stays disabled.';
+                    : 'No models found — OCR fallback stays disabled.';
             }
 
             if (this.quickstartHint) {
@@ -1068,7 +1075,7 @@ class SetupWizard {
 
         if (enableOcr && selectedOcrModel) {
             this.mistralOcrEnabled.value = 'yes';
-            this.ocrProvider.value = 'custom';
+            this.ocrProvider.value = detection.ocrProvider || 'custom';
             this.ocrApiUrl.value = detection.resolvedOcrApiUrl || '';
             this.ocrApiKey.value = quickstartKey;
             this.setModelSelectOptions(this.mistralOcrModel, [selectedOcrModel], 'Select OCR model');
