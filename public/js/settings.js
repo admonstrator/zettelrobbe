@@ -1193,9 +1193,13 @@ function initializeFormHandlers() {
         const textModels = Array.isArray(quickstartDetection?.textModels)
           ? quickstartDetection.textModels
           : [];
-        const visionModels = Array.isArray(quickstartDetection?.visionModels)
-          ? quickstartDetection.visionModels
-          : [];
+        // Every detected model that isn't embedding-only is a valid OCR
+        // candidate (textModels already excludes embedding-only models).
+        // Gating on the vision name-heuristic instead misses real
+        // OCR-capable models with unfamiliar names, e.g. Mistral's
+        // dedicated mistral-ocr-* models. Mirrors the Quickstart fix in
+        // public/js/setup.js.
+        const ocrCandidateModels = textModels;
 
         populateModelSelect(
           quickstartAiModelSelect,
@@ -1210,10 +1214,10 @@ function initializeFormHandlers() {
 
         populateModelSelect(
           quickstartOcrModelSelect,
-          visionModels,
-          visionModels.length > 0
+          ocrCandidateModels,
+          ocrCandidateModels.length > 0
             ? 'Select OCR model'
-            : 'No vision-capable models found'
+            : 'No models found'
         );
         if (
           quickstartDetection?.suggestedOcrModel &&
@@ -1224,8 +1228,8 @@ function initializeFormHandlers() {
         }
 
         if (quickstartEnableOcrCheckbox) {
-          quickstartEnableOcrCheckbox.disabled = visionModels.length === 0;
-          quickstartEnableOcrCheckbox.checked = visionModels.length > 0;
+          quickstartEnableOcrCheckbox.disabled = ocrCandidateModels.length === 0;
+          quickstartEnableOcrCheckbox.checked = ocrCandidateModels.length > 0;
         }
 
         if (quickstartHint) {
@@ -1329,7 +1333,9 @@ function initializeFormHandlers() {
 
     if (applyOcr && selectedOcrModel) {
       setSwitchValue(ocrEnabledSelect, 'yes');
-      if (ocrProviderSelect) ocrProviderSelect.value = 'custom';
+      if (ocrProviderSelect) {
+        ocrProviderSelect.value = quickstartDetection.ocrProvider || 'custom';
+      }
       if (ocrApiUrlInput)
         ocrApiUrlInput.value = String(
           quickstartDetection.resolvedOcrApiUrl || ''

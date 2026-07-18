@@ -114,6 +114,22 @@ const textOnly = quickstartService.suggestModels([
 ]);
 assert.strictEqual(textOnly.suggestedOcrModel, null, 'No vision model should yield a null OCR suggestion');
 
+// Dedicated OCR-named model (classifies as plain ['text'], no vision hint
+// matches "ocr") must still be suggested for OCR instead of yielding null.
+const dedicatedOcrModel = quickstartService.suggestModels([
+  { id: 'mistral-medium-2505', capabilities: ['text'], state: null, parameterSize: null },
+  { id: 'mistral-ocr-latest', capabilities: ['text'], state: null, parameterSize: null }
+]);
+assert.strictEqual(dedicatedOcrModel.suggestedAiModel, 'mistral-medium-2505', 'The non-OCR text model should be preferred for AI analysis');
+assert.strictEqual(dedicatedOcrModel.suggestedOcrModel, 'mistral-ocr-latest', 'A dedicated OCR-named model should be suggested for OCR even without a vision classification');
+
+// Dedicated OCR-named models take priority over generic vision models when both are present
+const ocrNameBeatsVision = quickstartService.suggestModels([
+  { id: 'llava:13b', capabilities: ['text', 'vision'], state: null, parameterSize: null },
+  { id: 'mistral-ocr-latest', capabilities: ['text'], state: null, parameterSize: null }
+]);
+assert.strictEqual(ocrNameBeatsVision.suggestedOcrModel, 'mistral-ocr-latest', 'A dedicated OCR model should be preferred over a generic vision model for OCR suggestion');
+
 // Vision-only host: VLM falls back as AI suggestion
 const visionOnly = quickstartService.suggestModels([
   { id: 'llava:13b', capabilities: ['text', 'vision'], state: null, parameterSize: null }
