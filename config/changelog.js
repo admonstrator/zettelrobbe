@@ -51,6 +51,15 @@ const RELEASES = [
       'Removed: Legacy data/.env migration notice on the settings page',
     ],
   },
+  {
+    version: 'v2026.07.04',
+    entries: [
+      'Fix: Quickstart OCR detection now suggests and lists dedicated OCR models (e.g. Mistral\'s mistral-ocr-latest) instead of requiring vision-capable naming, in both the Setup Wizard and Settings page',
+      'Fix: Setup wizard no longer leaves a stale AI provider selected when switching from Quickstart to manual AI configuration',
+      'Fix: AI response/prompt log files resolve relative to the working directory on native (non-Docker) installs',
+      'Improvement: Quickstart\'s "use this service for OCR" option is now a proper ON/OFF switch, matching the rest of the settings UI',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];
