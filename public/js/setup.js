@@ -1,3 +1,4 @@
+/* global Swal */
 class SetupWizard {
     constructor() {
         this.bootstrap = window.__SETUP_BOOTSTRAP__ || {};
@@ -926,6 +927,7 @@ class SetupWizard {
 
     applyPreset(preset) {
         if (!preset) {
+            this.aiProvider.value = 'custom';
             this.aiPresetHint.textContent = 'Manual mode: choose provider and enter values yourself. Token is optional for custom endpoints.';
             return;
         }
@@ -1665,7 +1667,7 @@ class SetupWizard {
         try {
             await navigator.clipboard.writeText(this.envPreview.value);
             await this.showPopup({ icon: 'success', title: 'Copied', text: 'Environment keys copied to clipboard.' });
-        } catch (_error) {
+        } catch {
             this.envPreview.select();
             document.execCommand('copy');
             await this.showPopup({ icon: 'success', title: 'Copied', text: 'Environment keys copied to clipboard.' });
@@ -1707,7 +1709,6 @@ class SetupWizard {
     async finalizeSetup(options = {}) {
         const validations = [];
         for (let index = 0; index <= 5; index += 1) {
-            // eslint-disable-next-line no-await-in-loop
             const valid = await this.validateStepBeforeContinue(index);
             if (!valid) {
                 validations.push(index);
