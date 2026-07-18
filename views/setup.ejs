@@ -265,14 +265,18 @@
                             </select>
                         </div>
                         <div class="space-y-2">
-                            <label for="quickstartOcrModel" class="text-sm font-medium">Suggested OCR model (vision-capable)</label>
+                            <label for="quickstartOcrModel" class="text-sm font-medium">OCR model</label>
                             <select id="quickstartOcrModel" class="setup-input" disabled>
                                 <option value="">Run detection first</option>
                             </select>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <input id="quickstartEnableOcr" type="checkbox" disabled>
-                            <label for="quickstartEnableOcr" class="text-sm font-medium">Also configure OCR fallback with this endpoint</label>
+                        <div class="flex items-center gap-3">
+                            <label class="relative shrink-0 cursor-pointer select-none">
+                                <input id="quickstartEnableOcr" type="checkbox" class="sr-only peer" disabled>
+                                <div class="w-10 h-5 bg-gray-300 peer-checked:bg-blue-500 peer-disabled:opacity-50 rounded-full transition-colors"></div>
+                                <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+                            </label>
+                            <label for="quickstartEnableOcr" class="text-sm font-medium cursor-pointer">Use this service for OCR</label>
                         </div>
                         <p id="quickstartOcrHint" class="setup-hint hidden"></p>
                         <div class="flex flex-wrap items-center gap-3 hidden" id="quickstartSaveRow">

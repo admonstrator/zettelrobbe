@@ -36,6 +36,13 @@ class QuickstartService {
     // classified as vision. The suggestion is a dropdown default the user
     // can always override.
     this.visionNameHints = ['llava', 'bakllava', '-vl', 'vl-', 'vlm', 'vision', 'minicpm-v', 'moondream', 'pixtral', 'gemma3', 'internvl', 'smolvlm'];
+    // Dedicated OCR models (e.g. Mistral's mistral-ocr-latest) classify as
+    // plain ['text'] under classifyModelName - none of the vision hints
+    // above match "ocr" naming. suggestModels() needs its own hint list so
+    // these still get suggested as the default OCR model instead of being
+    // invisible to the suggestion logic (see classifyModelName's untouched
+    // hint lists; this only affects which text-capable model is suggested).
+    this.ocrNameHints = ['ocr'];
   }
 
   // ── Classification helpers (pure, offline-testable) ──────────────────────
@@ -112,6 +119,9 @@ class QuickstartService {
   suggestModels(classifiedModels = []) {
     const textCandidates = classifiedModels.filter((model) => model.capabilities.includes('text'));
     const visionCandidates = classifiedModels.filter((model) => model.capabilities.includes('vision'));
+    const ocrNameCandidates = textCandidates.filter(
+      (model) => this.ocrNameHints.some((hint) => model.id.toLowerCase().includes(hint))
+    );
 
     let suggestedAiModel = null;
     let bestAiScore = -1;
@@ -139,10 +149,14 @@ class QuickstartService {
       suggestedAiModel = visionCandidates[0].id;
     }
 
+    // Dedicated OCR models (named "*ocr*") are purpose-built for this and
+    // take priority over generic vision models when present.
+    const ocrCandidates = ocrNameCandidates.length > 0 ? ocrNameCandidates : visionCandidates;
+
     let suggestedOcrModel = null;
     let bestOcrScore = -1;
     let bestOcrSize = Number.POSITIVE_INFINITY;
-    visionCandidates.forEach((model) => {
+    ocrCandidates.forEach((model) => {
       const score = model.state === 'loaded' ? 2 : 0;
       const size = this.parseParameterSizeBillions(model.parameterSize);
       const effectiveSize = size == null ? Number.POSITIVE_INFINITY : size;
@@ -179,6 +193,17 @@ class QuickstartService {
       headers.Authorization = `Bearer ${apiKey}`;
     }
     return headers;
+  }
+
+  // Which OCR provider to default the wizard to. This is deliberately not a
+  // per-model capability guess (those can miss real OCR-capable models with
+  // unfamiliar names); it only checks the one endpoint this codebase already
+  // knows has a dedicated /ocr path (see
+  // setupService.getMistralUrlValidationOptions). The "OCR fallback" wizard
+  // step always lets the user override this before finishing setup.
+  resolveOcrProviderDefault(bareBaseUrl) {
+    const normalized = String(bareBaseUrl || '').trim().toLowerCase();
+    return normalized.includes('api.mistral.ai') ? 'mistral' : 'custom';
   }
 
   buildLoopbackBlockedError(validationError) {
@@ -371,9 +396,7 @@ class QuickstartService {
       flavor: probeResult.flavor,
       aiProvider: isOllama ? 'ollama' : 'custom',
       resolvedAiApiUrl: isOllama ? urls.bareBaseUrl : urls.versionedBaseUrl,
-      // The wizard/settings OCR provider is always "custom" for local
-      // endpoints (the backend aliases custom -> ollama internally).
-      ocrProvider: 'custom',
+      ocrProvider: this.resolveOcrProviderDefault(urls.bareBaseUrl),
       resolvedOcrApiUrl: isOllama ? urls.bareBaseUrl : urls.versionedBaseUrl,
       models: models.map((m) => ({
         id: m.id,

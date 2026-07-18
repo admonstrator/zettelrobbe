@@ -13,7 +13,7 @@ const path = require('path');
 const { THUMBNAIL_CACHE_DIR, getThumbnailCachePath } = require('./thumbnailCachePaths');
 const { model } = require('./ollamaService');
 const RestrictionPromptService = require('./restrictionPromptService');
-const responseLogPath = path.join('/app', 'data', 'logs', 'response.txt');
+const responseLogPath = path.join(process.cwd(), 'data', 'logs', 'response.txt');
 
 class OpenAIService {
   constructor() {

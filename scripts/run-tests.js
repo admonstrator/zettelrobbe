@@ -38,6 +38,7 @@ const TESTS = {
   'injected-env-priority': 'test-injected-env-priority.js',
   'log-level-config': 'test-log-level-config.js',
   'log-level-logger': 'test-log-level-logger.js',
+  'native-install-log-paths': 'test-native-install-log-paths.js',
   'login-mfa-flow': 'test-login-mfa-flow.js',
   'ocr-fallback-ai-errors': 'test-ocr-fallback-ai-errors.js',
   'ocr-startup-recovery': 'test-ocr-startup-recovery.js',
@@ -46,6 +47,7 @@ const TESTS = {
   'quickstart-model-classification': 'test-quickstart-model-classification.js',
   'quickstart-endpoint-protection': 'test-quickstart-endpoint-protection.js',
   'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
+  'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
   'scan-stop-flow': 'test-scan-stop-flow.js',
   'setup-auth-endpoint-protection': 'test-setup-auth-endpoint-protection.js',
@@ -102,7 +104,11 @@ const AREAS = {
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
   ],
-  observability: ['log-level-config', 'log-level-logger'],
+  observability: [
+    'log-level-config',
+    'log-level-logger',
+    'native-install-log-paths',
+  ],
   processing: [
     'document-type-restriction',
     'ignore-tags-filter',
@@ -126,6 +132,7 @@ const AREAS = {
     'quickstart-endpoint-protection',
     'runtime-first-setup-state',
     'setup-wizard-tag-default',
+    'setup-preset-manual-reset',
   ],
   security: [
     'setup-remote-guard',
