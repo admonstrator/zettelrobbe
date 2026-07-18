@@ -46,6 +46,7 @@ const TESTS = {
   'quickstart-model-classification': 'test-quickstart-model-classification.js',
   'quickstart-endpoint-protection': 'test-quickstart-endpoint-protection.js',
   'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
+  'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
   'scan-stop-flow': 'test-scan-stop-flow.js',
   'setup-auth-endpoint-protection': 'test-setup-auth-endpoint-protection.js',
@@ -126,6 +127,7 @@ const AREAS = {
     'quickstart-endpoint-protection',
     'runtime-first-setup-state',
     'setup-wizard-tag-default',
+    'setup-preset-manual-reset',
   ],
   security: [
     'setup-remote-guard',
