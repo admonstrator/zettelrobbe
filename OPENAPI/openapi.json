@@ -943,8 +943,8 @@
     },
     "/api/chat/documents": {
       "get": {
-        "summary": "Search recent documents for omnibox selectors",
-        "description": "Returns recent documents filtered by query for Manual/OCR document selectors.",
+        "summary": "Search documents for omnibox selectors",
+        "description": "Searches Paperless-ngx documents for Manual/OCR document selectors.",
         "tags": [
           "Documents",
           "API"
@@ -964,7 +964,17 @@
             "schema": {
               "type": "string"
             },
-            "description": "Free-text query matched against document id, title, and correspondent name."
+            "description": "Search query. For mode=id this must be a positive integer document ID."
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "schema": {
+              "type": "string",
+              "enum": ["all", "title", "tags", "correspondent", "id"],
+              "default": "all"
+            },
+            "description": "Search mode (id uses exact Paperless document ID lookup)."
           },
           {
             "in": "query",

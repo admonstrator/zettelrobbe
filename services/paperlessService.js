@@ -1273,8 +1273,37 @@ class PaperlessService {
     this.initialize();
 
     const safeLimit = Number.isInteger(Number(limit)) ? Math.max(1, Math.min(Number(limit), 200)) : 100;
+    const normalizedQuery = String(query || '').trim();
 
     try {
+      // Explicit ID mode: exact lookup via GET /documents/{id}/
+      if (mode === 'id') {
+        const id = Number.parseInt(normalizedQuery, 10);
+        if (!Number.isInteger(id) || id < 1 || String(id) !== normalizedQuery) {
+          return [];
+        }
+
+        try {
+          const response = await this.client.get(`/documents/${id}/`);
+          const doc = response?.data;
+          if (!doc || doc.id == null) {
+            return [];
+          }
+          return [{
+            id: doc.id,
+            title: doc.title,
+            tags: doc.tags,
+            correspondent: doc.correspondent,
+            created: doc.created || doc.created_date || doc.added || null
+          }];
+        } catch (error) {
+          if (error?.response?.status !== 404) {
+            console.error(`[ERROR] searching document by id ${id}:`, error.message);
+          }
+          return [];
+        }
+      }
+
       const params = {
         fields: 'id,title,tags,correspondent,created',
         page: 1,
@@ -1283,17 +1312,17 @@ class PaperlessService {
       };
 
       if (mode === 'title') {
-        params.title__icontains = query;
+        params.title__icontains = normalizedQuery;
       } else if (mode === 'tags') {
-        const tagIds = await this._findTagIdsByPartialName(query);
+        const tagIds = await this._findTagIdsByPartialName(normalizedQuery);
         if (!tagIds.length) return [];
         params.tags__id__in = tagIds.join(',');
       } else if (mode === 'correspondent') {
-        const corrIds = await this._findCorrespondentIdsByPartialName(query);
+        const corrIds = await this._findCorrespondentIdsByPartialName(normalizedQuery);
         if (!corrIds.length) return [];
         params.correspondent__id__in = corrIds.join(',');
       } else {
-        params.query = query;
+        params.query = normalizedQuery;
       }
 
       const response = await this.client.get('/documents/', { params });

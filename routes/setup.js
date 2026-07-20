@@ -1129,8 +1129,8 @@ router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
  * @swagger
  * /api/chat/documents:
  *   get:
- *     summary: Search recent documents for omnibox selectors
- *     description: Returns recent documents filtered by query for Manual/OCR document selectors.
+ *     summary: Search documents for omnibox selectors
+ *     description: Searches Paperless-ngx documents for Manual/OCR document selectors.
  *     tags:
  *       - Documents
  *       - API
@@ -1142,7 +1142,14 @@ router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
  *         name: q
  *         schema:
  *           type: string
- *         description: Free-text query matched against document id, title, and correspondent name.
+ *         description: Search query. For mode=id this must be a positive integer document ID.
+ *       - in: query
+ *         name: mode
+ *         schema:
+ *           type: string
+ *           enum: [all, title, tags, correspondent, id]
+ *           default: all
+ *         description: Search mode (id uses exact Paperless document ID lookup).
  *       - in: query
  *         name: limit
  *         schema:
@@ -1192,7 +1199,7 @@ router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(Math.max(requestedLimit, 1), 200)
       : 100;
-    const validModes = ['all', 'title', 'tags', 'correspondent'];
+    const validModes = ['all', 'title', 'tags', 'correspondent', 'id'];
     const mode = validModes.includes(req.query?.mode) ? req.query.mode : 'all';
 
     const { documents, tagNames, correspondentNames } =

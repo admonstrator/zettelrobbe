@@ -298,16 +298,57 @@
         });
     }
 
+    const SEARCH_MODE_HINTS = {
+        all: {
+            placeholder: 'Search documents...',
+            status: 'Type to search documents...'
+        },
+        id: {
+            placeholder: 'Enter exact document ID…',
+            status: 'ID mode: type a positive integer Paperless document ID.'
+        },
+        title: {
+            placeholder: 'Search by title...',
+            status: 'Type to search by title...'
+        },
+        tags: {
+            placeholder: 'Search by tag name...',
+            status: 'Type to search by tag...'
+        },
+        correspondent: {
+            placeholder: 'Search by correspondent...',
+            status: 'Type to search by correspondent...'
+        }
+    };
+
+    function applySearchModeHint(mode) {
+        const hint = SEARCH_MODE_HINTS[mode] || SEARCH_MODE_HINTS.all;
+        if (manualDocSearchInput) {
+            manualDocSearchInput.placeholder = hint.placeholder;
+        }
+        if (manualDocumentOmnibox && typeof manualDocumentOmnibox.setStatus === 'function') {
+            const hasQuery = manualDocSearchInput && manualDocSearchInput.value.trim();
+            // Only replace the idle status; keep live search results status intact.
+            if (!hasQuery) {
+                manualDocumentOmnibox.setStatus(hint.status, false);
+            }
+        }
+    }
+
     function initializeSearchModeToggles() {
         const container = document.getElementById('searchModeToggles');
         if (!container || !manualDocumentOmnibox) return;
+
+        applySearchModeHint('all');
 
         container.addEventListener('click', function (e) {
             const btn = e.target.closest('.search-mode-btn');
             if (!btn) return;
             container.querySelectorAll('.search-mode-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            manualDocumentOmnibox.setSearchMode(btn.dataset.mode);
+            const mode = btn.dataset.mode || 'all';
+            manualDocumentOmnibox.setSearchMode(mode);
+            applySearchModeHint(mode);
             const currentValue = manualDocSearchInput ? manualDocSearchInput.value.trim() : '';
             if (currentValue) {
                 manualDocumentOmnibox.load(currentValue, { showResults: true });

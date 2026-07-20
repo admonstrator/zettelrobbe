@@ -59,13 +59,14 @@ MISTRAL_OCR_MODEL=mistral-ocr-latest</pre>
                                 id="manualDocSearchInput"
                                 class="w-full rounded-md border-border-color bg-bg-primary text-text-primary p-2 focus:border-accent-primary focus:ring-accent-primary"
                                 type="search"
-                                placeholder="Search documents (title, ID, correspondent)..."
+                                placeholder="Search documents..."
                                 autocomplete="off">
                             <div id="manualDocSearchResults" class="manual-search-results hidden" role="listbox" aria-label="OCR document search results"></div>
                             <input type="hidden" id="manualDocId" value="">
                             <p id="manualDocSearchStatus" class="manual-search-status">Loading recent documents...</p>
                             <div id="searchModeToggles" class="search-mode-toggles">
                                 <button type="button" class="search-mode-btn active" data-mode="all">All</button>
+                                <button type="button" class="search-mode-btn" data-mode="id">ID</button>
                                 <button type="button" class="search-mode-btn" data-mode="title">Title</button>
                                 <button type="button" class="search-mode-btn" data-mode="tags">Tags</button>
                                 <button type="button" class="search-mode-btn" data-mode="correspondent">Correspondent</button>

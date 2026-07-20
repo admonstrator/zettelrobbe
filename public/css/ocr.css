@@ -131,12 +131,13 @@
 
 .search-mode-toggles {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.25rem;
     margin-top: 0.35rem;
 }
 
 .search-mode-btn {
-    padding: 0.15rem 0.6rem;
+    padding: 0.15rem 0.5rem;
     border-radius: 999px;
     font-size: 0.7rem;
     font-weight: 600;
