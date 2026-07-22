@@ -1,7 +1,9 @@
 name: Docker Base Build and Push
 
 env:
-  DOCKERHUB_REPO: admonstrator/paperless-ai-next
+  DOCKERHUB_REPO: admonstrator/zettelrobbe
+  # Legacy image kept as a compatibility alias during the rename transition.
+  DOCKERHUB_REPO_LEGACY: admonstrator/paperless-ai-next
 
 # Pushes only to Docker Hub (via secrets); no GitHub write needed.
 permissions:
@@ -51,7 +53,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.DOCKERHUB_REPO }}
+          images: |
+            ${{ env.DOCKERHUB_REPO }}
+            ${{ env.DOCKERHUB_REPO_LEGACY }}
           tags: |
             type=raw,value=latest-base,enable=${{ inputs.also_tag_latest || github.event_name == 'schedule' }}
 

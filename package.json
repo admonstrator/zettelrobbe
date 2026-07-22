@@ -1,5 +1,5 @@
 {
-  "name": "paperless-ai-next",
+  "name": "zettelrobbe",
   "version": "1.0.0",
   "description": "AI based Tag, correspondent and meta data generation",
   "main": "server.js",

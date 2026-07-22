@@ -137,4 +137,4 @@ PRs touching Docker/dependency manifests additionally trigger `docker-check.yml`
 
 In-repo docs are intentionally minimal. Full architecture/config/API reference lives in the separate
 docs repo (Astro + Starlight): https://github.com/admonstrator/paperless-ai-next-docs →
-https://paperless-ai-next.admon.me/
+https://zettelrob.be/

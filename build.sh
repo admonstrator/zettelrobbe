@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-IMAGE_REPO="${IMAGE_REPO:-${LOCAL_NAMESPACE:-docker.io/library/paperless-ai-next}}"
+IMAGE_REPO="${IMAGE_REPO:-${LOCAL_NAMESPACE:-docker.io/library/zettelrobbe}}"
 FORCE_REBUILD="${FORCE_REBUILD:-false}"
 
 BASE_IMAGE="${BASE_IMAGE:-${IMAGE_REPO}:latest-base}"
@@ -38,7 +38,7 @@ toggle_force_rebuild() {
 print_header() {
   echo
   echo "=============================================="
-  echo " paperless-ai-next image builder"
+  echo " zettelrobbe image builder"
   echo "=============================================="
   echo " Base : ${BASE_IMAGE}"
   echo " App  : ${APP_IMAGE}"
@@ -92,10 +92,10 @@ show_compose_usage() {
 How to use the built image in docker-compose.yml:
 
 services:
-  paperless-ai:
+  zettelrobbe:
     image: ${APP_IMAGE}
     pull_policy: never
-    container_name: paperless-ai-next
+    container_name: zettelrobbe
     restart: unless-stopped
     ports:
       - "3000:3000"

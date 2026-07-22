@@ -1,10 +1,13 @@
 <div align="center">
 
-<img src="./logo.png" alt="Paperless-AI next logo" width="400">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./logo-dark.png">
+  <img src="./logo.png" alt="Zettelrobbe" width="480">
+</picture>
 
-<h1>Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span></h1>
+<h1>Zettelrobbe</h1>
 
-[![Latest Release](https://img.shields.io/github/v/release/admonstrator/paperless-ai-next?style=for-the-badge&logo=github&color=0ea5e9)](https://github.com/admonstrator/paperless-ai-next/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/admonstrator/paperless-ai-next?style=for-the-badge&logo=docker&color=10b981)](https://hub.docker.com/r/admonstrator/paperless-ai-next) [![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/paperless-ai-next/ci.yml?branch=main&style=for-the-badge&logo=githubactions&label=CI)](https://github.com/admonstrator/paperless-ai-next/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-Live-0891b2?style=for-the-badge&logo=readthedocs)](https://paperless-ai-next.admon.me/)
+[![Latest Release](https://img.shields.io/github/v/release/admonstrator/zettelrobbe?style=for-the-badge&logo=github&color=0ea5e9)](https://github.com/admonstrator/zettelrobbe/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/admonstrator/zettelrobbe?style=for-the-badge&logo=docker&color=10b981)](https://hub.docker.com/r/admonstrator/zettelrobbe) [![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/zettelrobbe/ci.yml?branch=main&style=for-the-badge&logo=githubactions&label=CI)](https://github.com/admonstrator/zettelrobbe/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-Live-0891b2?style=for-the-badge&logo=readthedocs)](https://zettelrob.be/)
 
 [🧠 What makes it "Next"](#-the-evolution-what-makes-it-next) | [💖 Fuel the Evolution](#-fuel-the-evolution) | [🚀 Quick Start](#-quick-start) | [💬 Frequently Asked Questions](#-frequently-asked-questions)
 
@@ -14,7 +17,7 @@
 
 ## 📊 At a Glance: Next vs. Original
 
-| Feature                                     | Paperless-AI | Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span> |
+| Feature                                     | Paperless-AI | Zettelrobbe |
 | ------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
 | **Core automation**                         |              |                                                                                             |
 | AI-based document classification            | ✅           | ✅                                                                                          |
@@ -91,7 +94,7 @@ Maintaining this solo, chasing bugs, and keeping up with the rapid pace of AI is
 
 **Data is sacred. Back it up.**
 
-Because **Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span>** introduces significant architectural improvements and new database logic, it's a "one-way street" evolution. Since I am cleaning up and optimizing the core logic plus adding new features, there is no guarantee of stability right now.
+Because **Zettelrobbe** introduces significant architectural improvements and new database logic, it's a "one-way street" evolution. Since I am cleaning up and optimizing the core logic plus adding new features, there is no guarantee of stability right now.
 
 > However, I develop this for my own production environment, so I have zero interest in breaking things. However, every server is different. **Please create a full backup of your Paperless-ngx**. If you're coming from the original version, a fresh install is often the cleanest path to document zen.
 
@@ -101,15 +104,15 @@ Because **Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weig
 
 ### Docker Compose (Recommended)
 
-Please check the docker variables [here](https://paperless-ai-next.admon.me/getting-started/configuration/#docker-environment-variables) for all configuration options.
+Please check the docker variables [here](https://zettelrob.be/getting-started/configuration/#docker-environment-variables) for all configuration options.
 
-> If you are using plain HTTP (like running **Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span>** locally on your NAS, your PC, or in your home network), make sure to set `COOKIE_SECURE_MODE=never` to avoid login issues! See [Configuration](https://paperless-ai-next.admon.me/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values) for details. Using a reverse proxy like Nginx or Caddy with HTTPS is highly recommended for security and performance, especially if you expose the service to the internet.
+> If you are using plain HTTP (like running **Zettelrobbe** locally on your NAS, your PC, or in your home network), make sure to set `COOKIE_SECURE_MODE=never` to avoid login issues! See [Configuration](https://zettelrob.be/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values) for details. Using a reverse proxy like Nginx or Caddy with HTTPS is highly recommended for security and performance, especially if you expose the service to the internet.
 
 ```yaml
 services:
-  paperless-ai-next:
-    image: admonstrator/paperless-ai-next:latest
-    container_name: paperless-ai-next
+  zettelrobbe:
+    image: admonstrator/zettelrobbe:latest
+    container_name: zettelrobbe
     restart: unless-stopped
     ports:
       - '3000:3000'
@@ -136,9 +139,9 @@ Then open [http://localhost:3000](http://localhost:3000) to complete setup.
 
 | Image Tag                               | Size        |
 | --------------------------------------- | ----------- |
-| `admonstrator/paperless-ai-next:latest` | ~500–700 MB |
+| `admonstrator/zettelrobbe:latest` | ~500–700 MB |
 
-**Docker Hub:** [admonstrator/paperless-ai-next](https://hub.docker.com/r/admonstrator/paperless-ai-next)
+**Docker Hub:** [admonstrator/zettelrobbe](https://hub.docker.com/r/admonstrator/zettelrobbe)
 
 Versioned release tags use the format `vYYYY.MM.##` (example: `v2026.03.01`).
 
@@ -154,11 +157,11 @@ Versioned release tags use the format `vYYYY.MM.##` (example: `v2026.03.01`).
 
 ### "So you don't read the code? Should I be worried?"
 
-I can read and understand code logic, but I don't write JavaScript from scratch myself. I treat AI like a talented, slightly erratic junior dev. I guide the architecture, I read and audit the logic of every line it generates, and I test the hell out of it. I am the filter. No "AI-slop" gets merged without passing my "Does this actually solve the problem?" test. Or at least, it doesn't stay merged if I encounter issues in production. You can learn more about the author's background and the AI-assisted development workflow on the [About the Project & Author](https://paperless-ai-next.admon.me/about/) page.
+I can read and understand code logic, but I don't write JavaScript from scratch myself. I treat AI like a talented, slightly erratic junior dev. I guide the architecture, I read and audit the logic of every line it generates, and I test the hell out of it. I am the filter. No "AI-slop" gets merged without passing my "Does this actually solve the problem?" test. Or at least, it doesn't stay merged if I encounter issues in production. You can learn more about the author's background and the AI-assisted development workflow on the [About the Project & Author](https://zettelrob.be/about/) page.
 
 ### "Why was RAG (semantic search/chat) support removed?"
 
-We decided to focus the project entirely on its core mission: highly reliable automated document tagging, correspondent detection, and custom field/metadata extraction. Running a secondary Python RAG container with a vector database (ChromaDB) added massive image sizes, high RAM requirements, and severe architectural overhead. For a detailed breakdown of this decision, check out the [RAG Deprecation page](https://paperless-ai-next.admon.me/rag-deprecation/).
+We decided to focus the project entirely on its core mission: highly reliable automated document tagging, correspondent detection, and custom field/metadata extraction. Running a secondary Python RAG container with a vector database (ChromaDB) added massive image sizes, high RAM requirements, and severe architectural overhead. For a detailed breakdown of this decision, check out the [RAG Deprecation page](https://zettelrob.be/rag-deprecation/).
 
 ### "What if I'm a 'real' developer and I find a bug?"
 
@@ -166,7 +169,7 @@ We decided to focus the project entirely on its core mission: highly reliable au
 
 ### "Why should I use this instead of the original project?"
 
-If the original works for you, stay there! But if you're tired of loading spinners, want better AI and OCR, then **Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span>** is for you. It's a more polished, more powerful, and more user-friendly evolution of the original vision.
+If the original works for you, stay there! But if you're tired of loading spinners, want better AI and OCR, then **Zettelrobbe** is for you. It's a more polished, more powerful, and more user-friendly evolution of the original vision.
 
 ### "Does this support [Specific Niche AI Provider]?"
 
@@ -176,7 +179,7 @@ If it's OpenAI-compatible, it probably works. If not, open an issue! Since I hav
 
 <div align="center">
 
-**Paperless-AI <span style="font-size: 0.62em; color: #2563eb; font-weight: 700;">next</span> is made with ❤️ by admon for the community**
+**Zettelrobbe is made with ❤️ by admon for the community**
 
 ⭐ If you find this useful, please star the repository!
 

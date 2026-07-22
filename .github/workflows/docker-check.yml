@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DOCKERHUB_REPO: admonstrator/paperless-ai-next
+  DOCKERHUB_REPO: admonstrator/zettelrobbe
 
 jobs:
   build:
@@ -43,8 +43,8 @@ jobs:
           file: ./Dockerfile.base
           push: false
           load: true
-          tags: paperless-ai-next:ci-base
+          tags: zettelrobbe:ci-base
           cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache-base-lite
 
       - name: Build app image on top of the freshly built base
-        run: docker build --build-arg BASE_IMAGE=paperless-ai-next:ci-base -t paperless-ai-next:ci .
+        run: docker build --build-arg BASE_IMAGE=zettelrobbe:ci-base -t zettelrobbe:ci .

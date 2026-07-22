@@ -7,9 +7,9 @@ const bundledOpenApiPath = path.join(__dirname, 'OPENAPI', 'openapi.json');
 const swaggerDefinition = {
   openapi: '3.0.0',
   info: {
-    title: 'Paperless-AI next API Documentation',
+    title: 'Zettelrobbe API Documentation',
     version: '1.0.0',
-    description: 'API documentation for the Paperless-AI next application',
+    description: 'API documentation for the Zettelrobbe application',
     license: {
       name: 'MIT',
       url: 'https://opensource.org/licenses/MIT',

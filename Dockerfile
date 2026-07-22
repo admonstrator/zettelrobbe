@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=admonstrator/paperless-ai-next:latest-base
+ARG BASE_IMAGE=admonstrator/zettelrobbe:latest-base
 FROM ${BASE_IMAGE}
 
 ARG PAPERLESS_AI_COMMIT_SHA=unknown

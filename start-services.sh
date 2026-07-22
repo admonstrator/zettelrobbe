@@ -7,5 +7,5 @@ set -euo pipefail
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 
 # Start the Node.js application
-echo "Starting Node.js Paperless-AI next service..."
+echo "Starting Node.js Zettelrobbe service..."
 pm2-runtime ecosystem.config.js

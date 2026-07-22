@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full<%= theme === 'dark' ? ' dark' : '' %>" data-theme="<%= theme || 'light' %>">
-<%- include('partials/shell/head-start', { pageTitle: 'Paperless-AI next Dashboard' }) %>
+<%- include('partials/shell/head-start', { pageTitle: 'Zettelrobbe Dashboard' }) %>
     <script src="/vendor/chart/chart.min.js"></script>
     <%- include('partials/shell/head-end') %>
         <%- include('partials/shell/body-open', { version: typeof version !=='undefined' ? version : '' , chatEnabled:
@@ -10,7 +10,7 @@
                     <h2 class="content-title">Dashboard Overview</h2>
                     <div class="content-header-actions">
                         <div id="updateNotification" class="hidden fixed bottom-4 right-4 z-50">
-                            <a href="https://github.com/admonstrator/paperless-ai-next/releases/" target="_blank"
+                            <a href="https://github.com/admonstrator/zettelrobbe/releases/" target="_blank"
                                 class="group flex items-center gap-3 bg-white px-4 py-3 rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition-all duration-300">
                                 <div class="flex items-center justify-center w-8 h-8 bg-blue-100 rounded-lg">
                                     <i class="fas fa-arrow-up text-blue-500"></i>
