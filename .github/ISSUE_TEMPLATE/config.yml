@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
 - name: Documentation
-  url: https://paperless-ai-next.admon.me/
+  url: https://zettelrob.be/
   about: Read setup, configuration, and feature docs before opening an issue.
 - name: Security Policy
-  url: https://paperless-ai-next.admon.me/security/
+  url: https://zettelrob.be/security/
   about: Please report security issues responsibly using the security policy guidance.

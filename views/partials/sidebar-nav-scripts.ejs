@@ -218,7 +218,7 @@
 
         async function getStarsCount() {
             try {
-                const response = await fetch('https://api.github.com/repos/admonstrator/paperless-ai-next');
+                const response = await fetch('https://api.github.com/repos/admonstrator/zettelrobbe');
                 if (!response.ok) {
                     throw new Error('Failed to fetch repo info');
                 }
@@ -273,7 +273,7 @@
                 steps: '1.\n2.\n3.\n4.',
                 expected: 'Describe expected behavior',
                 actual: 'Describe actual behavior',
-                logs: 'Paste relevant Paperless-AI next logs here.\n\nExample:\n`docker logs paperless-ai-next-1 --tail=200`',
+                logs: 'Paste relevant Zettelrobbe logs here.\n\nExample:\n`docker logs zettelrobbe --tail=200`',
                 traceback: 'Paste browser console errors or stack trace here (if applicable).',
                 app_version: '<%= appVersion || "unknown" %>',
                 app_commit: '<%= appCommitSha || "unknown" %>',
@@ -319,7 +319,7 @@
                 ].join('\n'))
             });
 
-            sidebarBugReportLink.href = `https://github.com/admonstrator/paperless-ai-next/issues/new?${issueParams.toString()}`;
+            sidebarBugReportLink.href = `https://github.com/admonstrator/zettelrobbe/issues/new?${issueParams.toString()}`;
         }
     });
 </script>

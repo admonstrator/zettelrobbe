@@ -54,7 +54,7 @@
 			steps: '1.\n2.\n3.\n4.',
 			expected: 'Describe expected behavior',
 			actual: 'Describe actual behavior',
-			logs: 'Paste relevant Paperless-AI next logs here.\n\nExample:\n`docker logs paperless-ai-next-1 --tail=200`',
+			logs: 'Paste relevant Zettelrobbe logs here.\n\nExample:\n`docker logs zettelrobbe --tail=200`',
 			traceback: 'Paste browser console errors or stack trace here (if applicable).',
 			app_version: supportInfo.appVersion || 'unknown',
 			app_commit: supportInfo.commitSha || 'unknown',
@@ -100,7 +100,7 @@
 			].join('\n'))
 		});
 
-		openPrefilledIssueBtn.href = `https://github.com/admonstrator/paperless-ai-next/issues/new?${issueParams.toString()}`;
+		openPrefilledIssueBtn.href = `https://github.com/admonstrator/zettelrobbe/issues/new?${issueParams.toString()}`;
 
 		if (!copyIssueDiagnosticsBtn) {
 			return;
@@ -108,7 +108,7 @@
 
 		copyIssueDiagnosticsBtn.addEventListener('click', async () => {
 			const diagnostics = [
-				'Paperless-AI next diagnostics',
+				'Zettelrobbe diagnostics',
 				`App Version: ${supportInfo.appVersion || 'unknown'}`,
 				`Commit SHA: ${supportInfo.commitSha || 'unknown'}`,
 				`Paperless-ngx Version: ${supportInfo.paperlessNgxVersion || 'unknown'}`,

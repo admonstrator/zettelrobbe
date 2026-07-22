@@ -1,7 +1,9 @@
 name: Docker Build and Push
 
 env:
-  DOCKERHUB_REPO: admonstrator/paperless-ai-next
+  DOCKERHUB_REPO: admonstrator/zettelrobbe
+  # Legacy image kept as a compatibility alias during the rename transition.
+  DOCKERHUB_REPO_LEGACY: admonstrator/paperless-ai-next
 
 # Least privilege by default; only publish-release needs write (see below).
 permissions:
@@ -166,7 +168,7 @@ jobs:
           docker pull ${{ env.DOCKERHUB_REPO }}:${VERSION_TAG}
           \`\`\`
 
-          **Full changelog:** https://github.com/Admonstrator/paperless-ai-next/commits/main" \
+          **Full changelog:** https://github.com/admonstrator/zettelrobbe/commits/main" \
             --latest
 
           echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
@@ -207,7 +209,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.DOCKERHUB_REPO }}
+          images: |
+            ${{ env.DOCKERHUB_REPO }}
+            ${{ env.DOCKERHUB_REPO_LEGACY }}
           tags: |
             type=raw,value=${{ needs.generate-version.outputs.version_tag }}
             type=raw,value=latest,enable=${{ inputs.also_tag_latest || github.event_name == 'push' }}
@@ -281,5 +285,5 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "**Repository:** [Admonstrator/paperless-ai-next](https://github.com/Admonstrator/paperless-ai-next)" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** [admonstrator/zettelrobbe](https://github.com/admonstrator/zettelrobbe)" >> $GITHUB_STEP_SUMMARY
           echo "**Docker Hub Repository:** \`${{ env.DOCKERHUB_REPO }}\`" >> $GITHUB_STEP_SUMMARY

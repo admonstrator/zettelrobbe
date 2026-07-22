@@ -29,7 +29,7 @@ on:
         type: boolean
 
 env:
-  DOCKERHUB_REPO: admonstrator/paperless-ai-next
+  DOCKERHUB_REPO: admonstrator/zettelrobbe
 
 permissions:
   contents: write

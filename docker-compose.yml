@@ -1,16 +1,16 @@
 services:
-  paperless-ai:
+  zettelrobbe:
     # Local workspace build (default)
     build:
       context: .
       dockerfile: Dockerfile
-    image: paperless-ai-next:local
+    image: zettelrobbe:local
     pull_policy: never
 
     # To use Docker Hub images instead, replace with:
-    # image: admonstrator/paperless-ai-next:latest
+    # image: admonstrator/zettelrobbe:latest
 
-    container_name: paperless-ai-next
+    container_name: zettelrobbe
     network_mode: bridge
     restart: unless-stopped
     cap_drop:
@@ -43,4 +43,6 @@ services:
       - paperless-ai-next_data:/app/data
 
 volumes:
+  # Name intentionally kept from the paperless-ai-next era so existing
+  # deployments keep their data after the Zettelrobbe rename.
   paperless-ai-next_data:

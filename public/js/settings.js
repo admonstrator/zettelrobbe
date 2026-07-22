@@ -3457,7 +3457,7 @@ class MfaSettingsManager {
   }
 
   getMfaTroubleshootingUrl() {
-    return 'https://paperless-ai-next.admon.me/getting-started/troubleshooting/#mfa-lockout-recovery';
+    return 'https://zettelrob.be/getting-started/troubleshooting/#mfa-lockout-recovery';
   }
 
   handleInvalidTotpAttempt() {
@@ -3851,7 +3851,7 @@ class MfaSettingsManager {
     }
 
     try {
-      const fileBase = this.username || 'paperless-ai-user';
+      const fileBase = this.username || 'zettelrobbe-user';
       const fileName = `${fileBase}-mfa-qr.png`;
       const link = document.createElement('a');
       link.href = qrDataUrl;
