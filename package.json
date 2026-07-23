@@ -68,7 +68,7 @@
     "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
-    "openai": "^6.47.0",
+    "openai": "^6.48.0",
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
