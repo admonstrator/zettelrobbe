@@ -1269,6 +1269,99 @@ class PaperlessService {
     }
   }
 
+  async searchDocuments(query, limit = 100, mode = 'all') {
+    this.initialize();
+
+    const safeLimit = Number.isInteger(Number(limit)) ? Math.max(1, Math.min(Number(limit), 200)) : 100;
+    const normalizedQuery = String(query || '').trim();
+
+    try {
+      // Explicit ID mode: exact lookup via GET /documents/{id}/
+      if (mode === 'id') {
+        const id = Number.parseInt(normalizedQuery, 10);
+        if (!Number.isInteger(id) || id < 1 || String(id) !== normalizedQuery) {
+          return [];
+        }
+
+        try {
+          const response = await this.client.get(`/documents/${id}/`);
+          const doc = response?.data;
+          if (!doc || doc.id == null) {
+            return [];
+          }
+          return [{
+            id: doc.id,
+            title: doc.title,
+            tags: doc.tags,
+            correspondent: doc.correspondent,
+            created: doc.created || doc.created_date || doc.added || null
+          }];
+        } catch (error) {
+          if (error?.response?.status !== 404) {
+            console.error(`[ERROR] searching document by id ${id}:`, error.message);
+          }
+          return [];
+        }
+      }
+
+      const params = {
+        fields: 'id,title,tags,correspondent,created',
+        page: 1,
+        page_size: safeLimit,
+        ordering: '-created'
+      };
+
+      if (mode === 'title') {
+        params.title__icontains = normalizedQuery;
+      } else if (mode === 'tags') {
+        const tagIds = await this._findTagIdsByPartialName(normalizedQuery);
+        if (!tagIds.length) return [];
+        params.tags__id__in = tagIds.join(',');
+      } else if (mode === 'correspondent') {
+        const corrIds = await this._findCorrespondentIdsByPartialName(normalizedQuery);
+        if (!corrIds.length) return [];
+        params.correspondent__id__in = corrIds.join(',');
+      } else {
+        params.query = normalizedQuery;
+      }
+
+      const response = await this.client.get('/documents/', { params });
+
+      if (!Array.isArray(response?.data?.results)) {
+        return [];
+      }
+
+      return response.data.results;
+    } catch (error) {
+      console.error('[ERROR] searching documents:', error.message);
+      return [];
+    }
+  }
+
+  async _findTagIdsByPartialName(query) {
+    try {
+      const response = await this.client.get('/tags/', {
+        params: { name__icontains: query, page_size: 50 }
+      });
+      return (response.data?.results || []).map(t => t.id);
+    } catch (error) {
+      console.error('[ERROR] searching tags by name:', error.message);
+      return [];
+    }
+  }
+
+  async _findCorrespondentIdsByPartialName(query) {
+    try {
+      const response = await this.client.get('/correspondents/', {
+        params: { name__icontains: query, page_size: 50 }
+      });
+      return (response.data?.results || []).map(c => c.id);
+    } catch (error) {
+      console.error('[ERROR] searching correspondents by name:', error.message);
+      return [];
+    }
+  }
+
   // Aktualisierte getDocuments Methode
   async getDocuments() {
     return this.getAllDocuments();
