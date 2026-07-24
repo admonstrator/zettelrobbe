@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
-    <title>Initial Setup - Paperless-AI next</title>
+    <title>Initial Setup - Zettelrobbe</title>
     <link rel="icon" type="image/webp" href="/favicon.webp">
     <%- include('partials/shell/theme-init-head') %>
     <script src="/vendor/tailwind/tailwindcss-3.4.16.js"></script>
@@ -29,8 +29,8 @@
         <section class="material-card setup-card w-full max-w-4xl" aria-labelledby="setupTitle">
             <header class="text-center mb-8">
                 <div class="flex flex-col items-center justify-center gap-3 mb-4">
-                    <img src="/favicon.webp" class="no-invert" alt="Paperless AI next Logo" style="height: 60px;">
-                    <h1 id="setupTitle" class="brand-title text-2xl">Paperless-AI<span class="text-sm font-semibold text-blue-700"> next</span></h1>
+                    <img src="/logo.png" class="no-invert" alt="Zettelrobbe Logo" style="height: 60px;">
+                    <h1 id="setupTitle" class="brand-title text-2xl">Zettelrobbe</h1>
                 </div>
                 <h2 class="text-2xl font-bold">Initial Installer</h2>
                 <p class="setup-subtitle">Complete each step to configure your instance.</p>
@@ -52,7 +52,7 @@
             <form id="setupWizardForm" class="space-y-6" novalidate>
                 <section class="setup-step is-active" data-step-index="0" data-step-title="Admin account">
                     <h3 class="setup-section-title"><i class="fas fa-user-shield"></i> Admin account</h3>
-                    <p class="setup-section-help">Create the initial Paperless-AI next administrator account.</p>
+                    <p class="setup-section-help">Create the initial Zettelrobbe administrator account.</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div class="space-y-2 md:col-span-2">
@@ -200,7 +200,7 @@
                         </div>
 
                         <div class="space-y-2">
-                            <label for="processedTag" class="text-sm font-medium">Tag applied after Paperless-AI finishes</label>
+                            <label for="processedTag" class="text-sm font-medium">Tag applied after Zettelrobbe finishes</label>
                             <div class="flex gap-2">
                                 <input id="processedTag" type="text" class="setup-input flex-1" list="paperlessTagsDatalist" placeholder="e.g. ai-processed" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>">
                             </div>

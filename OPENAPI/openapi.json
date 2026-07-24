@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Paperless-AI next API Documentation",
+    "title": "Zettelrobbe API Documentation",
     "version": "1.0.0",
-    "description": "API documentation for the Paperless-AI next application",
+    "description": "API documentation for the Zettelrobbe application",
     "license": {
       "name": "MIT",
       "url": "https://opensource.org/licenses/MIT"
@@ -458,7 +458,7 @@
     "/api-docs/openapi.json": {
       "get": {
         "summary": "Retrieve the OpenAPI specification",
-        "description": "Returns the complete OpenAPI specification for the Paperless-AI next API.\nThis endpoint attempts to serve a static OpenAPI JSON file first, falling back\nto dynamically generating the specification if the file cannot be read.\n\nThe OpenAPI specification document contains all API endpoints, parameters,\nrequest bodies, responses, and schemas for the entire application.\n",
+        "description": "Returns the complete OpenAPI specification for the Zettelrobbe API.\nThis endpoint attempts to serve a static OpenAPI JSON file first, falling back\nto dynamically generating the specification if the file cannot be read.\n\nThe OpenAPI specification document contains all API endpoints, parameters,\nrequest bodies, responses, and schemas for the entire application.\n",
         "tags": [
           "API",
           "System"
@@ -644,7 +644,7 @@
     "/login": {
       "get": {
         "summary": "Render login page or redirect to setup if no users exist",
-        "description": "Serves the login page for user authentication to the Paperless-AI next application.\nIf no users exist in the database, the endpoint automatically redirects to the setup page\nto complete the initial application configuration.\n\nThis endpoint handles both new user sessions and returning users whose\nsessions have expired.\n",
+        "description": "Serves the login page for user authentication to the Zettelrobbe application.\nIf no users exist in the database, the endpoint automatically redirects to the setup page\nto complete the initial application configuration.\n\nThis endpoint handles both new user sessions and returning users whose\nsessions have expired.\n",
         "tags": [
           "Authentication",
           "Navigation"
@@ -1161,7 +1161,7 @@
     "/history": {
       "get": {
         "summary": "Document history page",
-        "description": "Renders the document history page with filtering options.\nThis page displays a list of all documents that have been processed by Paperless-AI,\nshowing the changes made to the documents through AI processing.\n\nThe page includes filtering capabilities by correspondent, tag, and free text search,\nallowing users to easily find specific documents or categories of processed documents.\nEach entry includes links to the original document in Paperless-ngx.\n",
+        "description": "Renders the document history page with filtering options.\nThis page displays a list of all documents that have been processed by Zettelrobbe,\nshowing the changes made to the documents through AI processing.\n\nThe page includes filtering capabilities by correspondent, tag, and free text search,\nallowing users to easily find specific documents or categories of processed documents.\nEach entry includes links to the original document in Paperless-ngx.\n",
         "tags": [
           "History",
           "Navigation"
@@ -1213,7 +1213,7 @@
     "/api/history": {
       "get": {
         "summary": "Get processed document history",
-        "description": "Returns a paginated list of documents that have been processed by Paperless-AI.\nSupports filtering by tag, correspondent, and search term.\nDesigned for integration with DataTables jQuery plugin.\n\nThis endpoint provides comprehensive information about each processed document,\nincluding its metadata before and after AI processing, allowing users to track\nchanges made by the system.\n",
+        "description": "Returns a paginated list of documents that have been processed by Zettelrobbe.\nSupports filtering by tag, correspondent, and search term.\nDesigned for integration with DataTables jQuery plugin.\n\nThis endpoint provides comprehensive information about each processed document,\nincluding its metadata before and after AI processing, allowing users to track\nchanges made by the system.\n",
         "tags": [
           "History",
           "API"
@@ -1460,7 +1460,7 @@
     "/api/reset-all-documents": {
       "post": {
         "summary": "Reset all processed documents",
-        "description": "Deletes all processing records from the database, allowing documents to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Paperless-AI.\n\nThis operation can be useful when changing AI models or prompts, as it allows reprocessing\nall documents with the updated configuration.\n",
+        "description": "Deletes all processing records from the database, allowing documents to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.\n\nThis operation can be useful when changing AI models or prompts, as it allows reprocessing\nall documents with the updated configuration.\n",
         "tags": [
           "Documents",
           "API"
@@ -2092,7 +2092,7 @@
     "/api/reset-documents": {
       "post": {
         "summary": "Reset specific documents",
-        "description": "Deletes processing records for specific documents, allowing them to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Paperless-AI.\n\nThis operation is useful when you want to reprocess only selected documents after changes to\nthe AI model, prompt, or document metadata configuration.\n",
+        "description": "Deletes processing records for specific documents, allowing them to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.\n\nThis operation is useful when you want to reprocess only selected documents after changes to\nthe AI model, prompt, or document metadata configuration.\n",
         "tags": [
           "Documents",
           "API"
@@ -3185,7 +3185,7 @@
     "/api/webhook/document": {
       "post": {
         "summary": "Webhook for document updates",
-        "description": "Processes incoming webhook notifications from Paperless-ngx about document\nchanges, additions, or deletions. The webhook allows Paperless-AI next to respond\nto document changes in real-time.\n\nWhen a new document is added or updated in Paperless-ngx, this endpoint can\ntrigger automatic AI processing for metadata extraction.\n",
+        "description": "Processes incoming webhook notifications from Paperless-ngx about document\nchanges, additions, or deletions. The webhook allows Zettelrobbe to respond\nto document changes in real-time.\n\nWhen a new document is added or updated in Paperless-ngx, this endpoint can\ntrigger automatic AI processing for metadata extraction.\n",
         "tags": [
           "Documents",
           "API",
@@ -3451,7 +3451,7 @@
       },
       "post": {
         "summary": "Update application settings",
-        "description": "Updates the configuration settings of the Paperless-AI next application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx,\nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n",
+        "description": "Updates the configuration settings of the Zettelrobbe application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx,\nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n",
         "tags": [
           "System",
           "Setup"

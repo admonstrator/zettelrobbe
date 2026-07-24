@@ -1,7 +1,9 @@
 name: Docker Nightly Full Pipeline
 
 env:
-  DOCKERHUB_REPO: admonstrator/paperless-ai-next
+  DOCKERHUB_REPO: admonstrator/zettelrobbe
+  # Legacy image kept as a compatibility alias during the rename transition.
+  DOCKERHUB_REPO_LEGACY: admonstrator/paperless-ai-next
 
 # Pushes only to Docker Hub (via secrets); no GitHub write needed.
 permissions:
@@ -81,7 +83,9 @@ jobs:
           context: .
           file: ./Dockerfile.base
           push: true
-          tags: ${{ env.DOCKERHUB_REPO }}:nightly-base
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:nightly-base
+            ${{ env.DOCKERHUB_REPO_LEGACY }}:nightly-base
           platforms: ${{ inputs.build_arm64 && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache-base-nightly
           cache-to: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache-base-nightly,mode=min
@@ -119,7 +123,9 @@ jobs:
             BASE_IMAGE=${{ env.DOCKERHUB_REPO }}:nightly-base
             PAPERLESS_AI_COMMIT_SHA=${{ github.sha }}
           push: true
-          tags: ${{ env.DOCKERHUB_REPO }}:nightly
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:nightly
+            ${{ env.DOCKERHUB_REPO_LEGACY }}:nightly
           platforms: ${{ inputs.build_arm64 && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache-app-nightly
           cache-to: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache-app-nightly,mode=min

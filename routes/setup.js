@@ -234,7 +234,7 @@ async function removeThumbnailCacheForDocumentIds(ids) {
  * Rate limiter for cache clearing operations
  * Prevents abuse of cache invalidation endpoints by limiting requests to 10 per 15 minutes per IP
  *
- * @see https://github.com/admonstrator/paperless-ai-next/security/code-scanning/143
+ * @see https://github.com/admonstrator/zettelrobbe/security/code-scanning/143
  */
 const cacheClearLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -455,7 +455,7 @@ router.use(async (req, res, next) => {
         '<h1>403 – Remote Setup Access Denied</h1>' +
         '<p>Initial setup is only accessible from localhost by default.</p>' +
         '<p>Set <code>ALLOW_REMOTE_SETUP=yes</code> to enable remote access, ' +
-        'or connect from the machine running paperless-ai-next.</p>' +
+        'or connect from the machine running zettelrobbe.</p>' +
         '</body></html>'
     );
 });
@@ -552,7 +552,7 @@ const protectApiRoute = (req, res, next) => {
  *   get:
  *     summary: Render login page or redirect to setup if no users exist
  *     description: |
- *       Serves the login page for user authentication to the Paperless-AI next application.
+ *       Serves the login page for user authentication to the Zettelrobbe application.
  *       If no users exist in the database, the endpoint automatically redirects to the setup page
  *       to complete the initial application configuration.
  *
@@ -652,7 +652,7 @@ function generateBase32Secret(length = 32) {
 }
 
 function buildOtpAuthUri(secret, username) {
-  const issuer = 'Paperless-AI next';
+  const issuer = 'Zettelrobbe';
   const accountLabel = `${issuer}:${username}`;
   const params = new URLSearchParams({
     secret,
@@ -1383,7 +1383,7 @@ router.get('/thumb/:documentId', isAuthenticated, async (req, res) => {
  *     summary: Document history page
  *     description: |
  *       Renders the document history page with filtering options.
- *       This page displays a list of all documents that have been processed by Paperless-AI,
+ *       This page displays a list of all documents that have been processed by Zettelrobbe,
  *       showing the changes made to the documents through AI processing.
  *
  *       The page includes filtering capabilities by correspondent, tag, and free text search,
@@ -1440,7 +1440,7 @@ router.get('/history', async (req, res) => {
  *   get:
  *     summary: Get processed document history
  *     description: |
- *       Returns a paginated list of documents that have been processed by Paperless-AI.
+ *       Returns a paginated list of documents that have been processed by Zettelrobbe.
  *       Supports filtering by tag, correspondent, and search term.
  *       Designed for integration with DataTables jQuery plugin.
  *
@@ -1787,7 +1787,7 @@ router.get('/api/history', isAuthenticated, async (req, res) => {
  *     summary: Reset all processed documents
  *     description: |
  *       Deletes all processing records from the database, allowing documents to be processed again.
- *       This doesn't delete the actual documents from Paperless-ngx, only their processing status in Paperless-AI.
+ *       This doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.
  *
  *       This operation can be useful when changing AI models or prompts, as it allows reprocessing
  *       all documents with the updated configuration.
@@ -2651,7 +2651,7 @@ router.post(
  *     summary: Reset specific documents
  *     description: |
  *       Deletes processing records for specific documents, allowing them to be processed again.
- *       This doesn't delete the actual documents from Paperless-ngx, only their processing status in Paperless-AI.
+ *       This doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.
  *
  *       This operation is useful when you want to reprocess only selected documents after changes to
  *       the AI model, prompt, or document metadata configuration.
@@ -5938,7 +5938,7 @@ async function rescanDocumentsByIds(ids) {
  *     summary: Webhook for document updates
  *     description: |
  *       Processes incoming webhook notifications from Paperless-ngx about document
- *       changes, additions, or deletions. The webhook allows Paperless-AI next to respond
+ *       changes, additions, or deletions. The webhook allows Zettelrobbe to respond
  *       to document changes in real-time.
  *
  *       When a new document is added or updated in Paperless-ngx, this endpoint can
@@ -7723,7 +7723,7 @@ router.get('/health', async (req, res) => {
  *   post:
  *     summary: Update application settings
  *     description: |
- *       Updates the configuration settings of the Paperless-AI next application after initial setup.
+ *       Updates the configuration settings of the Zettelrobbe application after initial setup.
  *       This endpoint allows administrators to modify connections to Paperless-ngx,
  *       AI provider settings, processing parameters, and feature toggles.
  *

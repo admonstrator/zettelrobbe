@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full<%= theme === 'dark' ? ' dark' : '' %>" data-theme="<%= theme || 'light' %>">
-<%- include('partials/shell/head-start', { pageTitle: 'Paperless-AI next Dashboard' }) %>
+<%- include('partials/shell/head-start', { pageTitle: 'Zettelrobbe Dashboard' }) %>
     <script src="/vendor/chart/chart.min.js"></script>
     <script src="/vendor/popper/popper.min.js"></script>
     <script src="/vendor/tippy/tippy-bundle.umd.min.js"></script>
@@ -850,7 +850,7 @@
                                         <p class="text-xs text-gray-500">ENV: MIN_CONTENT_LENGTH · Restart required</p>
                                     </div>
                                     <div class="space-y-2">
-                                        <label for="paperlessAiPort" class="text-sm font-medium">Paperless-AI Port</label>
+                                        <label for="paperlessAiPort" class="text-sm font-medium">Zettelrobbe Port</label>
                                         <input type="number" id="paperlessAiPort" name="paperlessAiPort" value="<%= config.PAPERLESS_AI_PORT || 3000 %>" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <p class="text-xs text-gray-500">ENV: PAPERLESS_AI_PORT · Restart required</p>
                                     </div>

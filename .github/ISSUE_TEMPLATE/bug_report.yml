@@ -1,5 +1,5 @@
 name: "🐞 Bug report"
-description: "Report a reproducible bug in Paperless-AI next"
+description: "Report a reproducible bug in Zettelrobbe"
 title: "[Bug]: "
 labels: [ "bug", "triage" ]
 
@@ -52,10 +52,10 @@ body:
   id: logs
   attributes:
     label: Relevant logs
-    description: Paste Paperless-AI next logs (and Paperless-ngx logs if relevant).
+    description: Paste Zettelrobbe logs (and Paperless-ngx logs if relevant).
     render: shell
     placeholder: |
-      docker logs paperless-ai-next-1 --tail=200
+      docker logs zettelrobbe --tail=200
       ...
   validations:
     required: true
@@ -70,7 +70,7 @@ body:
 - type: input
   id: app_version
   attributes:
-    label: Paperless-AI next version
+    label: Zettelrobbe version
     description: Version shown in the app/footer or image tag used.
     placeholder: "e.g. v2026.03.01"
   validations:
@@ -79,7 +79,7 @@ body:
 - type: input
   id: app_commit
   attributes:
-    label: Paperless-AI next commit
+    label: Zettelrobbe commit
     description: Commit SHA shown in About/footer (if available).
     placeholder: "e.g. a1b2c3d4"
 

@@ -370,7 +370,7 @@ app.use((req, res, next) => {
         if (req.method === 'POST' && req.path === '/login') {
           const baseError = 'Invalid CSRF token. The login page may have expired or your browser did not send the CSRF cookie.';
           const guidance = res.locals.loginCookieSecurityWarning
-            ? ' This is commonly caused by HTTP access with secure cookies enabled. Set COOKIE_SECURE_MODE=never for local HTTP and restart, or switch to HTTPS. See: https://paperless-ai-next.admon.me/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values'
+            ? ' This is commonly caused by HTTP access with secure cookies enabled. Set COOKIE_SECURE_MODE=never for local HTTP and restart, or switch to HTTPS. See: https://zettelrob.be/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values'
             : ' Refresh the login page and try again.';
 
           return res.status(403).render('login', {
@@ -413,7 +413,7 @@ if (isApiDocsEnabled) {
    *   get:
    *     summary: Retrieve the OpenAPI specification
    *     description: |
-   *       Returns the complete OpenAPI specification for the Paperless-AI next API.
+   *       Returns the complete OpenAPI specification for the Zettelrobbe API.
    *       This endpoint attempts to serve a static OpenAPI JSON file first, falling back
    *       to dynamically generating the specification if the file cannot be read.
    *       
@@ -560,7 +560,7 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
   // Check if the document can be edited.
   const documentEditable = await paperlessService.getPermissionOfDocument(doc.id);
   if (!documentEditable) {
-    console.debug(`Document ${doc.id} is not editable by the Paperless-AI user, skipping analysis`);
+    console.debug(`Document ${doc.id} is not editable by the Zettelrobbe user, skipping analysis`);
     return null;
   }
 

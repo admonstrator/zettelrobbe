@@ -15,7 +15,7 @@ on:
         type: boolean
 
 env:
-  DOCKERHUB_REPO: admonstrator/paperless-ai-next
+  DOCKERHUB_REPO: admonstrator/zettelrobbe
   KEEP_COUNT: ${{ inputs.keep_count || '5' }}
 
 # Operates only on Docker Hub (via secrets); no GitHub write needed.

@@ -4,7 +4,7 @@ const documentModel = require('../models/document.js');
 
 function printUsage() {
   console.log(`
-Paperless-AI MFA reset CLI
+Zettelrobbe MFA reset CLI
 
 Usage:
   node scripts/mfa-reset.js --list
