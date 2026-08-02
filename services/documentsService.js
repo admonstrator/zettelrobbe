@@ -34,9 +34,13 @@ class DocumentsService {
     return Object.fromEntries(correspondentEntries);
   }
 
-  async getDocumentsWithMetadata(limit = 16) {
+  async getDocumentsWithMetadata(limit = 16, query = '', mode = 'all') {
     const safeLimit = Number.isInteger(Number(limit)) ? Math.max(1, Math.min(Number(limit), 200)) : 16;
-    const documents = await paperlessService.getRecentDocumentsWithMetadata(safeLimit);
+    const normalizedQuery = String(query || '').trim();
+
+    const documents = normalizedQuery
+      ? await paperlessService.searchDocuments(normalizedQuery, safeLimit, mode)
+      : await paperlessService.getRecentDocumentsWithMetadata(safeLimit);
 
     const tagIds = documents.flatMap((document) => Array.isArray(document.tags) ? document.tags : []);
     const correspondentIds = documents

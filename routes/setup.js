@@ -1129,8 +1129,8 @@ router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
  * @swagger
  * /api/chat/documents:
  *   get:
- *     summary: Search recent documents for omnibox selectors
- *     description: Returns recent documents filtered by query for Manual/OCR document selectors.
+ *     summary: Search documents for omnibox selectors
+ *     description: Searches Paperless-ngx documents for Manual/OCR document selectors.
  *     tags:
  *       - Documents
  *       - API
@@ -1142,7 +1142,14 @@ router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
  *         name: q
  *         schema:
  *           type: string
- *         description: Free-text query matched against document id, title, and correspondent name.
+ *         description: Search query. For mode=id this must be a positive integer document ID.
+ *       - in: query
+ *         name: mode
+ *         schema:
+ *           type: string
+ *           enum: [all, title, tags, correspondent, id]
+ *           default: all
+ *         description: Search mode (id uses exact Paperless document ID lookup).
  *       - in: query
  *         name: limit
  *         schema:
@@ -1183,9 +1190,8 @@ router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
  */
 router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
   try {
-    const query = String(req.query?.q || '')
-      .trim()
-      .toLowerCase();
+    // Keep original casing for Paperless-ngx search; server-side search via query.
+    const query = String(req.query?.q || '').trim();
     const requestedLimit = Number.parseInt(
       String(req.query?.limit || '100'),
       10
@@ -1193,9 +1199,11 @@ router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(Math.max(requestedLimit, 1), 200)
       : 100;
+    const validModes = ['all', 'title', 'tags', 'correspondent', 'id'];
+    const mode = validModes.includes(req.query?.mode) ? req.query.mode : 'all';
 
-    const { documents, correspondentNames } =
-      await documentsService.getDocumentsWithMetadata(limit);
+    const { documents, tagNames, correspondentNames } =
+      await documentsService.getDocumentsWithMetadata(limit, query, mode);
 
     const normalizedDocuments = (Array.isArray(documents) ? documents : []).map(
       (doc) => {
@@ -1204,32 +1212,24 @@ router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
           ? correspondentNames?.[correspondentId] || ''
           : '';
 
+        const resolvedTags = (Array.isArray(doc?.tags) ? doc.tags : [])
+          .map((id) => tagNames?.[id])
+          .filter(Boolean);
+
         return {
           id: doc?.id,
           title: doc?.title || '',
           created: doc?.created || doc?.created_date || doc?.added || null,
           correspondent: correspondentName,
+          tags: resolvedTags,
         };
       }
     );
 
-    const filteredDocuments = query
-      ? normalizedDocuments.filter((doc) => {
-          const idMatches = String(doc.id || '').includes(query);
-          const titleMatches = String(doc.title || '')
-            .toLowerCase()
-            .includes(query);
-          const correspondentMatches = String(doc.correspondent || '')
-            .toLowerCase()
-            .includes(query);
-          return idMatches || titleMatches || correspondentMatches;
-        })
-      : normalizedDocuments;
-
     return res.json({
       success: true,
       data: {
-        documents: filteredDocuments.slice(0, limit),
+        documents: normalizedDocuments.slice(0, limit),
       },
     });
   } catch (error) {
@@ -8978,6 +8978,17 @@ router.get('/api/ocr/queue', isAuthenticated, async (req, res) => {
  *       500:
  *         description: Server error
  */
+
+// API: Get all document IDs currently in the OCR queue
+router.get('/api/ocr/queue/ids', isAuthenticated, async (req, res) => {
+  try {
+    const ids = await documentModel.getOcrQueueDocumentIds();
+    return res.json({ success: true, ids });
+  } catch (error) {
+    console.error('[ERROR] GET /api/ocr/queue/ids:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // API: Add a document manually to OCR queue
 router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {

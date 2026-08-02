@@ -88,13 +88,16 @@
             resultItemClass: config.resultItemClass || 'search-result-item',
             resultTitleClass: config.resultTitleClass || 'search-result-title',
             resultMetaClass: config.resultMetaClass || 'search-result-meta',
-            resultPillClass: config.resultPillClass || 'search-result-pill'
+            resultPillClass: config.resultPillClass || 'search-result-pill',
+            filterResults: typeof config.filterResults === 'function' ? config.filterResults : null,
+            multiSelect: !!config.multiSelect
         };
 
         let debounceTimer = null;
         let searchController = null;
         let searchResults = [];
         let activeResultIndex = -1;
+        let searchMode = 'all';
 
         function cancelPendingSearch() {
             if (debounceTimer) {
@@ -134,8 +137,31 @@
             });
         }
 
+        function removeResultRow(doc) {
+            const idx = searchResults.indexOf(doc);
+            if (idx === -1) return;
+            searchResults.splice(idx, 1);
+            const items = resultsElement.querySelectorAll(`.${settings.resultItemClass}`);
+            if (items[idx]) items[idx].remove();
+            if (activeResultIndex >= searchResults.length) {
+                activeResultIndex = searchResults.length - 1;
+            }
+            if (!searchResults.length) {
+                resultsElement.classList.add('hidden');
+                setStatus(settings.noResultsMessage, false);
+            }
+        }
+
         function selectDocument(doc, context) {
             if (!doc) return null;
+
+            if (settings.multiSelect) {
+                if (typeof config.onSelect === 'function') {
+                    config.onSelect(doc, context || { trigger: 'select' });
+                }
+                removeResultRow(doc);
+                return doc;
+            }
 
             cancelPendingSearch();
 
@@ -184,6 +210,14 @@
                 item.appendChild(titleElement);
                 item.appendChild(metaRow);
 
+                const tags = Array.isArray(doc && doc.tags) ? doc.tags : [];
+                if (tags.length) {
+                    const tagRow = document.createElement('div');
+                    tagRow.className = settings.resultMetaClass;
+                    tags.forEach(tag => tagRow.appendChild(createMetaPill(tag, 'tag')));
+                    item.appendChild(tagRow);
+                }
+
                 item.addEventListener('mousedown', (event) => {
                     event.preventDefault();
                     selectDocument(doc, { trigger: 'mouse' });
@@ -226,6 +260,7 @@
 
             const params = new URLSearchParams({
                 q: normalizedSearchTerm,
+                mode: searchMode,
                 limit: String(settings.limit)
             });
 
@@ -242,9 +277,13 @@
                 }
 
                 const payload = await response.json();
-                const documents = Array.isArray(payload && payload.data && payload.data.documents)
+                let documents = Array.isArray(payload && payload.data && payload.data.documents)
                     ? payload.data.documents
                     : [];
+
+                if (settings.filterResults) {
+                    documents = settings.filterResults(documents);
+                }
 
                 if (showResults) {
                     renderResults(documents);
@@ -334,7 +373,8 @@
             selectActiveResult,
             setStatus,
             getSelectedDocumentId: () => hiddenInput.value.trim(),
-            setSelectedDocument: selectDocument
+            setSelectedDocument: selectDocument,
+            setSearchMode: (mode) => { searchMode = mode; }
         };
     }
 
