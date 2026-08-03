@@ -65,7 +65,7 @@
     "dotenv": "^17.4.2",
     "ejs": "^6.0.1",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.5.2",
+    "express-rate-limit": "^8.6.1",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
     "openai": "^6.47.0",
@@ -79,7 +79,7 @@
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-jsdoc": "^63.0.13",
-    "globals": "^17.7.0",
+    "globals": "^17.8.0",
     "nodemon": "^3.1.9",
     "prettier": "^3.9.5"
   },
