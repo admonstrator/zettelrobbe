@@ -54,10 +54,19 @@ const RELEASES = [
   {
     version: 'v2026.07.04',
     entries: [
-      'Fix: Quickstart OCR detection now suggests and lists dedicated OCR models (e.g. Mistral\'s mistral-ocr-latest) instead of requiring vision-capable naming, in both the Setup Wizard and Settings page',
+      "Fix: Quickstart OCR detection now suggests and lists dedicated OCR models (e.g. Mistral's mistral-ocr-latest) instead of requiring vision-capable naming, in both the Setup Wizard and Settings page",
       'Fix: Setup wizard no longer leaves a stale AI provider selected when switching from Quickstart to manual AI configuration',
       'Fix: AI response/prompt log files resolve relative to the working directory on native (non-Docker) installs',
       'Improvement: Quickstart\'s "use this service for OCR" option is now a proper ON/OFF switch, matching the rest of the settings UI',
+    ],
+  },
+  {
+    version: 'v2026.08.01',
+    entries: [
+      'Fix: Document scanning no longer stops permanently when Paperless-ngx is unreachable at startup - the schedule is armed regardless, retries during startup, and recovers on its own without a restart',
+      'Fix: RECONCILIATION_ENABLED=no now actually disables automatic reconciliation',
+      'Improvement: The /health endpoint reports scanner state and answers 503 while document scanning is degraded, so monitoring can detect a stalled scan loop <a href="https://zettelrob.be/getting-started/monitoring/" target="_blank" rel="noopener">(see here)</a>',
+      'Improvement: The dashboard shows a warning banner while document scanning is not working',
     ],
   },
 ];
