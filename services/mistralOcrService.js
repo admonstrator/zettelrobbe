@@ -373,6 +373,29 @@ class MistralOcrService {
   }
 
   /**
+   * Rejects a vision response that stopped at the token limit.
+   *
+   * Both local endpoints report this the same way: OpenAI-compatible servers
+   * set `choices[0].finish_reason` to `length`, Ollama sets `done_reason`.
+   * The text that comes back is a page cut off mid-sentence, and the caller
+   * writes its result into the Paperless-ngx `content` field — so accepting it
+   * would replace a document's text with a fragment. A truncated answer is an
+   * error, and the strategy loop can fall back to the other endpoint.
+   *
+   * @param {unknown} finishReason - the provider's stop reason
+   * @param {string} endpointLabel - which endpoint answered, for the message
+   * @throws {Error} when the response was cut short
+   */
+  _assertLocalOcrNotTruncated(finishReason, endpointLabel) {
+    if (String(finishReason || '').toLowerCase() === 'length') {
+      throw new Error(
+        `${endpointLabel} OCR response was cut off at the token limit (stop reason "length"); ` +
+          'refusing to use a truncated page as document text'
+      );
+    }
+  }
+
+  /**
    * Run a single image through the local vision model, trying the
    * OpenAI-compatible and Ollama-native endpoints in the detected order.
    * @param {string} imageBase64
@@ -429,12 +452,18 @@ class MistralOcrService {
         }
       );
 
+    const readOpenAiLikeText = (response) => {
+      this._assertLocalOcrNotTruncated(
+        response?.data?.choices?.[0]?.finish_reason,
+        'OpenAI-compatible'
+      );
+      return String(response.data?.choices?.[0]?.message?.content || '').trim();
+    };
+
     const runOpenAiLikeWithFallback = async (targetApiUrl) => {
       try {
         const response = await runOpenAiLikeRequest(targetApiUrl, imageDataUrl);
-        return String(
-          response.data?.choices?.[0]?.message?.content || ''
-        ).trim();
+        return readOpenAiLikeText(response);
       } catch (error) {
         const providerMessage = String(
           error?.response?.data?.error?.message ||
@@ -453,9 +482,7 @@ class MistralOcrService {
             targetApiUrl,
             imageBase64
           );
-          return String(
-            response.data?.choices?.[0]?.message?.content || ''
-          ).trim();
+          return readOpenAiLikeText(response);
         }
 
         throw error;
@@ -489,6 +516,7 @@ class MistralOcrService {
         }
       );
 
+      this._assertLocalOcrNotTruncated(response?.data?.done_reason, 'Ollama');
       return String(response.data?.message?.content || '').trim();
     };
 
@@ -801,6 +829,21 @@ class MistralOcrService {
           cause: ocrErr,
         });
       }
+
+      // The write-back below PATCHes this string into the Paperless-ngx
+      // `content` field, which already holds whatever Paperless-ngx extracted
+      // itself. An empty or blank result — a page without recognisable text, a
+      // degraded provider — would therefore not add text but erase it, with no
+      // copy anywhere to restore from. Nothing to write is a failed OCR run,
+      // not a successful one, so it stops here and the item stays in the queue
+      // as failed for a retry with different settings.
+      ocrText = typeof ocrText === 'string' ? ocrText : String(ocrText ?? '');
+      if (ocrText.trim().length === 0) {
+        throw new Error(
+          'OCR returned no text; refusing to overwrite document content'
+        );
+      }
+
       const previewLen = Math.min(ocrText.length, 120);
       emit('ocr', `OCR complete. Extracted ${ocrText.length} characters.`, {
         preview: ocrText.substring(0, previewLen),

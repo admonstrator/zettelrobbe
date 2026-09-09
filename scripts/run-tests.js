@@ -121,6 +121,7 @@ const TESTS = {
     'test-thumbnail-cache-path-sanitization.js',
   'url-base-validation': 'test-url-base-validation.js',
   'rescan-fetch-before-delete': 'test-rescan-fetch-before-delete.js',
+  'ocr-empty-result-guard': 'test-ocr-empty-result-guard.js',
 };
 
 const AREAS = {
@@ -145,6 +146,7 @@ const AREAS = {
     'poppler-render-real',
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
+    'ocr-empty-result-guard',
   ],
   observability: [
     'changelog-releases',
