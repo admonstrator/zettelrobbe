@@ -121,6 +121,7 @@ const TESTS = {
     'test-thumbnail-cache-path-sanitization.js',
   'url-base-validation': 'test-url-base-validation.js',
   'session-token-type': 'test-session-token-type.js',
+  'setup-complete-guard': 'test-setup-complete-guard.js',
 };
 
 const AREAS = {
@@ -217,6 +218,7 @@ const AREAS = {
     'thumbnail-cache-path-sanitization',
     'url-base-validation',
     'session-token-type',
+    'setup-complete-guard',
   ],
 };
 

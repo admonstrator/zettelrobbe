@@ -515,19 +515,20 @@ router.use(async (req, res, next) => {
   try {
     const isConfigured = await setupService.isConfigured();
 
-    if (
-      !isConfigured &&
-      (!process.env.PAPERLESS_AI_INITIAL_SETUP ||
-        process.env.PAPERLESS_AI_INITIAL_SETUP === 'no') &&
-      !req.path.startsWith('/setup')
-    ) {
-      return res.redirect('/setup');
-    } else if (
-      !isConfigured &&
-      process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes' &&
-      !req.path.startsWith('/settings')
-    ) {
-      return res.redirect('/settings');
+    if (!isConfigured) {
+      // The wizard is only for an empty instance. Once an administrator
+      // exists, an incomplete configuration is an administration job, so send
+      // the signed-in user to /settings instead of to the closed wizard —
+      // PAPERLESS_AI_INITIAL_SETUP=yes has always done exactly that.
+      const hasUsers = await hasAnyUser();
+
+      if (hasUsers || process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes') {
+        if (!req.path.startsWith('/settings')) {
+          return res.redirect('/settings');
+        }
+      } else if (!req.path.startsWith('/setup')) {
+        return res.redirect('/setup');
+      }
     }
   } catch (error) {
     console.error('Error checking setup configuration:', error);
@@ -560,6 +561,18 @@ const protectApiRoute = (req, res, next) => {
   req.user = decoded;
   next();
 };
+
+/**
+ * True when the request carries a usable session token. For public routes such
+ * as /setup, which run before any guard has looked at the request and therefore
+ * never see req.user.
+ */
+function hasValidSession(req) {
+  const jwtSecret = config.getJwtSecret();
+  const token = req.cookies?.jwt || req.headers.authorization?.split(' ')[1];
+
+  return Boolean(jwtSecret && token && verifySessionToken(token, jwtSecret));
+}
 
 /**
  * @swagger
@@ -3662,22 +3675,47 @@ function getDefaultScanInterval() {
   return process.env.SCAN_INTERVAL || '*/30 * * * *';
 }
 
-async function isInitialSetupOpen() {
-  const [isEnvConfigured, users] = await Promise.all([
-    setupService.isConfigured(),
-    documentModel.getUsers(),
-  ]);
+/* The answer only ever flips once, from "no users" to "users exist": the setup
+   wizard is the only thing that creates the first account, and addUser() never
+   leaves the table empty. Caching the positive answer keeps the global guard,
+   which asks on every single request, from hitting SQLite each time. The
+   negative answer is not cached, so a fresh instance still notices the moment
+   the wizard finishes. */
+let cachedUsersExist = false;
 
-  const hasUsers = Array.isArray(users) && users.length > 0;
-  return !(isEnvConfigured && hasUsers);
+async function hasAnyUser() {
+  if (cachedUsersExist) {
+    return true;
+  }
+
+  const users = await documentModel.getUsers();
+  cachedUsersExist = Array.isArray(users) && users.length > 0;
+  return cachedUsersExist;
 }
 
-async function ensureSetupOpenOrRespond(res) {
+/**
+ * True only while the instance has no administrator account.
+ *
+ * Deliberately independent of setupService.isConfigured(): an incomplete
+ * configuration used to reopen the wizard on an instance that already had an
+ * admin, and an unauthenticated POST /api/setup/complete then replaced that
+ * admin (addUser() runs DELETE FROM users first) and repointed the
+ * Paperless-ngx connection. Missing configuration is now an administration
+ * job, handled in /settings by a signed-in user.
+ */
+async function isInitialSetupOpen() {
+  return !(await hasAnyUser());
+}
+
+async function ensureSetupOpenOrRespond(
+  res,
+  error = 'Initial setup is already complete.'
+) {
   const setupOpen = await isInitialSetupOpen();
   if (!setupOpen) {
     res.status(403).json({
       success: false,
-      error: 'Initial setup is already complete.',
+      error,
     });
     return false;
   }
@@ -4503,19 +4541,21 @@ async function detectQuickstartForSetup({
  *       - System
  *     responses:
  *       200:
- *         description: Setup page rendered successfully
+ *         description: Setup page rendered successfully (only while no administrator account exists)
  *         content:
  *           text/html:
  *             schema:
  *               type: string
  *               description: HTML content of the application setup page
  *       302:
- *         description: Redirects to dashboard if setup is already complete
+ *         description: >
+ *           Redirects away from the wizard once an administrator account
+ *           exists - to /settings for a signed-in request, otherwise to /login.
  *         headers:
  *           Location:
  *             schema:
  *               type: string
- *               example: "/dashboard"
+ *               example: "/login"
  *       500:
  *         description: Server error
  *         content:
@@ -4525,6 +4565,15 @@ async function detectQuickstartForSetup({
  */
 router.get('/setup', async (req, res) => {
   try {
+    // SECURITY: the wizard creates the administrator account and rewrites the
+    // Paperless-ngx connection without asking for credentials, so it must never
+    // be reachable once an account exists — not even with a broken
+    // configuration. A signed-in operator gets the settings page, everyone else
+    // gets the login form.
+    if (await hasAnyUser()) {
+      return res.redirect(hasValidSession(req) ? '/settings' : '/login');
+    }
+
     // SECURITY: Check setup state first to detect degraded conditions
     const setupState = await setupService.getSetupState();
 
@@ -5499,10 +5548,26 @@ router.post(
  *     responses:
  *       200:
  *         description: Setup completed successfully
+ *       403:
+ *         description: >
+ *           An administrator account already exists. The wizard is closed for
+ *           good on this instance; nothing is validated, written or replaced.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/api/setup/complete', express.json(), async (req, res) => {
   try {
-    if (!(await ensureSetupOpenOrRespond(res))) {
+    // Before any validation and long before saveConfig()/addUser(): completing
+    // setup a second time would delete the existing administrator and repoint
+    // the Paperless-ngx connection, unauthenticated.
+    if (
+      !(await ensureSetupOpenOrRespond(
+        res,
+        'An administrator account already exists. Sign in and use /settings instead.'
+      ))
+    ) {
       return;
     }
 
@@ -6730,7 +6795,9 @@ router.get('/settings', async (req, res) => {
       return isOverwritten;
     })
   );
-  if (!isConfigured && process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes') {
+  // An incomplete configuration now always lands here rather than reopening the
+  // setup wizard, so say why - not only in the PAPERLESS_AI_INITIAL_SETUP case.
+  if (!isConfigured) {
     showErrorCheckSettings = true;
   }
   let config = {
