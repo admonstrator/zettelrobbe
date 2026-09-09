@@ -1133,7 +1133,8 @@ class PaperlessService {
    * of a document as "deleted in Paperless-ngx" and removes the local history,
    * so a 502 on page 2 or a refused connection used to look like a shrunken
    * archive and wiped rows for documents that were never gone. Those callers
-   * pass `strict: true` and get an error instead of a half list.
+   * pass `strict: true` and get an error instead of a half list: on a page
+   * error, on a malformed page and on an unconfigured client.
    *
    * @param {object} [options]
    * @param {boolean} [options.applyFilters=true] - honour IGNORE_TAGS and PROCESS_PREDEFINED_DOCUMENTS/TAGS
@@ -1238,20 +1239,12 @@ class PaperlessService {
 
         documents = documents.concat(response.data.results);
 
-        // The walk pages by number, so `next` is only read as a boolean. A
-        // `next` that points somewhere other than this Paperless-ngx instance
-        // still means the answer cannot be trusted, and a strict caller must
-        // not treat the pages collected so far as the whole archive.
-        if (
-          strict &&
-          response.data.next &&
-          !this._safeExtractRelativePath(response.data.next)
-        ) {
-          throw new Error(
-            `Paperless-ngx returned an unusable pagination link on page ${page}`
-          );
-        }
-
+        // `next` is only read as a boolean here, and deliberately not validated
+        // against the configured base URL: behind a reverse proxy Paperless-ngx
+        // builds it from the public host (https://paperless.example.com/…)
+        // while this app talks to http://paperless:8000. The walk pages by
+        // number, so a foreign-looking link costs nothing — rejecting it would
+        // make strict callers abort forever on exactly those installations.
         hasMore = response.data.next !== null;
         page++;
 

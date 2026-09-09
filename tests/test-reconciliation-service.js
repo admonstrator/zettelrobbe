@@ -21,7 +21,8 @@
  * 13. An empty document list deletes nothing
  * 14. A list sharing no id with the local tables deletes nothing
  * 15. A complete list still removes exactly the stale ids
- * 16. getAllDocuments is asked for the unfiltered list, strictly
+ * 16. A `next` link pointing at a public reverse-proxy host still completes
+ * 17. getAllDocuments is asked for the unfiltered list, strictly
  */
 
 'use strict';
@@ -420,12 +421,16 @@ function makeService({
    * @param {number|null} [options.failOnPage] - page number that answers with an error
    * @param {Error|null} [options.failWith] - the error that page throws (default: a 502)
    * @param {boolean} [options.connectionOk] - what the /users/ probe answers
+   * @param {string} [options.nextLinkBase] - host the `next` links are built from;
+   *   defaults to the configured base, set it to a different host to imitate a
+   *   reverse proxy that rewrites pagination links to the public address
    */
   function createPaperlessClient({
     pages,
     failOnPage = null,
     failWith = null,
     connectionOk = true,
+    nextLinkBase = PAPERLESS_BASE_URL,
   }) {
     const requestedPages = [];
 
@@ -460,7 +465,7 @@ function makeService({
             results,
             next:
               page < pages.length
-                ? `${PAPERLESS_BASE_URL}/documents/?page=${page + 1}`
+                ? `${nextLinkBase}/documents/?page=${page + 1}`
                 : null,
           },
         };
@@ -716,7 +721,53 @@ function makeService({
     }
   );
 
-  // 17. Reconciliation must ask for the unfiltered list, strictly
+  // 17. A reverse proxy rewriting `next` to the public host must not abort the walk
+  await testAsync(
+    'Real service: a `next` link on a foreign host still completes the walk',
+    async () => {
+      // Paperless-ngx behind a reverse proxy builds `next` from the public
+      // address while this app talks to the internal one. The walk pages by
+      // number and only reads `next` as a boolean, so this must stay a normal
+      // two-page run rather than a strict-mode abort.
+      const client = createPaperlessClient({
+        pages: [[{ id: 1 }, { id: 2 }], [{ id: 3 }]],
+        nextLinkBase: 'https://paperless.example.com/api',
+      });
+      const { service, deleted } = loadRealReconciliationService({
+        client,
+        processedDocs: [
+          { document_id: 1 },
+          { document_id: 3 },
+          { document_id: 99 },
+        ],
+      });
+
+      const result = await service.reconcileAllDocuments();
+
+      assert.strictEqual(
+        result.skipped,
+        false,
+        'a public-host next link must not skip the run'
+      );
+      assert.strictEqual(
+        result.removed,
+        1,
+        'only the genuinely stale id may be removed'
+      );
+      assert.deepStrictEqual(
+        deleted,
+        [99],
+        'only id 99 is missing from Paperless-ngx'
+      );
+      assert.deepStrictEqual(
+        client.requestedPages,
+        [1, 2],
+        'both pages must have been walked'
+      );
+    }
+  );
+
+  // 18. Reconciliation must ask for the unfiltered list, strictly
   await testAsync(
     'Real service: getAllDocuments is called with applyFilters:false and strict:true',
     async () => {
