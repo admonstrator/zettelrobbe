@@ -8823,7 +8823,24 @@ router.post('/settings', express.json(), async (req, res) => {
         .replace(/\r\n/g, '\n')
         .replace(/\n/g, '\\n');
     if (showTags) updatedConfig.PROCESS_PREDEFINED_DOCUMENTS = showTags;
-    if (tokenLimit) updatedConfig.TOKEN_LIMIT = tokenLimit;
+    if (tokenLimit) {
+      // Same reason as Response Tokens below: an unparsable value used to be
+      // stored verbatim and reached the AI services as NaN, which truncated
+      // every document to an empty prompt instead of failing.
+      // Stricter than Number.parseInt() on purpose - the value that motivated
+      // this check is "128k", and parseInt() would happily read that as 128
+      // and cap every prompt at 128 tokens.
+      const normalizedTokenLimit = String(tokenLimit).trim();
+      if (
+        !/^\d+$/.test(normalizedTokenLimit) ||
+        Number(normalizedTokenLimit) < 1
+      ) {
+        return res.status(400).json({
+          error: 'Invalid Token Limit. Expected a positive whole number.',
+        });
+      }
+      updatedConfig.TOKEN_LIMIT = String(Number(normalizedTokenLimit));
+    }
     if (responseTokens) {
       // Validated here rather than left to the loader's fallback: the value is
       // a generation limit now, and an operator who mistypes it should be told

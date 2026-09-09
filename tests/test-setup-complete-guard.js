@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Regression test for the setup takeover.
+ * Regression test for the setup takeover, plus the TOKEN_LIMIT front door.
  *
- * isInitialSetupOpen() used to reopen the wizard whenever the
+ * Takeover: isInitialSetupOpen() used to reopen the wizard whenever the
  * configuration was incomplete - after "Reset local overrides", a lost data
  * volume, or any emptied required value. An unauthenticated
  * POST /api/setup/complete then replaced the existing MFA-protected
@@ -17,9 +17,12 @@
  *   3. With an administrator present and an incomplete configuration, an
  *      authenticated request goes to /settings instead of the closed wizard,
  *      and GET /setup never serves the wizard.
+ *   4. POST /settings rejects a TOKEN_LIMIT that is not a positive integer -
+ *      "128k" used to be stored verbatim and reached the AI services as NaN.
  *
- * Stubbed: setupService.saveConfig, so no configuration is written, and
- * process.exit, which a completed save schedules five seconds out.
+ * Stubbed: setupService.saveConfig (so no configuration is written) and
+ * process.exit (POST /settings schedules a restart five seconds after a
+ * successful save).
  */
 
 const assert = require('assert');
@@ -30,6 +33,8 @@ const { mountRouter } = require('./helpers/mount-router');
 
 const ADMIN_ERROR =
   'An administrator account already exists. Sign in and use /settings instead.';
+const TOKEN_LIMIT_ERROR =
+  'Invalid Token Limit. Expected a positive whole number.';
 
 let passed = 0;
 let failed = 0;
@@ -63,6 +68,9 @@ function finish() {
   const savedConfigs = [];
   const harness = await mountRouter({
     configured: false,
+    // The handler reads the current setting straight from the environment, and
+    // saveConfig is stubbed out below, so pin it to something recognisable.
+    env: { TOKEN_LIMIT: '99000' },
     stub: ({ setupService }) => {
       setupService.saveConfig = async (config) => {
         savedConfigs.push(config);
@@ -185,6 +193,54 @@ function finish() {
     });
     assert.strictEqual(res.status, 200);
     assert.strictEqual(await res.text(), 'view:settings');
+  });
+
+  // ── 4. TOKEN_LIMIT validation in POST /settings ───────────────────────────
+  const postSettings = (body) =>
+    fetch(harness.base + '/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `jwt=${sessionToken}`,
+      },
+      body: JSON.stringify(body),
+      redirect: 'manual',
+    });
+
+  for (const value of ['128k', 'abc', '-5', '0', '12.5', '1e5']) {
+    await test(`POST /settings rejects TOKEN_LIMIT ${JSON.stringify(value)}`, async () => {
+      const before = savedConfigs.length;
+      const res = await postSettings({ tokenLimit: value });
+
+      assert.strictEqual(res.status, 400);
+      assert.deepStrictEqual(await res.json(), { error: TOKEN_LIMIT_ERROR });
+      assert.strictEqual(
+        savedConfigs.length,
+        before,
+        'a rejected value must store nothing'
+      );
+    });
+  }
+
+  await test('POST /settings stores a valid TOKEN_LIMIT', async () => {
+    const res = await postSettings({ tokenLimit: ' 60000 ' });
+    assert.strictEqual(res.status, 200);
+
+    const stored = savedConfigs[savedConfigs.length - 1];
+    assert.strictEqual(stored.TOKEN_LIMIT, '60000');
+  });
+
+  await test('POST /settings leaves an absent TOKEN_LIMIT alone', async () => {
+    const res = await postSettings({ scanInterval: '*/15 * * * *' });
+    assert.strictEqual(res.status, 200);
+
+    const stored = savedConfigs[savedConfigs.length - 1];
+    assert.strictEqual(stored.SCAN_INTERVAL, '*/15 * * * *');
+    assert.strictEqual(
+      String(stored.TOKEN_LIMIT),
+      '99000',
+      'the setting already in force must survive an unrelated save'
+    );
   });
 
   await harness.close();
