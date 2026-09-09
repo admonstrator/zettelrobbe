@@ -1824,7 +1824,7 @@
     "/api/history/{id}/rescan": {
       "post": {
         "summary": "Reset one document for reprocessing",
-        "description": "Removes all tracking records for a document so it is processed again in a subsequent scan.",
+        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\n",
         "tags": [
           "History",
           "API"
@@ -1856,7 +1856,8 @@
                   "type": "object",
                   "properties": {
                     "success": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "example": true
                     },
                     "message": {
                       "type": "string"
@@ -1868,6 +1869,25 @@
           },
           "400": {
             "description": "Invalid document ID"
+          },
+          "404": {
+            "description": "Document could not be retrieved from Paperless-ngx; nothing was changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           },
           "500": {
             "description": "Server error"
@@ -2197,7 +2217,7 @@
     "/api/settings/reconcile-history": {
       "post": {
         "summary": "Manually trigger history reconciliation (Server-Sent Events)",
-        "description": "Triggers an immediate reconciliation pass that removes stale entries from the\nlocal AI database for documents that have been deleted in Paperless-ngx.\nUses Server-Sent Events (SSE) to stream real-time progress.\nReturns a single result event with the number of removed entries.\n",
+        "description": "Triggers an immediate reconciliation pass that removes stale entries from the\nlocal AI database for documents that have been deleted in Paperless-ngx.\nUses Server-Sent Events (SSE) to stream real-time progress.\nReturns a single result event with the number of removed entries.\n\nA pass that refused to delete anything — a scan is running, Paperless-ngx\nis unreachable or unauthorized, the document list came back incomplete or\nempty — carries `skipped: true`, `removed: 0` and a `message` naming the\nreason. Nothing was changed in that case.\n",
         "tags": [
           "Settings"
         ],
@@ -2216,7 +2236,7 @@
               "text/event-stream": {
                 "schema": {
                   "type": "string",
-                  "example": "data: {\"type\":\"complete\",\"removed\":3,\"durationMs\":120}\n"
+                  "example": "data: {\"type\":\"complete\",\"skipped\":false,\"removed\":3,\"durationMs\":120,\"message\":\"Removed 3 stale entries.\"}\ndata: {\"type\":\"complete\",\"skipped\":true,\"removed\":0,\"durationMs\":8,\"message\":\"Paperless-ngx is not reachable or the token was rejected; nothing was changed.\"}\n"
                 }
               }
             }
@@ -2609,7 +2629,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Setup page rendered successfully",
+            "description": "Setup page rendered successfully (only while no administrator account exists)",
             "content": {
               "text/html": {
                 "schema": {
@@ -2620,12 +2640,12 @@
             }
           },
           "302": {
-            "description": "Redirects to dashboard if setup is already complete",
+            "description": "Redirects away from the wizard once an administrator account exists - to /settings for a signed-in request, otherwise to /login.\n",
             "headers": {
               "Location": {
                 "schema": {
                   "type": "string",
-                  "example": "/dashboard"
+                  "example": "/login"
                 }
               }
             }
@@ -3060,6 +3080,16 @@
         "responses": {
           "200": {
             "description": "Setup completed successfully"
+          },
+          "403": {
+            "description": "An administrator account already exists. The wizard is closed for good on this instance; nothing is validated, written or replaced.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
