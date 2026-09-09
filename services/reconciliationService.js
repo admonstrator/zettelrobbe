@@ -12,7 +12,7 @@
  */
 
 const paperlessService = require('./paperlessService');
-const documentModel   = require('../models/document');
+const documentModel = require('../models/document');
 
 /** Maximum time (ms) to wait for an active scan to complete before giving up. */
 const SCAN_WAIT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -42,10 +42,14 @@ class ReconciliationService {
     const deadline = Date.now() + SCAN_WAIT_TIMEOUT_MS;
     while (this._getScanControl().running) {
       if (Date.now() >= deadline) {
-        console.warn('[RECONCILIATION] Timed out waiting for scan to finish. Skipping this run.');
+        console.warn(
+          '[RECONCILIATION] Timed out waiting for scan to finish. Skipping this run.'
+        );
         return false;
       }
-      await new Promise(resolve => setTimeout(resolve, SCAN_POLL_INTERVAL_MS));
+      await new Promise((resolve) =>
+        setTimeout(resolve, SCAN_POLL_INTERVAL_MS)
+      );
     }
     return true;
   }
@@ -62,7 +66,9 @@ class ReconciliationService {
    */
   async reconcileAllDocuments() {
     if (this.isReconciling) {
-      console.debug('[RECONCILIATION] Already running. Skipping duplicate trigger.');
+      console.debug(
+        '[RECONCILIATION] Already running. Skipping duplicate trigger.'
+      );
       return { skipped: true, removed: 0, durationMs: 0 };
     }
 
@@ -86,18 +92,24 @@ class ReconciliationService {
       // would be wrongly treated as deleted and removed from history.
       let paperlessDocs;
       try {
-        console.debug('[RECONCILIATION] Fetching unfiltered document list (bypassing IGNORE_TAGS/TAGS scan filters)');
-        paperlessDocs = await paperlessService.getAllDocuments({ applyFilters: false });
+        console.debug(
+          '[RECONCILIATION] Fetching unfiltered document list (bypassing IGNORE_TAGS/TAGS scan filters)'
+        );
+        paperlessDocs = await paperlessService.getAllDocuments({
+          applyFilters: false,
+        });
       } catch (err) {
-        console.error(`[RECONCILIATION] Failed to fetch documents from Paperless-ngx: ${err.message}`);
+        console.error(
+          `[RECONCILIATION] Failed to fetch documents from Paperless-ngx: ${err.message}`
+        );
         return { skipped: true, removed: 0, durationMs: Date.now() - startMs };
       }
 
       // Build a Set of valid, positive integer IDs for O(1) lookups.
       const validIdSet = new Set(
         paperlessDocs
-          .map(d => d.id)
-          .filter(id => Number.isInteger(id) && id > 0)
+          .map((d) => d.id)
+          .filter((id) => Number.isInteger(id) && id > 0)
       );
 
       // --- Fetch locally tracked processed documents ---
@@ -105,16 +117,20 @@ class ReconciliationService {
       try {
         processedDocs = await documentModel.getProcessedDocuments();
       } catch (err) {
-        console.error(`[RECONCILIATION] Failed to read processed_documents: ${err.message}`);
+        console.error(
+          `[RECONCILIATION] Failed to read processed_documents: ${err.message}`
+        );
         return { skipped: true, removed: 0, durationMs: Date.now() - startMs };
       }
 
       // --- Find stale IDs (in AI DB but no longer in Paperless-ngx) ---
       const staleIds = processedDocs
-        .map(d => d.document_id)
-        .filter(id => {
+        .map((d) => d.document_id)
+        .filter((id) => {
           if (!id || !Number.isInteger(Number(id)) || Number(id) <= 0) {
-            console.warn(`[RECONCILIATION] Skipping invalid document_id: ${id}`);
+            console.warn(
+              `[RECONCILIATION] Skipping invalid document_id: ${id}`
+            );
             return false;
           }
           return !validIdSet.has(Number(id));
@@ -122,7 +138,9 @@ class ReconciliationService {
 
       if (staleIds.length === 0) {
         const durationMs = Date.now() - startMs;
-        console.debug(`[RECONCILIATION] No stale entries found. (${durationMs}ms)`);
+        console.debug(
+          `[RECONCILIATION] No stale entries found. (${durationMs}ms)`
+        );
         return { skipped: false, removed: 0, durationMs };
       }
 
@@ -130,14 +148,17 @@ class ReconciliationService {
       try {
         await documentModel.deleteDocumentsIdList(staleIds);
       } catch (err) {
-        console.error(`[RECONCILIATION] Failed to delete stale entries: ${err.message}`);
+        console.error(
+          `[RECONCILIATION] Failed to delete stale entries: ${err.message}`
+        );
         return { skipped: false, removed: 0, durationMs: Date.now() - startMs };
       }
 
       const durationMs = Date.now() - startMs;
-      console.info(`[RECONCILIATION] Removed ${staleIds.length} stale entries in ${durationMs}ms.`);
+      console.info(
+        `[RECONCILIATION] Removed ${staleIds.length} stale entries in ${durationMs}ms.`
+      );
       return { skipped: false, removed: staleIds.length, durationMs };
-
     } finally {
       this.isReconciling = false;
     }

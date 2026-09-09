@@ -14,7 +14,9 @@ const authenticateJWT = (req, res, next) => {
   }
 
   if (!jwtSecret) {
-    return res.status(500).json({ message: 'Server misconfiguration: JWT secret missing' });
+    return res
+      .status(500)
+      .json({ message: 'Server misconfiguration: JWT secret missing' });
   }
 
   if (!token) {
@@ -25,7 +27,7 @@ const authenticateJWT = (req, res, next) => {
     const decoded = jwt.verify(token, jwtSecret);
     req.user = decoded;
     next();
-  } catch (error) {
+  } catch {
     return res.status(403).json({ message: 'Invalid or expired token' });
   }
 };
@@ -53,7 +55,7 @@ const isAuthenticated = (req, res, next) => {
     const decoded = jwt.verify(token, jwtSecret);
     req.user = decoded;
     next();
-  } catch (error) {
+  } catch {
     res.clearCookie('jwt');
     return res.redirect('/login');
   }
