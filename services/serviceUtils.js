@@ -130,12 +130,39 @@ async function calculateTotalPromptTokens(
   return totalTokens;
 }
 
+/* tiktoken's decode() returns the raw UTF-8 bytes as a Uint8Array, not a
+   string. Handing that to the chat API serialised it as {"0":82,"1":101,...},
+   which OpenAI and Azure reject with
+   "400 Invalid type for messages[1].content" — so every document long enough
+   to be truncated failed. Cutting the token list can also split a multi-byte
+   character; the decoder marks the remainder with a trailing U+FFFD, which is
+   noise the model does not need to see. */
+function decodeTokenBytes(bytes) {
+  const decoded =
+    typeof bytes === 'string' ? bytes : new TextDecoder('utf-8').decode(bytes);
+
+  return decoded.replace(/\uFFFD+$/, '');
+}
+
 // Truncate text to fit within token limit
 async function truncateToTokenLimit(
   text,
   maxTokens,
   model = process.env.OPENAI_MODEL || 'gpt-4o-mini'
 ) {
+  /* A broken budget used to arrive here as NaN: `tokens.length <= NaN` is
+     false, `tokens.slice(0, NaN)` is empty and `text.substring(0, NaN)` is the
+     empty string, so the caller shipped a document with no text to the model,
+     which duly invented its metadata. Refuse the call instead — every caller
+     already treats a throw as a failed analysis. Deliberately outside the
+     try/catch below, which would otherwise swallow it into the same empty
+     result. */
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0) {
+    throw new Error(
+      'truncateToTokenLimit: maxTokens must be a positive finite number'
+    );
+  }
+
   try {
     const compatibleModel = getCompatibleModel(model);
 
@@ -167,19 +194,20 @@ async function truncateToTokenLimit(
 
     // OpenAI model - use tiktoken
     const tokenizer = tiktoken.encoding_for_model(compatibleModel);
-    const tokens = tokenizer.encode(text);
 
-    if (tokens.length <= maxTokens) {
+    try {
+      const tokens = tokenizer.encode(text);
+
+      if (tokens.length <= maxTokens) {
+        return text;
+      }
+
+      return decodeTokenBytes(tokenizer.decode(tokens.slice(0, maxTokens)));
+    } finally {
+      // encode() and decode() can both throw; the tokenizer holds WASM memory
+      // that nothing else releases.
       tokenizer.free();
-      return text;
     }
-
-    const truncatedTokens = tokens.slice(0, maxTokens);
-    const truncatedText = tokenizer.decode(truncatedTokens);
-    tokenizer.free();
-
-    // No need for TextDecoder here, tiktoken.decode() returns a string
-    return truncatedText;
   } catch (error) {
     console.warn(
       `[WARNING] Token truncation failed for model ${model}, falling back to character estimation:`,

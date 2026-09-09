@@ -311,6 +311,26 @@ const parseTokenCount = (value, defaultValue, envKey) => {
   return parsed;
 };
 
+/* parseTokenCount() hands anything Number.parseInt() can start reading to the
+   caller, so "128k" — a plausible shorthand for 128000 — parses as 128. For a
+   response budget that only shortens the answer, but for the context window it
+   silently shrinks the whole budget to 128 tokens and every document fails
+   with "Token limit exceeded". Reject trailing garbage before delegating. */
+const parseStrictTokenCount = (value, defaultValue, envKey) => {
+  const normalizedValue = String(value ?? '').trim();
+
+  if (normalizedValue && !/^[+-]?\d+$/.test(normalizedValue)) {
+    startupLog(
+      logLevel,
+      'warn',
+      `[WARN] Invalid ${envKey} value "${normalizedValue}". Falling back to ${defaultValue}.`
+    );
+    return defaultValue;
+  }
+
+  return parseTokenCount(normalizedValue, defaultValue, envKey);
+};
+
 const getApiKey = () =>
   process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '';
 const getJwtSecret = () => process.env.JWT_SECRET || '';
@@ -451,7 +471,14 @@ module.exports = {
   globalRateLimitMax: parseInt(process.env.GLOBAL_RATE_LIMIT_MAX || '1000', 10),
   predefinedMode: process.env.PROCESS_PREDEFINED_DOCUMENTS,
   ignoreTags: process.env.IGNORE_TAGS || '',
-  tokenLimit: process.env.TOKEN_LIMIT || 128000,
+  // The context window the provider is told to respect. Read through the
+  // strict parser: a NaN here used to travel all the way into
+  // truncateToTokenLimit(), which then sent the model an empty document.
+  tokenLimit: parseStrictTokenCount(
+    process.env.TOKEN_LIMIT,
+    128000,
+    'TOKEN_LIMIT'
+  ),
   // How many tokens a provider may spend on its answer. Reserved in the
   // context window and, where the provider offers a knob for it, sent as the
   // generation limit — num_predict for Ollama, max_tokens for the rest.

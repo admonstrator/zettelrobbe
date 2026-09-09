@@ -216,8 +216,10 @@ class AzureOpenAIService {
       const reservedTokens = totalPromptTokens + Number(config.responseTokens);
       const availableTokens = maxTokens - reservedTokens;
 
-      // Validate that we have positive available tokens
-      if (availableTokens <= 0) {
+      // Validate that we have positive available tokens. A non-finite budget
+      // is the same failure: it slips past a bare `<= 0` and truncates the
+      // document down to nothing instead of stopping.
+      if (!Number.isFinite(availableTokens) || availableTokens <= 0) {
         console.warn(
           `[WARNING] No available tokens for content. Reserved: ${reservedTokens}, Max: ${maxTokens}`
         );
@@ -404,6 +406,17 @@ class AzureOpenAIService {
       const maxTokens = Number(config.tokenLimit);
       const reservedTokens = totalPromptTokens + Number(config.responseTokens);
       const availableTokens = maxTokens - reservedTokens;
+
+      // The same guard analyzeDocument() uses: a broken token limit must fail
+      // loudly instead of silently truncating the content down to nothing.
+      if (!Number.isFinite(availableTokens) || availableTokens <= 0) {
+        console.warn(
+          `[WARNING] No available tokens for content. Reserved: ${reservedTokens}, Max: ${maxTokens}`
+        );
+        throw new Error(
+          'Token limit exceeded: prompt too large for available token limit'
+        );
+      }
 
       // Truncate content if necessary
       const truncatedContent = await truncateToTokenLimit(
