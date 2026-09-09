@@ -122,6 +122,8 @@ const TESTS = {
   'url-base-validation': 'test-url-base-validation.js',
   'token-limit-config': 'test-token-limit-config.js',
   'truncate-returns-string': 'test-truncate-returns-string.js',
+  'session-token-type': 'test-session-token-type.js',
+  'setup-complete-guard': 'test-setup-complete-guard.js',
 };
 
 const AREAS = {
@@ -219,6 +221,8 @@ const AREAS = {
     'env-export',
     'thumbnail-cache-path-sanitization',
     'url-base-validation',
+    'session-token-type',
+    'setup-complete-guard',
   ],
 };
 
