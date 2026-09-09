@@ -121,6 +121,7 @@ const TESTS = {
     'test-thumbnail-cache-path-sanitization.js',
   'url-base-validation': 'test-url-base-validation.js',
   'token-limit-config': 'test-token-limit-config.js',
+  'truncate-returns-string': 'test-truncate-returns-string.js',
 };
 
 const AREAS = {
@@ -189,6 +190,7 @@ const AREAS = {
     'prompt-existing-data-serialization',
     'restricted-document-types-placeholder',
     'token-limit-config',
+    'truncate-returns-string',
   ],
   quickstart: [
     'quickstart-model-classification',
