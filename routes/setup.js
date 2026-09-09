@@ -27,7 +27,11 @@ const {
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const QRCode = require('qrcode');
-const { isAuthenticated } = require('./auth.js');
+const {
+  isAuthenticated,
+  verifySessionToken,
+  SESSION_TOKEN_TYPE,
+} = require('./auth.js');
 const customService = require('../services/customService.js');
 const mistralOcrService = require('../services/mistralOcrService');
 const quickstartService = require('../services/quickstartService');
@@ -499,13 +503,12 @@ router.use(async (req, res, next) => {
       return res.redirect('/login');
     }
 
-    try {
-      const decoded = jwt.verify(token, jwtSecret);
-      req.user = decoded;
-    } catch {
+    const decoded = verifySessionToken(token, jwtSecret);
+    if (!decoded) {
       res.clearCookie('jwt');
       return res.redirect('/login');
     }
+    req.user = decoded;
   }
 
   // Setup check
@@ -549,13 +552,13 @@ const protectApiRoute = (req, res, next) => {
     return res.status(401).json({ message: 'Authentication required' });
   }
 
-  try {
-    const decoded = jwt.verify(token, jwtSecret);
-    req.user = decoded;
-    next();
-  } catch {
+  const decoded = verifySessionToken(token, jwtSecret);
+  if (!decoded) {
     return res.status(403).json({ message: 'Invalid or expired token' });
   }
+
+  req.user = decoded;
+  next();
 };
 
 /**
@@ -866,6 +869,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         {
           id: user.id,
           username: user.username,
+          typ: SESSION_TOKEN_TYPE,
         },
         jwtSecret,
         { expiresIn: '24h' }
@@ -920,6 +924,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         {
           id: user.id,
           username: user.username,
+          typ: SESSION_TOKEN_TYPE,
         },
         jwtSecret,
         { expiresIn: '24h' }

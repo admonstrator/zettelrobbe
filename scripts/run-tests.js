@@ -120,6 +120,7 @@ const TESTS = {
   'thumbnail-cache-path-sanitization':
     'test-thumbnail-cache-path-sanitization.js',
   'url-base-validation': 'test-url-base-validation.js',
+  'session-token-type': 'test-session-token-type.js',
 };
 
 const AREAS = {
@@ -215,6 +216,7 @@ const AREAS = {
     'env-export',
     'thumbnail-cache-path-sanitization',
     'url-base-validation',
+    'session-token-type',
   ],
 };
 
