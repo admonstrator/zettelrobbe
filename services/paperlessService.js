@@ -27,6 +27,63 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
  */
 const TAG_PAGE_SIZE = 1000;
 
+/** How much of a Paperless-ngx error body may reach a log line. */
+const ERROR_BODY_LOG_LIMIT = 500;
+
+/**
+ * Renders an error for a log line without the parts that carry credentials.
+ *
+ * `console.log(error)` on an axios error runs the object through util.inspect,
+ * which prints `config.headers.Authorization` verbatim — that is how the
+ * Paperless-ngx API token ended up in data/logs/logs.txt at the default log
+ * level, in the very files users attach to bug reports. Only the message, the
+ * transport code, the HTTP status and a bounded excerpt of the response body
+ * are diagnostically useful; the error object itself and `error.config` never
+ * are, so they are not rendered at all.
+ *
+ * @param {unknown} error
+ * @returns {string} a single-line, bounded description
+ */
+function describeHttpError(error) {
+  if (!error || typeof error !== 'object') {
+    return String(error);
+  }
+
+  const parts = [];
+  if (error.message) {
+    parts.push(`message=${error.message}`);
+  }
+  if (error.code) {
+    parts.push(`code=${error.code}`);
+  }
+
+  const status = error.response?.status;
+  if (status !== undefined && status !== null) {
+    parts.push(`status=${status}`);
+  }
+
+  const data = error.response?.data;
+  if (data !== undefined && data !== null) {
+    let body;
+    try {
+      body = typeof data === 'string' ? data : JSON.stringify(data);
+    } catch {
+      body = '[unserializable response body]';
+    }
+    if (body) {
+      parts.push(
+        `body=${
+          body.length > ERROR_BODY_LOG_LIMIT
+            ? `${body.slice(0, ERROR_BODY_LOG_LIMIT)}…[truncated]`
+            : body
+        }`
+      );
+    }
+  }
+
+  return parts.length > 0 ? parts.join(' ') : 'unknown error';
+}
+
 /**
  * The deadline every request through `this.client` carries.
  *
@@ -724,7 +781,7 @@ class PaperlessService {
         errors,
       };
     } catch (error) {
-      console.error('[ERROR] in processTags:', error);
+      console.error('[ERROR] in processTags:', describeHttpError(error));
       throw new Error(`[ERROR] Failed to process tags: ${error.message}`, {
         cause: error,
       });
@@ -1066,10 +1123,36 @@ class PaperlessService {
     });
   }
 
+  /**
+   * Fetches the document list, one page of 100 at a time.
+   *
+   * `strict` decides what an incomplete answer means to the caller. The scan
+   * loop can live with a short list — it runs again on the next tick — so the
+   * default stays tolerant: a failed page ends the walk and whatever was
+   * collected so far is returned. Reconciliation cannot: it reads the absence
+   * of a document as "deleted in Paperless-ngx" and removes the local history,
+   * so a 502 on page 2 or a refused connection used to look like a shrunken
+   * archive and wiped rows for documents that were never gone. Those callers
+   * pass `strict: true` and get an error instead of a half list: on a page
+   * error, on a malformed page and on an unconfigured client.
+   *
+   * @param {object} [options]
+   * @param {boolean} [options.applyFilters=true] - honour IGNORE_TAGS and PROCESS_PREDEFINED_DOCUMENTS/TAGS
+   * @param {string} [options.fields] - comma-separated Paperless-ngx field list
+   * @param {boolean} [options.strict=false] - throw instead of returning a partial list
+   * @returns {Promise<Array<object>>}
+   */
   async getAllDocuments(options = {}) {
+    const strict = options.strict === true;
+
     this.initialize();
     if (!this.client) {
       console.error('[DEBUG] Client not initialized');
+      if (strict) {
+        throw new Error(
+          'Paperless-ngx client is not configured; refusing to report an empty document list'
+        );
+      }
       return [];
     }
 
@@ -1146,10 +1229,22 @@ class PaperlessService {
 
         if (!response?.data?.results || !Array.isArray(response.data.results)) {
           console.error(`[DEBUG] Invalid API response on page ${page}`);
+          if (strict) {
+            throw new Error(
+              `Paperless-ngx returned a malformed document list on page ${page}`
+            );
+          }
           break;
         }
 
         documents = documents.concat(response.data.results);
+
+        // `next` is only read as a boolean here, and deliberately not validated
+        // against the configured base URL: behind a reverse proxy Paperless-ngx
+        // builds it from the public host (https://paperless.example.com/…)
+        // while this app talks to http://paperless:8000. The walk pages by
+        // number, so a foreign-looking link costs nothing — rejecting it would
+        // make strict callers abort forever on exactly those installations.
         hasMore = response.data.next !== null;
         page++;
 
@@ -1161,6 +1256,9 @@ class PaperlessService {
         // Kleine Verzögerung um die API nicht zu überlasten
         await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (error) {
+        if (strict) {
+          throw error;
+        }
         console.error(
           `[ERROR]  fetching documents page ${page}:`,
           error.message
@@ -2486,8 +2584,11 @@ class PaperlessService {
       );
       return await this.getDocument(documentId);
     } catch (error) {
-      console.log(error);
-      console.error('[ERROR] updating document %s:', documentId, error.message);
+      console.error(
+        '[ERROR] updating document %s: %s',
+        documentId,
+        describeHttpError(error)
+      );
       return null;
     }
   }
@@ -2526,4 +2627,9 @@ class PaperlessService {
   }
 }
 
-module.exports = new PaperlessService();
+const paperlessService = new PaperlessService();
+// Exposed on the singleton so tests can assert what a logged error looks like
+// without reaching into the module scope.
+paperlessService.describeHttpError = describeHttpError;
+
+module.exports = paperlessService;

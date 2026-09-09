@@ -124,6 +124,9 @@ const TESTS = {
   'truncate-returns-string': 'test-truncate-returns-string.js',
   'session-token-type': 'test-session-token-type.js',
   'setup-complete-guard': 'test-setup-complete-guard.js',
+  'rescan-fetch-before-delete': 'test-rescan-fetch-before-delete.js',
+  'ocr-empty-result-guard': 'test-ocr-empty-result-guard.js',
+  'log-secret-redaction': 'test-log-secret-redaction.js',
 };
 
 const AREAS = {
@@ -148,6 +151,7 @@ const AREAS = {
     'poppler-render-real',
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
+    'ocr-empty-result-guard',
   ],
   observability: [
     'changelog-releases',
@@ -162,6 +166,7 @@ const AREAS = {
     'icon-sizing',
     'mobile-toolbar-grid',
     'playground-deprecation',
+    'log-secret-redaction',
   ],
   processing: [
     'dashboard-stats-cache',
@@ -185,6 +190,7 @@ const AREAS = {
     'ollama-token-metrics',
     'reconciliation-service',
     'settings-paperless-url-fallback',
+    'rescan-fetch-before-delete',
   ],
   prompts: [
     'restriction-service',

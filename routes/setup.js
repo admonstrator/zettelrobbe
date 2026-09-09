@@ -2178,7 +2178,11 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
  * /api/history/{id}/rescan:
  *   post:
  *     summary: Reset one document for reprocessing
- *     description: Removes all tracking records for a document so it is processed again in a subsequent scan.
+ *     description: |
+ *       Resolves the document in Paperless-ngx first and only then removes its
+ *       local tracking records, so it is processed again in a subsequent scan.
+ *       A document that cannot be resolved — deleted, or Paperless-ngx briefly
+ *       unavailable — leaves every local record untouched and answers 404.
  *     tags:
  *       - History
  *       - API
@@ -2201,10 +2205,23 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
  *                 message:
  *                   type: string
  *       400:
  *         description: Invalid document ID
+ *       404:
+ *         description: Document could not be retrieved from Paperless-ngx; nothing was changed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
  *       500:
  *         description: Server error
  */
@@ -2217,7 +2234,19 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
         .json({ success: false, error: 'Invalid document ID' });
     }
 
-    await rescanDocumentsByIds([documentId]);
+    const { queued } = await rescanDocumentsByIds([documentId]);
+
+    // Not queued means the document could not be resolved in Paperless-ngx.
+    // Nothing was deleted in that case, so this is an honest 404 rather than
+    // the success this endpoint used to report while the local snapshot was
+    // already gone.
+    if (queued === 0) {
+      return res.status(404).json({
+        success: false,
+        error:
+          'Document could not be retrieved from Paperless-ngx. Nothing was changed.',
+      });
+    }
 
     res.json({
       success: true,
@@ -2599,6 +2628,38 @@ router.post(
 );
 
 /**
+ * The message the manual reconciliation stream shows for a pass that deleted
+ * nothing on purpose.
+ *
+ * reconcileAllDocuments() vetoes a run whenever the Paperless-ngx answer could
+ * be a failure rather than a smaller archive, and returns a `reason` saying
+ * which veto fired. They mean very different things to the person who pressed
+ * the button — "wait for the scan" and "your token was rejected" are not the
+ * same news — so each gets its own sentence instead of the single
+ * already-in-progress line this endpoint used to show for all of them.
+ *
+ * @param {string|undefined} reason - the `reason` from reconcileAllDocuments()
+ * @returns {string}
+ */
+function reconciliationSkipMessage(reason) {
+  switch (reason) {
+    case 'already_running':
+    case 'scan_in_progress':
+      return 'Reconciliation skipped: a scan or reconciliation is already in progress.';
+    case 'paperless_unavailable':
+    case 'connection_check_failed':
+      return 'Paperless-ngx is not reachable or the token was rejected; nothing was changed.';
+    case 'document_list_incomplete':
+      return 'Paperless-ngx returned an incomplete document list; nothing was changed.';
+    case 'empty_document_list':
+    case 'all_tracked_documents_stale':
+      return 'Paperless-ngx reported no matching documents; refusing to delete local records. Check the connection and the API token.';
+    default:
+      return `Reconciliation skipped (${reason || 'unknown reason'}).`;
+  }
+}
+
+/**
  * @swagger
  * /api/settings/reconcile-history:
  *   post:
@@ -2608,6 +2669,11 @@ router.post(
  *       local AI database for documents that have been deleted in Paperless-ngx.
  *       Uses Server-Sent Events (SSE) to stream real-time progress.
  *       Returns a single result event with the number of removed entries.
+ *
+ *       A pass that refused to delete anything — a scan is running, Paperless-ngx
+ *       is unreachable or unauthorized, the document list came back incomplete or
+ *       empty — carries `skipped: true`, `removed: 0` and a `message` naming the
+ *       reason. Nothing was changed in that case.
  *     tags:
  *       - Settings
  *     security:
@@ -2621,7 +2687,8 @@ router.post(
  *             schema:
  *               type: string
  *               example: |
- *                 data: {"type":"complete","removed":3,"durationMs":120}
+ *                 data: {"type":"complete","skipped":false,"removed":3,"durationMs":120,"message":"Removed 3 stale entries."}
+ *                 data: {"type":"complete","skipped":true,"removed":0,"durationMs":8,"message":"Paperless-ngx is not reachable or the token was rejected; nothing was changed."}
  *       401:
  *         description: Unauthorized - authentication required
  *       500:
@@ -2648,7 +2715,7 @@ router.post(
 
       if (result && result.skipped) {
         res.write(
-          `data: ${JSON.stringify({ type: 'complete', skipped: true, removed: 0, durationMs: result.durationMs || 0, message: 'Reconciliation skipped: a scan or reconciliation is already in progress.' })}\n\n`
+          `data: ${JSON.stringify({ type: 'complete', skipped: true, removed: 0, durationMs: result.durationMs || 0, message: reconciliationSkipMessage(result.reason) })}\n\n`
         );
       } else {
         const removed = result ? result.removed : 0;
@@ -6369,6 +6436,14 @@ async function processQueue(customPrompt) {
  * configured trigger tag. Processing runs in the background (fire-and-forget)
  * so callers get a fast response.
  *
+ * Fetch first, delete second. deleteDocumentsIdList() also clears
+ * original_documents, which holds the only copy of a document's pre-AI title,
+ * tags and correspondent — the thing "restore original" restores from. Deleting
+ * it before knowing whether the document can be fetched meant a rescan started
+ * during a Paperless-ngx restart destroyed that snapshot for every selected
+ * document and then reported success. Now a document that cannot be resolved
+ * costs nothing: its records stay untouched and it comes back in `notFound`.
+ *
  * @param {Array<number|string>} ids - Document IDs to reprocess.
  * @returns {Promise<{queued: number, notFound: number[]}>}
  */
@@ -6381,13 +6456,8 @@ async function rescanDocumentsByIds(ids) {
     return { queued: 0, notFound: [] };
   }
 
-  // Drop the local "already processed" record so the gate in processDocument()
-  // no longer skips these documents.
-  await documentModel.deleteDocumentsIdList(numericIds);
-  await removeThumbnailCacheForDocumentIds(numericIds);
-
   const notFound = [];
-  let queued = 0;
+  const resolvedDocuments = [];
 
   for (const id of numericIds) {
     try {
@@ -6396,8 +6466,7 @@ async function rescanDocumentsByIds(ids) {
         notFound.push(id);
         continue;
       }
-      documentQueue.push(document);
-      queued += 1;
+      resolvedDocuments.push({ id, document });
     } catch (error) {
       console.error(
         `[ERROR] Failed to fetch document ${id} for rescan:`,
@@ -6407,10 +6476,23 @@ async function rescanDocumentsByIds(ids) {
     }
   }
 
-  // Fire-and-forget: the HTTP response should not wait for AI processing.
-  if (queued > 0) {
-    processQueue();
+  if (resolvedDocuments.length === 0) {
+    return { queued: 0, notFound };
   }
+
+  // Drop the local "already processed" record so the gate in processDocument()
+  // no longer skips these documents — only for the ones that really exist.
+  const resolvedIds = resolvedDocuments.map((entry) => entry.id);
+  await documentModel.deleteDocumentsIdList(resolvedIds);
+  await removeThumbnailCacheForDocumentIds(resolvedIds);
+
+  for (const entry of resolvedDocuments) {
+    documentQueue.push(entry.document);
+  }
+  const queued = resolvedDocuments.length;
+
+  // Fire-and-forget: the HTTP response should not wait for AI processing.
+  processQueue();
 
   return { queued, notFound };
 }
