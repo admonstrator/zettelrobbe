@@ -122,6 +122,7 @@ const TESTS = {
   'url-base-validation': 'test-url-base-validation.js',
   'rescan-fetch-before-delete': 'test-rescan-fetch-before-delete.js',
   'ocr-empty-result-guard': 'test-ocr-empty-result-guard.js',
+  'log-secret-redaction': 'test-log-secret-redaction.js',
 };
 
 const AREAS = {
@@ -161,6 +162,7 @@ const AREAS = {
     'icon-sizing',
     'mobile-toolbar-grid',
     'playground-deprecation',
+    'log-secret-redaction',
   ],
   processing: [
     'dashboard-stats-cache',

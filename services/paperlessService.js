@@ -27,6 +27,63 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
  */
 const TAG_PAGE_SIZE = 1000;
 
+/** How much of a Paperless-ngx error body may reach a log line. */
+const ERROR_BODY_LOG_LIMIT = 500;
+
+/**
+ * Renders an error for a log line without the parts that carry credentials.
+ *
+ * `console.log(error)` on an axios error runs the object through util.inspect,
+ * which prints `config.headers.Authorization` verbatim — that is how the
+ * Paperless-ngx API token ended up in data/logs/logs.txt at the default log
+ * level, in the very files users attach to bug reports. Only the message, the
+ * transport code, the HTTP status and a bounded excerpt of the response body
+ * are diagnostically useful; the error object itself and `error.config` never
+ * are, so they are not rendered at all.
+ *
+ * @param {unknown} error
+ * @returns {string} a single-line, bounded description
+ */
+function describeHttpError(error) {
+  if (!error || typeof error !== 'object') {
+    return String(error);
+  }
+
+  const parts = [];
+  if (error.message) {
+    parts.push(`message=${error.message}`);
+  }
+  if (error.code) {
+    parts.push(`code=${error.code}`);
+  }
+
+  const status = error.response?.status;
+  if (status !== undefined && status !== null) {
+    parts.push(`status=${status}`);
+  }
+
+  const data = error.response?.data;
+  if (data !== undefined && data !== null) {
+    let body;
+    try {
+      body = typeof data === 'string' ? data : JSON.stringify(data);
+    } catch {
+      body = '[unserializable response body]';
+    }
+    if (body) {
+      parts.push(
+        `body=${
+          body.length > ERROR_BODY_LOG_LIMIT
+            ? `${body.slice(0, ERROR_BODY_LOG_LIMIT)}…[truncated]`
+            : body
+        }`
+      );
+    }
+  }
+
+  return parts.length > 0 ? parts.join(' ') : 'unknown error';
+}
+
 /**
  * The deadline every request through `this.client` carries.
  *
@@ -724,7 +781,7 @@ class PaperlessService {
         errors,
       };
     } catch (error) {
-      console.error('[ERROR] in processTags:', error);
+      console.error('[ERROR] in processTags:', describeHttpError(error));
       throw new Error(`[ERROR] Failed to process tags: ${error.message}`, {
         cause: error,
       });
@@ -2534,8 +2591,11 @@ class PaperlessService {
       );
       return await this.getDocument(documentId);
     } catch (error) {
-      console.log(error);
-      console.error('[ERROR] updating document %s:', documentId, error.message);
+      console.error(
+        '[ERROR] updating document %s: %s',
+        documentId,
+        describeHttpError(error)
+      );
       return null;
     }
   }
@@ -2574,4 +2634,9 @@ class PaperlessService {
   }
 }
 
-module.exports = new PaperlessService();
+const paperlessService = new PaperlessService();
+// Exposed on the singleton so tests can assert what a logged error looks like
+// without reaching into the module scope.
+paperlessService.describeHttpError = describeHttpError;
+
+module.exports = paperlessService;
