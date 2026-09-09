@@ -136,6 +136,19 @@ async function truncateToTokenLimit(
   maxTokens,
   model = process.env.OPENAI_MODEL || 'gpt-4o-mini'
 ) {
+  /* A broken budget used to arrive here as NaN: `tokens.length <= NaN` is
+     false, `tokens.slice(0, NaN)` is empty and `text.substring(0, NaN)` is the
+     empty string, so the caller shipped a document with no text to the model,
+     which duly invented its metadata. Refuse the call instead — every caller
+     already treats a throw as a failed analysis. Deliberately outside the
+     try/catch below, which would otherwise swallow it into the same empty
+     result. */
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0) {
+    throw new Error(
+      'truncateToTokenLimit: maxTokens must be a positive finite number'
+    );
+  }
+
   try {
     const compatibleModel = getCompatibleModel(model);
 

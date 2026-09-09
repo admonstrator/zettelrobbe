@@ -120,6 +120,7 @@ const TESTS = {
   'thumbnail-cache-path-sanitization':
     'test-thumbnail-cache-path-sanitization.js',
   'url-base-validation': 'test-url-base-validation.js',
+  'token-limit-config': 'test-token-limit-config.js',
 };
 
 const AREAS = {
@@ -187,6 +188,7 @@ const AREAS = {
     'updated-service',
     'prompt-existing-data-serialization',
     'restricted-document-types-placeholder',
+    'token-limit-config',
   ],
   quickstart: [
     'quickstart-model-classification',
