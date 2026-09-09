@@ -120,6 +120,7 @@ const TESTS = {
   'thumbnail-cache-path-sanitization':
     'test-thumbnail-cache-path-sanitization.js',
   'url-base-validation': 'test-url-base-validation.js',
+  'rescan-fetch-before-delete': 'test-rescan-fetch-before-delete.js',
 };
 
 const AREAS = {
@@ -181,6 +182,7 @@ const AREAS = {
     'ollama-token-metrics',
     'reconciliation-service',
     'settings-paperless-url-fallback',
+    'rescan-fetch-before-delete',
   ],
   prompts: [
     'restriction-service',
