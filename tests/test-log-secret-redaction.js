@@ -21,6 +21,8 @@
  * 5. Ordinary log lines are untouched
  * 6. A failing fs.appendFileSync does not propagate to the caller
  * 7. paperlessService renders an error bounded, without the object or its config
+ * 8. "Token" as an ordinary word in prose is left alone
+ * 9. "Token"/"Bearer" followed by a real credential is still redacted
  */
 
 'use strict';
@@ -238,6 +240,49 @@ try {
     assert.ok(
       reports[0].includes('not writable'),
       'the report should say what is wrong'
+    );
+  });
+
+  test('Token as an ordinary word in prose is left alone', () => {
+    // Both lines are logged verbatim by the provider services on every run;
+    // redacting them would hide the numbers they exist for.
+    const content = captureLog(() => {
+      console.log('[DEBUG] Token calculation - Prompt: 192, Reserved: 1192');
+      console.warn('[WARNING] Token truncation failed for model gpt-4o');
+    });
+
+    assert.ok(
+      content.includes('Token calculation - Prompt: 192, Reserved: 1192'),
+      'a token-count line must survive intact'
+    );
+    assert.ok(
+      content.includes('Token truncation failed for model gpt-4o'),
+      'a token-truncation warning must survive intact'
+    );
+    assert.ok(
+      !content.includes('[redacted]'),
+      'neither prose line may be redacted'
+    );
+  });
+
+  test('Token and Bearer followed by a real credential are redacted', () => {
+    const content = captureLog(() => {
+      console.log('Token 3f9c0a1b2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a');
+      console.log('Bearer eyJhbGciOi.abc.def');
+    });
+
+    assert.ok(
+      !content.includes('3f9c0a1b2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a'),
+      'a hex credential behind Token must not reach the log file'
+    );
+    assert.ok(
+      !content.includes('eyJhbGciOi.abc.def'),
+      'a credential behind Bearer must not reach the log file, digits or not'
+    );
+    assert.ok(
+      content.includes('Token [redacted]') &&
+        content.includes('Bearer [redacted]'),
+      'both schemes should stay readable with the credential blanked'
     );
   });
 

@@ -68,9 +68,35 @@ const BARE_SECRET_PATTERN = new RegExp(
   `(${SECRET_KEY_NAMES}["']?\\s*[:=]\\s*)([^\\s,;'"}\\]]+)`,
   'gi'
 );
-/** `Bearer eyJ…`, `Token abc123…` — the scheme survives, the credential does not. */
-const SCHEME_SECRET_PATTERN =
-  /\b(bearer|token|basic)\s+([A-Za-z0-9\-._~+/=]{8,})/gi;
+/** The characters a credential is built from — base64url plus the usual separators. */
+const CREDENTIAL_CHARS = '[A-Za-z0-9\\-._~+/=]';
+
+/**
+ * `Bearer eyJ…` — the scheme survives, the credential does not.
+ *
+ * "Bearer" only ever appears as an HTTP authentication scheme, so anything of
+ * credential shape behind it is one.
+ */
+const BEARER_SECRET_PATTERN = new RegExp(
+  `\\b(bearer)\\s+(${CREDENTIAL_CHARS}{8,})`,
+  'gi'
+);
+
+/**
+ * `Token abc123…`, `Basic dXNlcjpwdw==` — the same, but choosier.
+ *
+ * "Token" and "Basic" are also ordinary English words that this app logs:
+ * `[DEBUG] Token calculation - Prompt: 192, Reserved: 1192` and
+ * `[WARNING] Token truncation failed for model gpt-4o` come out of the provider
+ * services on every run. Blanking those would hide the numbers the line exists
+ * for. So the value only counts as a credential when it looks like one: it
+ * carries a digit, or it is longer than any word that would follow "Token" in
+ * a sentence.
+ */
+const TOKEN_SECRET_PATTERN = new RegExp(
+  `\\b(token|basic)\\s+((?=${CREDENTIAL_CHARS}*\\d)${CREDENTIAL_CHARS}{8,}|${CREDENTIAL_CHARS}{24,})`,
+  'gi'
+);
 
 /**
  * Blanks out credentials in a rendered log line.
@@ -93,7 +119,8 @@ function redactSecrets(message) {
   let redacted = message
     .replace(QUOTED_SECRET_PATTERN, `$1$2${REDACTION_PLACEHOLDER}$2`)
     .replace(BARE_SECRET_PATTERN, `$1${REDACTION_PLACEHOLDER}`)
-    .replace(SCHEME_SECRET_PATTERN, `$1 ${REDACTION_PLACEHOLDER}`);
+    .replace(BEARER_SECRET_PATTERN, `$1 ${REDACTION_PLACEHOLDER}`)
+    .replace(TOKEN_SECRET_PATTERN, `$1 ${REDACTION_PLACEHOLDER}`);
 
   for (const secret of currentSecretValues()) {
     redacted = redacted.split(secret).join(REDACTION_PLACEHOLDER);
