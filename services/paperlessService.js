@@ -1066,10 +1066,35 @@ class PaperlessService {
     });
   }
 
+  /**
+   * Fetches the document list, one page of 100 at a time.
+   *
+   * `strict` decides what an incomplete answer means to the caller. The scan
+   * loop can live with a short list — it runs again on the next tick — so the
+   * default stays tolerant: a failed page ends the walk and whatever was
+   * collected so far is returned. Reconciliation cannot: it reads the absence
+   * of a document as "deleted in Paperless-ngx" and removes the local history,
+   * so a 502 on page 2 or a refused connection used to look like a shrunken
+   * archive and wiped rows for documents that were never gone. Those callers
+   * pass `strict: true` and get an error instead of a half list.
+   *
+   * @param {object} [options]
+   * @param {boolean} [options.applyFilters=true] - honour IGNORE_TAGS and PROCESS_PREDEFINED_DOCUMENTS/TAGS
+   * @param {string} [options.fields] - comma-separated Paperless-ngx field list
+   * @param {boolean} [options.strict=false] - throw instead of returning a partial list
+   * @returns {Promise<Array<object>>}
+   */
   async getAllDocuments(options = {}) {
+    const strict = options.strict === true;
+
     this.initialize();
     if (!this.client) {
       console.error('[DEBUG] Client not initialized');
+      if (strict) {
+        throw new Error(
+          'Paperless-ngx client is not configured; refusing to report an empty document list'
+        );
+      }
       return [];
     }
 
@@ -1146,10 +1171,30 @@ class PaperlessService {
 
         if (!response?.data?.results || !Array.isArray(response.data.results)) {
           console.error(`[DEBUG] Invalid API response on page ${page}`);
+          if (strict) {
+            throw new Error(
+              `Paperless-ngx returned a malformed document list on page ${page}`
+            );
+          }
           break;
         }
 
         documents = documents.concat(response.data.results);
+
+        // The walk pages by number, so `next` is only read as a boolean. A
+        // `next` that points somewhere other than this Paperless-ngx instance
+        // still means the answer cannot be trusted, and a strict caller must
+        // not treat the pages collected so far as the whole archive.
+        if (
+          strict &&
+          response.data.next &&
+          !this._safeExtractRelativePath(response.data.next)
+        ) {
+          throw new Error(
+            `Paperless-ngx returned an unusable pagination link on page ${page}`
+          );
+        }
+
         hasMore = response.data.next !== null;
         page++;
 
@@ -1161,6 +1206,9 @@ class PaperlessService {
         // Kleine Verzögerung um die API nicht zu überlasten
         await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (error) {
+        if (strict) {
+          throw error;
+        }
         console.error(
           `[ERROR]  fetching documents page ${page}:`,
           error.message

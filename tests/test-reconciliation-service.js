@@ -11,6 +11,17 @@
  * 7. Paperless-ngx API failure (graceful degradation)
  * 8. isReconciling reset after run
  * 9. getAllDocuments called with applyFilters:false (IGNORE_TAGS must not affect reconciliation)
+ *
+ * The cases from "Real ReconciliationService" downwards load the actual
+ * singleton instead of the stand-in above, and cover the vetoes that keep an
+ * incomplete Paperless-ngx answer from deleting local records:
+ * 10. A 502 on page 2 of the document list deletes nothing
+ * 11. A refused connection on page 1 deletes nothing
+ * 12. A rejected token deletes nothing (and never asks for the list)
+ * 13. An empty document list deletes nothing
+ * 14. A list sharing no id with the local tables deletes nothing
+ * 15. A complete list still removes exactly the stale ids
+ * 16. getAllDocuments is asked for the unfiltered list, strictly
  */
 
 'use strict';
@@ -34,6 +45,13 @@ async function testAsync(name, fn) {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers to create lightweight in-process stubs (no I/O)
+//
+// makeService() below is a stand-in that reimplements the stale-ID arithmetic
+// rather than loading services/reconciliationService.js. It still documents
+// what that arithmetic must produce, but it deliberately does NOT carry the
+// vetoes the real service gained (connection probe, strict document list,
+// empty-list and all-stale refusals) — see "Real ReconciliationService" at the
+// bottom of this file, which exercises the actual singleton for those.
 // ──────────────────────────────────────────────────────────────────────────────
 
 function makeService({
@@ -213,15 +231,18 @@ function makeService({
   );
 
   // 3. All entries stale
-  await testAsync('All entries stale are all removed', async () => {
-    const { svc, deleted } = makeService({
-      paperlessDocs: [],
-      processedDocs: [{ document_id: 10 }, { document_id: 20 }],
-    });
-    const result = await svc.reconcileAllDocuments();
-    assert.strictEqual(result.removed, 2, 'should remove all 2 entries');
-    assert.strictEqual(deleted.length, 2);
-  });
+  await testAsync(
+    'Stale arithmetic: all entries stale are all detected',
+    async () => {
+      const { svc, deleted } = makeService({
+        paperlessDocs: [],
+        processedDocs: [{ document_id: 10 }, { document_id: 20 }],
+      });
+      const result = await svc.reconcileAllDocuments();
+      assert.strictEqual(result.removed, 2, 'should remove all 2 entries');
+      assert.strictEqual(deleted.length, 2);
+    }
+  );
 
   // 4. Invalid / null document_id rows are skipped safely
   await testAsync(
@@ -374,6 +395,360 @@ function makeService({
         deleted.length,
         0,
         'History must remain intact when IGNORE_TAGS changes scan scope'
+      );
+    }
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // Real ReconciliationService — the vetoes that keep a bad answer from deleting
+  //
+  // These load services/reconciliationService.js itself, with the real
+  // paperlessService.getAllDocuments() walking a fake HTTP client. The hourly
+  // cron used to wipe processed_documents, history_documents and
+  // original_documents whenever Paperless-ngx failed on any page: getAllDocuments
+  // broke out of its loop and returned the pages it already had, and everything
+  // behind the failed page looked deleted.
+  // ──────────────────────────────────────────────────────────────────────────────
+
+  const PAPERLESS_BASE_URL = 'http://paperless.test/api';
+
+  /**
+   * A Paperless-ngx that pages /documents/ and can fail on a chosen page.
+   *
+   * @param {object} options
+   * @param {Array<Array<{id: number}>>} options.pages - one array of documents per page
+   * @param {number|null} [options.failOnPage] - page number that answers with an error
+   * @param {Error|null} [options.failWith] - the error that page throws (default: a 502)
+   * @param {boolean} [options.connectionOk] - what the /users/ probe answers
+   */
+  function createPaperlessClient({
+    pages,
+    failOnPage = null,
+    failWith = null,
+    connectionOk = true,
+  }) {
+    const requestedPages = [];
+
+    const httpError = (status, message) => {
+      const error = new Error(message);
+      error.response = { status, data: { detail: message } };
+      return error;
+    };
+
+    return {
+      requestedPages,
+      defaults: { baseURL: PAPERLESS_BASE_URL },
+      get: async (url, options = {}) => {
+        if (url.startsWith('/users/')) {
+          if (!connectionOk) {
+            throw httpError(401, 'Invalid token.');
+          }
+          return { status: 200, data: { results: [{ id: 1 }] } };
+        }
+
+        const page = Number(options.params?.page) || 1;
+        requestedPages.push(page);
+
+        if (failOnPage !== null && page === failOnPage) {
+          throw failWith || httpError(502, 'Bad Gateway');
+        }
+
+        const results = pages[page - 1] || [];
+        return {
+          status: 200,
+          data: {
+            results,
+            next:
+              page < pages.length
+                ? `${PAPERLESS_BASE_URL}/documents/?page=${page + 1}`
+                : null,
+          },
+        };
+      },
+    };
+  }
+
+  /**
+   * Loads the real reconciliation singleton with the real paperlessService (its
+   * client replaced) and a fake document model, so nothing opens a database.
+   */
+  function loadRealReconciliationService({ client, processedDocs }) {
+    const paperlessPath = require.resolve('../services/paperlessService');
+    const documentModelPath = require.resolve('../models/document');
+    const reconciliationPath =
+      require.resolve('../services/reconciliationService');
+
+    const paperlessService = require('../services/paperlessService');
+    paperlessService.client = client;
+
+    const deleted = [];
+    require.cache[documentModelPath] = {
+      id: documentModelPath,
+      filename: documentModelPath,
+      loaded: true,
+      exports: {
+        async getProcessedDocuments() {
+          return processedDocs;
+        },
+        async deleteDocumentsIdList(ids) {
+          ids.forEach((id) => deleted.push(id));
+        },
+      },
+    };
+    require.cache[paperlessPath] = {
+      id: paperlessPath,
+      filename: paperlessPath,
+      loaded: true,
+      exports: paperlessService,
+    };
+
+    delete require.cache[reconciliationPath];
+    const service = require('../services/reconciliationService');
+    return { service, deleted, paperlessService };
+  }
+
+  // 11. A page that fails mid-walk must delete nothing
+  await testAsync('Real service: a 502 on page 2 deletes nothing', async () => {
+    const client = createPaperlessClient({
+      pages: [[{ id: 1 }, { id: 2 }], [{ id: 3 }, { id: 4 }], [{ id: 5 }]],
+      failOnPage: 2,
+    });
+    const { service, deleted } = loadRealReconciliationService({
+      client,
+      processedDocs: [
+        { document_id: 1 },
+        { document_id: 3 },
+        { document_id: 5 },
+      ],
+    });
+
+    const result = await service.reconcileAllDocuments();
+
+    assert.strictEqual(
+      deleted.length,
+      0,
+      'a partial document list must delete nothing'
+    );
+    assert.strictEqual(
+      result.skipped,
+      true,
+      'the run must report itself as skipped'
+    );
+    assert.strictEqual(result.removed, 0, 'nothing may be counted as removed');
+    assert.strictEqual(
+      result.reason,
+      'document_list_incomplete',
+      'the reason must name the incomplete list'
+    );
+  });
+
+  // 12. A refused connection on page 1 must delete nothing
+  await testAsync(
+    'Real service: ECONNREFUSED on page 1 deletes nothing',
+    async () => {
+      const refused = new Error('connect ECONNREFUSED 127.0.0.1:8000');
+      refused.code = 'ECONNREFUSED';
+      const client = createPaperlessClient({
+        pages: [[{ id: 1 }, { id: 2 }]],
+        failOnPage: 1,
+        failWith: refused,
+      });
+      const { service, deleted } = loadRealReconciliationService({
+        client,
+        processedDocs: [{ document_id: 1 }, { document_id: 2 }],
+      });
+
+      const result = await service.reconcileAllDocuments();
+
+      assert.strictEqual(
+        deleted.length,
+        0,
+        'an unreachable Paperless-ngx must delete nothing'
+      );
+      assert.strictEqual(
+        result.skipped,
+        true,
+        'the run must report itself as skipped'
+      );
+      assert.strictEqual(
+        result.reason,
+        'document_list_incomplete',
+        'the reason must name the incomplete list'
+      );
+    }
+  );
+
+  // 13. An unauthorized instance is not an empty archive
+  await testAsync(
+    'Real service: a rejected token deletes nothing',
+    async () => {
+      const client = createPaperlessClient({
+        pages: [[{ id: 1 }]],
+        connectionOk: false,
+      });
+      const { service, deleted } = loadRealReconciliationService({
+        client,
+        processedDocs: [{ document_id: 1 }, { document_id: 2 }],
+      });
+
+      const result = await service.reconcileAllDocuments();
+
+      assert.strictEqual(
+        deleted.length,
+        0,
+        'an unauthorized instance must delete nothing'
+      );
+      assert.strictEqual(
+        result.reason,
+        'paperless_unavailable',
+        'the reason must name the unusable instance'
+      );
+      assert.strictEqual(
+        client.requestedPages.length,
+        0,
+        'the document list must not even be requested'
+      );
+    }
+  );
+
+  // 14. An empty document list is refused, not obeyed
+  await testAsync(
+    'Real service: an empty document list deletes nothing',
+    async () => {
+      const client = createPaperlessClient({ pages: [[]] });
+      const { service, deleted } = loadRealReconciliationService({
+        client,
+        processedDocs: [{ document_id: 1 }, { document_id: 2 }],
+      });
+
+      const result = await service.reconcileAllDocuments();
+
+      assert.strictEqual(
+        deleted.length,
+        0,
+        'an empty list must never wipe the local tables'
+      );
+      assert.strictEqual(
+        result.skipped,
+        true,
+        'the run must report itself as skipped'
+      );
+      assert.strictEqual(
+        result.reason,
+        'empty_document_list',
+        'the reason must name the empty list'
+      );
+    }
+  );
+
+  // 15. A list that shares no id with the local tables is refused
+  await testAsync(
+    'Real service: an all-stale result deletes nothing',
+    async () => {
+      const client = createPaperlessClient({
+        pages: [[{ id: 900 }, { id: 901 }]],
+      });
+      const { service, deleted } = loadRealReconciliationService({
+        client,
+        processedDocs: [{ document_id: 1 }, { document_id: 2 }],
+      });
+
+      const result = await service.reconcileAllDocuments();
+
+      assert.strictEqual(
+        deleted.length,
+        0,
+        'wiping every tracked document at once must be refused'
+      );
+      assert.strictEqual(
+        result.skipped,
+        true,
+        'the run must report itself as skipped'
+      );
+      assert.strictEqual(
+        result.reason,
+        'all_tracked_documents_stale',
+        'the reason must name the all-stale result'
+      );
+    }
+  );
+
+  // 16. The happy path still removes exactly the stale ids
+  await testAsync(
+    'Real service: a complete list removes exactly the stale ids',
+    async () => {
+      const client = createPaperlessClient({
+        pages: [[{ id: 1 }, { id: 2 }], [{ id: 3 }]],
+      });
+      const { service, deleted } = loadRealReconciliationService({
+        client,
+        processedDocs: [
+          { document_id: 1 },
+          { document_id: 2 },
+          { document_id: 3 },
+          { document_id: 42 },
+          { document_id: 43 },
+        ],
+      });
+
+      const result = await service.reconcileAllDocuments();
+
+      assert.strictEqual(
+        result.skipped,
+        false,
+        'a complete list must not be skipped'
+      );
+      assert.strictEqual(
+        result.removed,
+        2,
+        'exactly the two stale ids must be removed'
+      );
+      assert.deepStrictEqual(
+        deleted.sort((a, b) => a - b),
+        [42, 43],
+        'only the stale ids may be deleted'
+      );
+      assert.deepStrictEqual(
+        client.requestedPages,
+        [1, 2],
+        'both pages must have been walked'
+      );
+    }
+  );
+
+  // 17. Reconciliation must ask for the unfiltered list, strictly
+  await testAsync(
+    'Real service: getAllDocuments is called with applyFilters:false and strict:true',
+    async () => {
+      const client = createPaperlessClient({ pages: [[{ id: 1 }, { id: 2 }]] });
+      const { service, paperlessService } = loadRealReconciliationService({
+        client,
+        processedDocs: [{ document_id: 1 }],
+      });
+
+      let capturedOptions = null;
+      const realGetAllDocuments = paperlessService.getAllDocuments;
+      paperlessService.getAllDocuments = async (options) => {
+        capturedOptions = options;
+        return [{ id: 1 }, { id: 2 }];
+      };
+
+      try {
+        await service.reconcileAllDocuments();
+      } finally {
+        paperlessService.getAllDocuments = realGetAllDocuments;
+      }
+
+      assert.ok(capturedOptions, 'getAllDocuments must be called');
+      assert.strictEqual(
+        capturedOptions.applyFilters,
+        false,
+        'IGNORE_TAGS must not narrow the reference set'
+      );
+      assert.strictEqual(
+        capturedOptions.strict,
+        true,
+        'a partial list must be an error, not a shorter archive'
       );
     }
   );
