@@ -1201,22 +1201,64 @@ module.exports = {
 
   // ─── OCR Queue Methods ────────────────────────────────────────────────────
 
-  async addToOcrQueue(documentId, title, reason = 'manual') {
+  /**
+   * Puts a document into the OCR queue, or moves an existing row back to
+   * pending.
+   *
+   * The return value says whether a pending row exists *because of this call*:
+   * true when the row was inserted, or reset from pending, failed or — for a
+   * request the user made — from done; false when the OCR worker is busy with
+   * the row, when an automatic caller met a row that is already done, and when
+   * skipIfProcessed refused the document. Callers log "queued for OCR" on that
+   * value, so a false positive is a lie in the operator's log.
+   *
+   * @param {number} documentId Paperless-ngx document id
+   * @param {string} title document title, shown in the queue view
+   * @param {string} [reason='manual'] 'manual' is a run the user asked for and
+   *   re-queues a finished document; every other value marks automatic
+   *   queueing from a processing pipeline
+   * @param {object} [options]
+   * @param {boolean} [options.skipIfProcessed=false] refuse a document that is
+   *   already in processed_documents. The check sits inside the same statement
+   *   as the insert, so a document whose OCR run finishes while the scan is
+   *   still making its Paperless-ngx calls cannot slip through and buy a
+   *   second OCR run (issue #322).
+   * @returns {Promise<boolean>} true only when this call left a pending row
+   */
+  async addToOcrQueue(documentId, title, reason = 'manual', options = {}) {
+    const { skipIfProcessed = false } = options || {};
+    const isManualRequest = reason === 'manual';
+
     try {
+      // One statement, so the processed_documents lookup and the insert cannot
+      // be interleaved. The SELECT needs its WHERE clause even when nothing is
+      // being skipped: SQLite requires one to tell the upsert's ON apart from
+      // the ON of a join.
       const result = db
         .prepare(
           `
         INSERT INTO ocr_queue (document_id, title, reason, status)
-        VALUES (?, ?, ?, 'pending')
+        SELECT ?, ?, ?, 'pending'
+        WHERE ? = 0
+           OR NOT EXISTS (SELECT 1 FROM processed_documents WHERE document_id = ?)
         ON CONFLICT(document_id) DO UPDATE SET
           title = excluded.title,
           reason = excluded.reason,
-          status = CASE WHEN status = 'done' THEN 'done' ELSE 'pending' END,
-          added_at = CASE WHEN status = 'done' THEN added_at ELSE CURRENT_TIMESTAMP END
-        WHERE status != 'processing'
+          ocr_text = CASE WHEN ocr_queue.status = 'done' THEN NULL ELSE ocr_queue.ocr_text END,
+          status = 'pending',
+          added_at = CURRENT_TIMESTAMP
+        WHERE ocr_queue.status IN ('pending', 'failed')
+           OR (ocr_queue.status = 'done' AND ? = 1)
       `
         )
-        .run(documentId, title, reason);
+        .run(
+          documentId,
+          title,
+          reason,
+          skipIfProcessed ? 1 : 0,
+          documentId,
+          isManualRequest ? 1 : 0
+        );
       return result.changes > 0;
     } catch (error) {
       console.error('[ERROR] adding to OCR queue:', error);

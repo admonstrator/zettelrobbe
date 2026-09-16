@@ -127,6 +127,8 @@ const TESTS = {
   'rescan-fetch-before-delete': 'test-rescan-fetch-before-delete.js',
   'ocr-empty-result-guard': 'test-ocr-empty-result-guard.js',
   'log-secret-redaction': 'test-log-secret-redaction.js',
+  'ocr-queue-requeue-guard': 'test-ocr-queue-requeue-guard.js',
+  'ocr-queue-add-endpoint': 'test-ocr-queue-add-endpoint.js',
 };
 
 const AREAS = {
@@ -152,6 +154,8 @@ const AREAS = {
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
     'ocr-empty-result-guard',
+    'ocr-queue-requeue-guard',
+    'ocr-queue-add-endpoint',
   ],
   observability: [
     'changelog-releases',
