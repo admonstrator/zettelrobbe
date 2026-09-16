@@ -9733,19 +9733,31 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
           ? doc.title.trim()
           : `Document ${docIdNum}`;
 
+      // A manual request re-queues a finished document on purpose — that is
+      // what the "run OCR again" entry promises. addToOcrQueue() now answers
+      // true only when a pending row exists because of this call, so the
+      // counter below states what really happened instead of counting a row
+      // the call merely touched.
       if (await documentModel.addToOcrQueue(docIdNum, title, 'manual')) {
         added += 1;
       }
     }
 
+    const skipped = documentIds.length - added - missing.length;
+
     if (single && !added) {
+      // Reached while the OCR worker holds the row; pending, failed and done
+      // rows are all re-queued above. The counters stay in the answer so every
+      // response of this route has the same shape.
       return res.json({
         success: false,
-        message: 'Document already in queue or could not be added',
+        added,
+        skipped,
+        missing,
+        message: `Document ${documentIds[0]} is being processed by OCR right now and was not queued again`,
       });
     }
 
-    const skipped = documentIds.length - added - missing.length;
     return res.json({
       success: true,
       added,
@@ -9754,7 +9766,7 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
       message: single
         ? `Document ${documentIds[0]} added to OCR queue`
         : `${added} document(s) added to the OCR queue` +
-          (skipped ? `, ${skipped} already queued` : '') +
+          (skipped ? `, ${skipped} already being processed` : '') +
           (missing.length ? `, ${missing.length} not found` : ''),
     });
   } catch (error) {
@@ -9768,6 +9780,15 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
  * /api/ocr/queue/add:
  *   post:
  *     summary: Add document to OCR queue
+ *     description: >-
+ *       Queues documents for OCR on explicit request. A document that has
+ *       already been through OCR, and one that has already been analysed, is
+ *       queued again, because the request itself is the user asking for a
+ *       re-run; a completed queue row goes back to pending and its stored OCR
+ *       text is cleared. Only a document the OCR worker is busy with is left
+ *       alone. added counts the documents that really are pending afterwards,
+ *       skipped the ones that were left alone, and missing lists the ids
+ *       Paperless-ngx no longer has.
  *     tags:
  *       - OCR
  *       - API
@@ -9790,14 +9811,36 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
  *                 type: array
  *                 description: |
  *                   A selection, as the bulk menu sends it. Documents that are
- *                   already queued are counted as skipped and ones missing from
+ *                   being processed are counted as skipped and ones missing from
  *                   Paperless-ngx are listed, rather than failing the batch.
  *                 items:
  *                   type: integer
  *                   minimum: 1
  *     responses:
  *       200:
- *         description: Add operation result
+ *         description: >-
+ *           Add operation result. success is false when a single document was
+ *           not queued; the counters are present either way.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 added:
+ *                   type: integer
+ *                   description: Documents that are pending because of this request.
+ *                 skipped:
+ *                   type: integer
+ *                   description: Documents the OCR worker is busy with.
+ *                 missing:
+ *                   type: array
+ *                   description: Ids Paperless-ngx did not resolve.
+ *                   items:
+ *                     type: integer
+ *                 message:
+ *                   type: string
  *       400:
  *         description: Invalid payload
  *       404:

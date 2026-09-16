@@ -88,6 +88,17 @@ async function triggerScanNow(source = 'manual') {
     };
   }
 
+  // The OCR drain works on the same documents through the same AI backend.
+  // Letting a scan start next to it is what bought a second paid OCR run for a
+  // document the drain had just finished (issue #322).
+  if (ocrAutoProcessService.running) {
+    return {
+      started: false,
+      running: false,
+      message: 'OCR auto-processing is currently running.',
+    };
+  }
+
   scanDocuments(source).catch((error) => {
     console.error(
       `[ERROR] scanDocuments() failed in triggerScanNow: ${error.message}`
@@ -621,10 +632,26 @@ async function processDocument(
   doc,
   existingTags,
   existingCorrespondentList,
-  existingDocumentTypesList
+  existingDocumentTypesList,
+  context = {}
 ) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
   if (isProcessed) return null;
+
+  // A document that waits in the OCR queue, or sits inside an OCR run right
+  // now, gets both its text and its analysis from that path. Analysing it here
+  // would work on the very text the OCR run is about to replace, and the three
+  // Paperless-ngx calls below would be spent for nothing.
+  const queuedForOcrIds = context.ocrQueuedDocumentIds;
+  if (
+    (queuedForOcrIds && queuedForOcrIds.has(Number(doc.id))) ||
+    mistralOcrService.isDocumentActivelyProcessing(doc.id)
+  ) {
+    console.debug(
+      `Document ${doc.id} is waiting for Mistral OCR, skipping analysis this round`
+    );
+    return null;
+  }
 
   const isIgnored = await documentModel.isDocumentIgnored(doc.id);
   if (isIgnored) {
@@ -662,17 +689,57 @@ async function processDocument(
     paperlessService.getDocument(doc.id),
   ]);
 
+  // Both automatic queue points share this helper. The Paperless-ngx calls
+  // above take long enough for a running OCR job to finish in between, delete
+  // its queue row and put the document into processed_documents — the scan
+  // then used to insert a fresh pending row and buy a second paid OCR run
+  // (issue #322). The checks here keep that out of the log and off the wire;
+  // skipIfProcessed is the atomic safety net inside the insert itself.
+  const queueForOcr = async (queueReason) => {
+    if (await documentModel.isDocumentProcessed(doc.id)) {
+      console.debug(
+        `Document ${doc.id} was processed while this scan was running, not queued for Mistral OCR (already processed)`
+      );
+      return false;
+    }
+
+    if (mistralOcrService.isDocumentActivelyProcessing(doc.id)) {
+      console.debug(
+        `Document ${doc.id} is inside an OCR run, not queued for Mistral OCR (currently processing)`
+      );
+      return false;
+    }
+
+    const queued = await documentModel.addToOcrQueue(
+      doc.id,
+      doc.title,
+      queueReason,
+      { skipIfProcessed: true }
+    );
+
+    if (!queued) {
+      const queueItem = await documentModel.getOcrQueueItem(doc.id);
+      let state = 'already processed';
+      if (queueItem?.status === 'done') {
+        state = 'already done';
+      } else if (queueItem?.status === 'processing') {
+        state = 'currently processing';
+      }
+      console.debug(
+        `Document ${doc.id} was not queued for Mistral OCR (${state})`
+      );
+    }
+
+    return queued;
+  };
+
   if (!content || content.length < MIN_CONTENT_LENGTH) {
     console.debug(
       `Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${MIN_CONTENT_LENGTH}), skipping analysis`
     );
     // Queue for Mistral OCR if enabled.
     if (mistralOcrService.isEnabled()) {
-      const added = await documentModel.addToOcrQueue(
-        doc.id,
-        doc.title,
-        `short_content_lt_${MIN_CONTENT_LENGTH}`
-      );
+      const added = await queueForOcr(`short_content_lt_${MIN_CONTENT_LENGTH}`);
       if (added) {
         console.info(
           `Document ${doc.id} queued for Mistral OCR (short_content)`
@@ -732,16 +799,15 @@ async function processDocument(
       shouldQueueForOcrOnAiError(aiErrorMessage)
     ) {
       const queueReason = classifyOcrQueueReasonFromAiError(aiErrorMessage);
-      const added = await documentModel.addToOcrQueue(
-        doc.id,
-        doc.title,
-        queueReason
-      );
+      const added = await queueForOcr(queueReason);
       if (added) {
         console.log(
           `[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${aiErrorMessage})`
         );
       }
+      // The OCR path stays responsible for this document even when nothing was
+      // queued: a refusal means it is already processed, already done or inside
+      // a run, and none of those is a terminal AI failure worth recording.
       queuedForOcr = true;
     }
 
@@ -1018,6 +1084,17 @@ async function scanDocuments(source = 'scheduler') {
     return;
   }
 
+  // The OCR cron already stands down while a scan runs; this is the other
+  // direction. Both paths analyse the same documents through the same AI
+  // backend, and a scan that overlaps an OCR run is what let a document be
+  // OCR'd twice within minutes (issue #322).
+  if (ocrAutoProcessService.running) {
+    console.info(
+      'Scan request ignored because OCR auto-processing is currently running'
+    );
+    return;
+  }
+
   const scanStartedAtMs = Date.now();
   const scanStats = {
     source,
@@ -1087,6 +1164,16 @@ async function scanDocuments(source = 'scheduler') {
     // Extract tag names from tag objects
     const existingTagNames = existingTags.map((tag) => tag.name);
 
+    // Read once per run: every document that waits for OCR or is being OCR'd
+    // is skipped below before the scan spends a single Paperless-ngx call on
+    // it. Documents that enter the queue during this run are caught by the
+    // per-document checks in processDocument().
+    const ocrQueuedDocumentIds = new Set(
+      (await documentModel.getOcrQueueDocumentIds()).map((documentId) =>
+        Number(documentId)
+      )
+    );
+
     for (const doc of documents) {
       if (scanControl.stopRequested) {
         scanStats.stopRequested = true;
@@ -1101,7 +1188,8 @@ async function scanDocuments(source = 'scheduler') {
           doc,
           existingTagNames,
           existingCorrespondentList,
-          existingDocumentTypesList
+          existingDocumentTypesList,
+          { ocrQueuedDocumentIds }
         );
         if (!result) {
           scanStats.skipped += 1;
