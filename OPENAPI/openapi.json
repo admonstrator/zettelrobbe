@@ -5142,6 +5142,7 @@
     "/api/ocr/queue/add": {
       "post": {
         "summary": "Add document to OCR queue",
+        "description": "Queues documents for OCR on explicit request. A document that has already been through OCR, and one that has already been analysed, is queued again, because the request itself is the user asking for a re-run; a completed queue row goes back to pending and its stored OCR text is cleared. Only a document the OCR worker is busy with is left alone. added counts the documents that really are pending afterwards, skipped the ones that were left alone, and missing lists the ids Paperless-ngx no longer has.",
         "tags": [
           "OCR",
           "API"
@@ -5169,7 +5170,7 @@
                   },
                   "documentIds": {
                     "type": "array",
-                    "description": "A selection, as the bulk menu sends it. Documents that are\nalready queued are counted as skipped and ones missing from\nPaperless-ngx are listed, rather than failing the batch.\n",
+                    "description": "A selection, as the bulk menu sends it. Documents that are\nbeing processed are counted as skipped and ones missing from\nPaperless-ngx are listed, rather than failing the batch.\n",
                     "items": {
                       "type": "integer",
                       "minimum": 1
@@ -5182,7 +5183,37 @@
         },
         "responses": {
           "200": {
-            "description": "Add operation result"
+            "description": "Add operation result. success is false when a single document was not queued; the counters are present either way.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "added": {
+                      "type": "integer",
+                      "description": "Documents that are pending because of this request."
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "description": "Documents the OCR worker is busy with."
+                    },
+                    "missing": {
+                      "type": "array",
+                      "description": "Ids Paperless-ngx did not resolve.",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "Invalid payload"
