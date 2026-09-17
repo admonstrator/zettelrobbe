@@ -74,6 +74,10 @@ function reset() {
   calls.length = 0;
   updateCheckService.reset();
   config.updateCheckEnabled = 'yes';
+  // Pin the app's own version below the mocked release: the service reads it
+  // at call time, and the test must not flip whenever PAPERLESS_AI_VERSION
+  // in config.js catches up with the tag used here.
+  config.PAPERLESS_AI_VERSION = 'v2026.08.05';
   respond = () => ({ status: 200, data: { tag_name: 'v2026.09.01' } });
 }
 
