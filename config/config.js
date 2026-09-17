@@ -433,7 +433,7 @@ startupLog(logLevel, 'info', 'Configuration loaded:', {
 });
 
 module.exports = {
-  PAPERLESS_AI_VERSION: 'v2026.08.05',
+  PAPERLESS_AI_VERSION: 'v2026.09.01',
   CONFIGURED: false,
   configSourceMode: CONFIG_SOURCE_MODE,
   getApiKey,

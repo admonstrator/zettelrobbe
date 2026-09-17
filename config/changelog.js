@@ -114,6 +114,22 @@ const RELEASES = [
       'Fix: Settings labels show their "set through the environment" and "runtime override" markers again',
     ],
   },
+  {
+    version: 'v2026.09.01',
+    entries: [
+      'Security: Multi-factor authentication can no longer be bypassed with the password alone. The interim token issued between the password and the TOTP step was accepted as a full session by every guard. All existing sessions are signed out once after this update',
+      'Security: The setup wizard stays closed once an administrator account exists. An incomplete configuration used to reopen it, and completing it again replaced the existing administrator and the Paperless-ngx connection without any login; a signed-in administrator is sent to Settings instead',
+      'Security: API tokens and provider keys no longer end up in the log files. Error output is redacted before it is written, and a full disk no longer crashes the app through its own logging',
+      'Fix: Reconciliation no longer deletes the local history and the "restore original" snapshots when Paperless-ngx answers incompletely or not at all. A run that cannot trust the answer is skipped and says why, including the manual reconciliation under Settings',
+      'Fix: Rescanning a document that Paperless-ngx cannot deliver at that moment leaves its history and restore data untouched and reports it, instead of deleting them first and reporting success',
+      'Fix: An OCR run that returns no text no longer replaces the document content in Paperless-ngx with an empty string; empty and cut-off OCR results count as failed',
+      'Fix: Documents that just finished OCR and AI analysis are no longer queued for a second, paid OCR run by the scheduled scan. The scan also skips documents waiting for OCR and stands down while the automatic queue drain runs <a href="https://github.com/admonstrator/zettelrobbe/issues/322">(see here)</a>',
+      'Fix: An invalid TOKEN_LIMIT such as "128k" no longer makes the AI analyse an empty document and invent metadata. It falls back to the default with a warning, and Settings rejects such a value',
+      'Fix: Documents longer than the token budget are sent to OpenAI and Azure as text again. Truncation used to produce a request the providers rejected with "Invalid type for messages[1].content"',
+      'Improvement: "Run OCR again" from the history queues a completed document for real, and the OCR queue responses count only documents that were actually queued',
+      'Improvement: Dependencies updated to close the open security advisories (fast-uri, js-yaml, qs, @humanfs/node, colord)',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];
