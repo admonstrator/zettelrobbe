@@ -850,6 +850,9 @@
  *                 candidates:
  *                   type: integer
  *                   description: pairs from the wider band the model was shown
+ *                 failedRequests:
+ *                   type: integer
+ *                   description: model requests that answered nothing usable; their pairs are marked unsure
  *
  *     EntityMergeDismissRequest:
  *       type: object
