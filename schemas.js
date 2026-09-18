@@ -716,6 +716,10 @@
  *           enum: [undone, undo_failed]
  *         revertedMatchingRule:
  *           type: boolean
+ *         performedBy:
+ *           type: string
+ *           nullable: true
+ *           description: who asked for the undo (username, or api-key)
  *         sources:
  *           type: array
  *           items:

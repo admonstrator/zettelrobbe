@@ -694,9 +694,15 @@ function htmlLogRows(entries) {
         .join(', ');
       const date = window.zrDate.format(entry.createdAt, { fallback: '–' });
       const dateTitle = window.zrDate.formatDateTime(entry.createdAt);
-      const undoable = entry.status === 'done' || entry.status === 'partial';
+      // A failed undo stays retryable: the next attempt adopts what was
+      // already re-created and moves the remaining documents.
+      const undoable =
+        entry.status === 'done' ||
+        entry.status === 'partial' ||
+        entry.status === 'undo_failed';
+      const undoLabel = entry.status === 'undo_failed' ? 'Retry undo' : 'Undo';
       const htmlUndo = undoable
-        ? `<button type="button" class="zr-btn dup-undo-btn" data-id="${num(entry.id)}">${htmlIcons.undo} Undo</button>`
+        ? `<button type="button" class="zr-btn dup-undo-btn" data-id="${num(entry.id)}">${htmlIcons.undo} ${esc(undoLabel)}</button>`
         : '';
       return `<tr data-log-id="${num(entry.id)}">
         <td data-label="Date" class="zr-sm zr-faint zr-table__date" title="${esc(dateTitle)}">${esc(date)}</td>

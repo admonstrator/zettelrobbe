@@ -680,7 +680,6 @@ class DuplicateMergeService {
    * @returns {Promise<object>} EntityMergeUndoResult
    */
   async undo(mergeId, { performedBy = null } = {}) {
-    void performedBy;
     const id = Number(mergeId);
     if (!isPositiveInteger(id)) {
       throw new MergeValidationError('Unknown merge', 404);
@@ -738,10 +737,16 @@ class DuplicateMergeService {
       }
     }
 
-    const status = sources.every((source) => source.restoredId != null)
+    // "undone" only when every source is back *and* took its documents with
+    // it. A source that was re-created but whose documents could not be moved
+    // back keeps the merge retryable: the next undo adopts the re-created
+    // entry by name and moves the rest.
+    const status = sources.every(
+      (source) => source.restoredId != null && source.error == null
+    )
       ? 'undone'
       : 'undo_failed';
-    const undoResult = { status, revertedMatchingRule, sources };
+    const undoResult = { status, revertedMatchingRule, performedBy, sources };
 
     paperlessService.clearEntityCaches();
     dashboardStatsService.refresh().catch((error) => {

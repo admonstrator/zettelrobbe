@@ -31,6 +31,7 @@
  * 13. Undo skips documents that were deleted or changed meanwhile
  * 14. Undo twice is refused (409)
  * 15. Undo does not revert a matching rule the user changed since the merge
+ * 16. A half-done undo stays retryable and finishes on the next attempt
  */
 
 'use strict';
@@ -715,6 +716,77 @@ async function main() {
       assert.strictEqual(undo.sources[0].documentsRestored, 1);
       assert.strictEqual(undo.sources[0].documentsSkipped, 2);
       assert.deepStrictEqual(fake.document(8003).tags, [], 'left alone');
+    });
+
+    await test('A half-done undo stays retryable and finishes on the next attempt', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 97, name: 'Lease' },
+          { id: 98, name: 'lease' },
+        ],
+        documents: [
+          { id: 9001, tags: [98] },
+          { id: 9002, tags: [98] },
+        ],
+      });
+      const merged = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 97,
+        sourceIds: [98],
+      });
+      assert.strictEqual(merged.status, 'done');
+
+      // The tag comes back, then Paperless-ngx drops the connection before
+      // the documents move.
+      const originalPost = fake.client.post.bind(fake.client);
+      let failOnce = true;
+      fake.client.post = async (url, body) => {
+        if (failOnce && String(url).includes('bulk_edit')) {
+          failOnce = false;
+          throw new Error('socket hang up');
+        }
+        return originalPost(url, body);
+      };
+
+      const first = await duplicateMergeService.undo(merged.mergeId);
+      assert.strictEqual(first.status, 'undo_failed');
+      assert.ok(first.sources[0].restoredId, 'the tag itself was re-created');
+      assert.match(first.sources[0].error, /not moved back/);
+      assert.deepStrictEqual(
+        fake.document(9001).tags,
+        [97],
+        'the documents are still on the target'
+      );
+      const afterFirst = await documentModel.getEntityMergeById(merged.mergeId);
+      assert.strictEqual(afterFirst.status, 'undo_failed');
+      assert.strictEqual(afterFirst.undoneAt, null, 'still undoable');
+
+      const second = await duplicateMergeService.undo(merged.mergeId, {
+        performedBy: 'tester',
+      });
+      assert.strictEqual(second.status, 'undone');
+      assert.strictEqual(second.performedBy, 'tester');
+      assert.strictEqual(
+        second.sources[0].adoptedExisting,
+        true,
+        'the re-created tag is adopted, not created a second time'
+      );
+      assert.strictEqual(
+        second.sources[0].restoredId,
+        first.sources[0].restoredId
+      );
+      assert.deepStrictEqual(fake.document(9001).tags, [
+        second.sources[0].restoredId,
+      ]);
+      assert.strictEqual(
+        fake.tagNames().filter((name) => name === 'lease').length,
+        1
+      );
+      const afterSecond = await documentModel.getEntityMergeById(
+        merged.mergeId
+      );
+      assert.strictEqual(afterSecond.status, 'undone');
+      assert.ok(afterSecond.undoneAt);
     });
   } finally {
     try {
