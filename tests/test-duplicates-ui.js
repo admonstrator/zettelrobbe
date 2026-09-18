@@ -15,7 +15,9 @@
  * 5. public/icons.svg carries the i-merge symbol the page references
  * 6. public/js/duplicates.js escapes everything it writes into innerHTML
  * 7. the page has a label for every match reason and group warning the
- *    matcher can produce
+ *    matcher can produce, and its own wording where a flow needs one
+ * 8. the AI review is rendered only when the route says it is available, and
+ *    the page speaks all three verdicts
  */
 
 'use strict';
@@ -200,6 +202,76 @@ test('The sensitivity select offers the three presets, normal preselected', () =
     ['0.85'],
     'exactly the default threshold must come up preselected'
   );
+});
+
+test('The AI review is rendered only when the route offers it', () => {
+  const offered = renderSync(
+    'duplicates.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  [
+    'dupAiReviewBtn',
+    'dupAiTitles',
+    'dupAiHint',
+    'dupAiNotice',
+    'dupStatAiJudged',
+    'dupStatAiCandidates',
+    'dupStatAiRequests',
+  ].forEach((id) => {
+    assert.ok(
+      offered.includes(`id="${id}"`),
+      `#${id} is missing although the review is offered`
+    );
+  });
+  assert.ok(offered.includes('Ask the AI'), 'the button is not labelled');
+  assert.ok(
+    offered.includes('Use document titles as context'),
+    'the titles checkbox has no label'
+  );
+  assert.match(
+    offered,
+    /id="dupAiTitles"[^>]*checked/,
+    'the titles come as context unless the user says otherwise'
+  );
+  assert.match(
+    offered,
+    /id="dupAiReviewBtn"[^>]*disabled/,
+    'the button waits for a scan to have found something'
+  );
+  assert.match(offered, /icons\.svg#i-wand/, 'the button has no i-wand icon');
+  // The band below the threshold is what the model adds, and it is widest at
+  // the strict preset — the hint is the only place that says so.
+  assert.ok(
+    offered.includes('Most useful at Strict sensitivity'),
+    'the hint about where the review pays off is missing'
+  );
+  // Both tiles belong to the stats row and stay out of sight until a review
+  // has answered; .hidden is the framework's !important class.
+  ['dupStatAiJudgedTile', 'dupStatAiRequestsTile'].forEach((id) => {
+    assert.match(
+      offered,
+      new RegExp(`class="zr-stat hidden" id="${id}"`),
+      `#${id} must come up hidden`
+    );
+  });
+
+  // The default: nothing of the review is rendered, not even its containers.
+  [page, renderSync('duplicates.ejs', LOCALS)].forEach((markup) => {
+    [
+      'dupAiReviewBtn',
+      'dupAiTitles',
+      'dupAiHint',
+      'dupAiNotice',
+      'dupStatAiJudgedTile',
+      'dupStatAiRequestsTile',
+      'Ask the AI',
+    ].forEach((needle) => {
+      assert.ok(
+        !markup.includes(needle),
+        `"${needle}" must not be rendered without aiReviewEnabled`
+      );
+    });
+  });
 });
 
 test('The view falls back to the presets when the route passes no locals', () => {
@@ -486,6 +558,51 @@ test('Every match reason and group warning has a label on the page', () => {
       `the page has no text for the group warning "${warning}"`
     );
   });
+
+  // The model's three verdicts are a vocabulary of their own; the page needs a
+  // label, a tone class and an icon for each of them.
+  const ai = require('../services/entityMatchAiService');
+  Object.values(ai.AI_VERDICTS).forEach((verdict) => {
+    assert.ok(
+      hasKey(verdict),
+      `the page has no label for the AI verdict "${verdict}"`
+    );
+    assert.ok(
+      SCRIPT.includes(`AI: ${verdict}`),
+      `the page never writes out "AI: ${verdict}"`
+    );
+    assert.ok(
+      SCRIPT.includes(`dup-verdict--${verdict}`),
+      `the verdict "${verdict}" has no tone class`
+    );
+  });
+  // The page only has to recognise the source that changes what it renders:
+  // everything that is not an AI candidate is a group the scan itself found.
+  assert.ok(
+    SCRIPT.includes(`'${ai.GROUP_SOURCES.AI_CANDIDATE}'`),
+    'the page does not know the ai-candidate group source'
+  );
+});
+
+test('The manual flow says what happens to an inbox tag among its sources', () => {
+  // A group keeps its inbox tag: the matcher makes it the target. By hand the
+  // user picks the target, so an inbox tag can be a source — and a source is
+  // deleted. The two sentences must therefore stay apart.
+  assert.ok(
+    SCRIPT.includes('One of these is an inbox tag; it stays the target.'),
+    'the group wording is gone'
+  );
+  assert.ok(
+    SCRIPT.includes(
+      'An inbox tag is among the entries to merge away; it will be deleted in Paperless-ngx.'
+    ),
+    'the manual flow still promises that the inbox tag survives'
+  );
+  assert.match(
+    SCRIPT,
+    /htmlWarnings\(manualWarnings\(target, sources\), MANUAL_WARNING_TEXTS\)/,
+    'the manual module does not use its own wording'
+  );
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

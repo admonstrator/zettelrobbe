@@ -21,6 +21,9 @@ const dupSensitivityOptions = [
     { label: 'Normal', value: dupSensitivity.normal },
     { label: 'Loose', value: dupSensitivity.loose }
 ];
+/* The AI review is only offered when the setting is on and a provider is
+   configured; without that local nothing of it is rendered at all. */
+const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled === true;
 -%>
             <div>
                 <div class="zr-viewhead">
@@ -63,6 +66,21 @@ const dupSensitivityOptions = [
                                 Scan Paperless-ngx
                             </button>
                         </div>
+<% if (dupAiReviewEnabled) { -%>
+                        <!-- Second row: the model judges what the scan found.
+                             Disabled until a scan has produced something. -->
+                        <div class="dup-ai-controls">
+                            <button class="zr-btn" id="dupAiReviewBtn" type="button" disabled>
+                                <svg class="zr-icon zr-icon--sm" id="dupAiReviewIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                                Ask the AI
+                            </button>
+                            <label class="zr-row">
+                                <input type="checkbox" class="zr-check" id="dupAiTitles" checked>
+                                Use document titles as context
+                            </label>
+                            <span class="zr-sm zr-faint dup-ai-hint" id="dupAiHint">Most useful at Strict sensitivity: the near-misses below the threshold are what the model gets to judge.</span>
+                        </div>
+<% } -%>
                     </div>
                 </div>
 
@@ -95,6 +113,25 @@ const dupSensitivityOptions = [
                         </span>
                         <span class="zr-stat__value" id="dupStatDocuments">0</span>
                     </div>
+<% if (dupAiReviewEnabled) { -%>
+                    <!-- Both stay hidden until a review has answered. -->
+                    <div class="zr-stat hidden" id="dupStatAiJudgedTile">
+                        <span class="zr-stat__label">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                            AI-judged pairs
+                        </span>
+                        <span class="zr-stat__value" id="dupStatAiJudged">0</span>
+                        <span class="zr-stat__delta" id="dupStatAiCandidates"></span>
+                    </div>
+                    <div class="zr-stat hidden" id="dupStatAiRequestsTile">
+                        <span class="zr-stat__label">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
+                            Model requests
+                        </span>
+                        <span class="zr-stat__value" id="dupStatAiRequests">0</span>
+                        <span class="zr-stat__delta" id="dupStatAiTokens"></span>
+                    </div>
+<% } -%>
                 </section>
 
                 <!-- Merge by hand: no scan involved, the user names the target
@@ -159,6 +196,11 @@ const dupSensitivityOptions = [
                     </div>
                 </details>
 
+<% if (dupAiReviewEnabled) { -%>
+                <!-- What the review has to say about itself: the line while it
+                     runs, a warning about failed requests, or its error. -->
+                <div class="dup-ai-notice" id="dupAiNotice"></div>
+<% } -%>
                 <div class="dup-results" id="dupResults">
                     <div class="zr-module">
                         <div class="zr-empty">

@@ -41,6 +41,7 @@ const updateCheckService = require('../services/updateCheckService');
 const dashboardStatsService = require('../services/dashboardStatsService');
 const duplicateMergeService = require('../services/duplicateMergeService');
 const entityNameMatcher = require('../services/entityNameMatcher');
+const entityMatchAiService = require('../services/entityMatchAiService');
 const {
   THUMBNAIL_CACHE_DIR,
   getThumbnailCachePath,
@@ -10703,6 +10704,9 @@ router.get('/duplicates', protectApiRoute, async (req, res) => {
       version: configFile.PAPERLESS_AI_VERSION || ' ',
       sensitivity: entityNameMatcher.SENSITIVITY,
       defaultThreshold: entityNameMatcher.DEFAULT_THRESHOLD,
+      // Decides whether the page offers "Ask the AI" at all; the review itself
+      // is only ever started by the user.
+      aiReviewEnabled: entityMatchAiService.isEnabled(),
     });
   } catch (error) {
     console.error('[ERROR] GET /duplicates:', error);
@@ -10799,6 +10803,106 @@ router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
     return res.json({ success: true, data });
   } catch (error) {
     return respondDuplicatesError(res, 'GET /api/duplicates/scan', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review:
+ *   post:
+ *     summary: Let the configured AI provider judge what the scan found
+ *     description: |
+ *       Runs the same scan as `/api/duplicates/scan`, shows the configured AI
+ *       provider every pair of the groups plus a wider band of near-misses,
+ *       and returns the scan result with the model's verdict attached to each
+ *       group and member. Groups the model confirmed below the sensitivity
+ *       arrive as extra groups with `source: ai-candidate`.
+ *
+ *       Read-only and never automatic: it runs when the user asks for it,
+ *       nothing is merged, and a verdict is information the user decides on.
+ *       `withTitles` lets the model see a few recent document titles per
+ *       entry as context; leave it out and it is on.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *     responses:
+ *       200:
+ *         description: The reviewed scan result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/DuplicateAiReviewResult'
+ *       400:
+ *         description: Unknown kind or threshold outside [0.5, 1]
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: The AI review is switched off (DUPLICATES_AI_REVIEW)
+ *       502:
+ *         description: Paperless-ngx or the AI provider could not be reached
+ *       500:
+ *         description: Server error
+ */
+router.post('/api/duplicates/ai-review', isAuthenticated, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const kind = String(body.kind || duplicateMergeService.KIND_ALL);
+    const knownKinds = [
+      duplicateMergeService.KIND_ALL,
+      ...entityNameMatcher.KIND_LIST,
+    ];
+    if (!knownKinds.includes(kind)) {
+      return res
+        .status(400)
+        .json({ success: false, error: `Unknown entity kind: ${kind}` });
+    }
+
+    const rawThreshold = body.threshold;
+    const threshold =
+      rawThreshold === undefined || rawThreshold === null || rawThreshold === ''
+        ? entityNameMatcher.DEFAULT_THRESHOLD
+        : Number(rawThreshold);
+    if (!Number.isFinite(threshold) || threshold < 0.5 || threshold > 1) {
+      return res.status(400).json({
+        success: false,
+        error: 'threshold must be a number between 0.5 and 1',
+      });
+    }
+
+    const includeDismissed =
+      body.includeDismissed === true ||
+      String(body.includeDismissed).toLowerCase() === 'true';
+    // The titles are context, not a filter: a request that says nothing about
+    // them gets them, which is what the page's checkbox comes up as.
+    const withTitles =
+      body.withTitles === undefined || body.withTitles === null
+        ? true
+        : body.withTitles === true ||
+          String(body.withTitles).toLowerCase() === 'true';
+
+    const data = await entityMatchAiService.reviewScan({
+      kind,
+      threshold,
+      includeDismissed,
+      withTitles,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/ai-review', error);
   }
 });
 
