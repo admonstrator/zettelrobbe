@@ -22,6 +22,8 @@
  *  8. Undoing twice is 409, an unknown merge is 404
  *  9. dismiss -> dismissals -> delete round trip, and the scan honours it
  * 10. GET /api/duplicates/log pages and reports recordsTotal
+ * 11. POST /api/duplicates/ai-review validates, passes its options on and
+ *     hands the reviewed result through unchanged
  */
 
 'use strict';
@@ -521,6 +523,197 @@ async function main() {
 
       const badKind = await call('GET', '/api/duplicates/log?kind=nope');
       assert.strictEqual(badKind.status, 400);
+    });
+
+    /* ── the AI review ────────────────────────────────────────────────────
+       The judge itself lives in services/entityMatchAiService.js and has its
+       own suite; what the route owns is the validation, the options it hands
+       over and the statuses it maps back, so the service is stubbed here. */
+
+    const entityMatchAiService = require(
+      path.join(REPO_ROOT, 'services', 'entityMatchAiService')
+    );
+    const realReviewScan = entityMatchAiService.reviewScan;
+
+    /** Verdicts and a candidate group, the way a finished review answers. */
+    function reviewFixture() {
+      return {
+        scannedAt: '2026-09-18T10:00:00.000Z',
+        threshold: 0.85,
+        totals: { tags: 42, correspondents: null },
+        dismissedPairs: 0,
+        paperlessUrl: 'https://paperless.test',
+        groups: [
+          {
+            id: 'tags:1-2',
+            kind: 'tags',
+            confidence: 0.92,
+            reasons: ['fuzzy'],
+            suggestedTargetId: 1,
+            warnings: [],
+            source: 'scan',
+            aiVerdict: { verdict: 'same', reason: 'Only the case differs.' },
+            members: [
+              { id: 1, name: 'Invoices', scoreToTarget: 1, aiVerdict: null },
+              {
+                id: 2,
+                name: 'invoices',
+                scoreToTarget: 0.92,
+                reason: 'fuzzy',
+                aiVerdict: {
+                  verdict: 'same',
+                  reason: 'Only the case differs.',
+                },
+              },
+            ],
+          },
+          {
+            id: 'tags:7-9',
+            kind: 'tags',
+            confidence: 0.71,
+            reasons: ['prefix'],
+            suggestedTargetId: 7,
+            warnings: [],
+            source: 'ai-candidate',
+            aiVerdict: { verdict: 'unsure', reason: 'Could be two things.' },
+            members: [
+              { id: 7, name: 'Bank', scoreToTarget: 1, aiVerdict: null },
+              {
+                id: 9,
+                name: 'Bankauszug',
+                scoreToTarget: 0.71,
+                reason: 'prefix',
+                aiVerdict: {
+                  verdict: 'unsure',
+                  reason: 'Could be two things.',
+                },
+              },
+            ],
+          },
+        ],
+        aiReview: {
+          enabled: true,
+          model: 'a-model',
+          requests: 2,
+          tokens: 1840,
+          judged: 2,
+          candidates: 1,
+          failedRequests: 0,
+        },
+      };
+    }
+
+    await test('POST /api/duplicates/ai-review needs authentication', async () => {
+      const anonymous = await fetch(
+        harness.base + '/api/duplicates/ai-review',
+        {
+          method: 'POST',
+          redirect: 'manual',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        }
+      );
+      assert.strictEqual(anonymous.status, 302, 'no credentials -> /login');
+      assert.strictEqual(anonymous.headers.get('location'), '/login');
+    });
+
+    await test('POST /api/duplicates/ai-review validates kind and threshold', async () => {
+      entityMatchAiService.reviewScan = async () => {
+        throw new Error('the route must refuse before the service is asked');
+      };
+      try {
+        for (const body of [
+          { kind: 'documents' },
+          { kind: 'document_types' },
+          { threshold: 2 },
+          { threshold: 0.2 },
+          { threshold: 'abc' },
+        ]) {
+          const response = await call(
+            'POST',
+            '/api/duplicates/ai-review',
+            body
+          );
+          assert.strictEqual(
+            response.status,
+            400,
+            `expected 400 for ${JSON.stringify(body)}`
+          );
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.ok(payload.error, 'a reason is given');
+        }
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review maps a switched-off review to 409', async () => {
+      entityMatchAiService.reviewScan = async () => {
+        throw Object.assign(new Error('The AI review is switched off'), {
+          status: 409,
+        });
+      };
+      try {
+        const response = await call('POST', '/api/duplicates/ai-review', {});
+        assert.strictEqual(response.status, 409);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, false);
+        assert.match(payload.error, /switched off/);
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review answers with verdicts and candidates', async () => {
+      const seen = [];
+      entityMatchAiService.reviewScan = async (options) => {
+        seen.push(options);
+        return reviewFixture();
+      };
+      try {
+        const response = await call('POST', '/api/duplicates/ai-review', {
+          kind: 'tags',
+          threshold: 0.9,
+          includeDismissed: true,
+          withTitles: false,
+        });
+        assert.strictEqual(response.status, 200);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, true);
+        assert.deepStrictEqual(seen[0], {
+          kind: 'tags',
+          threshold: 0.9,
+          includeDismissed: true,
+          withTitles: false,
+        });
+
+        assert.strictEqual(payload.data.aiReview.judged, 2);
+        assert.strictEqual(payload.data.aiReview.model, 'a-model');
+        assert.strictEqual(payload.data.aiReview.failedRequests, 0);
+        assert.strictEqual(payload.data.groups.length, 2);
+        assert.strictEqual(payload.data.groups[0].source, 'scan');
+        assert.strictEqual(payload.data.groups[0].aiVerdict.verdict, 'same');
+        assert.strictEqual(payload.data.groups[1].source, 'ai-candidate');
+        assert.strictEqual(
+          payload.data.groups[1].members[1].aiVerdict.verdict,
+          'unsure',
+          'a member carries its own verdict'
+        );
+
+        // An empty body is the whole contract of the defaults: everything but
+        // the titles is what the scan route defaults to, and the titles are on.
+        const defaults = await call('POST', '/api/duplicates/ai-review', {});
+        assert.strictEqual(defaults.status, 200);
+        assert.deepStrictEqual(seen[1], {
+          kind: 'all',
+          threshold: 0.85,
+          includeDismissed: false,
+          withTitles: true,
+        });
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+      }
     });
   } finally {
     await harness.close();

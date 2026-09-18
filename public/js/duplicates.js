@@ -2,9 +2,11 @@
  * Duplicates page — find tags or correspondents that mean the same thing,
  * review why the server thinks so, and merge them in Paperless-ngx.
  *
- * Nothing here starts on its own: a scan runs when the button is used, and a
- * merge runs when the confirm dialog is accepted. Every destructive step names
- * the objects it deletes before it happens and is undoable from the log.
+ * Nothing here starts on its own: a scan runs when the button is used, the AI
+ * review when "Ask the AI" is used, and a merge when the confirm dialog is
+ * accepted. Every destructive step names the objects it deletes before it
+ * happens and is undoable from the log. A verdict from the model is
+ * information beside the deterministic result; it merges nothing.
  *
  * Escaping rule for this file
  * ---------------------------
@@ -48,6 +50,28 @@ const REASON_LABELS = {
   fuzzy: 'Similar spelling',
 };
 
+/**
+ * What the AI review says about a pair or a group. The three verdicts are the
+ * contract (services/entityMatchAiService.js); the labels belong to this page.
+ */
+const AI_VERDICT_LABELS = {
+  same: 'AI: same',
+  different: 'AI: different',
+  unsure: 'AI: unsure',
+};
+
+const AI_VERDICT_TONES = {
+  same: 'dup-verdict--same',
+  different: 'dup-verdict--different',
+  unsure: 'dup-verdict--unsure',
+};
+
+/** A group the model proposed although the scan scored it below the threshold. */
+const AI_CANDIDATE_SOURCE = 'ai-candidate';
+
+/** The model's sentences are untrusted text; a title attribute stops here. */
+const AI_REASON_MAX = 200;
+
 const WARNING_TEXTS = {
   'inbox-tag': 'One of these is an inbox tag; it stays the target.',
   'configured-tag':
@@ -58,6 +82,18 @@ const WARNING_TEXTS = {
     'A source has a matching rule the target lacks; it can be copied to the target.',
   'owner-differs': 'The objects have different owners in Paperless-ngx.',
   'large-group': 'Large group; check every member before merging.',
+};
+
+/**
+ * The same warnings, worded for the manual flow. There the user picks the
+ * target themselves, so an inbox tag can end up among the sources — and a
+ * source is deleted, which the group wording ("it stays the target") would
+ * promise the opposite of.
+ */
+const MANUAL_WARNING_TEXTS = {
+  ...WARNING_TEXTS,
+  'inbox-tag':
+    'An inbox tag is among the entries to merge away; it will be deleted in Paperless-ngx.',
 };
 
 /** Paperless-ngx matching_algorithm. 0 means the object matches nothing by itself. */
@@ -88,6 +124,7 @@ const htmlIcons = {
   correspondents:
     '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-building"/></svg>',
   warn: '<svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>',
+  info: '<svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>',
   ok: '<svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>',
   danger:
     '<svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert-circle"/></svg>',
@@ -98,6 +135,16 @@ const htmlIcons = {
   spin: '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>',
   empty:
     '<svg class="zr-icon zr-icon--lg zr-empty__icon" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>',
+  wand: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>',
+};
+
+/** One icon per verdict, so a chip reads as a verdict without its text. */
+const htmlVerdictIcons = {
+  same: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>',
+  different:
+    '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>',
+  unsure:
+    '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-help"/></svg>',
 };
 
 const LOG_PAGE_SIZE = 10;
@@ -110,11 +157,23 @@ const el = {
   includeDismissed: document.getElementById('dupIncludeDismissed'),
   scanBtn: document.getElementById('dupScanBtn'),
   scanIcon: document.getElementById('dupScanIcon'),
+  // null on every instance that does not offer the AI review; every use is
+  // guarded, so the page is the same page without them.
+  aiReviewBtn: document.getElementById('dupAiReviewBtn'),
+  aiReviewIcon: document.getElementById('dupAiReviewIcon'),
+  aiTitles: document.getElementById('dupAiTitles'),
+  aiNotice: document.getElementById('dupAiNotice'),
   stats: document.getElementById('dupStats'),
   statTags: document.getElementById('dupStatTags'),
   statCorrespondents: document.getElementById('dupStatCorrespondents'),
   statGroups: document.getElementById('dupStatGroups'),
   statDocuments: document.getElementById('dupStatDocuments'),
+  statAiJudgedTile: document.getElementById('dupStatAiJudgedTile'),
+  statAiJudged: document.getElementById('dupStatAiJudged'),
+  statAiCandidates: document.getElementById('dupStatAiCandidates'),
+  statAiRequestsTile: document.getElementById('dupStatAiRequestsTile'),
+  statAiRequests: document.getElementById('dupStatAiRequests'),
+  statAiTokens: document.getElementById('dupStatAiTokens'),
   results: document.getElementById('dupResults'),
   manual: document.getElementById('dupManual'),
   manualTitle: document.getElementById('dupManualTitle'),
@@ -144,6 +203,9 @@ const logEntries = new Map();
 
 let paperlessUrl = '';
 let scanning = false;
+/** A review judges what a scan found, so it waits for one in this page view. */
+let scanned = false;
+let aiReviewing = false;
 let logOffset = 0;
 let logTotal = 0;
 let dismissalCount = 0;
@@ -221,13 +283,43 @@ function htmlReasonChips(reasons) {
   return `<div class="zr-chips dup-group__reasons">${htmlChips}</div>`;
 }
 
-function htmlWarnings(warnings) {
+/**
+ * @param {string[]} warnings  wire values from GROUP_WARNINGS
+ * @param {Record<string,string>} [texts]  wording of the flow that shows them
+ */
+function htmlWarnings(warnings, texts = WARNING_TEXTS) {
   const list = Array.isArray(warnings) ? warnings : [];
   if (list.length === 0) return '';
   const htmlRows = list
-    .map((warning) => htmlAlert('warn', '', WARNING_TEXTS[warning] || warning))
+    .map((warning) =>
+      htmlAlert('warn', '', texts[warning] || WARNING_TEXTS[warning] || warning)
+    )
     .join('');
   return `<div class="dup-group__warnings">${htmlRows}</div>`;
+}
+
+/** The model's sentence, short enough for a title attribute. */
+function shortReason(text) {
+  const raw = String(text == null ? '' : text).trim();
+  return raw.length > AI_REASON_MAX
+    ? `${raw.slice(0, AI_REASON_MAX - 1)}…`
+    : raw;
+}
+
+/** The verdict a group carries, as a chip beside its reason chips. */
+function htmlVerdictChip(verdict) {
+  const value = verdict ? String(verdict.verdict) : '';
+  if (!AI_VERDICT_LABELS[value]) return '';
+  const htmlIcon = htmlVerdictIcons[value];
+  return `<span class="zr-chip dup-verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(shortReason(verdict.reason))}">${htmlIcon}${esc(AI_VERDICT_LABELS[value])}</span>`;
+}
+
+/** The verdict a single member carries, under its match percentage. */
+function htmlMemberVerdict(member) {
+  const verdict = member.aiVerdict;
+  const value = verdict ? String(verdict.verdict) : '';
+  if (!AI_VERDICT_LABELS[value]) return '';
+  return `<span class="zr-sm dup-member__verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(shortReason(verdict.reason))}">${esc(AI_VERDICT_LABELS[value])}</span>`;
 }
 
 function htmlDocumentsLink(kind, member) {
@@ -300,7 +392,7 @@ function htmlMemberRows(state) {
         <td data-label="Name">${htmlMemberName(member, withDot)}</td>
         <td data-label="Documents" class="dup-members__num">${htmlDocumentsLink(kind, member)}</td>
         <td data-label="Matching rule">${htmlMatchingRule(member)}</td>
-        <td data-label="Match" class="dup-members__score">${htmlScore}</td>
+        <td data-label="Match" class="dup-members__score">${htmlScore}${htmlMemberVerdict(member)}</td>
       </tr>`;
     })
     .join('');
@@ -310,14 +402,25 @@ function htmlGroupCard(state) {
   const group = state.group;
   const kind = normalizeKind(group.kind);
   const htmlKindIcon = htmlIcons[kind];
-  return `<section class="zr-module dup-group" data-group-id="${esc(group.id)}" data-kind="${esc(kind)}">
+  // Attribute fragments, not values: a group the model called apart is muted
+  // through the attribute, and a group only the model proposed says so.
+  const htmlDifferent =
+    group.aiVerdict && group.aiVerdict.verdict === 'different'
+      ? ' data-ai-verdict="different"'
+      : '';
+  const htmlCandidateBadge =
+    group.source === AI_CANDIDATE_SOURCE
+      ? '<span class="zr-badge zr-badge--info">AI suggested</span>'
+      : '';
+  return `<section class="zr-module dup-group" data-group-id="${esc(group.id)}" data-kind="${esc(kind)}"${htmlDifferent}>
     <div class="zr-module__head dup-group__head">
       <span class="zr-badge zr-badge--brand">${htmlKindIcon}${esc(KIND_LABELS[kind])}</span>
+      ${htmlCandidateBadge}
       <div class="dup-group__confidence" role="img" aria-label="${pct(group.confidence)} percent match">
         <div class="zr-meter dup-group__meter"><div class="zr-meter__fill" style="width:${pct(group.confidence)}%"></div></div>
         <span class="zr-sm zr-faint">${pct(group.confidence)}% match</span>
       </div>
-      ${htmlReasonChips(group.reasons)}
+      ${htmlReasonChips(group.reasons)}${htmlVerdictChip(group.aiVerdict)}
     </div>
     ${htmlWarnings(group.warnings)}
     <div class="dup-group__result"></div>
@@ -431,6 +534,7 @@ function setScanning(active) {
     );
   }
   if (el.scanIcon) el.scanIcon.classList.toggle('zr-icon--spin', active);
+  updateAiButton();
 }
 
 function showSkeletons() {
@@ -455,7 +559,60 @@ function renderStats(data) {
     totals.correspondents == null ? '–' : String(num(totals.correspondents));
   el.statGroups.textContent = String((data.groups || []).length);
   el.statDocuments.textContent = String(documents);
+  renderAiStats(data.aiReview || null);
   el.stats.classList.remove('hidden');
+}
+
+/**
+ * The two tiles the review adds. A plain scan passes null, which puts them
+ * away again — the numbers of the last review say nothing about a new scan.
+ *
+ * @param {object|null} review  the `aiReview` block of a review result
+ */
+function renderAiStats(review) {
+  if (!el.statAiJudgedTile || !el.statAiRequestsTile) return;
+  if (!review) {
+    el.statAiJudgedTile.classList.add('hidden');
+    el.statAiRequestsTile.classList.add('hidden');
+    return;
+  }
+  el.statAiJudged.textContent = String(num(review.judged));
+  // `candidates` counts the pairs from the band below the threshold the model
+  // was shown, not the groups that came out of it.
+  const candidates = Number(review.candidates);
+  el.statAiCandidates.textContent =
+    review.candidates != null && Number.isFinite(candidates)
+      ? `${candidates} near-${plural(candidates, 'miss', 'misses')} judged`
+      : '';
+  el.statAiRequests.textContent = String(num(review.requests));
+  const tokens = Number(review.tokens);
+  el.statAiTokens.textContent =
+    review.tokens != null && Number.isFinite(tokens)
+      ? `${tokens} ${plural(tokens, 'token', 'tokens')}`
+      : '';
+  // The model name belongs on the request count, not in a tile of its own.
+  el.statAiRequestsTile.title = String(
+    review.model == null ? '' : review.model
+  );
+  el.statAiJudgedTile.classList.remove('hidden');
+  el.statAiRequestsTile.classList.remove('hidden');
+}
+
+/** Registers a group and returns its card; the order of the list decides. */
+function htmlCardFor(group) {
+  const targetId = num(group.suggestedTargetId);
+  const selected = new Set(
+    (group.members || [])
+      .map((member) => num(member.id))
+      .filter((id) => id !== targetId)
+  );
+  const state = { group, targetId, selected };
+  groups.set(String(group.id), state);
+  return htmlGroupCard(state);
+}
+
+function htmlCandidateDivider() {
+  return `<div class="dup-divider"><span class="zr-sm">${esc('Suggested by the AI, below your sensitivity')}</span></div>`;
 }
 
 function renderGroups(list) {
@@ -467,25 +624,28 @@ function renderGroups(list) {
     );
     return;
   }
-  const markup = list
-    .map((group) => {
-      const targetId = num(group.suggestedTargetId);
-      const selected = new Set(
-        (group.members || [])
-          .map((member) => num(member.id))
-          .filter((id) => id !== targetId)
-      );
-      const state = { group, targetId, selected };
-      groups.set(String(group.id), state);
-      return htmlGroupCard(state);
-    })
-    .join('');
-  el.results.innerHTML = markup;
+  // A scan hands out no `source` at all, so everything is a scan group and the
+  // divider never appears; only a review can fill the second block.
+  const scanGroups = list.filter(
+    (group) => group.source !== AI_CANDIDATE_SOURCE
+  );
+  const candidates = list.filter(
+    (group) => group.source === AI_CANDIDATE_SOURCE
+  );
+  const htmlScanned = scanGroups.map(htmlCardFor).join('');
+  const htmlCandidates = candidates.length
+    ? htmlCandidateDivider() + candidates.map(htmlCardFor).join('')
+    : '';
+  el.results.innerHTML = `${htmlScanned}${htmlCandidates}`;
   el.results.querySelectorAll('.dup-group').forEach(bindGroup);
 }
 
 async function runScan() {
-  if (scanning) return;
+  if (scanning || aiReviewing) return;
+  // A new scan is a new question: every verdict of the last review goes with
+  // the cards it belonged to.
+  scanned = false;
+  clearAiNotice();
   setScanning(true);
   showSkeletons();
   try {
@@ -503,6 +663,7 @@ async function runScan() {
     paperlessUrl = data.paperlessUrl || '';
     renderStats(data);
     renderGroups(data.groups);
+    scanned = true;
   } catch (error) {
     el.results.innerHTML = htmlAlert(
       'danger',
@@ -511,6 +672,133 @@ async function runScan() {
     );
   } finally {
     setScanning(false);
+  }
+}
+
+/* --- the AI review -------------------------------------------------------- */
+/* Stage one of "use a model for matching": after a scan the user can ask the
+   configured provider what it makes of the pairs. It judges, it never merges —
+   every verdict lands next to the deterministic result and the user decides.
+   The whole flow is guarded by the elements being there at all, so an instance
+   without the review runs this file unchanged. */
+
+function clearAiNotice() {
+  if (el.aiNotice) el.aiNotice.innerHTML = '';
+}
+
+/** Disabled until a scan has produced cards, and while anything is running. */
+function updateAiButton() {
+  if (!el.aiReviewBtn) return;
+  el.aiReviewBtn.disabled = !scanned || scanning || aiReviewing;
+  el.aiReviewBtn.title = scanned
+    ? ''
+    : 'Scan first — the AI judges what the scan found.';
+}
+
+function setAiReviewing(active) {
+  aiReviewing = active;
+  const use = el.aiReviewIcon ? el.aiReviewIcon.querySelector('use') : null;
+  if (use) {
+    use.setAttribute(
+      'href',
+      active ? '/icons.svg#i-refresh' : '/icons.svg#i-wand'
+    );
+  }
+  if (el.aiReviewIcon) {
+    el.aiReviewIcon.classList.toggle('zr-icon--spin', active);
+  }
+  updateAiButton();
+}
+
+/** Pairs the page knows about: every member of a group but its target. */
+function reviewPairCount() {
+  let pairs = 0;
+  groups.forEach((state) => {
+    pairs += Math.max(0, (state.group.members || []).length - 1);
+  });
+  return pairs;
+}
+
+/**
+ * The review needs the status of a refusal to word it itself — a 409 means the
+ * setting is off, which is not an error the server has to phrase for the page.
+ */
+async function postForReview(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    // An auth redirect or a proxy can answer without JSON; the status is then
+    // the only thing the page can say anything about.
+  }
+  return { status: response.status, payload };
+}
+
+async function runAiReview() {
+  if (!el.aiReviewBtn || scanning || aiReviewing || !scanned) return;
+  setAiReviewing(true);
+  const pairs = reviewPairCount();
+  if (el.aiNotice) {
+    el.aiNotice.innerHTML = htmlAlert(
+      'info',
+      '',
+      `Asking the AI about ${pairs} ${plural(pairs, 'pair', 'pairs')} and near-misses…`
+    );
+  }
+  try {
+    const { status, payload } = await postForReview(
+      '/api/duplicates/ai-review',
+      {
+        kind: selectedKind(),
+        threshold: Number(el.sensitivity ? el.sensitivity.value : 0.85),
+        includeDismissed: Boolean(
+          el.includeDismissed && el.includeDismissed.checked
+        ),
+        withTitles: Boolean(el.aiTitles && el.aiTitles.checked),
+      }
+    );
+    if (status === 409) {
+      throw new Error('AI review is switched off (DUPLICATES_AI_REVIEW)');
+    }
+    if (!payload) {
+      throw new Error(`The server answered ${status} without a body.`);
+    }
+    if (!payload.success) {
+      throw new Error(payload.error || 'The AI review failed.');
+    }
+
+    const data = payload.data || {};
+    if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
+    renderStats(data);
+    renderGroups(data.groups);
+
+    const review = data.aiReview || {};
+    const failed = num(review.failedRequests);
+    if (el.aiNotice) {
+      el.aiNotice.innerHTML =
+        failed > 0
+          ? htmlAlert(
+              'warn',
+              'Not every request reached the model',
+              `${failed} ${plural(failed, 'request', 'requests')} failed; the pairs they covered are marked as unsure.`
+            )
+          : '';
+    }
+  } catch (error) {
+    if (el.aiNotice) {
+      el.aiNotice.innerHTML = htmlAlert(
+        'danger',
+        'The AI review failed',
+        error.message
+      );
+    }
+  } finally {
+    setAiReviewing(false);
   }
 }
 
@@ -977,7 +1265,7 @@ function manualRender() {
   el.manualChips.innerHTML = htmlManualChips(sources);
   el.manualWarnings.innerHTML =
     target && sources.length > 0
-      ? htmlWarnings(manualWarnings(target, sources))
+      ? htmlWarnings(manualWarnings(target, sources), MANUAL_WARNING_TEXTS)
       : '';
 
   const locked =
@@ -1434,6 +1722,10 @@ function init() {
   }
 
   if (el.scanBtn) el.scanBtn.addEventListener('click', runScan);
+  if (el.aiReviewBtn) {
+    el.aiReviewBtn.addEventListener('click', runAiReview);
+    updateAiButton();
+  }
   if (el.logMore) el.logMore.addEventListener('click', () => loadLog(false));
 
   if (el.logBody) {

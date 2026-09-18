@@ -57,7 +57,34 @@
     }
   }
 
+  /* --- the AI review row ------------------------------------------------ */
+  /* A line of its own under the scan controls: the scan is the page's own
+     answer, the review is a second question that only makes sense after it.
+     width: 100% breaks the flex row of .dup-controls without a media query. */
+  .dup-ai-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+    width: 100%;
+    padding-top: var(--zr-3);
+    border-top: 1px solid var(--zr-line);
+  }
+
+  /* Takes the rest of the row and wraps to its own line on a phone rather
+     than squeezing the button and the checkbox. */
+  .dup-ai-hint {
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+
   .dup-stats {
+    margin-top: var(--zr-3);
+  }
+
+  /* The line the review speaks through: what it is asking, what failed, or
+     why it did not run. Empty the rest of the time. */
+  .dup-ai-notice:not(:empty) {
     margin-top: var(--zr-3);
   }
 
@@ -290,6 +317,73 @@
   .dup-group[data-state='busy'] .zr-table-wrap,
   .dup-group[data-state='busy'] .dup-group__warnings {
     opacity: 0.55;
+  }
+
+  /* --- what the AI said ------------------------------------------------- */
+  /* The chip sits at the end of the head. With reason chips in front of it
+     those already carry the auto margin, so it only takes one when it is the
+     first thing at that end. */
+  .dup-verdict {
+    flex: none;
+    margin-left: auto;
+  }
+
+  .dup-group__reasons + .dup-verdict {
+    margin-left: 0;
+  }
+
+  /* The three verdicts, shared by the chip and the line under a member's
+     score — only the colour, the chip adds its own tint below. */
+  .dup-verdict--same {
+    color: var(--zr-ok);
+  }
+
+  .dup-verdict--different {
+    color: var(--zr-danger);
+  }
+
+  .dup-verdict--unsure {
+    color: var(--zr-text-muted);
+  }
+
+  .dup-verdict.dup-verdict--same {
+    background: var(--zr-ok-soft);
+  }
+
+  .dup-verdict.dup-verdict--different {
+    background: var(--zr-danger-soft);
+  }
+
+  .dup-verdict.dup-verdict--unsure {
+    background: var(--zr-surface-sunken);
+  }
+
+  /* A group the model called apart stays mergeable and dismissable — only the
+     table it argues about steps back, never the buttons. */
+  .dup-group[data-ai-verdict='different'] .zr-table-wrap {
+    opacity: 0.6;
+  }
+
+  .dup-member__verdict {
+    display: block;
+  }
+
+  /* The band below the sensitivity the user chose: everything under this line
+     is the model's suggestion, not the scan's. */
+  .dup-divider {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    margin: var(--zr-4) 0 var(--zr-3);
+    color: var(--zr-text-faint);
+  }
+
+  .dup-divider::before,
+  .dup-divider::after {
+    content: '';
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--zr-line);
   }
 
   /* --- the member table ------------------------------------------------- */

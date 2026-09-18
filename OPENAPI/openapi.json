@@ -6374,6 +6374,69 @@
         }
       }
     },
+    "/api/duplicates/ai-review": {
+      "post": {
+        "summary": "Let the configured AI provider judge what the scan found",
+        "description": "Runs the same scan as `/api/duplicates/scan`, shows the configured AI\nprovider every pair of the groups plus a wider band of near-misses,\nand returns the scan result with the model's verdict attached to each\ngroup and member. Groups the model confirmed below the sensitivity\narrive as extra groups with `source: ai-candidate`.\n\nRead-only and never automatic: it runs when the user asks for it,\nnothing is merged, and a verdict is information the user decides on.\n`withTitles` lets the model see a few recent document titles per\nentry as context; leave it out and it is on.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The reviewed scan result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DuplicateAiReviewResult"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind or threshold outside [0.5, 1]"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW)"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "502": {
+            "description": "Paperless-ngx or the AI provider could not be reached"
+          }
+        }
+      }
+    },
     "/api/duplicates/entities": {
       "get": {
         "summary": "Every tag or correspondent of the instance",
