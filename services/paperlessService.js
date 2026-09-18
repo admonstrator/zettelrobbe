@@ -3058,6 +3058,57 @@ class PaperlessService {
     this.correspondentNameCache.clear();
     this.lastCorrespondentRefresh = 0;
   }
+
+  /**
+   * A few recent document titles of a tag or a correspondent, as context for
+   * the AI review of the Duplicates page: "Amazon" and "amazon" are easier to
+   * judge next to the documents filed under each of them.
+   *
+   * Unlike the entity methods above this one never throws and never pages.
+   * Missing context only makes the review a little blinder, and a review of a
+   * few hundred pairs must not fail because one of a thousand reads did.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} id
+   * @param {number} [limit] how many titles at most; default 3
+   * @returns {Promise<string[]>} trimmed titles, [] on any problem
+   */
+  async getRecentDocumentTitlesByEntity(kind, id, limit = 3) {
+    const wanted = Number(limit);
+    const pageSize =
+      Number.isFinite(wanted) && wanted > 0
+        ? Math.min(Math.floor(wanted), this.ENTITY_PAGE_SIZE)
+        : 3;
+    try {
+      this._assertEntityKind(kind);
+      const client = this._requireClient(`reading titles of ${kind} ${id}`);
+      const filter =
+        kind === 'tags' ? { tags__id__all: id } : { correspondent__id: id };
+      const response = await client.get('/documents/', {
+        params: {
+          ...filter,
+          fields: 'id,title',
+          ordering: '-created',
+          page: 1,
+          page_size: pageSize,
+        },
+      });
+      const results = response?.data?.results;
+      if (!Array.isArray(results)) {
+        return [];
+      }
+      return results
+        .map((document) => String(document?.title ?? '').trim())
+        .filter(Boolean)
+        .slice(0, pageSize);
+    } catch (error) {
+      console.error(
+        `[ERROR] reading document titles of ${kind} ${id}:`,
+        describeHttpError(error)
+      );
+      return [];
+    }
+  }
 }
 
 const paperlessService = new PaperlessService();
