@@ -134,6 +134,9 @@ const RELEASES = [
       'Improvement: History and Restore keep working for documents a merge touched; the local records follow the merge and the undo',
       'New: "Merge by hand" on the Duplicates page merges any tags or correspondents you pick yourself, with the same checks, log and undo as a scanned group',
       'New: "Ask the AI" on the Duplicates page lets your configured AI provider judge every proposed group and the near-misses below your sensitivity; verdicts and reasons appear beside the deterministic result, nothing merges by itself (DUPLICATES_AI_REVIEW, DUPLICATES_AI_REVIEW_BATCH_SIZE, DUPLICATES_AI_CANDIDATE_FLOOR)',
+      'Improvement: Duplicates page merges several selected groups with one confirmation, one after the other, and reloads only the log at the end',
+      'Fix: "Ask the AI" no longer fails on the completion token limit; batches are sized by the token budget, a cut-off answer is salvaged and the rest re-asked in smaller batches',
+      'Improvement: The Duplicates feature writes readable log lines for scans, merges, undos and every model request; the dashboard refreshes once per burst of merges instead of once per merge',
     ],
   },
 ];
