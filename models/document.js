@@ -360,6 +360,48 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    version: 11,
+    description:
+      'Create entity_merges and entity_merge_dismissals for the Duplicates page',
+    up: (database) => {
+      // One row per merge run. The JSON columns carry everything an undo
+      // needs: the objects a merge deletes no longer exist in Paperless-ngx
+      // afterwards, so their names, matching rules and document lists have
+      // to be kept here.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS entity_merges (
+          id INTEGER PRIMARY KEY,
+          kind TEXT NOT NULL,
+          target_id INTEGER NOT NULL,
+          target_name TEXT NOT NULL,
+          target_before TEXT DEFAULT NULL,
+          sources TEXT NOT NULL DEFAULT '[]',
+          documents_moved INTEGER NOT NULL DEFAULT 0,
+          copied_matching_rule INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'done',
+          performed_by TEXT DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          undone_at DATETIME DEFAULT NULL,
+          undo_result TEXT DEFAULT NULL
+        )
+      `);
+      // Pairs the user marked as "not a duplicate". Stored with the lower id
+      // first so the same pair can only exist once whichever way it was sent.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS entity_merge_dismissals (
+          id INTEGER PRIMARY KEY,
+          kind TEXT NOT NULL,
+          id_a INTEGER NOT NULL,
+          id_b INTEGER NOT NULL,
+          name_a TEXT DEFAULT NULL,
+          name_b TEXT DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(kind, id_a, id_b)
+        )
+      `);
+    },
+  },
 ];
 
 function runMigrations(database) {
@@ -408,6 +450,35 @@ const getActiveProcessing = db.prepare(`
   WHERE start_time >= datetime('now', '-30 seconds')
   ORDER BY start_time DESC LIMIT 1
 `);
+
+// Rows of entity_merges carry JSON columns; every reader gets them parsed and
+// in camelCase so the route can hand them to the page as they are.
+function parseJsonColumn(value, fallback) {
+  if (value == null) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function parseEntityMergeRow(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    targetId: row.target_id,
+    targetName: row.target_name,
+    targetBefore: parseJsonColumn(row.target_before, null),
+    sources: parseJsonColumn(row.sources, []),
+    documentsMoved: row.documents_moved,
+    copiedMatchingRule: Boolean(row.copied_matching_rule),
+    status: row.status,
+    performedBy: row.performed_by,
+    createdAt: row.created_at,
+    undoneAt: row.undone_at,
+    undoResult: parseJsonColumn(row.undo_result, null),
+  };
+}
 
 module.exports = {
   async addProcessedDocument(documentId, title) {
@@ -1705,6 +1776,286 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] clearing all ignored documents:', error);
       return 0;
+    }
+  },
+
+  // ── Entity merges (Duplicates page) ───────────────────────────────────────
+  // Records of tag / correspondent merges and the pairs the user dismissed.
+  // The merge service writes here; the Duplicates page reads the log and
+  // asks for an undo through the service, never through these methods alone.
+
+  async addEntityMerge({
+    kind,
+    targetId,
+    targetName,
+    targetBefore = null,
+    sources = [],
+    documentsMoved = 0,
+    copiedMatchingRule = false,
+    status = 'done',
+    performedBy = null,
+  }) {
+    try {
+      const result = db
+        .prepare(
+          `
+        INSERT INTO entity_merges
+          (kind, target_id, target_name, target_before, sources, documents_moved,
+           copied_matching_rule, status, performed_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+        )
+        .run(
+          kind,
+          targetId,
+          targetName,
+          targetBefore == null ? null : JSON.stringify(targetBefore),
+          JSON.stringify(Array.isArray(sources) ? sources : []),
+          Number(documentsMoved) || 0,
+          copiedMatchingRule ? 1 : 0,
+          status,
+          performedBy
+        );
+      return Number(result.lastInsertRowid);
+    } catch (error) {
+      console.error('[ERROR] recording entity merge:', error);
+      return null;
+    }
+  },
+
+  async getEntityMerges({ limit = 25, offset = 0, kind = null } = {}) {
+    try {
+      const where = kind ? 'WHERE kind = ?' : '';
+      const params = kind ? [kind] : [];
+      const rows = db
+        .prepare(
+          `SELECT * FROM entity_merges ${where} ORDER BY id DESC LIMIT ? OFFSET ?`
+        )
+        .all(...params, limit, offset)
+        .map(parseEntityMergeRow);
+      const countRow = db
+        .prepare(`SELECT COUNT(*) AS count FROM entity_merges ${where}`)
+        .get(...params);
+      return { rows, total: countRow?.count || 0 };
+    } catch (error) {
+      console.error('[ERROR] listing entity merges:', error);
+      return { rows: [], total: 0 };
+    }
+  },
+
+  async getEntityMergeById(id) {
+    try {
+      const row = db
+        .prepare('SELECT * FROM entity_merges WHERE id = ?')
+        .get(id);
+      return row ? parseEntityMergeRow(row) : null;
+    } catch (error) {
+      console.error('[ERROR] reading entity merge:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Records the outcome of an undo attempt. `undone_at` is only stamped when
+   * the undo succeeded, so a failed attempt leaves the row undoable.
+   */
+  async updateEntityMergeUndo(id, { status, undoResult = null }) {
+    try {
+      const result = db
+        .prepare(
+          `
+        UPDATE entity_merges
+        SET status = ?,
+            undo_result = ?,
+            undone_at = CASE WHEN ? = 'undone' THEN CURRENT_TIMESTAMP ELSE undone_at END
+        WHERE id = ?
+      `
+        )
+        .run(
+          status,
+          undoResult == null ? null : JSON.stringify(undoResult),
+          status,
+          id
+        );
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] updating entity merge undo state:', error);
+      return false;
+    }
+  },
+
+  /**
+   * @param {'tags'|'correspondents'} kind
+   * @param {Array<{idA:number,idB:number,nameA?:string,nameB?:string}>} pairs
+   * @returns {Promise<number>} pairs newly stored (already known pairs are ignored)
+   */
+  async addEntityMergeDismissals(kind, pairs) {
+    try {
+      const insert = db.prepare(`
+        INSERT OR IGNORE INTO entity_merge_dismissals (kind, id_a, id_b, name_a, name_b)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      const insertAll = db.transaction((items) => {
+        let inserted = 0;
+        for (const pair of items) {
+          const a = Number(pair.idA);
+          const b = Number(pair.idB);
+          if (!Number.isInteger(a) || !Number.isInteger(b) || a === b) continue;
+          const [low, high, lowName, highName] =
+            a < b
+              ? [a, b, pair.nameA ?? null, pair.nameB ?? null]
+              : [b, a, pair.nameB ?? null, pair.nameA ?? null];
+          inserted += insert.run(kind, low, high, lowName, highName).changes;
+        }
+        return inserted;
+      });
+      return insertAll(Array.isArray(pairs) ? pairs : []);
+    } catch (error) {
+      console.error('[ERROR] storing entity merge dismissals:', error);
+      return 0;
+    }
+  },
+
+  async listEntityMergeDismissals(kind = null) {
+    try {
+      const where = kind ? 'WHERE kind = ?' : '';
+      const params = kind ? [kind] : [];
+      return db
+        .prepare(
+          `SELECT * FROM entity_merge_dismissals ${where} ORDER BY id DESC`
+        )
+        .all(...params)
+        .map((row) => ({
+          id: row.id,
+          kind: row.kind,
+          idA: row.id_a,
+          idB: row.id_b,
+          nameA: row.name_a,
+          nameB: row.name_b,
+          createdAt: row.created_at,
+        }));
+    } catch (error) {
+      console.error('[ERROR] listing entity merge dismissals:', error);
+      return [];
+    }
+  },
+
+  async removeEntityMergeDismissal(id) {
+    try {
+      const result = db
+        .prepare('DELETE FROM entity_merge_dismissals WHERE id = ?')
+        .run(id);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] removing entity merge dismissal:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Points the local records at another tag or correspondent after a merge
+   * (source -> target) or an undo (target -> re-created source).
+   *
+   * The two tables disagree on what they store: history_documents keeps tag
+   * ids and the correspondent *name*, original_documents keeps tag ids and
+   * the correspondent *id*. Both are rewritten here so the History page and
+   * the Restore action keep working for documents the merge touched.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} change
+   * @param {number} change.fromId
+   * @param {number} change.toId
+   * @param {string} [change.fromName]  correspondents only
+   * @param {string} [change.toName]    correspondents only
+   * @param {number[]|null} [change.documentIds]  limit the rewrite to these documents; null = every row
+   * @returns {Promise<{historyRows:number, originalRows:number}>}
+   */
+  async replaceEntityInLocalRecords(
+    kind,
+    { fromId, toId, fromName = null, toName = null, documentIds = null }
+  ) {
+    const from = Number(fromId);
+    const to = Number(toId);
+    const scope =
+      Array.isArray(documentIds) && documentIds.length > 0
+        ? new Set(documentIds.map(Number))
+        : null;
+    const inScope = (documentId) => !scope || scope.has(Number(documentId));
+
+    try {
+      if (kind === 'tags') {
+        const rewriteTags = db.transaction((table) => {
+          const rows = db
+            .prepare(`SELECT id, document_id, tags FROM ${table}`)
+            .all();
+          const update = db.prepare(
+            `UPDATE ${table} SET tags = ? WHERE id = ?`
+          );
+          let changed = 0;
+          for (const row of rows) {
+            if (!inScope(row.document_id)) continue;
+            let ids;
+            try {
+              ids = JSON.parse(row.tags || '[]');
+            } catch {
+              continue;
+            }
+            if (!Array.isArray(ids)) continue;
+            const numeric = ids.map((value) => parseInt(value, 10));
+            if (!numeric.includes(from)) continue;
+            const rewritten = [
+              ...new Set(numeric.map((id) => (id === from ? to : id))),
+            ].filter((id) => Number.isInteger(id));
+            update.run(JSON.stringify(rewritten), row.id);
+            changed += 1;
+          }
+          return changed;
+        });
+        return {
+          historyRows: rewriteTags('history_documents'),
+          originalRows: rewriteTags('original_documents'),
+        };
+      }
+
+      if (kind === 'correspondents') {
+        const rewriteCorrespondent = db.transaction(() => {
+          let historyRows = 0;
+          let originalRows = 0;
+          if (fromName != null && toName != null) {
+            const rows = db
+              .prepare(
+                'SELECT id, document_id FROM history_documents WHERE correspondent = ?'
+              )
+              .all(fromName);
+            const update = db.prepare(
+              'UPDATE history_documents SET correspondent = ? WHERE id = ?'
+            );
+            for (const row of rows) {
+              if (!inScope(row.document_id)) continue;
+              historyRows += update.run(toName, row.id).changes;
+            }
+          }
+          const originals = db
+            .prepare(
+              'SELECT id, document_id FROM original_documents WHERE CAST(correspondent AS INTEGER) = ?'
+            )
+            .all(from);
+          const updateOriginal = db.prepare(
+            'UPDATE original_documents SET correspondent = ? WHERE id = ?'
+          );
+          for (const row of originals) {
+            if (!inScope(row.document_id)) continue;
+            originalRows += updateOriginal.run(to, row.id).changes;
+          }
+          return { historyRows, originalRows };
+        });
+        return rewriteCorrespondent();
+      }
+
+      return { historyRows: 0, originalRows: 0 };
+    } catch (error) {
+      console.error('[ERROR] rewriting local records after merge:', error);
+      return { historyRows: 0, originalRows: 0 };
     }
   },
 };

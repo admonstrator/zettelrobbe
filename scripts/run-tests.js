@@ -129,6 +129,11 @@ const TESTS = {
   'log-secret-redaction': 'test-log-secret-redaction.js',
   'ocr-queue-requeue-guard': 'test-ocr-queue-requeue-guard.js',
   'ocr-queue-add-endpoint': 'test-ocr-queue-add-endpoint.js',
+  'entity-merge-model': 'test-entity-merge-model.js',
+  'entity-name-matcher': 'test-entity-name-matcher.js',
+  'duplicate-merge-service': 'test-duplicate-merge-service.js',
+  'duplicates-endpoints': 'test-duplicates-endpoints.js',
+  'duplicates-ui': 'test-duplicates-ui.js',
 };
 
 const AREAS = {
@@ -233,6 +238,13 @@ const AREAS = {
     'url-base-validation',
     'session-token-type',
     'setup-complete-guard',
+  ],
+  duplicates: [
+    'entity-merge-model',
+    'entity-name-matcher',
+    'duplicate-merge-service',
+    'duplicates-endpoints',
+    'duplicates-ui',
   ],
 };
 

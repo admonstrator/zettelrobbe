@@ -572,6 +572,478 @@
             "example": "connect ECONNREFUSED 172.18.0.2:8000"
           }
         }
+      },
+      "DuplicateGroupMember": {
+        "type": "object",
+        "description": "One tag or correspondent inside a duplicate group",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 12
+          },
+          "name": {
+            "type": "string",
+            "example": "Amazon EU S.a.r.l."
+          },
+          "documentCount": {
+            "type": "integer",
+            "example": 41
+          },
+          "matchingAlgorithm": {
+            "type": "integer",
+            "description": "Paperless-ngx matching_algorithm, 0 = none",
+            "example": 1
+          },
+          "match": {
+            "type": "string",
+            "example": "amazon"
+          },
+          "isInsensitive": {
+            "type": "boolean"
+          },
+          "owner": {
+            "type": "integer",
+            "nullable": true
+          },
+          "userCanChange": {
+            "type": "boolean",
+            "description": "false when the API token may not modify the object"
+          },
+          "isInboxTag": {
+            "type": "boolean",
+            "description": "tags only"
+          },
+          "color": {
+            "type": "string",
+            "nullable": true,
+            "description": "tags only"
+          },
+          "lastCorrespondence": {
+            "type": "string",
+            "nullable": true,
+            "description": "correspondents only"
+          },
+          "scoreToTarget": {
+            "type": "number",
+            "description": "1 for the suggested target itself",
+            "example": 0.92
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "exact-normalized",
+              "umlaut-variant",
+              "legal-form",
+              "plural",
+              "token-order",
+              "prefix",
+              "fuzzy"
+            ]
+          }
+        }
+      },
+      "DuplicateGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "kind plus the member ids in ascending order",
+            "example": "tags:12-48-97"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "description": "lowest scoreToTarget in the group",
+            "example": 0.92
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggestedTargetId": {
+            "type": "integer",
+            "example": 12
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DuplicateGroupMember"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "inbox-tag",
+                "configured-tag",
+                "no-permission",
+                "has-matching-rule",
+                "owner-differs",
+                "large-group"
+              ]
+            }
+          }
+        }
+      },
+      "DuplicateScanResult": {
+        "type": "object",
+        "properties": {
+          "scannedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "threshold": {
+            "type": "number",
+            "example": 0.85
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "tags": {
+                "type": "integer",
+                "description": "tags loaded from Paperless-ngx (null when not scanned)",
+                "nullable": true
+              },
+              "correspondents": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DuplicateGroup"
+            }
+          },
+          "dismissedPairs": {
+            "type": "integer",
+            "description": "pairs hidden because the user marked them as not duplicates"
+          }
+        }
+      },
+      "EntityMergeRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "targetId",
+          "sourceIds"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "targetId": {
+            "type": "integer",
+            "description": "the object that survives",
+            "example": 12
+          },
+          "sourceIds": {
+            "type": "array",
+            "description": "objects whose documents move to the target and which are deleted afterwards",
+            "items": {
+              "type": "integer"
+            },
+            "example": [
+              48,
+              97
+            ]
+          },
+          "copyMatchingRule": {
+            "type": "boolean",
+            "description": "copy a source's matching rule to the target when the target has none",
+            "default": false
+          }
+        }
+      },
+      "EntityMergeSourceResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "documentsMoved": {
+            "type": "integer"
+          },
+          "deleted": {
+            "type": "boolean",
+            "description": "false when the source was skipped or the merge stopped before deleting it"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "EntityMergeResult": {
+        "type": "object",
+        "properties": {
+          "mergeId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "id of the log entry, usable for an undo"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "documentsMoved": {
+            "type": "integer"
+          },
+          "copiedMatchingRule": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "partial"
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityMergeSourceResult"
+            }
+          }
+        }
+      },
+      "EntityMergeLogEntry": {
+        "type": "object",
+        "description": "One merge as recorded locally, with everything an undo needs",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "targetId": {
+            "type": "integer"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "targetBefore": {
+            "type": "object",
+            "nullable": true,
+            "description": "the target's matching rule before the merge"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "snapshot": {
+                  "type": "object",
+                  "description": "the source object as it was before deletion"
+                },
+                "documentIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "documentsAlreadyOnTarget": {
+                  "type": "array",
+                  "description": "tags only; documents that carried the target before the merge",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "documentsMoved": {
+                  "type": "integer"
+                },
+                "deleted": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "documentsMoved": {
+            "type": "integer"
+          },
+          "copiedMatchingRule": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "partial",
+              "undone",
+              "undo_failed"
+            ]
+          },
+          "performedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "undoneAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "undoResult": {
+            "$ref": "#/components/schemas/EntityMergeUndoResult"
+          }
+        }
+      },
+      "EntityMergeUndoResult": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "undone",
+              "undo_failed"
+            ]
+          },
+          "revertedMatchingRule": {
+            "type": "boolean"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "originalId": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "restoredId": {
+                  "type": "integer",
+                  "nullable": true,
+                  "description": "the re-created object's new id, or the id of a same-named object that existed again"
+                },
+                "adoptedExisting": {
+                  "type": "boolean",
+                  "description": "true when a same-named object existed again and was reused instead of created"
+                },
+                "documentsRestored": {
+                  "type": "integer"
+                },
+                "documentsSkipped": {
+                  "type": "integer",
+                  "description": "documents that no longer exist or no longer carry the target"
+                },
+                "error": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "EntityMergeDismissRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "ids"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "ids": {
+            "type": "array",
+            "description": "every pair among these ids is stored as \"not a duplicate\"",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2
+          }
+        }
+      },
+      "EntityMergeDismissal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "idA": {
+            "type": "integer"
+          },
+          "idB": {
+            "type": "integer"
+          },
+          "nameA": {
+            "type": "string",
+            "nullable": true
+          },
+          "nameB": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
