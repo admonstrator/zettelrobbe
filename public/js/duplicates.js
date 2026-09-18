@@ -149,6 +149,13 @@ const htmlVerdictIcons = {
 
 const LOG_PAGE_SIZE = 10;
 
+/** What every merge dialog promises, single group or batch. */
+const UNDO_NOTE =
+  'You can undo this from the log below. Restored objects get new ids in Paperless-ngx.';
+
+/** How long the finished batch leaves its summary in the bar, in ms. */
+const SELECTION_SUMMARY_MS = 2600;
+
 /* --- state ---------------------------------------------------------------- */
 
 const el = {
@@ -175,6 +182,13 @@ const el = {
   statAiRequests: document.getElementById('dupStatAiRequests'),
   statAiTokens: document.getElementById('dupStatAiTokens'),
   results: document.getElementById('dupResults'),
+  selection: document.getElementById('dupSelection'),
+  selectionCount: document.getElementById('dupSelectionCount'),
+  selectionProgress: document.getElementById('dupSelectionProgress'),
+  mergeSelectedBtn: document.getElementById('dupMergeSelectedBtn'),
+  selectAllBtn: document.getElementById('dupSelectAllBtn'),
+  selectAiSameBtn: document.getElementById('dupSelectAiSameBtn'),
+  clearSelectionBtn: document.getElementById('dupClearSelectionBtn'),
   manual: document.getElementById('dupManual'),
   manualTitle: document.getElementById('dupManualTitle'),
   manualKind: document.getElementById('dupManualKind'),
@@ -198,6 +212,8 @@ const el = {
 
 /** groupId -> { group, targetId, selected: Set<number> } */
 const groups = new Map();
+/** Group ids ticked for a batch merge; a subset of the keys of `groups`. */
+const selectedGroups = new Set();
 /** id -> the log entry, so the undo dialog can name what it restores. */
 const logEntries = new Map();
 
@@ -209,6 +225,8 @@ let aiReviewing = false;
 let logOffset = 0;
 let logTotal = 0;
 let dismissalCount = 0;
+/** True while a batch merge walks its groups; the bar then belongs to it. */
+let merging = false;
 
 /* --- small helpers -------------------------------------------------------- */
 
@@ -414,6 +432,7 @@ function htmlGroupCard(state) {
       : '';
   return `<section class="zr-module dup-group" data-group-id="${esc(group.id)}" data-kind="${esc(kind)}"${htmlDifferent}>
     <div class="zr-module__head dup-group__head">
+      <input type="checkbox" class="zr-check dup-select" aria-label="Select this group">
       <span class="zr-badge zr-badge--brand">${htmlKindIcon}${esc(KIND_LABELS[kind])}</span>
       ${htmlCandidateBadge}
       <div class="dup-group__confidence" role="img" aria-label="${pct(group.confidence)} percent match">
@@ -471,6 +490,18 @@ function updateFoot(card, state) {
     target && target.userCanChange === false
       ? 'The API token may not change this object'
       : '';
+  // Every change to a card runs through here, which is what keeps the select
+  // check and the count in the bar honest without a second set of listeners.
+  updateSelect(card, state);
+  updateSelectionBar();
+}
+
+/** True when a source could hand its matching rule to a target without one. */
+function groupOffersCopy(state, target) {
+  return (
+    (state.group.warnings || []).includes('has-matching-rule') &&
+    num(target.matchingAlgorithm) === 0
+  );
 }
 
 function renderMembers(card, state) {
@@ -485,6 +516,14 @@ function bindGroup(card) {
 
   card.addEventListener('change', (event) => {
     const input = event.target;
+    if (input.classList.contains('dup-select')) {
+      // Space and click both land here; the count follows immediately.
+      const id = String(state.group.id);
+      if (input.checked) selectedGroups.add(id);
+      else selectedGroups.delete(id);
+      updateSelectionBar();
+      return;
+    }
     if (input.classList.contains('dup-target')) {
       // The old target rejoins the sources so nothing silently drops out of
       // the merge when the user changes their mind about who survives.
@@ -540,6 +579,8 @@ function setScanning(active) {
 function showSkeletons() {
   el.results.innerHTML =
     '<div class="dup-skeletons"><div class="zr-skeleton dup-skeleton"></div><div class="zr-skeleton dup-skeleton"></div><div class="zr-skeleton dup-skeleton"></div></div>';
+  selectedGroups.clear();
+  updateSelectionBar();
 }
 
 function renderStats(data) {
@@ -617,11 +658,13 @@ function htmlCandidateDivider() {
 
 function renderGroups(list) {
   groups.clear();
+  selectedGroups.clear();
   if (!Array.isArray(list) || list.length === 0) {
     el.results.innerHTML = htmlEmpty(
       'No duplicates found',
       'No duplicates found at this sensitivity.'
     );
+    updateSelectionBar();
     return;
   }
   // A scan hands out no `source` at all, so everything is a scan group and the
@@ -638,6 +681,7 @@ function renderGroups(list) {
     : '';
   el.results.innerHTML = `${htmlScanned}${htmlCandidates}`;
   el.results.querySelectorAll('.dup-group').forEach(bindGroup);
+  updateSelectionBar();
 }
 
 async function runScan() {
@@ -821,7 +865,7 @@ function htmlMergeDialog(kind, target, sources, offerCopy) {
   const htmlCopy = offerCopy
     ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRule" checked><span>Copy the matching rule to ${esc(targetName)}</span></label>`
     : '';
-  return `<p>${esc(sentence)}</p><p>${esc(deleted)}</p><ul class="dup-dialog__list">${htmlNames}</ul><p class="zr-sm dup-dialog__note">${esc('You can undo this from the log below. Restored objects get new ids in Paperless-ngx.')}</p>${htmlCopy}`;
+  return `<p>${esc(sentence)}</p><p>${esc(deleted)}</p><ul class="dup-dialog__list">${htmlNames}</ul><p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopy}`;
 }
 
 function htmlMergeSuccess(result) {
@@ -862,6 +906,10 @@ function setGroupBusy(card, busy) {
   } else {
     delete card.dataset.state;
   }
+  // updateFoot() does this on the way back out, but nothing else runs on the
+  // way in — without it a running card stays tickable.
+  const state = groups.get(card.dataset.groupId);
+  if (state) updateSelect(card, state);
 }
 
 function finishGroup(card, markup) {
@@ -873,6 +921,9 @@ function finishGroup(card, markup) {
   const result = card.querySelector('.dup-group__result');
   if (result) result.innerHTML = markup;
   delete card.dataset.state;
+  const state = groups.get(card.dataset.groupId);
+  if (state) updateSelect(card, state);
+  updateSelectionBar();
 }
 
 /**
@@ -892,7 +943,12 @@ function finishGroup(card, markup) {
  *   'done' for a finished merge, 'partial' when sources were left alone,
  *   'error' when the request itself failed
  * @param {(result: object) => void} [request.done] after a finished merge
- * @returns {Promise<void>}
+ * @param {{copyMatchingRule: boolean}} [request.batch]
+ *   set when this merge is one step of a batch: the answer of the one dialog
+ *   the batch showed replaces the per-merge dialog, and the toast and the log
+ *   reload are left to the batch, which does both once at the end
+ * @returns {Promise<{status: string, documentsMoved: number}|null>}
+ *   null when nothing was asked for, otherwise how the merge ended
  */
 async function runMerge({
   kind,
@@ -902,30 +958,38 @@ async function runMerge({
   busy,
   result,
   done,
+  batch,
 }) {
-  if (!target || sources.length === 0) return;
+  if (!target || sources.length === 0) return null;
   const targetName = String(target.name == null ? '' : target.name);
 
-  // confirmDialog appends its <dialog> synchronously, so the checkbox exists
-  // as soon as the promise is handed back — and it is gone again once the
-  // dialog closes, which is why the value is captured here rather than after.
-  const answer = confirmDialog({
-    title: `Merge into ${targetName}`,
-    html: htmlMergeDialog(kind, target, sources, offerCopy),
-    confirmLabel: 'Merge',
-    cancelLabel: 'Cancel',
-    tone: 'danger',
-  });
-  const checkbox = document.getElementById('dupCopyRule');
-  let copyMatchingRule = Boolean(checkbox && checkbox.checked);
-  if (checkbox) {
-    checkbox.addEventListener('change', () => {
-      copyMatchingRule = checkbox.checked;
+  // A batch already asked, once, for all of its groups; its answer only means
+  // anything for a group that has a rule to copy in the first place.
+  let copyMatchingRule = Boolean(batch && batch.copyMatchingRule && offerCopy);
+  if (!batch) {
+    // confirmDialog appends its <dialog> synchronously, so the checkbox exists
+    // as soon as the promise is handed back — and it is gone again once the
+    // dialog closes, which is why the value is captured here rather than after.
+    const answer = confirmDialog({
+      title: `Merge into ${targetName}`,
+      html: htmlMergeDialog(kind, target, sources, offerCopy),
+      confirmLabel: 'Merge',
+      cancelLabel: 'Cancel',
+      tone: 'danger',
     });
+    const checkbox = document.getElementById('dupCopyRule');
+    copyMatchingRule = Boolean(checkbox && checkbox.checked);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        copyMatchingRule = checkbox.checked;
+      });
+    }
+    if (!(await answer)) return null;
   }
-  if (!(await answer)) return;
 
   busy(true);
+  // Set on every path out of the request below, which is what a batch counts.
+  let outcome;
   try {
     const payload = await postJson('/api/duplicates/merge', {
       kind,
@@ -937,29 +1001,46 @@ async function runMerge({
     if (payload.success && data.status !== 'partial') {
       result(htmlMergeSuccess(data), 'done');
       const moved = num(data.documentsMoved);
-      toast(
-        `Merged ${moved} ${plural(moved, 'document', 'documents')} into ${targetName}`,
-        { tone: 'ok' }
-      );
+      outcome = { status: 'done', documentsMoved: moved };
+      if (!batch) {
+        toast(
+          `Merged ${moved} ${plural(moved, 'document', 'documents')} into ${targetName}`,
+          { tone: 'ok' }
+        );
+      }
       if (done) done(data);
     } else if (data.status === 'partial') {
       result(htmlMergeProblems(data), 'partial');
       busy(false);
-      toast(payload.message || 'Not everything could be merged', {
-        tone: 'danger',
-      });
+      outcome = {
+        status: 'partial',
+        documentsMoved: num(data.documentsMoved),
+      };
+      if (!batch) {
+        toast(payload.message || 'Not everything could be merged', {
+          tone: 'danger',
+        });
+      }
     } else {
       throw new Error(payload.error || payload.message || 'The merge failed.');
     }
   } catch (error) {
     result(htmlAlert('danger', 'The merge failed', error.message), 'error');
     busy(false);
-    toast(error.message, { tone: 'danger' });
+    outcome = { status: 'error', documentsMoved: 0 };
+    if (!batch) toast(error.message, { tone: 'danger' });
   }
-  loadLog(true);
+  if (!batch) loadLog(true);
+  return outcome;
 }
 
-function mergeGroup(card, state) {
+/**
+ * @param {HTMLElement} card
+ * @param {object} state
+ * @param {{copyMatchingRule: boolean}} [batch]  one step of a batch merge
+ * @returns {Promise<{status: string, documentsMoved: number}|null>|undefined}
+ */
+function mergeGroup(card, state, batch) {
   const target = memberOf(state, state.targetId);
   const sources = selectedSources(state);
   if (!target || sources.length === 0) return;
@@ -968,9 +1049,8 @@ function mergeGroup(card, state) {
     kind: normalizeKind(state.group.kind),
     target,
     sources,
-    offerCopy:
-      (state.group.warnings || []).includes('has-matching-rule') &&
-      num(target.matchingAlgorithm) === 0,
+    offerCopy: groupOffersCopy(state, target),
+    batch,
     busy: (on) => {
       setGroupBusy(card, on);
       // The foot was replaced by the spinner label; putting it back is what
@@ -986,6 +1066,283 @@ function mergeGroup(card, state) {
       if (holder) holder.innerHTML = markup;
     },
   });
+}
+
+/* --- merging several groups at once --------------------------------------- */
+/* A scan of a grown archive proposes dozens of groups, and confirming one
+   dialog per group is the whole cost of the page. The selection is therefore
+   over the cards: tick what is right, confirm once, and the groups are merged
+   one after the other — never in parallel, Paperless-ngx gets one bulk edit at
+   a time — with every card reporting exactly what a single merge reports. Only
+   the log is reloaded, once, at the end; nothing else on the page is refetched.
+
+   A card keeps its own target and its own source ticks: the selection says
+   which groups take part, never what they merge. */
+
+/** Calls back for every card on the page that still has a state. */
+function eachGroupCard(fn) {
+  if (!el.results) return;
+  el.results.querySelectorAll('.dup-group').forEach((card) => {
+    const state = groups.get(card.dataset.groupId);
+    if (state) fn(card, state);
+  });
+}
+
+/** Why this group cannot take part in a batch, or '' when it can. */
+function selectBlockReason(card, state) {
+  if (card.dataset.state === 'busy') return 'This group is being merged';
+  if (!card.querySelector('.dup-group__foot')) {
+    return 'This group is already merged';
+  }
+  const target = memberOf(state, state.targetId);
+  if (!target) return 'This group has no target';
+  if (target.userCanChange === false) {
+    return 'The API token may not change the target of this group';
+  }
+  if (selectedSources(state).length === 0) {
+    return 'Tick at least one entry to merge away';
+  }
+  return '';
+}
+
+/**
+ * The check in one card's head. A group that cannot take part loses its tick
+ * as well as its check, so a card that goes busy or finishes mid-batch is out
+ * of the selection rather than silently still in it.
+ */
+function updateSelect(card, state) {
+  const check = card.querySelector('.dup-select');
+  if (!check) return;
+  const id = String(state.group.id);
+  const reason = selectBlockReason(card, state);
+  check.disabled = reason !== '';
+  check.title = reason;
+  // A card that is being merged stays in the batch that is merging it; every
+  // other reason takes it out of the selection for good.
+  if (reason !== '' && card.dataset.state !== 'busy') {
+    selectedGroups.delete(id);
+  }
+  check.checked = selectedGroups.has(id);
+}
+
+/** Every ticked group that is ready to merge, in the order the page shows. */
+function selectedBatch() {
+  const entries = [];
+  eachGroupCard((card, state) => {
+    if (!selectedGroups.has(String(state.group.id))) return;
+    const target = memberOf(state, state.targetId);
+    const sources = selectedSources(state);
+    if (!target || sources.length === 0) return;
+    entries.push({
+      card,
+      state,
+      target,
+      sources,
+      kind: normalizeKind(state.group.kind),
+    });
+  });
+  return entries;
+}
+
+function countDocuments(sources) {
+  return sources.reduce((sum, member) => sum + num(member.documentCount), 0);
+}
+
+/** True when any card on the page carries a verdict from the AI review. */
+function anyGroupVerdict() {
+  let found = false;
+  groups.forEach((state) => {
+    const verdict = state.group.aiVerdict;
+    if (verdict && AI_VERDICT_LABELS[String(verdict.verdict)]) found = true;
+  });
+  return found;
+}
+
+function setSelectionProgress(text) {
+  if (!el.selectionProgress) return;
+  el.selectionProgress.textContent = text;
+  el.selectionProgress.classList.toggle('hidden', text === '');
+}
+
+function setSelectionBusy(busy) {
+  [
+    el.mergeSelectedBtn,
+    el.selectAllBtn,
+    el.selectAiSameBtn,
+    el.clearSelectionBtn,
+  ].forEach((button) => {
+    if (button) button.disabled = busy;
+  });
+}
+
+function updateSelectionBar() {
+  if (!el.selection) return;
+  // While a batch runs the bar is the batch's: its cards go busy and leave the
+  // selection one by one, which would otherwise pull the progress line away.
+  if (merging) return;
+  const entries = selectedBatch();
+  const documents = entries.reduce(
+    (sum, entry) => sum + countDocuments(entry.sources),
+    0
+  );
+  if (el.selectionCount) {
+    el.selectionCount.textContent =
+      `${entries.length} ${plural(entries.length, 'group', 'groups')} selected` +
+      ` · ${documents} ${plural(documents, 'document', 'documents')}`;
+  }
+  if (el.selectAiSameBtn) {
+    el.selectAiSameBtn.classList.toggle('hidden', !anyGroupVerdict());
+  }
+  // An empty selection hides the bar — unless it is still reporting what the
+  // last batch did, which is the one thing it says without one.
+  const reporting = Boolean(
+    el.selectionProgress && !el.selectionProgress.classList.contains('hidden')
+  );
+  el.selection.classList.toggle('hidden', entries.length === 0 && !reporting);
+}
+
+/** Ticks every card the predicate accepts; a disabled check is never touched. */
+function selectGroups(match) {
+  eachGroupCard((card, state) => {
+    const check = card.querySelector('.dup-select');
+    if (!check || check.disabled || !match(state)) return;
+    selectedGroups.add(String(state.group.id));
+    check.checked = true;
+  });
+  updateSelectionBar();
+}
+
+function clearSelection() {
+  selectedGroups.clear();
+  eachGroupCard((card) => {
+    const check = card.querySelector('.dup-select');
+    if (check) check.checked = false;
+  });
+  setSelectionProgress('');
+  updateSelectionBar();
+}
+
+/** One line per group: what survives, what goes into it, how many documents. */
+function htmlBatchLine(entry) {
+  const documents = countDocuments(entry.sources);
+  const names = entry.sources
+    .map((member) => String(member.name == null ? '' : member.name))
+    .join(', ');
+  const targetName = String(entry.target.name == null ? '' : entry.target.name);
+  return `<li><strong>${esc(targetName)}</strong> ← ${esc(names)} <span class="zr-faint">(${num(documents)} ${esc(plural(documents, 'document', 'documents'))})</span></li>`;
+}
+
+/**
+ * The one dialog of a batch. It names every group, both totals and the same
+ * undo promise a single merge makes, and offers the copied matching rule once
+ * for the whole batch rather than per group.
+ *
+ * @param {object[]} entries   what selectedBatch() returned
+ * @param {boolean} offerCopy  at least one group has a rule to hand over
+ */
+function htmlBatchDialog(entries, offerCopy) {
+  const documents = entries.reduce(
+    (sum, entry) => sum + countDocuments(entry.sources),
+    0
+  );
+  const deleted = entries.reduce((sum, entry) => sum + entry.sources.length, 0);
+  const htmlLines = entries.map(htmlBatchLine).join('');
+  const intro = `${entries.length} ${plural(entries.length, 'group is', 'groups are')} merged one after the other:`;
+  const totals = `${documents} ${plural(documents, 'document', 'documents')} will be moved and ${deleted} ${plural(deleted, 'entry', 'entries')} deleted in Paperless-ngx.`;
+  const htmlCopy = offerCopy
+    ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRuleAll" checked><span>Copy a source's matching rule where the target has none</span></label>`
+    : '';
+  return `<p>${esc(intro)}</p><ul class="dup-dialog__list">${htmlLines}</ul><p>${esc(totals)}</p><p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopy}`;
+}
+
+/**
+ * Merge every selected group. One confirmation covers all of them, each group
+ * then goes through the same request a single merge uses, and a failure on one
+ * group leaves the rest of the batch running.
+ */
+async function mergeSelected() {
+  if (merging) return;
+  const entries = selectedBatch();
+  if (entries.length === 0) return;
+
+  const offerCopy = entries.some((entry) =>
+    groupOffersCopy(entry.state, entry.target)
+  );
+  // Same trick as the single merge: the checkbox lives in the dialog the call
+  // appends synchronously, so it is read before the promise settles.
+  const answer = confirmDialog({
+    title: `Merge ${entries.length} ${plural(entries.length, 'group', 'groups')}`,
+    html: htmlBatchDialog(entries, offerCopy),
+    confirmLabel: 'Merge all',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  const checkbox = document.getElementById('dupCopyRuleAll');
+  let copyMatchingRule = Boolean(checkbox && checkbox.checked);
+  if (checkbox) {
+    checkbox.addEventListener('change', () => {
+      copyMatchingRule = checkbox.checked;
+    });
+  }
+  if (!(await answer)) return;
+
+  merging = true;
+  setSelectionBusy(true);
+  let merged = 0;
+  let failed = 0;
+  let documents = 0;
+  for (let index = 0; index < entries.length; index += 1) {
+    setSelectionProgress(`Merging ${index + 1} of ${entries.length}…`);
+    const entry = entries[index];
+    // Awaited on purpose: one bulk edit at a time is what Paperless-ngx wants.
+    const outcome = await mergeGroup(entry.card, entry.state, {
+      copyMatchingRule,
+    });
+    documents += outcome ? num(outcome.documentsMoved) : 0;
+    if (outcome && outcome.status === 'done') merged += 1;
+    else failed += 1;
+  }
+
+  const summary =
+    `Merged ${merged} ${plural(merged, 'group', 'groups')}, ` +
+    `${documents} ${plural(documents, 'document', 'documents')}` +
+    (failed > 0 ? `, ${failed} failed` : '');
+  toast(summary, { tone: failed > 0 ? 'danger' : 'ok' });
+  merging = false;
+  setSelectionBusy(false);
+  setSelectionProgress(summary);
+  // What the batch left behind: the merged groups are gone from the selection,
+  // a group that failed is still in it and can be tried again.
+  updateSelectionBar();
+  // The one reload of the whole batch; nothing else on the page is refetched.
+  loadLog(true);
+  window.setTimeout(() => {
+    setSelectionProgress('');
+    updateSelectionBar();
+  }, SELECTION_SUMMARY_MS);
+}
+
+function initSelection() {
+  if (!el.selection) return;
+  if (el.mergeSelectedBtn) {
+    el.mergeSelectedBtn.addEventListener('click', mergeSelected);
+  }
+  if (el.selectAllBtn) {
+    el.selectAllBtn.addEventListener('click', () => selectGroups(() => true));
+  }
+  if (el.selectAiSameBtn) {
+    el.selectAiSameBtn.addEventListener('click', () =>
+      selectGroups(
+        (state) =>
+          Boolean(state.group.aiVerdict) &&
+          state.group.aiVerdict.verdict === 'same'
+      )
+    );
+  }
+  if (el.clearSelectionBtn) {
+    el.clearSelectionBtn.addEventListener('click', clearSelection);
+  }
+  updateSelectionBar();
 }
 
 /* --- merge by hand -------------------------------------------------------- */
@@ -1493,7 +1850,9 @@ async function dismissGroup(card, state) {
       throw new Error(payload.error || 'The pair could not be hidden.');
     }
     groups.delete(card.dataset.groupId);
+    selectedGroups.delete(card.dataset.groupId);
     card.remove();
+    updateSelectionBar();
     if (groups.size === 0) {
       el.results.innerHTML = htmlEmpty(
         'Nothing left to review',
@@ -1743,6 +2102,7 @@ function init() {
     });
   }
 
+  initSelection();
   initManual();
   loadLog(true);
   loadDismissals();

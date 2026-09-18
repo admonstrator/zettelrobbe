@@ -18,6 +18,8 @@
  *    matcher can produce, and its own wording where a flow needs one
  * 8. the AI review is rendered only when the route says it is available, and
  *    the page speaks all three verdicts
+ * 9. the selection bar, the select check on every card and the one dialog a
+ *    batch merge asks with
  */
 
 'use strict';
@@ -602,6 +604,178 @@ test('The manual flow says what happens to an inbox tag among its sources', () =
     SCRIPT,
     /htmlWarnings\(manualWarnings\(target, sources\), MANUAL_WARNING_TEXTS\)/,
     'the manual module does not use its own wording'
+  );
+});
+
+/* ── 9. merging several groups at once ────────────────────────────────────── */
+
+/** Every id the selection bar and the page script have to agree on. */
+const SELECTION_IDS = [
+  'dupSelection',
+  'dupSelectionCount',
+  'dupSelectionProgress',
+  'dupMergeSelectedBtn',
+  'dupSelectAllBtn',
+  'dupSelectAiSameBtn',
+  'dupClearSelectionBtn',
+];
+
+test('The selection bar renders hidden above the results', () => {
+  SELECTION_IDS.forEach((id) => {
+    assert.ok(
+      page.includes(`id="${id}"`),
+      `#${id} is missing from the view; the batch merge cannot bind to it`
+    );
+  });
+  // .hidden is the framework's !important class: nothing of the bar shows
+  // until a card is ticked.
+  assert.match(
+    page,
+    /class="dup-selection hidden" id="dupSelection"/,
+    'the bar must come up hidden'
+  );
+  assert.match(
+    page,
+    /class="zr-sm dup-selection__progress hidden" id="dupSelectionProgress"/,
+    'the progress line must come up hidden'
+  );
+  // "Select AI: same" only means anything once a review has run.
+  assert.match(
+    page,
+    /class="zr-btn zr-btn--ghost hidden" id="dupSelectAiSameBtn"/,
+    'the AI button must come up hidden'
+  );
+  ['Merge selected', 'Select all', 'Select AI: same', 'Clear'].forEach(
+    (label) => {
+      assert.ok(page.includes(label), `the bar has no "${label}" button`);
+    }
+  );
+  assert.ok(
+    page.indexOf('id="dupSelection"') < page.indexOf('id="dupResults"'),
+    'the bar belongs above the cards it selects'
+  );
+});
+
+test('The view and the page script agree on the selection ids', () => {
+  SELECTION_IDS.forEach((id) => {
+    assert.ok(
+      SCRIPT.includes(`'${id}'`),
+      `the page script never looks up #${id}`
+    );
+  });
+});
+
+test('Every group card carries the select check', () => {
+  // The check is part of the card template, so it exists for a card the page
+  // builds from a scan and for one a review re-rendered.
+  assert.match(
+    SCRIPT,
+    /<input type="checkbox" class="zr-check dup-select" aria-label="Select this group">/,
+    'the card head has no select check'
+  );
+  // Unchecked by default: nothing is ever preselected for a destructive step.
+  assert.ok(
+    !/class="zr-check dup-select"[^>]*checked/.test(SCRIPT),
+    'the select check must come up unchecked'
+  );
+  // A card that may not be merged says why instead of silently doing nothing.
+  [
+    'This group is being merged',
+    'This group is already merged',
+    'The API token may not change the target of this group',
+    'Tick at least one entry to merge away',
+  ].forEach((reason) => {
+    assert.ok(
+      SCRIPT.includes(reason),
+      `a disabled check has no reason "${reason}"`
+    );
+  });
+  assert.match(
+    SCRIPT,
+    /check\.disabled = reason !== '';/,
+    'the reason does not disable the check'
+  );
+});
+
+test('The batch dialog asks once, with one copy-rule checkbox', () => {
+  // Its markup goes through the escaping scanner above like everything else;
+  // what is checked here is that it is a batch dialog at all.
+  assert.match(
+    SCRIPT,
+    /id="dupCopyRuleAll" checked/,
+    'the batch dialog has no copy-rule checkbox'
+  );
+  assert.ok(
+    SCRIPT.includes("Copy a source's matching rule where the target has none"),
+    'the batch checkbox is not labelled'
+  );
+  // The per-group checkbox keeps its own id; the two dialogs never collide.
+  assert.ok(
+    SCRIPT.includes('id="dupCopyRule"'),
+    'the single-group checkbox lost its id'
+  );
+  // Both dialogs make the same promise about the log.
+  assert.strictEqual(
+    (SCRIPT.match(/esc\(UNDO_NOTE\)/g) || []).length,
+    2,
+    'the single merge and the batch must promise the same undo'
+  );
+  assert.strictEqual(
+    (SCRIPT.match(/confirmDialog\(\{/g) || []).length,
+    3,
+    'a batch asks once: one dialog for a group, one for a batch, one for undo'
+  );
+});
+
+test('A batch merges group by group through the one merge endpoint', () => {
+  // No batch endpoint and no second request shape — the server side stays
+  // exactly what a single merge uses.
+  assert.strictEqual(
+    (SCRIPT.match(/'\/api\/duplicates\/merge'/g) || []).length,
+    1,
+    'the batch must reuse the single merge request, not add one of its own'
+  );
+  // Sequential: Paperless-ngx gets one bulk edit at a time.
+  assert.match(
+    SCRIPT,
+    /await mergeGroup\(entry\.card, entry\.state, \{/,
+    'the batch does not walk its groups one after the other'
+  );
+  assert.ok(
+    !/Promise\.all|Promise\.allSettled/.test(SCRIPT),
+    'the groups must never be merged in parallel'
+  );
+  // One reload at the end, and nothing else: no rescan, no entity reload.
+  assert.match(
+    SCRIPT,
+    /if \(!batch\) loadLog\(true\);/,
+    'a batch step must leave the log reload to the batch'
+  );
+});
+
+test('The stylesheet carries the selection classes and sticks the bar', () => {
+  [
+    '.dup-selection',
+    '.dup-selection__count',
+    '.dup-selection__actions',
+    '.dup-selection__progress',
+    '.dup-select',
+  ].forEach((selector) => {
+    assert.ok(
+      selectorsOf(CSS).includes(selector),
+      `${selector} has no rule of its own`
+    );
+  });
+  assert.match(
+    CSS,
+    /\.dup-selection \{[^}]*position: sticky;[^}]*top: var\(--zr-topbar-h\);/,
+    'the bar must stick below the top bar rather than scroll away'
+  );
+  // A phone gets the buttons on a line of their own instead of a wider page.
+  assert.match(
+    CSS,
+    /\.dup-selection__actions \{\n\s+margin-left: 0;\n\s+width: 100%;/,
+    'the bar does not wrap at phone width'
   );
 });
 
