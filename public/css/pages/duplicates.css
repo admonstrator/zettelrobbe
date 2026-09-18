@@ -1,0 +1,247 @@
+/* ==========================================================================
+   The Duplicates page: the scan controls, the group cards with their member
+   table, the merge log and the hidden-pair drawer.
+   @layer pages: above the framework layers, below utilities.
+
+   Only what the framework does not already carry lives here — the controls
+   row, the group card head, the meter width, the member column widths on a
+   wide screen, and the spacing of the blocks the confirm dialog is filled
+   with. Everything else on the page is a framework class.
+   ========================================================================== */
+
+@layer pages {
+  /* --- controls --------------------------------------------------------- */
+  /* One row on a desktop, a stack on a phone. The action button is pushed to
+     the far end so the primary action always sits at the same edge. */
+  .dup-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--zr-3);
+  }
+
+  .dup-controls__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  /* The checkbox has no label above it, so it lines up with the controls that
+     do rather than with their labels. */
+  .dup-controls__field--check {
+    padding-bottom: 5px;
+  }
+
+  .dup-controls__field--action {
+    margin-left: auto;
+  }
+
+  @media (max-width: 720px) {
+    .dup-controls__field,
+    .dup-controls__field--action {
+      margin-left: 0;
+      width: 100%;
+    }
+    /* A full-width segment splits its three options evenly instead of leaving
+       "Correspondents" to decide where the control ends. */
+    .dup-controls__field .zr-segment {
+      display: flex;
+    }
+    .dup-controls__field .zr-segment button {
+      flex: 1;
+    }
+    .dup-controls__field--action .zr-btn {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+
+  .dup-stats {
+    margin-top: var(--zr-3);
+  }
+
+  /* --- results ---------------------------------------------------------- */
+  .dup-results {
+    margin-top: var(--zr-3);
+  }
+
+  .dup-skeletons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-skeleton {
+    height: 104px;
+    border-radius: var(--zr-r-lg);
+  }
+
+  /* --- one duplicate group ---------------------------------------------- */
+  /* The head carries four things of very different widths — a kind badge, the
+     confidence meter, the reason chips and (stacked) the title. A wrapping
+     flex row keeps them readable down to 320px without a media query. */
+  .dup-group__head {
+    flex-wrap: wrap;
+    row-gap: var(--zr-2);
+  }
+
+  .dup-group__confidence {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    min-width: 132px;
+  }
+
+  /* The meter has no width of its own; without this it collapses in a flex row. */
+  .dup-group__meter {
+    width: 72px;
+    flex: none;
+  }
+
+  .dup-group__reasons {
+    margin-left: auto;
+  }
+
+  /* Both hold stacked alerts above the member table: the warnings the scan
+     produced, and whatever the merge itself reported back. An empty result
+     block must not add the padding, or every untouched card grows 12px. */
+  .dup-group__warnings,
+  .dup-group__result:not(:empty) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+    padding: var(--zr-3) var(--zr-3) 0;
+  }
+
+  .dup-group__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+  }
+
+  /* A running merge keeps its card in place but stops it reading as actionable. */
+  .dup-group[data-state='busy'] .zr-table-wrap,
+  .dup-group[data-state='busy'] .dup-group__warnings {
+    opacity: 0.55;
+  }
+
+  /* --- the member table ------------------------------------------------- */
+  /* Keep / Merge are single controls, Documents and Match are short numbers:
+     giving them a fixed share leaves the rest of the row to the name and the
+     matching rule, which are the two cells that actually need it. */
+  .dup-members__pick {
+    width: 52px;
+    text-align: center;
+  }
+
+  .dup-members__num {
+    width: 96px;
+  }
+
+  .dup-members__score {
+    width: 84px;
+  }
+
+  .dup-member__name {
+    gap: var(--zr-2);
+    min-width: 0;
+  }
+
+  /* The tag colour as Paperless-ngx stores it. Only a hex value from the API
+     reaches the inline style; anything else is dropped by the page script. */
+  .dup-member__dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .dup-member__lock {
+    color: var(--zr-warn);
+    display: inline-flex;
+  }
+
+  .dup-member__rule {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  @media (max-width: 860px) {
+    /* Stacked, every cell is a full-width row again and the desktop widths
+       would cut the name off mid-word. */
+    .dup-members__pick,
+    .dup-members__num,
+    .dup-members__score {
+      width: auto;
+      text-align: left;
+    }
+  }
+
+  /* --- merge log -------------------------------------------------------- */
+  .dup-log__alert:not(:empty) {
+    padding: var(--zr-3) var(--zr-3) 0;
+  }
+
+  .dup-log__sources {
+    max-width: 320px;
+  }
+
+  /* --- hidden pairs ----------------------------------------------------- */
+  .dup-hidden__summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .dup-hidden__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .dup-hidden__chevron {
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .dup-hidden[open] .dup-hidden__chevron {
+    transform: rotate(90deg);
+  }
+
+  .dup-hidden__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+  }
+
+  .dup-hidden__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  /* --- confirm dialog blocks -------------------------------------------- */
+  /* The merge and undo dialogs are the kernel's confirmDialog filled with
+     markup; these three give that markup the spacing a dialog body has no
+     opinion about. */
+  .dup-dialog__list {
+    margin: var(--zr-2) 0;
+    padding-left: var(--zr-4);
+    color: var(--zr-text);
+  }
+
+  .dup-dialog__note {
+    margin-top: var(--zr-2);
+  }
+
+  .dup-dialog__check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+    margin-top: var(--zr-3);
+    padding-top: var(--zr-3);
+    border-top: 1px solid var(--zr-line);
+    color: var(--zr-text);
+  }
+}
