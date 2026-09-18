@@ -1151,6 +1151,14 @@
                   "failedRequests": {
                     "type": "integer",
                     "description": "model requests that answered nothing usable; their pairs are marked unsure"
+                  },
+                  "retries": {
+                    "type": "integer",
+                    "description": "extra requests made because an answer was cut off at the token limit and the batch was re-asked in smaller pieces"
+                  },
+                  "batchSize": {
+                    "type": "integer",
+                    "description": "pairs per request actually used after sizing by the token budget"
                   }
                 }
               }
