@@ -132,6 +132,7 @@ const RELEASES = [
       'New: Every merge is logged locally and can be undone from the same page; restored objects get new ids in Paperless-ngx and documents that still carry the target move back',
       'New: Pairs marked as "not a duplicate" stay hidden on later scans until you show them again',
       'Improvement: History and Restore keep working for documents a merge touched; the local records follow the merge and the undo',
+      'New: "Merge by hand" on the Duplicates page merges any tags or correspondents you pick yourself, with the same checks, log and undo as a scanned group',
     ],
   },
 ];
