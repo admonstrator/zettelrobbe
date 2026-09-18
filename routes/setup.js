@@ -39,6 +39,8 @@ const reconciliationService = require('../services/reconciliationService');
 const scanHealthService = require('../services/scanHealthService');
 const updateCheckService = require('../services/updateCheckService');
 const dashboardStatsService = require('../services/dashboardStatsService');
+const duplicateMergeService = require('../services/duplicateMergeService');
+const entityNameMatcher = require('../services/entityNameMatcher');
 const {
   THUMBNAIL_CACHE_DIR,
   getThumbnailCachePath,
@@ -10632,6 +10634,594 @@ router.post(
     } catch (error) {
       console.error('[ERROR] POST /api/failed/ignore/:documentId:', error);
       return res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
+// ── Duplicates: find, merge and undo tag / correspondent duplicates ─────────
+// Everything here runs on request only. Nothing is scheduled, nothing touches
+// the scan loop, and no object is deleted that still has documents — the merge
+// service verifies that against Paperless-ngx before every DELETE.
+
+/** Who to record as the author of a merge or an undo. */
+function duplicatesPerformedBy(req) {
+  return req.user?.username || (req.user?.apiKey ? 'api-key' : null);
+}
+
+/** Maps a refusal from the merge service onto its HTTP status. */
+function respondDuplicatesError(res, route, error) {
+  const status = Number.isInteger(error?.status) ? error.status : 500;
+  console.error(`[ERROR] ${route}:`, error?.message || error);
+  return res.status(status).json({
+    success: false,
+    error: error?.message || 'Unexpected error',
+  });
+}
+
+/** Reads an optional `kind` query parameter; throws the route's own 400. */
+function readDuplicatesKind(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const kind = String(value);
+  if (!entityNameMatcher.KIND_LIST.includes(kind)) {
+    const error = new Error(`Unknown entity kind: ${kind}`);
+    error.status = 400;
+    throw error;
+  }
+  return kind;
+}
+
+/**
+ * @swagger
+ * /duplicates:
+ *   get:
+ *     summary: Duplicate tags and correspondents page
+ *     description: |
+ *       Renders the Duplicates page. The page scans on request through
+ *       `/api/duplicates/scan`; nothing runs automatically.
+ *     tags:
+ *       - Navigation
+ *       - Duplicates
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Duplicates page rendered successfully
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.get('/duplicates', protectApiRoute, async (req, res) => {
+  try {
+    return res.render('duplicates', {
+      version: configFile.PAPERLESS_AI_VERSION || ' ',
+      sensitivity: entityNameMatcher.SENSITIVITY,
+      defaultThreshold: entityNameMatcher.DEFAULT_THRESHOLD,
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /duplicates:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/scan:
+ *   get:
+ *     summary: Find tags or correspondents whose names mean the same thing
+ *     description: |
+ *       Loads every tag and/or correspondent from Paperless-ngx and groups the
+ *       ones that look like duplicates of each other. Read-only: nothing is
+ *       changed, and pairs the user marked as "not a duplicate" are left out
+ *       unless `includeDismissed` asks for them.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents, all]
+ *           default: all
+ *       - in: query
+ *         name: threshold
+ *         description: score a pair needs, between 0.5 and 1
+ *         schema:
+ *           type: number
+ *           default: 0.85
+ *       - in: query
+ *         name: includeDismissed
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *     responses:
+ *       200:
+ *         description: Groups found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/DuplicateScanResult'
+ *       400:
+ *         description: Unknown kind or threshold outside [0.5, 1]
+ *       401:
+ *         description: Not authenticated
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
+  try {
+    const kind = String(req.query.kind || duplicateMergeService.KIND_ALL);
+    const knownKinds = [
+      duplicateMergeService.KIND_ALL,
+      ...entityNameMatcher.KIND_LIST,
+    ];
+    if (!knownKinds.includes(kind)) {
+      return res
+        .status(400)
+        .json({ success: false, error: `Unknown entity kind: ${kind}` });
+    }
+
+    const rawThreshold = req.query.threshold;
+    const threshold =
+      rawThreshold === undefined || rawThreshold === ''
+        ? entityNameMatcher.DEFAULT_THRESHOLD
+        : Number(rawThreshold);
+    if (!Number.isFinite(threshold) || threshold < 0.5 || threshold > 1) {
+      return res.status(400).json({
+        success: false,
+        error: 'threshold must be a number between 0.5 and 1',
+      });
+    }
+
+    const includeDismissed =
+      String(req.query.includeDismissed ?? 'false').toLowerCase() === 'true';
+
+    const data = await duplicateMergeService.scan({
+      kind,
+      threshold,
+      includeDismissed,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/scan', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/merge:
+ *   post:
+ *     summary: Merge tags or correspondents into one
+ *     description: |
+ *       Moves the documents of every source onto the target and deletes the
+ *       sources afterwards, one source after the other. A source is only
+ *       deleted once Paperless-ngx confirms that no document carries it any
+ *       more; a source that fails that check is reported and kept.
+ *
+ *       The answer carries `success: false` with status 200 when the merge was
+ *       only partial — the log entry exists either way and can be undone.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EntityMergeRequest'
+ *     responses:
+ *       200:
+ *         description: Merge finished (completely or partially)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/EntityMergeResult'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Target or a source does not exist in Paperless-ngx
+ *       409:
+ *         description: A document scan is running
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.post('/api/duplicates/merge', isAuthenticated, async (req, res) => {
+  try {
+    const { kind, targetId, sourceIds, copyMatchingRule } = req.body || {};
+    const data = await duplicateMergeService.merge({
+      kind,
+      targetId,
+      sourceIds,
+      copyMatchingRule:
+        copyMatchingRule === true || String(copyMatchingRule) === 'true',
+      performedBy: duplicatesPerformedBy(req),
+    });
+
+    const deleted = data.sources.filter((source) => source.deleted).length;
+    const message =
+      data.status === 'done'
+        ? `${deleted} entr${deleted === 1 ? 'y' : 'ies'} merged into "${data.target.name}", ${data.documentsMoved} document(s) moved.`
+        : `Only ${deleted} of ${data.sources.length} entries were merged into "${data.target.name}". The rest is listed with its reason.`;
+
+    return res.json({ success: data.status !== 'partial', data, message });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/merge', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/dismiss:
+ *   post:
+ *     summary: Mark entries as "not a duplicate"
+ *     description: |
+ *       Stores every pair among the given ids, so the scan stops offering them
+ *       together until the pair is restored through
+ *       `DELETE /api/duplicates/dismissals/{id}`.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EntityMergeDismissRequest'
+ *     responses:
+ *       200:
+ *         description: Pairs stored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     dismissed:
+ *                       type: integer
+ *                       description: pairs newly stored; known pairs are not counted again
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Not authenticated
+ */
+router.post('/api/duplicates/dismiss', isAuthenticated, async (req, res) => {
+  try {
+    const { kind, ids, names } = req.body || {};
+    const dismissed = await duplicateMergeService.dismiss({
+      kind,
+      ids,
+      names: names && typeof names === 'object' ? names : {},
+    });
+    return res.json({
+      success: true,
+      data: { dismissed },
+      message:
+        dismissed > 0
+          ? `${dismissed} pair(s) marked as not duplicates.`
+          : 'These pairs were already marked as not duplicates.',
+    });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/dismiss', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/dismissals:
+ *   get:
+ *     summary: List the pairs marked as "not a duplicate"
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *     responses:
+ *       200:
+ *         description: Dismissed pairs, newest first
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityMergeDismissal'
+ *       400:
+ *         description: Unknown kind
+ *       401:
+ *         description: Not authenticated
+ */
+router.get('/api/duplicates/dismissals', isAuthenticated, async (req, res) => {
+  try {
+    const kind = readDuplicatesKind(req.query.kind);
+    const data = await documentModel.listEntityMergeDismissals(kind);
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/dismissals', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/dismissals/{id}:
+ *   delete:
+ *     summary: Restore a pair marked as "not a duplicate"
+ *     description: The pair is offered by the scan again from the next run on.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Pair restored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid id
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Unknown pair
+ */
+router.delete(
+  '/api/duplicates/dismissals/:id',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid dismissal id' });
+      }
+      const removed = await documentModel.removeEntityMergeDismissal(id);
+      if (!removed) {
+        return res
+          .status(404)
+          .json({ success: false, error: `Dismissal ${id} does not exist` });
+      }
+      return res.json({
+        success: true,
+        message: 'The pair is offered again from the next scan on.',
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'DELETE /api/duplicates/dismissals/:id',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/log:
+ *   get:
+ *     summary: The local merge log
+ *     description: |
+ *       Every merge this instance performed, newest first, with everything an
+ *       undo needs. `recordsTotal` counts the rows matching the filter.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         description: capped at 100
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *     responses:
+ *       200:
+ *         description: Merge log
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityMergeLogEntry'
+ *                 recordsTotal:
+ *                   type: integer
+ *       400:
+ *         description: Unknown kind
+ *       401:
+ *         description: Not authenticated
+ */
+router.get('/api/duplicates/log', isAuthenticated, async (req, res) => {
+  try {
+    const kind = readDuplicatesKind(req.query.kind);
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const limit = Math.min(
+      Math.max(Number.isInteger(requestedLimit) ? requestedLimit : 10, 1),
+      100
+    );
+    const requestedOffset = parseInt(req.query.offset, 10);
+    const offset = Math.max(
+      Number.isInteger(requestedOffset) ? requestedOffset : 0,
+      0
+    );
+
+    const { rows, total } = await documentModel.getEntityMerges({
+      limit,
+      offset,
+      kind,
+    });
+    return res.json({ success: true, data: rows, recordsTotal: total });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/log', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/log/{id}/undo:
+ *   post:
+ *     summary: Undo a logged merge
+ *     description: |
+ *       Re-creates every source the merge deleted — a same-named object that
+ *       exists again is adopted instead — and hands back the documents that
+ *       still carry the target. Documents that were changed since the merge
+ *       are counted as skipped and left alone. The re-created objects get new
+ *       ids in Paperless-ngx.
+ *
+ *       The answer carries `success: false` with status 200 when at least one
+ *       source could not be restored.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: id of the merge log entry
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Undo finished (completely or partially)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/EntityMergeUndoResult'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid id
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Unknown merge
+ *       409:
+ *         description: Already undone, or a document scan is running
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.post(
+  '/api/duplicates/log/:id/undo',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const mergeId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(mergeId) || mergeId <= 0) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid merge id' });
+      }
+
+      const data = await duplicateMergeService.undo(mergeId, {
+        performedBy: duplicatesPerformedBy(req),
+      });
+      const restored = data.sources.filter(
+        (source) => source.restoredId != null
+      ).length;
+      const documents = data.sources.reduce(
+        (sum, source) => sum + source.documentsRestored,
+        0
+      );
+      const message =
+        data.status === 'undone'
+          ? `${restored} entr${restored === 1 ? 'y' : 'ies'} restored, ${documents} document(s) moved back.`
+          : `Only ${restored} of ${data.sources.length} entries could be restored. The rest is listed with its reason.`;
+
+      return res.json({
+        success: data.status !== 'undo_failed',
+        data,
+        message,
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/log/:id/undo',
+        error
+      );
     }
   }
 );

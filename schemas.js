@@ -563,6 +563,11 @@
  *         dismissedPairs:
  *           type: integer
  *           description: pairs hidden because the user marked them as not duplicates
+ *         paperlessUrl:
+ *           type: string
+ *           nullable: true
+ *           description: public Paperless-ngx base URL the page links its entries to
+ *           example: https://paperless.example.org
  *
  *     EntityMergeRequest:
  *       type: object
@@ -676,6 +681,9 @@
  *                 type: integer
  *               deleted:
  *                 type: boolean
+ *               copiedMatchingRule:
+ *                 type: boolean
+ *                 description: true on the one source whose matching rule was copied to the target
  *               error:
  *                 type: string
  *                 nullable: true
@@ -748,6 +756,12 @@
  *           items:
  *             type: integer
  *           minItems: 2
+ *         names:
+ *           type: object
+ *           description: optional id -> name map, stored with the pairs so the list stays readable
+ *           additionalProperties:
+ *             type: string
+ *           example: { "12": "Amazon", "48": "amazon" }
  *
  *     EntityMergeDismissal:
  *       type: object
