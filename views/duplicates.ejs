@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="<%= theme || 'light' %>">
+<%- include('partials/shell/head-start', { pageTitle: 'Duplicates - Zettelrobbe' }) %>
+<%- include('partials/shell/head-end') %>
+<%- include('partials/shell/body-open', {
+    pageTitle: 'Duplicates',
+    version: typeof version !== 'undefined' ? version : ''
+}) %>
+<%
+/* The sensitivity presets come from services/entityNameMatcher.js through the
+   route. The fallbacks below keep the page renderable on its own — the mock
+   server the UI is reviewed with and the static view test both use them. */
+const dupSensitivity = (typeof sensitivity !== 'undefined' && sensitivity)
+    ? sensitivity
+    : { strict: 0.95, normal: 0.85, loose: 0.75 };
+const dupDefaultThreshold = (typeof defaultThreshold !== 'undefined' && defaultThreshold)
+    ? Number(defaultThreshold)
+    : 0.85;
+const dupSensitivityOptions = [
+    { label: 'Strict', value: dupSensitivity.strict },
+    { label: 'Normal', value: dupSensitivity.normal },
+    { label: 'Loose', value: dupSensitivity.loose }
+];
+-%>
+            <div>
+                <div class="zr-viewhead">
+                    <p class="zr-viewhead__sub">
+                        Find tags and correspondents that mean the same thing and merge them in Paperless-ngx. Nothing here runs on its own.
+                    </p>
+                </div>
+
+                <!-- Controls: nothing scans until this button is used. -->
+                <div class="zr-module" id="dupControls">
+                    <div class="zr-module__body dup-controls">
+                        <div class="dup-controls__field">
+                            <span class="zr-label" id="dupKindLabel">Look at</span>
+                            <div class="zr-segment" id="dupKind" role="group" aria-labelledby="dupKindLabel">
+                                <button type="button" data-kind="tags" aria-selected="false">Tags</button>
+                                <button type="button" data-kind="correspondents" aria-selected="false">Correspondents</button>
+                                <button type="button" data-kind="all" aria-selected="true">Both</button>
+                            </div>
+                        </div>
+
+                        <div class="dup-controls__field">
+                            <label class="zr-label" for="dupSensitivity">Sensitivity</label>
+                            <select class="zr-select" id="dupSensitivity">
+<% dupSensitivityOptions.forEach(function (option) { -%>
+                                <option value="<%= option.value %>"<%= Number(option.value) === dupDefaultThreshold ? ' selected' : '' %>><%= option.label %></option>
+<% }); -%>
+                            </select>
+                        </div>
+
+                        <div class="dup-controls__field dup-controls__field--check">
+                            <label class="zr-row">
+                                <input type="checkbox" class="zr-check" id="dupIncludeDismissed">
+                                Include hidden pairs
+                            </label>
+                        </div>
+
+                        <div class="dup-controls__field dup-controls__field--action">
+                            <button class="zr-btn zr-btn--primary" id="dupScanBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" id="dupScanIcon" aria-hidden="true"><use href="/icons.svg#i-search"/></svg>
+                                Scan Paperless-ngx
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <section class="zr-stats dup-stats hidden" id="dupStats" aria-label="Scan result">
+                    <div class="zr-stat">
+                        <span class="zr-stat__label">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
+                            Tags scanned
+                        </span>
+                        <span class="zr-stat__value" id="dupStatTags">–</span>
+                    </div>
+                    <div class="zr-stat">
+                        <span class="zr-stat__label">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-building"/></svg>
+                            Correspondents scanned
+                        </span>
+                        <span class="zr-stat__value" id="dupStatCorrespondents">–</span>
+                    </div>
+                    <div class="zr-stat">
+                        <span class="zr-stat__label">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                            Groups found
+                        </span>
+                        <span class="zr-stat__value" id="dupStatGroups">0</span>
+                    </div>
+                    <div class="zr-stat">
+                        <span class="zr-stat__label">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-layers"/></svg>
+                            Documents involved
+                        </span>
+                        <span class="zr-stat__value" id="dupStatDocuments">0</span>
+                    </div>
+                </section>
+
+                <div class="dup-results" id="dupResults">
+                    <div class="zr-module">
+                        <div class="zr-empty">
+                            <svg class="zr-icon zr-icon--lg zr-empty__icon" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                            <div class="zr-empty__title">Nothing scanned yet</div>
+                            <p class="zr-sm zr-faint">Start a scan to see suggested merges.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <section class="zr-module" id="dupLog">
+                    <div class="zr-module__head">
+                        <h2 class="zr-module__title">Recent merges</h2>
+                        <span class="zr-module__meta" id="dupLogMeta"></span>
+                    </div>
+                    <div class="dup-log__alert" id="dupLogAlert"></div>
+                    <div class="zr-table-wrap">
+                        <table class="zr-table zr-table--stack dup-log__table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Kind</th>
+                                    <th>Target</th>
+                                    <th>Merged</th>
+                                    <th>Documents</th>
+                                    <th>Status</th>
+                                    <th class="zr-table__actions">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dupLogBody">
+                                <tr>
+                                    <td colspan="7" class="zr-empty">
+                                        <svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                        Loading merges…
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="zr-table-foot">
+                        <span class="zr-sm zr-faint" id="dupLogInfo"></span>
+                        <button class="zr-btn hidden" id="dupLogMoreBtn" type="button">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                            Show more
+                        </button>
+                    </div>
+                </section>
+
+                <details class="zr-module dup-hidden" id="dupDismissals">
+                    <summary class="zr-module__head dup-hidden__summary">
+                        <svg class="zr-icon zr-icon--sm dup-hidden__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
+                        <span class="zr-module__title" id="dupDismissalsSummary">Hidden pairs (0)</span>
+                    </summary>
+                    <div class="zr-module__body dup-hidden__list" id="dupDismissalsList"></div>
+                </details>
+            </div>
+
+    <script type="module" src="/js/duplicates.js"></script>
+    <%- include('partials/shell/body-close') %>
