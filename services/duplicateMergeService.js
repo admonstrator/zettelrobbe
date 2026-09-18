@@ -19,6 +19,14 @@
  * The code is kind-neutral: `kind` is 'tags' or 'correspondents' and is also
  * the Paperless-ngx path segment, so document types can follow later without
  * a second implementation.
+ *
+ * ## What it says while it works
+ *
+ * Every step writes one line to the app log with the prefix [DUPLICATES], the
+ * way [RECONCILIATION] does: what a scan looked at and found, what a merge did
+ * to each source, what an undo brought back. Tag and correspondent names are
+ * part of those lines because they are what the operator is looking for;
+ * document titles never are, because they are content.
  */
 
 const paperlessService = require('./paperlessService');
@@ -31,6 +39,21 @@ const { KINDS, KIND_LIST, DEFAULT_THRESHOLD, MATCHING_ALGORITHM_NONE } =
 
 /** `kind` value the routes accept for "scan both". */
 const KIND_ALL = 'all';
+
+/** Prefix of every line this service writes to the app log. */
+const LOG_PREFIX = '[DUPLICATES]';
+
+/**
+ * How long the dashboard rebuild waits for the next write before it runs.
+ *
+ * Merging a scan's worth of groups is a burst of single merges from the page,
+ * and every one of them used to fire a refresh — each of which reads the
+ * counts back out of Paperless-ngx. One refresh after the last write of the
+ * burst says the same thing at a fraction of the cost. The entity caches are
+ * not part of this: they are dropped immediately, because the next request
+ * must not be answered from them.
+ */
+const DASHBOARD_REFRESH_DEBOUNCE_MS = 2000;
 
 /**
  * A refusal the route can map onto an HTTP status. Everything the user can
@@ -125,6 +148,50 @@ function createPayloadFrom(kind, snapshot) {
 }
 
 class DuplicateMergeService {
+  constructor() {
+    /** The pending dashboard rebuild, or null when none is waiting. */
+    this._dashboardRefreshTimer = null;
+    /** Overridable so a test does not have to wait two seconds. */
+    this.dashboardRefreshDebounceMs = DASHBOARD_REFRESH_DEBOUNCE_MS;
+  }
+
+  /** One line in the app log, at info level, like [RECONCILIATION] writes. */
+  _log(message) {
+    console.log(`${LOG_PREFIX} ${message}`);
+  }
+
+  /**
+   * Drops the entity caches now and asks for the dashboard numbers to be
+   * rebuilt once the writes have stopped for `dashboardRefreshDebounceMs`.
+   *
+   * The timer is unref'd: a pending refresh must not keep a test process or a
+   * shutting-down server alive.
+   *
+   * @param {string} what  'merge' or 'undo', for the error message
+   */
+  _afterWrite(what) {
+    paperlessService.clearEntityCaches();
+
+    if (this._dashboardRefreshTimer) {
+      clearTimeout(this._dashboardRefreshTimer);
+    }
+    this._dashboardRefreshTimer = setTimeout(
+      () => {
+        this._dashboardRefreshTimer = null;
+        dashboardStatsService.refresh().catch((error) => {
+          console.error(
+            `[ERROR] refreshing dashboard statistics after a ${what}:`,
+            error?.message || error
+          );
+        });
+      },
+      Number(this.dashboardRefreshDebounceMs) || 0
+    );
+    if (typeof this._dashboardRefreshTimer.unref === 'function') {
+      this._dashboardRefreshTimer.unref();
+    }
+  }
+
   /**
    * True while the document scan holds the loop. A merge during a scan would
    * race the scan's own writes, so it is refused rather than queued.
@@ -217,6 +284,12 @@ class DuplicateMergeService {
       ? Number(threshold)
       : DEFAULT_THRESHOLD;
 
+    const startedAt = Date.now();
+    this._log(
+      `scan started: ${kinds.join(', ')}, threshold ${effectiveThreshold}, ` +
+        `dismissed pairs ${includeDismissed ? 'included' : 'hidden'}.`
+    );
+
     const configuredTagNames = this._configuredTagNames();
     const totals = { tags: null, correspondents: null };
     const groups = [];
@@ -250,7 +323,7 @@ class DuplicateMergeService {
       );
     }
 
-    return {
+    const result = {
       scannedAt: new Date().toISOString(),
       threshold: effectiveThreshold,
       totals,
@@ -258,6 +331,12 @@ class DuplicateMergeService {
       dismissedPairs,
       paperlessUrl: await this._publicBaseUrl(),
     };
+    this._log(
+      `scan finished: ${kinds.map((one) => `${totals[one]} ${one}`).join(', ')}, ` +
+        `${groups.length} group(s), ${dismissedPairs} dismissed pair(s) hidden, ` +
+        `in ${Date.now() - startedAt}ms.`
+    );
+    return result;
   }
 
   /**
@@ -352,6 +431,12 @@ class DuplicateMergeService {
     const targetBefore = matchingRuleOf(target);
     let copiedMatchingRule = false;
 
+    const startedAt = Date.now();
+    this._log(
+      `merge started: ${kind}, target ${targetNumericId} "${target.name}", ` +
+        `source(s) ${sources.map((source) => Number(source.id)).join(', ')}.`
+    );
+
     const details = [];
     for (const source of sources) {
       const detail = {
@@ -371,6 +456,9 @@ class DuplicateMergeService {
         source.user_can_change === false
       ) {
         detail.error = 'no permission';
+        this._log(
+          `merge ${kind} ${detail.id} "${detail.name}": skipped, the API token may not change it.`
+        );
         continue;
       }
 
@@ -424,6 +512,10 @@ class DuplicateMergeService {
         );
         if (remaining.length > 0) {
           detail.error = `${remaining.length} document(s) still carry this entry, it was not deleted`;
+          this._log(
+            `merge ${kind} ${detail.id} "${detail.name}": ${documentIds.length} document(s) found, ` +
+              `${detail.documentsMoved} moved, ${remaining.length} still on the source, not deleted.`
+          );
           continue;
         }
 
@@ -445,6 +537,10 @@ class DuplicateMergeService {
         detail.deleted = await paperlessService.deleteEntity(kind, detail.id);
         if (!detail.deleted) {
           detail.error = 'The entry was already gone in Paperless-ngx';
+          this._log(
+            `merge ${kind} ${detail.id} "${detail.name}": ${documentIds.length} document(s) found, ` +
+              `${detail.documentsMoved} moved, source empty, but it was already gone in Paperless-ngx.`
+          );
           continue;
         }
 
@@ -455,6 +551,11 @@ class DuplicateMergeService {
           toName: target.name,
           documentIds,
         });
+        this._log(
+          `merge ${kind} ${detail.id} "${detail.name}": ${documentIds.length} document(s) found, ` +
+            `${detail.documentsMoved} moved, source empty, deleted` +
+            `${detail.copiedMatchingRule ? ', matching rule copied to the target' : ''}.`
+        );
       } catch (error) {
         console.error(
           `[ERROR] merging ${kind} ${detail.id} into ${targetNumericId}:`,
@@ -472,13 +573,7 @@ class DuplicateMergeService {
       ? 'done'
       : 'partial';
 
-    paperlessService.clearEntityCaches();
-    dashboardStatsService.refresh().catch((error) => {
-      console.error(
-        '[ERROR] refreshing dashboard statistics after a merge:',
-        error?.message || error
-      );
-    });
+    this._afterWrite('merge');
 
     // Written even for a partial merge: the sources that *were* deleted exist
     // nowhere else any more, and without this row they cannot be undone.
@@ -493,6 +588,11 @@ class DuplicateMergeService {
       status,
       performedBy,
     });
+
+    this._log(
+      `merge finished: status ${status}, ${documentsMoved} document(s) moved, ` +
+        `log id ${mergeId}, in ${Date.now() - startedAt}ms.`
+    );
 
     return {
       mergeId,
@@ -706,9 +806,23 @@ class DuplicateMergeService {
       Array.isArray(entry.sources) ? entry.sources : []
     ).filter((source) => source.deleted);
 
+    const startedAt = Date.now();
+    this._log(
+      `undo started: merge ${id}, ${kind}, target ${targetId} "${entry.targetName}", ` +
+        `${deletedSources.length} deleted source(s).`
+    );
+
     const sources = [];
     for (const source of deletedSources) {
-      sources.push(await this._restoreSource(kind, entry, source));
+      const restored = await this._restoreSource(kind, entry, source);
+      sources.push(restored);
+      this._log(
+        restored.error
+          ? `undo ${kind} "${restored.name}": ${restored.error}.`
+          : `undo ${kind} "${restored.name}": restored as ${restored.restoredId} ` +
+              `(${restored.adoptedExisting ? 'adopted an existing entry' : 'created'}), ` +
+              `${restored.documentsRestored} document(s) restored, ${restored.documentsSkipped} skipped.`
+      );
     }
 
     let revertedMatchingRule = false;
@@ -748,15 +862,14 @@ class DuplicateMergeService {
       : 'undo_failed';
     const undoResult = { status, revertedMatchingRule, performedBy, sources };
 
-    paperlessService.clearEntityCaches();
-    dashboardStatsService.refresh().catch((error) => {
-      console.error(
-        '[ERROR] refreshing dashboard statistics after an undo:',
-        error?.message || error
-      );
-    });
+    this._afterWrite('undo');
 
     await documentModel.updateEntityMergeUndo(id, { status, undoResult });
+    this._log(
+      `undo finished: status ${status}, matching rule ${
+        revertedMatchingRule ? 'reverted' : 'left alone'
+      }, in ${Date.now() - startedAt}ms.`
+    );
     return undoResult;
   }
 
@@ -804,7 +917,12 @@ class DuplicateMergeService {
         });
       }
     }
-    return documentModel.addEntityMergeDismissals(kind, pairs);
+    const stored = await documentModel.addEntityMergeDismissals(kind, pairs);
+    this._log(
+      `dismissed: ${kind}, ${stored} new pair(s) stored from ${unique.length} entries ` +
+        `(${pairs.length} pair(s) in the request).`
+    );
+    return stored;
   }
 
   /**
@@ -854,5 +972,7 @@ const duplicateMergeService = new DuplicateMergeService();
 // without requiring a second module.
 duplicateMergeService.MergeValidationError = MergeValidationError;
 duplicateMergeService.KIND_ALL = KIND_ALL;
+duplicateMergeService.DASHBOARD_REFRESH_DEBOUNCE_MS =
+  DASHBOARD_REFRESH_DEBOUNCE_MS;
 
 module.exports = duplicateMergeService;

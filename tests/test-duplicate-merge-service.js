@@ -32,6 +32,10 @@
  * 14. Undo twice is refused (409)
  * 15. Undo does not revert a matching rule the user changed since the merge
  * 16. A half-done undo stays retryable and finishes on the next attempt
+ * 17. A burst of merges drops the caches at once but rebuilds the dashboard
+ *     only after the last write
+ * 18. Scan, merge, undo and dismiss write a log line each, with the names but
+ *     never a document title
  */
 
 'use strict';
@@ -787,6 +791,143 @@ async function main() {
       );
       assert.strictEqual(afterSecond.status, 'undone');
       assert.ok(afterSecond.undoneAt);
+    });
+    await test('A burst of merges rebuilds the dashboard once', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 110, name: 'Trips' },
+          { id: 111, name: 'trips' },
+          { id: 112, name: 'TRIPS' },
+          { id: 113, name: 'Trip' },
+        ],
+        documents: [
+          { id: 9101, tags: [111] },
+          { id: 9102, tags: [112] },
+          { id: 9103, tags: [113] },
+        ],
+      });
+
+      assert.strictEqual(
+        duplicateMergeService.DASHBOARD_REFRESH_DEBOUNCE_MS,
+        2000,
+        'two seconds in production'
+      );
+
+      let refreshes = 0;
+      const realRefresh = dashboardStatsService.refresh;
+      dashboardStatsService.refresh = async () => {
+        refreshes += 1;
+        return {};
+      };
+      const realDelay = duplicateMergeService.dashboardRefreshDebounceMs;
+      duplicateMergeService.dashboardRefreshDebounceMs = 40;
+      try {
+        for (const sourceId of [111, 112, 113]) {
+          paperlessService.tagCache.set(`source-${sourceId}`, { id: sourceId });
+          const result = await duplicateMergeService.merge({
+            kind: 'tags',
+            targetId: 110,
+            sourceIds: [sourceId],
+          });
+          assert.strictEqual(result.status, 'done');
+          assert.strictEqual(
+            paperlessService.tagCache.size,
+            0,
+            'the caches are dropped immediately, not on the timer'
+          );
+        }
+        assert.strictEqual(
+          refreshes,
+          0,
+          'no rebuild while the burst is still running'
+        );
+        assert.ok(
+          duplicateMergeService._dashboardRefreshTimer,
+          'one rebuild is pending'
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        assert.strictEqual(refreshes, 1, 'one rebuild for three merges');
+        assert.strictEqual(
+          duplicateMergeService._dashboardRefreshTimer,
+          null,
+          'and nothing is left pending'
+        );
+        assert.strictEqual(fake.tag(111), undefined, 'the merges really ran');
+      } finally {
+        duplicateMergeService.dashboardRefreshDebounceMs = realDelay;
+        dashboardStatsService.refresh = realRefresh;
+      }
+    });
+
+    await test('The log says what a scan, a merge and an undo did', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 120, name: 'Holiday' },
+          { id: 121, name: 'holiday' },
+        ],
+        documents: [
+          { id: 9201, title: 'Hotel booking Rome', tags: [121] },
+          { id: 9202, title: 'Flight to Rome', tags: [121] },
+        ],
+      });
+
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let merged;
+      try {
+        await duplicateMergeService.scan({ kind: 'tags' });
+        merged = await duplicateMergeService.merge({
+          kind: 'tags',
+          targetId: 120,
+          sourceIds: [121],
+        });
+        await duplicateMergeService.undo(merged.mergeId);
+        await duplicateMergeService.dismiss({
+          kind: 'tags',
+          ids: [120, 121],
+          names: { 120: 'Holiday', 121: 'holiday' },
+        });
+      } finally {
+        console.log = realLog;
+      }
+
+      const log = lines.filter((line) => line.startsWith('[DUPLICATES]'));
+      const has = (pattern) =>
+        assert.ok(
+          log.some((line) => pattern.test(line)),
+          `no [DUPLICATES] line matches ${pattern}\n${log.join('\n')}`
+        );
+      has(/scan started: tags, threshold 0\.85, dismissed pairs hidden\./);
+      has(
+        /scan finished: 2 tags, 1 group\(s\), 0 dismissed pair\(s\) hidden, in \d+ms\./
+      );
+      has(/merge started: tags, target 120 "Holiday", source\(s\) 121\./);
+      has(
+        /merge tags 121 "holiday": 2 document\(s\) found, 2 moved, source empty, deleted\./
+      );
+      has(
+        /merge finished: status done, 2 document\(s\) moved, log id \d+, in \d+ms\./
+      );
+      has(
+        /undo started: merge \d+, tags, target 120 "Holiday", 1 deleted source/
+      );
+      has(
+        /undo tags "holiday": restored as \d+ \(created\), 2 document\(s\) restored, 0 skipped\./
+      );
+      has(/undo finished: status undone, matching rule left alone, in \d+ms\./);
+      has(/dismissed: tags, 1 new pair\(s\) stored from 2 entries/);
+      assert.ok(
+        !lines.some((line) => /Hotel booking|Flight to Rome/.test(line)),
+        'document titles are content and stay out of the log'
+      );
+      assert.ok(fake.tag(120), 'the target is still there');
+
+      const rows = await documentModel.listEntityMergeDismissals('tags');
+      for (const row of rows) {
+        await documentModel.removeEntityMergeDismissal(row.id);
+      }
     });
   } finally {
     try {
