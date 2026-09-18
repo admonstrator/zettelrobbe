@@ -1187,18 +1187,25 @@ function updateSelectionBar() {
   );
   if (el.selectionCount) {
     el.selectionCount.textContent =
-      `${entries.length} ${plural(entries.length, 'group', 'groups')} selected` +
-      ` · ${documents} ${plural(documents, 'document', 'documents')}`;
+      entries.length === 0
+        ? 'No groups selected'
+        : `${entries.length} ${plural(entries.length, 'group', 'groups')} selected` +
+          ` · ${documents} ${plural(documents, 'document', 'documents')}`;
   }
   if (el.selectAiSameBtn) {
     el.selectAiSameBtn.classList.toggle('hidden', !anyGroupVerdict());
   }
-  // An empty selection hides the bar — unless it is still reporting what the
-  // last batch did, which is the one thing it says without one.
+  if (el.mergeSelectedBtn) el.mergeSelectedBtn.disabled = entries.length === 0;
+  // The bar appears as soon as a card can be selected, so "Select all" is
+  // reachable before the first tick; without any selectable card it hides —
+  // unless it is still reporting what the last batch did.
+  const selectable = Boolean(
+    el.results && el.results.querySelector('.dup-select:not([disabled])')
+  );
   const reporting = Boolean(
     el.selectionProgress && !el.selectionProgress.classList.contains('hidden')
   );
-  el.selection.classList.toggle('hidden', entries.length === 0 && !reporting);
+  el.selection.classList.toggle('hidden', !selectable && !reporting);
 }
 
 /** Ticks every card the predicate accepts; a disabled check is never touched. */
