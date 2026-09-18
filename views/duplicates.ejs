@@ -201,6 +201,24 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                      runs, a warning about failed requests, or its error. -->
                 <div class="dup-ai-notice" id="dupAiNotice"></div>
 <% } -%>
+                <!-- Selecting several groups: hidden until a card is ticked,
+                     then sticky under the top bar while the cards scroll past.
+                     One confirmation covers everything ticked here; the cards
+                     keep their own target and their own source ticks. -->
+                <div class="dup-selection hidden" id="dupSelection" role="group" aria-label="Selected groups">
+                    <span class="dup-selection__count" id="dupSelectionCount"></span>
+                    <span class="zr-sm dup-selection__progress hidden" id="dupSelectionProgress" aria-live="polite"></span>
+                    <div class="dup-selection__actions">
+                        <button class="zr-btn zr-btn--ghost" id="dupSelectAllBtn" type="button">Select all</button>
+                        <button class="zr-btn zr-btn--ghost hidden" id="dupSelectAiSameBtn" type="button">Select AI: same</button>
+                        <button class="zr-btn zr-btn--ghost" id="dupClearSelectionBtn" type="button">Clear</button>
+                        <button class="zr-btn zr-btn--primary" id="dupMergeSelectedBtn" type="button">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                            Merge selected
+                        </button>
+                    </div>
+                </div>
+
                 <div class="dup-results" id="dupResults">
                     <div class="zr-module">
                         <div class="zr-empty">

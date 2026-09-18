@@ -254,6 +254,66 @@
     }
   }
 
+  /* --- selecting several groups ----------------------------------------- */
+  /* One bar for the whole result list. It appears with the first ticked card
+     and then stays under the top bar (48px) while the cards scroll past it, so
+     "Merge selected" is reachable from anywhere in a long list. z-index 1 is
+     enough to sit above the cards, which are unpositioned; .dup-manual keeps 2
+     so its search dropdown still comes out on top. */
+  .dup-selection {
+    position: sticky;
+    top: var(--zr-topbar-h);
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2) var(--zr-3);
+    margin-top: var(--zr-3);
+    padding: var(--zr-2) var(--zr-3);
+    background: var(--zr-surface);
+    border: 1px solid var(--zr-line-strong);
+    border-radius: var(--zr-r-lg);
+    box-shadow: var(--zr-shadow-md);
+  }
+
+  .dup-selection__count {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* "Merging 3 of 8…" and, at the end, the summary. Takes what is left of the
+     row so the buttons keep their place instead of jumping as the text grows. */
+  .dup-selection__progress {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--zr-text-muted);
+  }
+
+  .dup-selection__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+    margin-left: auto;
+  }
+
+  /* First thing in a card head that wraps; it must not shrink with the badges. */
+  .dup-select {
+    flex: none;
+  }
+
+  @media (max-width: 720px) {
+    /* The buttons take a line of their own and share it evenly rather than
+       pushing the bar wider than the viewport. */
+    .dup-selection__actions {
+      margin-left: 0;
+      width: 100%;
+    }
+    .dup-selection__actions .zr-btn {
+      flex: 1 1 auto;
+      justify-content: center;
+    }
+  }
+
   /* --- results ---------------------------------------------------------- */
   .dup-results {
     margin-top: var(--zr-3);
