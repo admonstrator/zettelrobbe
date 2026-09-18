@@ -8,6 +8,11 @@ const {
   buildTimeoutErrorMessage,
   toNameList,
 } = require('./serviceUtils');
+const {
+  hasNumber,
+  hasSystemPrompt,
+  readCompletionUsage,
+} = require('./aiGenerateOptions');
 const OpenAI = require('openai');
 const config = require('../config/config');
 const paperlessService = require('./paperlessService');
@@ -622,9 +627,13 @@ class CustomOpenAIService {
   /**
    * Generate text based on a prompt
    * @param {string} prompt - The prompt to generate text from
+   * @param {object} [options] - Optional overrides for this one call
+   * @param {string} [options.systemPrompt] - Sent as the system message
+   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
+   * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS, still clamped
    * @returns {Promise<string>} - The generated text
    */
-  async generateText(prompt) {
+  async generateText(prompt, options = {}) {
     try {
       this.initialize();
 
@@ -636,7 +645,10 @@ class CustomOpenAIService {
 
       const model = config.custom.model;
       const maxContextTokens = Number(config.tokenLimit) || 128000;
-      const desiredCompletionTokens = Number(config.responseTokens) || 1000;
+      const desiredCompletionTokens =
+        hasNumber(options.maxTokens) && options.maxTokens > 0
+          ? Math.floor(options.maxTokens)
+          : Number(config.responseTokens) || 1000;
       const promptTokens = await calculateTokens(prompt, model);
       const availableCompletionTokens = Math.max(
         1,
@@ -654,17 +666,22 @@ class CustomOpenAIService {
         );
       }
 
+      const messages = [];
+      if (hasSystemPrompt(options)) {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: prompt });
+
+      this.lastGenerateTextUsage = null;
       const response = await this.client.chat.completions.create({
         model: model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: config.aiTemperatureGeneration,
+        messages,
+        temperature: hasNumber(options.temperature)
+          ? options.temperature
+          : config.aiTemperatureGeneration,
         max_tokens: maxCompletionTokens,
       });
+      this.lastGenerateTextUsage = readCompletionUsage(response);
 
       assertCompletionNotTruncated(
         response,

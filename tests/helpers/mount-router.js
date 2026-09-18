@@ -178,6 +178,9 @@ function stubPaperless(paperlessService) {
   paperlessService.getDocumentsByIds = async () => [];
   paperlessService.bulkEditDocuments = async () => ({ edited: 0 });
   paperlessService.clearEntityCaches = () => {};
+  // Context for the AI review. Inert here: the real one answers [] on every
+  // problem anyway, so a harness without documents says the same thing.
+  paperlessService.getRecentDocumentTitlesByEntity = async () => [];
 }
 
 module.exports = { mountRouter, DEFAULT_ENV, REPO_ROOT };

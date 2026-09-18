@@ -7,6 +7,11 @@ const {
   assertCompletionNotTruncated,
   toNameList,
 } = require('./serviceUtils');
+const {
+  hasNumber,
+  hasSystemPrompt,
+  readCompletionUsage,
+} = require('./aiGenerateOptions');
 const axios = require('axios');
 const AzureOpenAI = require('openai').AzureOpenAI;
 const config = require('../config/config');
@@ -515,9 +520,13 @@ class AzureOpenAIService {
   /**
    * Generate text based on a prompt
    * @param {string} prompt - The prompt to generate text from
+   * @param {object} [options] - Optional overrides for this one call
+   * @param {string} [options.systemPrompt] - Sent as the system message
+   * @param {number} [options.temperature] - Overrides the default of 0.7
+   * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS
    * @returns {Promise<string>} - The generated text
    */
-  async generateText(prompt) {
+  async generateText(prompt, options = {}) {
     try {
       this.initialize();
 
@@ -526,21 +535,26 @@ class AzureOpenAIService {
       }
 
       const model = process.env.AZURE_DEPLOYMENT_NAME;
+      const messages = [];
+      if (hasSystemPrompt(options)) {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: prompt });
 
+      this.lastGenerateTextUsage = null;
       const response = await this.client.chat.completions.create({
         model: model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.7,
+        messages,
+        temperature: hasNumber(options.temperature) ? options.temperature : 0.7,
         // Was a hardcoded 1000, which quarrelled with the setting the same way
         // Ollama's num_predict did — the reservation followed the operator,
         // the limit did not.
-        max_tokens: Number(config.responseTokens),
+        max_tokens:
+          hasNumber(options.maxTokens) && options.maxTokens > 0
+            ? Math.floor(options.maxTokens)
+            : Number(config.responseTokens),
       });
+      this.lastGenerateTextUsage = readCompletionUsage(response);
 
       assertCompletionNotTruncated(
         response,
