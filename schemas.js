@@ -458,6 +458,49 @@
  *           nullable: true
  *           example: "connect ECONNREFUSED 172.18.0.2:8000"
  *
+ *     EntityRecord:
+ *       type: object
+ *       description: |
+ *         One tag or correspondent as the Duplicates feature reads it — the
+ *         Paperless-ngx object in camelCase, with nothing added. A
+ *         DuplicateGroupMember is this record plus its score inside a group.
+ *       properties:
+ *         id:
+ *           type: integer
+ *           example: 12
+ *         name:
+ *           type: string
+ *           example: Amazon EU S.a.r.l.
+ *         documentCount:
+ *           type: integer
+ *           example: 41
+ *         matchingAlgorithm:
+ *           type: integer
+ *           description: Paperless-ngx matching_algorithm, 0 = none
+ *           example: 1
+ *         match:
+ *           type: string
+ *           example: amazon
+ *         isInsensitive:
+ *           type: boolean
+ *         owner:
+ *           type: integer
+ *           nullable: true
+ *         userCanChange:
+ *           type: boolean
+ *           description: false when the API token may not modify the object
+ *         isInboxTag:
+ *           type: boolean
+ *           description: tags only
+ *         color:
+ *           type: string
+ *           nullable: true
+ *           description: tags only
+ *         lastCorrespondence:
+ *           type: string
+ *           nullable: true
+ *           description: correspondents only
+ *
  *     DuplicateGroupMember:
  *       type: object
  *       description: One tag or correspondent inside a duplicate group

@@ -573,6 +573,58 @@
           }
         }
       },
+      "EntityRecord": {
+        "type": "object",
+        "description": "One tag or correspondent as the Duplicates feature reads it — the\nPaperless-ngx object in camelCase, with nothing added. A\nDuplicateGroupMember is this record plus its score inside a group.\n",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 12
+          },
+          "name": {
+            "type": "string",
+            "example": "Amazon EU S.a.r.l."
+          },
+          "documentCount": {
+            "type": "integer",
+            "example": 41
+          },
+          "matchingAlgorithm": {
+            "type": "integer",
+            "description": "Paperless-ngx matching_algorithm, 0 = none",
+            "example": 1
+          },
+          "match": {
+            "type": "string",
+            "example": "amazon"
+          },
+          "isInsensitive": {
+            "type": "boolean"
+          },
+          "owner": {
+            "type": "integer",
+            "nullable": true
+          },
+          "userCanChange": {
+            "type": "boolean",
+            "description": "false when the API token may not modify the object"
+          },
+          "isInboxTag": {
+            "type": "boolean",
+            "description": "tags only"
+          },
+          "color": {
+            "type": "string",
+            "nullable": true,
+            "description": "tags only"
+          },
+          "lastCorrespondence": {
+            "type": "string",
+            "nullable": true,
+            "description": "correspondents only"
+          }
+        }
+      },
       "DuplicateGroupMember": {
         "type": "object",
         "description": "One tag or correspondent inside a duplicate group",
@@ -6213,6 +6265,70 @@
           },
           "400": {
             "description": "Unknown kind or threshold outside [0.5, 1]"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/entities": {
+      "get": {
+        "summary": "Every tag or correspondent of the instance",
+        "description": "The list the \"Merge by hand\" module picks from. Read-only: it loads\none kind from Paperless-ngx and hands the records back sorted by name,\ncase-insensitively, so entries that differ only in case sit next to\neach other. Nothing is grouped, scored or filtered here.\n\nUnlike the scan, `kind` is required — there is no \"both\" list.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entries of that kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityRecord"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "kind is missing or unknown"
           },
           "401": {
             "description": "Not authenticated"

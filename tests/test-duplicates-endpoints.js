@@ -14,6 +14,7 @@
  *  1. Neither the page nor an API route answers without authentication
  *  2. GET /api/duplicates/scan returns a DuplicateScanResult with groups
  *  3. GET /api/duplicates/scan validates kind and threshold
+ *  3a. GET /api/duplicates/entities lists one kind, sorted, and refuses the rest
  *  4. POST /api/duplicates/merge merges and answers with the result shape
  *  5. A partial merge answers 200 with success: false
  *  6. Merge validation is 400, an unknown entry is 404
@@ -116,6 +117,13 @@ async function main() {
       assert.strictEqual(anonymous.status, 302, 'no credentials -> /login');
       assert.strictEqual(anonymous.headers.get('location'), '/login');
 
+      const anonymousEntities = await fetch(
+        harness.base + '/api/duplicates/entities?kind=tags',
+        { redirect: 'manual' }
+      );
+      assert.strictEqual(anonymousEntities.status, 302);
+      assert.strictEqual(anonymousEntities.headers.get('location'), '/login');
+
       const anonymousPage = await fetch(harness.base + '/duplicates', {
         redirect: 'manual',
       });
@@ -186,6 +194,75 @@ async function main() {
         const payload = await response.json();
         assert.strictEqual(payload.success, false);
         assert.ok(payload.error, 'a reason is given');
+      }
+    });
+
+    await test('GET /api/duplicates/entities lists one kind, sorted by name', async () => {
+      // The list endpoint is the only one that does nothing but pass records
+      // through, so the sort is the whole behaviour worth pinning. The store
+      // behind the harness already answers `ordering=name` case sensitively,
+      // which is exactly what must not decide the order here.
+      const unsorted = [
+        { id: 3, name: 'amazon', documentCount: 2, userCanChange: true },
+        { id: 1, name: 'Zürich', documentCount: 9, userCanChange: false },
+        { id: 2, name: 'Amazon', documentCount: 41, userCanChange: true },
+      ];
+      harness.paperlessService.listEntities = async () => [...unsorted];
+      try {
+        const response = await call(
+          'GET',
+          '/api/duplicates/entities?kind=tags'
+        );
+        assert.strictEqual(response.status, 200);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, true);
+        assert.deepStrictEqual(
+          payload.data.map((record) => record.name),
+          ['Amazon', 'amazon', 'Zürich'],
+          'case decides nothing, the id breaks the tie'
+        );
+        assert.deepStrictEqual(payload.data[0], {
+          id: 2,
+          name: 'Amazon',
+          documentCount: 41,
+          userCanChange: true,
+        });
+      } finally {
+        delete harness.paperlessService.listEntities;
+      }
+    });
+
+    await test('GET /api/duplicates/entities needs a known kind', async () => {
+      for (const query of ['', '?kind=', '?kind=all', '?kind=document_types']) {
+        const response = await call('GET', `/api/duplicates/entities${query}`);
+        assert.strictEqual(response.status, 400, `expected 400 for "${query}"`);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, false);
+        assert.ok(payload.error, 'a reason is given');
+      }
+    });
+
+    await test('GET /api/duplicates/entities answers 502 when Paperless-ngx is unreachable', async () => {
+      harness.paperlessService.listEntities = async () => {
+        throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8000'), {
+          code: 'ECONNREFUSED',
+        });
+      };
+      try {
+        const response = await call(
+          'GET',
+          '/api/duplicates/entities?kind=correspondents'
+        );
+        assert.strictEqual(response.status, 502);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, false);
+        assert.match(
+          payload.error,
+          /ECONNREFUSED/,
+          'the reason survives into the answer'
+        );
+      } finally {
+        delete harness.paperlessService.listEntities;
       }
     });
 

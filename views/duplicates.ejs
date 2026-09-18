@@ -97,6 +97,68 @@ const dupSensitivityOptions = [
                     </div>
                 </section>
 
+                <!-- Merge by hand: no scan involved, the user names the target
+                     and the sources themselves. Same request, same log, same
+                     undo as a scanned group. Closed until it is needed, and the
+                     list behind it is only fetched on the first open. -->
+                <details class="zr-module dup-manual" id="dupManual">
+                    <summary class="zr-module__head dup-manual__summary">
+                        <svg class="zr-icon zr-icon--sm dup-manual__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
+                        <span class="zr-module__title" id="dupManualTitle">Merge by hand</span>
+                    </summary>
+                    <div class="zr-module__body dup-manual__body">
+                        <p class="zr-sm zr-faint dup-manual__hint">
+                            Pick what survives and what is merged into it, whether or not a scan proposed them together.
+                        </p>
+
+                        <div class="dup-manual__field">
+                            <span class="zr-label" id="dupManualKindLabel">Kind</span>
+                            <div class="zr-segment" id="dupManualKind" role="group" aria-labelledby="dupManualKindLabel">
+                                <button type="button" data-kind="tags" aria-selected="true">Tags</button>
+                                <button type="button" data-kind="correspondents" aria-selected="false">Correspondents</button>
+                            </div>
+                        </div>
+
+                        <div class="dup-manual__field">
+                            <label class="zr-label" for="dupManualTarget">Keep</label>
+                            <div class="dup-picker" id="dupManualTargetPicker">
+                                <input class="zr-input dup-picker__input" id="dupManualTarget" type="text"
+                                       autocomplete="off" role="combobox" aria-expanded="false"
+                                       aria-autocomplete="list" aria-controls="dupManualTargetList"
+                                       placeholder="Search an entry to keep" data-selected-id="">
+                                <div class="dup-picker__list hidden" id="dupManualTargetList" role="listbox" aria-label="Entries to keep"></div>
+                            </div>
+                        </div>
+
+                        <div class="dup-manual__field">
+                            <label class="zr-label" for="dupManualSources">Merge away</label>
+                            <div class="dup-picker" id="dupManualSourcesPicker">
+                                <input class="zr-input dup-picker__input" id="dupManualSources" type="text"
+                                       autocomplete="off" role="combobox" aria-expanded="false"
+                                       aria-autocomplete="list" aria-controls="dupManualSourcesList"
+                                       placeholder="Search entries to merge away">
+                                <div class="dup-picker__list hidden" id="dupManualSourcesList" role="listbox" aria-label="Entries to merge away"></div>
+                            </div>
+                            <div class="zr-chips dup-manual__chips" id="dupManualChips"></div>
+                        </div>
+
+                        <div class="dup-manual__warnings" id="dupManualWarnings"></div>
+
+                        <div class="dup-manual__actions">
+                            <button class="zr-btn" id="dupManualReloadBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" id="dupManualReloadIcon" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                Reload list
+                            </button>
+                            <button class="zr-btn zr-btn--primary" id="dupManualMergeBtn" type="button" disabled>
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                                Merge
+                            </button>
+                        </div>
+
+                        <div class="dup-manual__result" id="dupManualResult"></div>
+                    </div>
+                </details>
+
                 <div class="dup-results" id="dupResults">
                     <div class="zr-module">
                         <div class="zr-empty">

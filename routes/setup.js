@@ -10804,6 +10804,70 @@ router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
 
 /**
  * @swagger
+ * /api/duplicates/entities:
+ *   get:
+ *     summary: Every tag or correspondent of the instance
+ *     description: |
+ *       The list the "Merge by hand" module picks from. Read-only: it loads
+ *       one kind from Paperless-ngx and hands the records back sorted by name,
+ *       case-insensitively, so entries that differ only in case sit next to
+ *       each other. Nothing is grouped, scored or filtered here.
+ *
+ *       Unlike the scan, `kind` is required — there is no "both" list.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *     responses:
+ *       200:
+ *         description: The entries of that kind
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityRecord'
+ *       400:
+ *         description: kind is missing or unknown
+ *       401:
+ *         description: Not authenticated
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.get('/api/duplicates/entities', isAuthenticated, async (req, res) => {
+  try {
+    // readDuplicatesKind() treats a missing kind as "not filtered", which is
+    // what the log and the dismissals want. Here there is nothing to list
+    // without it, so the absence is its own refusal.
+    if (req.query.kind === undefined || req.query.kind === '') {
+      return res
+        .status(400)
+        .json({ success: false, error: 'kind is required' });
+    }
+    const kind = readDuplicatesKind(req.query.kind);
+    const data = await duplicateMergeService.listEntities(kind);
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/entities', error);
+  }
+});
+
+/**
+ * @swagger
  * /api/duplicates/merge:
  *   post:
  *     summary: Merge tags or correspondents into one

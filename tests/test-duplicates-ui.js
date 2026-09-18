@@ -7,7 +7,8 @@
  * without anyone noticing:
  *
  * 1. views/duplicates.ejs renders through the real shell and carries the ids
- *    and the sensitivity options the page script and the route agree on
+ *    and the sensitivity options the page script and the route agree on,
+ *    including the "Merge by hand" module and its closed state
  * 2. nav.ejs lists /duplicates on the rail and leaves the phone tab bar alone
  * 3. head-start.ejs links the page stylesheet in the right place
  * 4. public/css/pages/duplicates.css is one @layer pages block of dup- classes
@@ -121,6 +122,58 @@ test('The view carries the ids the page script and the route agree on', () => {
   ].forEach((id) => {
     assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
   });
+});
+
+test('The manual merge module carries the ids the page script binds to', () => {
+  [
+    'dupManual',
+    'dupManualKind',
+    'dupManualTarget',
+    'dupManualSources',
+    'dupManualReloadBtn',
+    'dupManualMergeBtn',
+  ].forEach((id) => {
+    assert.ok(
+      page.includes(`id="${id}"`),
+      `#${id} is missing from the view; the manual merge cannot bind to it`
+    );
+  });
+  // The two dropdowns and the chip row are addressed by id as well; they carry
+  // no markup of their own until something is picked.
+  ['dupManualTargetList', 'dupManualSourcesList', 'dupManualChips'].forEach(
+    (id) => {
+      assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
+    }
+  );
+});
+
+test('The manual merge module is a closed details block', () => {
+  const opening = /<details([^>]*)id="dupManual"([^>]*)>/.exec(page);
+  assert.ok(opening, 'the module is not a <details> element');
+  const attributes = `${opening[1]} ${opening[2]}`;
+  assert.ok(
+    !/\bopen\b/.test(attributes),
+    'the module must come up closed; nothing is fetched until it is opened'
+  );
+  assert.ok(
+    /class="[^"]*\bdup-manual\b[^"]*"/.test(attributes),
+    'the module is styled through .dup-manual'
+  );
+  assert.ok(
+    page.includes('>Merge by hand</span>'),
+    'the summary is labelled "Merge by hand"'
+  );
+});
+
+test('The manual merge module sits between the scan stats and the results', () => {
+  const stats = page.indexOf('id="dupStats"');
+  const manual = page.indexOf('id="dupManual"');
+  const results = page.indexOf('id="dupResults"');
+  assert.ok(stats !== -1 && manual !== -1 && results !== -1);
+  assert.ok(
+    stats < manual && manual < results,
+    'the module belongs after the scan controls and before their results'
+  );
 });
 
 test('The page script is loaded as an ES module', () => {
