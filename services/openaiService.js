@@ -7,6 +7,11 @@ const {
   assertCompletionNotTruncated,
   toNameList,
 } = require('./serviceUtils');
+const {
+  hasNumber,
+  hasSystemPrompt,
+  readCompletionUsage,
+} = require('./aiGenerateOptions');
 const OpenAI = require('openai');
 const config = require('../config/config');
 const paperlessService = require('./paperlessService');
@@ -575,9 +580,13 @@ class OpenAIService {
   /**
    * Generate text based on a prompt
    * @param {string} prompt - The prompt to generate text from
+   * @param {object} [options] - Optional overrides for this one call
+   * @param {string} [options.systemPrompt] - Sent as the system message
+   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
+   * @param {number} [options.maxTokens] - Completion cap for this call
    * @returns {Promise<string>} - The generated text
    */
-  async generateText(prompt) {
+  async generateText(prompt, options = {}) {
     try {
       this.initialize();
 
@@ -586,17 +595,28 @@ class OpenAIService {
       }
 
       const model = process.env.OPENAI_MODEL || config.openai.model;
+      const messages = [];
+      if (hasSystemPrompt(options)) {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: prompt });
 
-      const response = await this.client.chat.completions.create({
+      const request = {
         model: model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: config.aiTemperatureGeneration,
-      });
+        messages,
+        temperature: hasNumber(options.temperature)
+          ? options.temperature
+          : config.aiTemperatureGeneration,
+      };
+      // Without a cap the model answers with whatever the deployment allows,
+      // which is what every caller before the AI review wanted.
+      if (hasNumber(options.maxTokens) && options.maxTokens > 0) {
+        request.max_tokens = Math.floor(options.maxTokens);
+      }
+
+      this.lastGenerateTextUsage = null;
+      const response = await this.client.chat.completions.create(request);
+      this.lastGenerateTextUsage = readCompletionUsage(response);
 
       assertCompletionNotTruncated(
         response,

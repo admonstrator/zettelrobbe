@@ -1,4 +1,5 @@
 const { writePromptToFile, toNameList } = require('./serviceUtils');
+const { hasNumber, hasSystemPrompt } = require('./aiGenerateOptions');
 const axios = require('axios');
 const config = require('../config/config');
 const fs = require('fs').promises;
@@ -916,19 +917,28 @@ class OllamaService {
   /**
    * Generate text based on a prompt
    * @param {string} prompt - The prompt to generate text from
+   * @param {object} [options] - Optional overrides for this one call
+   * @param {string} [options.systemPrompt] - Replaces the generic system prompt
+   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
+   * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS (num_predict)
    * @returns {Promise<string>} - The generated text
    */
-  async generateText(prompt) {
+  async generateText(prompt, options = {}) {
     try {
+      const responseTokens =
+        hasNumber(options.maxTokens) && options.maxTokens > 0
+          ? Math.floor(options.maxTokens)
+          : Number(config.responseTokens);
+
       // Calculate context window size based on prompt length
       const promptTokenCount = this._calculatePromptTokenCount(prompt);
-      const numCtx = this._calculateNumCtx(
-        promptTokenCount,
-        Number(config.responseTokens)
-      );
+      const numCtx = this._calculateNumCtx(promptTokenCount, responseTokens);
 
-      // Simple system prompt for text generation
-      const systemPrompt = `You are a helpful assistant. Generate a clear, concise, and informative response to the user's question or request.`;
+      // Simple system prompt for text generation; a caller that knows the job
+      // better (the Duplicates review) brings its own.
+      const systemPrompt = hasSystemPrompt(options)
+        ? options.systemPrompt
+        : `You are a helpful assistant. Generate a clear, concise, and informative response to the user's question or request.`;
 
       // Call Ollama API without enforcing a specific response format
       const generateTextBody = {
@@ -937,12 +947,14 @@ class OllamaService {
         system: systemPrompt,
         stream: false,
         options: {
-          temperature: config.aiTemperatureGeneration,
+          temperature: hasNumber(options.temperature)
+            ? options.temperature
+            : config.aiTemperatureGeneration,
           top_p: 0.9,
-          // The line above reserves config.responseTokens in the context; a
+          // The line above reserves the same number in the context; a
           // constant here would have the same quarrel with it that the
           // analysis path had.
-          num_predict: Number(config.responseTokens),
+          num_predict: responseTokens,
           num_ctx: numCtx,
         },
       };
@@ -965,8 +977,27 @@ class OllamaService {
         throw new Error('Invalid response from Ollama API');
       }
 
+      // Ollama reports its token counts on the answer itself; the callers
+      // that care (the Duplicates review) read them off the service after
+      // the call, so the return value stays a plain string.
+      const promptTokens = Number(response.data.prompt_eval_count);
+      const completionTokens = Number(response.data.eval_count);
+      this.lastGenerateTextUsage =
+        Number.isFinite(promptTokens) || Number.isFinite(completionTokens)
+          ? {
+              promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
+              completionTokens: Number.isFinite(completionTokens)
+                ? completionTokens
+                : null,
+              totalTokens:
+                (Number.isFinite(promptTokens) ? promptTokens : 0) +
+                (Number.isFinite(completionTokens) ? completionTokens : 0),
+            }
+          : null;
+
       return response.data.response;
     } catch (error) {
+      this.lastGenerateTextUsage = null;
       console.error(`Error generating text with Ollama: ${error.message}`);
       console.debug(error);
       throw error;
