@@ -505,6 +505,8 @@
  *           type: string
  *           nullable: true
  *           enum: [exact-normalized, umlaut-variant, legal-form, plural, token-order, prefix, fuzzy]
+ *         aiVerdict:
+ *           $ref: '#/components/schemas/AiVerdict'
  *
  *     DuplicateGroup:
  *       type: object
@@ -536,6 +538,12 @@
  *           items:
  *             type: string
  *             enum: [inbox-tag, configured-tag, no-permission, has-matching-rule, owner-differs, large-group]
+ *         source:
+ *           type: string
+ *           enum: [scan, ai-candidate]
+ *           description: present in an AI review result; ai-candidate groups scored below the threshold and were confirmed by the model
+ *         aiVerdict:
+ *           $ref: '#/components/schemas/AiVerdict'
  *
  *     DuplicateScanResult:
  *       type: object
@@ -744,6 +752,61 @@
  *               error:
  *                 type: string
  *                 nullable: true
+ *
+ *     AiVerdict:
+ *       type: object
+ *       nullable: true
+ *       description: What the AI provider said about a pair or a group; null when nothing was asked
+ *       properties:
+ *         verdict:
+ *           type: string
+ *           enum: [same, different, unsure]
+ *         reason:
+ *           type: string
+ *           description: one short sentence from the model
+ *
+ *     DuplicateAiReviewRequest:
+ *       type: object
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [tags, correspondents, all]
+ *           default: all
+ *         threshold:
+ *           type: number
+ *           example: 0.85
+ *         includeDismissed:
+ *           type: boolean
+ *           default: false
+ *         withTitles:
+ *           type: boolean
+ *           default: true
+ *           description: give the model a few recent document titles per entity as context
+ *
+ *     DuplicateAiReviewResult:
+ *       allOf:
+ *         - $ref: '#/components/schemas/DuplicateScanResult'
+ *         - type: object
+ *           properties:
+ *             aiReview:
+ *               type: object
+ *               properties:
+ *                 enabled:
+ *                   type: boolean
+ *                 model:
+ *                   type: string
+ *                   nullable: true
+ *                 requests:
+ *                   type: integer
+ *                 tokens:
+ *                   type: integer
+ *                   nullable: true
+ *                 judged:
+ *                   type: integer
+ *                   description: pairs the model was asked about
+ *                 candidates:
+ *                   type: integer
+ *                   description: pairs from the wider band the model was shown
  *
  *     EntityMergeDismissRequest:
  *       type: object

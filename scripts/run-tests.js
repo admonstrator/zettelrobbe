@@ -134,6 +134,7 @@ const TESTS = {
   'duplicate-merge-service': 'test-duplicate-merge-service.js',
   'duplicates-endpoints': 'test-duplicates-endpoints.js',
   'duplicates-ui': 'test-duplicates-ui.js',
+  'entity-match-ai-service': 'test-entity-match-ai-service.js',
 };
 
 const AREAS = {
@@ -245,6 +246,7 @@ const AREAS = {
     'duplicate-merge-service',
     'duplicates-endpoints',
     'duplicates-ui',
+    'entity-match-ai-service',
   ],
 };
 

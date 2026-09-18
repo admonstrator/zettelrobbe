@@ -502,6 +502,18 @@ module.exports = {
   ),
   addAIProcessedTag: process.env.ADD_AI_PROCESSED_TAG || 'no',
   addAIProcessedTags: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
+  // Duplicates page: the configured AI provider may judge candidate pairs on
+  // request ("Ask the AI"). `no` hides the button; nothing runs on its own
+  // either way. The batch size is pairs per model request; the floor is the
+  // lowest matcher score a pair needs to be shown to the model at all.
+  duplicatesAiReview: parseEnvBoolean(process.env.DUPLICATES_AI_REVIEW, 'yes'),
+  duplicatesAiReviewBatchSize: parseInt(
+    process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
+    10
+  ),
+  duplicatesAiCandidateFloor: parseFloat(
+    process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6'
+  ),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:
