@@ -128,6 +128,10 @@ const RELEASES = [
       'Fix: Documents longer than the token budget are sent to OpenAI and Azure as text again. Truncation used to produce a request the providers rejected with "Invalid type for messages[1].content"',
       'Improvement: "Run OCR again" from the history queues a completed document for real, and the OCR queue responses count only documents that were actually queued',
       'Improvement: Dependencies updated to close the open security advisories (fast-uri, js-yaml, qs, @humanfs/node, colord)',
+      'New: Duplicates page finds tags and correspondents that mean the same thing (case, umlaut spellings, legal forms, singular/plural, word order, typos), says why and how sure it is, and merges each group into the survivor you pick through the Paperless-ngx API. Nothing runs on its own',
+      'New: Every merge is logged locally and can be undone from the same page; restored objects get new ids in Paperless-ngx and documents that still carry the target move back',
+      'New: Pairs marked as "not a duplicate" stay hidden on later scans until you show them again',
+      'Improvement: History and Restore keep working for documents a merge touched; the local records follow the merge and the undo',
     ],
   },
 ];

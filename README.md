@@ -46,6 +46,10 @@ This isn't just a collection of patches; it's a total overhaul of how your docum
 
 Connect to OpenAI, Ollama, or any OpenAI-compatible API. We've moved beyond simple keyword matching. The AI now understands **intent and context**, meaning it knows the difference between an "Electricity Bill" and a "Manual for a Toaster" without you writing a single regex.
 
+### 🧹 Duplicates: merge tags and correspondents that drifted apart
+
+Years of tagging leave "Amazon", "amazon" and "Amazon EU S.a.r.l." side by side. The **Duplicates** page scans your Paperless-ngx on request, groups names that mean the same thing (case and umlaut spellings, legal forms, singular/plural, word order, typos), tells you _why_ it thinks so and how sure it is, and merges each group into the survivor you pick: documents move first, the leftover objects are deleted only once they are empty. Every merge is logged locally and can be undone from the same page. Nothing runs on its own.
+
 ### 👓 Flexible OCR Vision (Mistral + Local)
 
 Waging war against blurry scans, shaky smartphone photos, and handwritten scribbles that standard OCR usually chokes on. You can run OCR with:
