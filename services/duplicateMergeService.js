@@ -806,6 +806,47 @@ class DuplicateMergeService {
     }
     return documentModel.addEntityMergeDismissals(kind, pairs);
   }
+
+  /**
+   * Every tag or correspondent of the instance, sorted by name.
+   *
+   * This is what the "Merge by hand" module picks from: a merge the user
+   * decided on themselves needs the whole list, not the groups a scan
+   * proposed. Nothing is filtered and nothing is scored here — the records
+   * arrive exactly as paperlessService built them, so the page can show the
+   * document count, the matching rule and the permission flag it needs to
+   * warn about before the merge.
+   *
+   * The sort is case-insensitive on purpose: "Amazon" and "amazon" are two
+   * different objects in Paperless-ngx and belong next to each other in a
+   * list whose whole point is finding them.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @returns {Promise<object[]>} EntityRecord objects, sorted by name
+   */
+  async listEntities(kind) {
+    if (!KIND_LIST.includes(kind)) {
+      throw new MergeValidationError(`Unknown entity kind: ${kind}`, 400);
+    }
+
+    let entities;
+    try {
+      entities = await paperlessService.listEntities(kind);
+    } catch (error) {
+      throw this._asPaperlessError(error, `loading the ${kind}`);
+    }
+
+    return [...entities].sort((a, b) => {
+      const byName = String(a?.name ?? '').localeCompare(
+        String(b?.name ?? ''),
+        undefined,
+        { sensitivity: 'base' }
+      );
+      // Two names that differ only in case compare equal; the id then decides,
+      // so the same instance always answers in the same order.
+      return byName !== 0 ? byName : Number(a?.id) - Number(b?.id);
+    });
+  }
 }
 
 const duplicateMergeService = new DuplicateMergeService();
