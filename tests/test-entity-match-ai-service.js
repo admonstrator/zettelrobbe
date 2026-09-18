@@ -24,23 +24,28 @@
  *  8. An invalid verdict becomes unsure, a forgotten pair says so
  *  9. An answer that is not JSON fails its batch and is counted
  * 10. A network error fails its batch; the batches after it still run
- * 11. The system prompt carries the JSON contract, the call temperature 0
+ * 11. The token limit: a truncated batch is split until it fits, a single
+ *     pair that still does not fit is unsure, the complete objects of a
+ *     cut-off answer are salvaged and only the rest is re-asked, and a small
+ *     TOKEN_LIMIT shrinks the batch before the first request
+ * 12. The system prompt carries the JSON contract, the call temperature 0
  *     and a completion cap that grows with the batch
- * 12. An unconfigured provider refuses the whole review
- * 13. A reason is trimmed and cut at 200 characters
- * 14. generateText without options sends what it sent before, in all four
+ * 13. An unconfigured provider refuses the whole review
+ * 14. A reason is trimmed and cut at 200 characters
+ * 15. generateText without options sends what it sent before, in all four
  *     provider services
- * 15. systemPrompt, temperature and maxTokens reach each provider the way its
+ * 16. systemPrompt, temperature and maxTokens reach each provider the way its
  *     own API spells them, and the token count is left on the service
- * 16. The fixture really scores where the review needs it to
- * 17. reviewScan end to end: scan groups and the candidate band get their
+ * 17. The fixture really scores where the review needs it to
+ * 18. reviewScan end to end: scan groups and the candidate band get their
  *     verdicts, a confirmed candidate becomes an ai-candidate group with the
  *     matcher's reason, a rejected one does not appear, the dismissed pair is
  *     never sent, judged/candidates/requests/tokens add up
- * 18. reviewScan with withTitles: false asks without document titles
- * 19. reviewScan with includeDismissed also judges the dismissed pair
- * 20. reviewScan is refused with 409 when the review is switched off
- * 21. Document titles come from Paperless-ngx; an error only means no context
+ * 19. reviewScan with withTitles: false asks without document titles
+ * 20. reviewScan with includeDismissed also judges the dismissed pair
+ * 21. The log lines of a review carry its numbers and no document title
+ * 22. reviewScan is refused with 409 when the review is switched off
+ * 23. Document titles come from Paperless-ngx; an error only means no context
  */
 
 'use strict';
@@ -220,6 +225,8 @@ async function main() {
         requests: 1,
         tokens: 100,
         failedRequests: 0,
+        retries: 0,
+        batchSize: 3,
       });
       pairs.forEach((pair, index) => {
         assert.deepStrictEqual(result.verdicts.get(pair.key), {
@@ -372,6 +379,161 @@ async function main() {
       }
       const okKeys = idsInPrompt(calls[0].prompt);
       assert.strictEqual(result.verdicts.get(okKeys[0]).verdict, 'same');
+    });
+
+    // ------------------------------------------------------- the token limit
+
+    /** The error OpenAI, Azure and the custom provider raise when cut off. */
+    function truncationError() {
+      const error = new Error(
+        'OpenAI stopped generating after 700 tokens because the answer hit a token limit. Raise Response Tokens.'
+      );
+      error.code = 'ai_response_truncated';
+      return error;
+    }
+
+    await test('A batch that hits the token limit is split until it fits', async () => {
+      const pairs = tagPairs(8);
+      const { calls } = useProvider((prompt) => {
+        const ids = idsInPrompt(prompt);
+        if (ids.length > 2) return truncationError();
+        return answerAll('same', 'same word')(prompt);
+      });
+
+      const result = await service.reviewPairs(pairs, { kind: 'tags' });
+      assert.deepStrictEqual(
+        calls.map((call) => idsInPrompt(call.prompt).length),
+        [8, 4, 2, 2, 4, 2, 2],
+        'eight, then halves, then halves of those'
+      );
+      assert.strictEqual(result.verdicts.size, 8, 'every pair has a verdict');
+      assert.ok(
+        [...result.verdicts.values()].every((v) => v.verdict === 'same'),
+        'and it is the verdict the model gave, not "unsure"'
+      );
+      assert.strictEqual(result.usage.requests, 7);
+      assert.strictEqual(
+        result.usage.retries,
+        6,
+        'the six re-asks are retries, the first request is not'
+      );
+      assert.strictEqual(
+        result.usage.failedRequests,
+        0,
+        'a truncation is not a failed request'
+      );
+    });
+
+    await test('A single pair that still does not fit ends as unsure', async () => {
+      const pairs = tagPairs(1);
+      useProvider(() => truncationError());
+
+      const result = await service.reviewPairs(pairs, { kind: 'tags' });
+      assert.deepStrictEqual(result.verdicts.get(pairs[0].key), {
+        verdict: 'unsure',
+        reason: service.SINGLE_PAIR_TRUNCATION_REASON,
+      });
+      assert.strictEqual(result.usage.requests, 1, 'one pair is not split');
+      assert.strictEqual(result.usage.retries, 0);
+      assert.strictEqual(result.usage.failedRequests, 0);
+    });
+
+    await test('The complete objects of a cut-off answer are salvaged', async () => {
+      const pairs = tagPairs(6);
+      const { calls } = useProvider((prompt, options, callNumber) => {
+        const ids = idsInPrompt(prompt);
+        if (callNumber > 1) return answerAll('different', 'two topics')(prompt);
+        // Ollama does not raise anything; it returns what it managed to write
+        // before num_predict ran out — here two objects and half a third.
+        return (
+          '[' +
+          ids
+            .slice(0, 2)
+            .map((id) =>
+              JSON.stringify({ id, verdict: 'same', reason: 'two spellings' })
+            )
+            .join(',') +
+          `,{"id":"${ids[2]}","verd`
+        );
+      });
+
+      const result = await service.reviewPairs(pairs, { kind: 'tags' });
+      assert.deepStrictEqual(
+        calls.map((call) => idsInPrompt(call.prompt).length),
+        [6, 2, 2],
+        'only the four pairs without a verdict are asked again'
+      );
+      assert.strictEqual(result.usage.requests, 3);
+      assert.strictEqual(result.usage.retries, 2);
+      assert.strictEqual(
+        result.usage.failedRequests,
+        0,
+        'a salvageable answer is not a failed request'
+      );
+      assert.deepStrictEqual(result.verdicts.get(pairs[0].key), {
+        verdict: 'same',
+        reason: 'two spellings',
+      });
+      assert.deepStrictEqual(result.verdicts.get(pairs[1].key), {
+        verdict: 'same',
+        reason: 'two spellings',
+      });
+      for (const pair of pairs.slice(2)) {
+        assert.strictEqual(
+          result.verdicts.get(pair.key).verdict,
+          'different',
+          'the rest comes from the second round'
+        );
+      }
+    });
+
+    await test('An answer with nothing in it is still a failed batch', async () => {
+      const pairs = tagPairs(4);
+      useProvider(() => 'I am afraid I cannot help with that.');
+      const result = await service.reviewPairs(pairs, { kind: 'tags' });
+      assert.strictEqual(result.usage.failedRequests, 1, 'not a truncation');
+      assert.strictEqual(result.usage.requests, 1, 'and nothing is re-asked');
+      assert.strictEqual(result.usage.retries, 0);
+    });
+
+    await test('A small context window shrinks the batch before the first request', async () => {
+      const pairs = tagPairs(30);
+      const previousLimit = process.env.TOKEN_LIMIT;
+      process.env.TOKEN_LIMIT = '2000';
+      try {
+        const { calls } = useProvider(answerAll('same', 'same word'));
+        const result = await service.reviewPairs(pairs, { kind: 'tags' });
+
+        assert.ok(
+          result.usage.batchSize < service.batchSize(),
+          `the batch shrank from ${service.batchSize()} to ${result.usage.batchSize}`
+        );
+        assert.ok(
+          calls.every(
+            (call) => idsInPrompt(call.prompt).length <= result.usage.batchSize
+          ),
+          'no request is larger than the size the plan settled on'
+        );
+        for (const call of calls) {
+          // The same estimate the service uses for a non-OpenAI model.
+          const estimate = Math.ceil(
+            `${call.options.systemPrompt}\n${call.prompt}`.length / 4
+          );
+          assert.ok(
+            estimate + call.options.maxTokens + service.TOKENS_CONTEXT_MARGIN <=
+              2000,
+            `prompt ${estimate} + cap ${call.options.maxTokens} does not fit into 2000`
+          );
+        }
+        assert.strictEqual(
+          result.verdicts.size,
+          30,
+          'and every pair is still judged'
+        );
+      } finally {
+        if (previousLimit === undefined) delete process.env.TOKEN_LIMIT;
+        else process.env.TOKEN_LIMIT = previousLimit;
+      }
     });
 
     await test('The prompts carry the contract, temperature 0 and a growing cap', async () => {
@@ -719,6 +881,8 @@ async function main() {
         judged: 3,
         candidates: 2,
         failedRequests: 0,
+        retries: 0,
+        batchSize: 3,
       });
       assert.strictEqual(result.threshold, 0.95, 'the scan result is kept');
       assert.strictEqual(result.paperlessUrl, 'https://paperless.example');
@@ -808,6 +972,47 @@ async function main() {
       for (const row of rows) {
         await documentModel.removeEntityMergeDismissal(row.id);
       }
+    });
+
+    await test('The log says what the review did, and never a document title', async () => {
+      seedArchive();
+      useProvider(answerFromTable());
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      try {
+        await service.reviewScan({
+          kind: 'correspondents',
+          threshold: 0.95,
+          includeDismissed: true,
+        });
+      } finally {
+        console.log = realLog;
+      }
+
+      const review = lines.filter((line) => line.startsWith('[AI-REVIEW]'));
+      const has = (pattern) =>
+        assert.ok(
+          review.some((line) => pattern.test(line)),
+          `no [AI-REVIEW] line matches ${pattern}\n${review.join('\n')}`
+        );
+      has(
+        /correspondents: threshold 0\.95, 1 scan group\(s\), 3 candidate\(s\) in the band, 4 pair\(s\) to judge\./
+      );
+      has(
+        /correspondents: batch size 4 of at most 25 \(context limit \d+ tokens\)/
+      );
+      has(/first batch ~\d+ prompt tokens, completion cap 680\./);
+      has(
+        /correspondents: request 1, 4 pair\(s\), ~\d+ prompt tokens, cap 680, \d+ms, 3 same \/ 1 different \/ 0 unsure\./
+      );
+      has(
+        /review finished: 1 request\(s\) \(0 retry\/retries, 0 failed\), 100 token\(s\), 4 pair\(s\) judged, 3 candidate\(s\), 3 group\(s\) confirmed, in \d+ms\./
+      );
+      assert.ok(
+        !lines.some((line) => /Amazon order|refund|contract change/.test(line)),
+        'document titles are content and stay out of the log'
+      );
     });
 
     await test('A switched-off review is refused with 409', async () => {
