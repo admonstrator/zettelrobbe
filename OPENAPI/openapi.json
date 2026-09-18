@@ -729,6 +729,12 @@
           "dismissedPairs": {
             "type": "integer",
             "description": "pairs hidden because the user marked them as not duplicates"
+          },
+          "paperlessUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "public Paperless-ngx base URL the page links its entries to",
+            "example": "https://paperless.example.org"
           }
         }
       },
@@ -898,6 +904,10 @@
                 "deleted": {
                   "type": "boolean"
                 },
+                "copiedMatchingRule": {
+                  "type": "boolean",
+                  "description": "true on the one source whose matching rule was copied to the target"
+                },
                 "error": {
                   "type": "string",
                   "nullable": true
@@ -1009,6 +1019,17 @@
               "type": "integer"
             },
             "minItems": 2
+          },
+          "names": {
+            "type": "object",
+            "description": "optional id -> name map, stored with the pairs so the list stays readable",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "12": "Amazon",
+              "48": "amazon"
+            }
           }
         }
       },
@@ -6081,6 +6102,510 @@
           },
           "400": {
             "description": "No usable document id in the payload"
+          }
+        }
+      }
+    },
+    "/duplicates": {
+      "get": {
+        "summary": "Duplicate tags and correspondents page",
+        "description": "Renders the Duplicates page. The page scans on request through\n`/api/duplicates/scan`; nothing runs automatically.\n",
+        "tags": [
+          "Navigation",
+          "Duplicates"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Duplicates page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/scan": {
+      "get": {
+        "summary": "Find tags or correspondents whose names mean the same thing",
+        "description": "Loads every tag and/or correspondent from Paperless-ngx and groups the\nones that look like duplicates of each other. Read-only: nothing is\nchanged, and pairs the user marked as \"not a duplicate\" are left out\nunless `includeDismissed` asks for them.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents",
+                "all"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "in": "query",
+            "name": "threshold",
+            "description": "score a pair needs, between 0.5 and 1",
+            "schema": {
+              "type": "number",
+              "default": 0.85
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeDismissed",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Groups found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DuplicateScanResult"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind or threshold outside [0.5, 1]"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/merge": {
+      "post": {
+        "summary": "Merge tags or correspondents into one",
+        "description": "Moves the documents of every source onto the target and deletes the\nsources afterwards, one source after the other. A source is only\ndeleted once Paperless-ngx confirms that no document carries it any\nmore; a source that fails that check is reported and kept.\n\nThe answer carries `success: false` with status 200 when the merge was\nonly partial — the log entry exists either way and can be undone.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityMergeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merge finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EntityMergeResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Target or a source does not exist in Paperless-ngx"
+          },
+          "409": {
+            "description": "A document scan is running"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismiss": {
+      "post": {
+        "summary": "Mark entries as \"not a duplicate\"",
+        "description": "Stores every pair among the given ids, so the scan stops offering them\ntogether until the pair is restored through\n`DELETE /api/duplicates/dismissals/{id}`.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityMergeDismissRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairs stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "dismissed": {
+                          "type": "integer",
+                          "description": "pairs newly stored; known pairs are not counted again"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismissals": {
+      "get": {
+        "summary": "List the pairs marked as \"not a duplicate\"",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dismissed pairs, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityMergeDismissal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismissals/{id}": {
+      "delete": {
+        "summary": "Restore a pair marked as \"not a duplicate\"",
+        "description": "The pair is offered by the scan again from the next run on.",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pair restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Unknown pair"
+          }
+        }
+      }
+    },
+    "/api/duplicates/log": {
+      "get": {
+        "summary": "The local merge log",
+        "description": "Every merge this instance performed, newest first, with everything an\nundo needs. `recordsTotal` counts the rows matching the filter.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "capped at 100",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merge log",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityMergeLogEntry"
+                      }
+                    },
+                    "recordsTotal": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/log/{id}/undo": {
+      "post": {
+        "summary": "Undo a logged merge",
+        "description": "Re-creates every source the merge deleted — a same-named object that\nexists again is adopted instead — and hands back the documents that\nstill carry the target. Documents that were changed since the merge\nare counted as skipped and left alone. The re-created objects get new\nids in Paperless-ngx.\n\nThe answer carries `success: false` with status 200 when at least one\nsource could not be restored.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "id of the merge log entry",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Undo finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EntityMergeUndoResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Unknown merge"
+          },
+          "409": {
+            "description": "Already undone, or a document scan is running"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
           }
         }
       }

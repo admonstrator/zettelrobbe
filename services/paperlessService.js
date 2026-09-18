@@ -2625,6 +2625,439 @@ class PaperlessService {
       return null;
     }
   }
+
+  // ── Kind-neutral entity access (Duplicates page) ──────────────────────────
+  // `kind` is 'tags' or 'correspondents' (entityNameMatcher.KINDS) and is used
+  // as the API path segment, so every method below works for both without a
+  // second implementation. Unlike the readers above these throw instead of
+  // returning an empty result: a merge that cannot see Paperless-ngx must fail
+  // loudly, and a scan must never report "no duplicates" for an unreachable
+  // instance.
+
+  /** Page size for entity and document reads here; Paperless-ngx clamps. */
+  get ENTITY_PAGE_SIZE() {
+    return 100;
+  }
+
+  /** Documents per bulk_edit call. Larger batches time out on big archives. */
+  get BULK_EDIT_BATCH_SIZE() {
+    return 250;
+  }
+
+  /**
+   * @param {string} kind
+   * @returns {'tags'|'correspondents'}
+   * @throws when the kind is not one the API knows here
+   */
+  _assertEntityKind(kind) {
+    if (kind !== 'tags' && kind !== 'correspondents') {
+      throw new Error(`Unknown entity kind: ${kind}`);
+    }
+    return kind;
+  }
+
+  /**
+   * The client, or an error. Callers of the entity methods must not mistake a
+   * missing configuration for an empty Paperless-ngx.
+   */
+  _requireClient(operation) {
+    this.initialize();
+    if (!this.client) {
+      throw new Error(
+        `Paperless-ngx is not configured (API URL or token missing) — ${operation}`
+      );
+    }
+    return this.client;
+  }
+
+  /**
+   * Maps a raw Paperless-ngx tag or correspondent to the EntityRecord shape
+   * the matcher, the merge service and the page agree on.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} raw
+   * @returns {object} EntityRecord
+   */
+  _toEntityRecord(kind, raw) {
+    const record = {
+      id: Number(raw?.id),
+      name: String(raw?.name ?? ''),
+      documentCount: Number(raw?.document_count) || 0,
+      matchingAlgorithm: Number(raw?.matching_algorithm) || 0,
+      match: raw?.match == null ? '' : String(raw.match),
+      isInsensitive: Boolean(raw?.is_insensitive),
+      owner: raw?.owner == null ? null : Number(raw.owner),
+      // Absent on older Paperless-ngx versions; absent means "allowed".
+      userCanChange: raw?.user_can_change !== false,
+    };
+    if (kind === 'tags') {
+      record.isInboxTag = Boolean(raw?.is_inbox_tag);
+      record.color = raw?.color ?? null;
+    } else {
+      record.lastCorrespondence = raw?.last_correspondence ?? null;
+    }
+    return record;
+  }
+
+  /**
+   * Every tag or correspondent of an instance, as EntityRecord objects.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @returns {Promise<object[]>}
+   * @throws on a network error, an HTTP error or an unreadable answer
+   */
+  async listEntities(kind) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`listing ${kind}`);
+
+    const records = [];
+    let page = 1;
+    let hasNextPage = true;
+
+    while (hasNextPage) {
+      let response;
+      try {
+        // Never follow the absolute `next` URL: it may carry the public
+        // reverse-proxy host rather than the one the token was issued for.
+        response = await client.get(`/${kind}/`, {
+          params: {
+            page,
+            page_size: this.ENTITY_PAGE_SIZE,
+            ordering: 'name',
+          },
+        });
+      } catch (error) {
+        console.error(
+          `[ERROR] listing ${kind} (page ${page}):`,
+          describeHttpError(error)
+        );
+        throw error;
+      }
+
+      const results = response?.data?.results;
+      if (!Array.isArray(results)) {
+        throw new Error(
+          `Unexpected answer while listing ${kind} on page ${page}`
+        );
+      }
+      for (const raw of results) {
+        records.push(this._toEntityRecord(kind, raw));
+      }
+
+      hasNextPage = response.data.next != null;
+      page += 1;
+      if (hasNextPage) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    return records;
+  }
+
+  /**
+   * One tag or correspondent as Paperless-ngx returns it.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} id
+   * @returns {Promise<object|null>} null when the object is gone (404)
+   */
+  async getEntity(kind, id) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`reading ${kind} ${id}`);
+    try {
+      const response = await client.get(`/${kind}/${id}/`);
+      return response?.data ?? null;
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return null;
+      }
+      console.error(`[ERROR] reading ${kind} ${id}:`, describeHttpError(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Looks a tag or correspondent up by name. Paperless-ngx names are unique
+   * per owner but case sensitive, so "Amazon" and "amazon" can both exist:
+   * an exact hit wins, a differently cased one is the fallback.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {string} name
+   * @returns {Promise<object|null>}
+   */
+  async findEntityByExactName(kind, name) {
+    this._assertEntityKind(kind);
+    const wanted = String(name ?? '');
+    if (wanted === '') {
+      return null;
+    }
+    const client = this._requireClient(`looking up ${kind} "${wanted}"`);
+    try {
+      const response = await client.get(`/${kind}/`, {
+        params: {
+          name__iexact: wanted,
+          page: 1,
+          page_size: this.ENTITY_PAGE_SIZE,
+        },
+      });
+      const results = Array.isArray(response?.data?.results)
+        ? response.data.results
+        : [];
+      return (
+        results.find((entity) => String(entity?.name) === wanted) ||
+        results.find(
+          (entity) =>
+            String(entity?.name).toLowerCase() === wanted.toLowerCase()
+        ) ||
+        null
+      );
+    } catch (error) {
+      console.error(
+        `[ERROR] looking up ${kind} "${wanted}":`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} payload - Paperless-ngx field names (name, match, ...)
+   * @returns {Promise<object>} the created object
+   */
+  async createEntity(kind, payload) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`creating a ${kind} entry`);
+    try {
+      const response = await client.post(`/${kind}/`, payload);
+      return response?.data ?? null;
+    } catch (error) {
+      console.error(
+        `[ERROR] creating ${kind} entry "${payload?.name}":`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} id
+   * @param {object} patch - Paperless-ngx field names
+   * @returns {Promise<object>} the updated object
+   */
+  async updateEntity(kind, id, patch) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`updating ${kind} ${id}`);
+    try {
+      const response = await client.patch(`/${kind}/${id}/`, patch);
+      return response?.data ?? null;
+    } catch (error) {
+      console.error(
+        `[ERROR] updating ${kind} ${id}:`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} id
+   * @returns {Promise<boolean>} true when deleted, false when it was gone
+   */
+  async deleteEntity(kind, id) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`deleting ${kind} ${id}`);
+    try {
+      await client.delete(`/${kind}/${id}/`);
+      return true;
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return false;
+      }
+      console.error(
+        `[ERROR] deleting ${kind} ${id}:`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Ids of every document carrying a tag or a correspondent.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} id
+   * @returns {Promise<number[]>}
+   */
+  async getDocumentIdsByEntity(kind, id) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`listing documents of ${kind} ${id}`);
+    const filter =
+      kind === 'tags' ? { tags__id__all: id } : { correspondent__id: id };
+
+    const documentIds = [];
+    let page = 1;
+    let hasNextPage = true;
+
+    while (hasNextPage) {
+      let response;
+      try {
+        response = await client.get('/documents/', {
+          params: {
+            ...filter,
+            fields: 'id',
+            ordering: 'id',
+            page,
+            page_size: this.ENTITY_PAGE_SIZE,
+          },
+        });
+      } catch (error) {
+        console.error(
+          `[ERROR] listing documents of ${kind} ${id} (page ${page}):`,
+          describeHttpError(error)
+        );
+        throw error;
+      }
+
+      const results = response?.data?.results;
+      if (!Array.isArray(results)) {
+        throw new Error(
+          `Unexpected answer while listing documents of ${kind} ${id}`
+        );
+      }
+      for (const document of results) {
+        const documentId = Number(document?.id);
+        if (Number.isInteger(documentId)) {
+          documentIds.push(documentId);
+        }
+      }
+
+      hasNextPage = response.data.next != null;
+      page += 1;
+      if (hasNextPage) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    return documentIds;
+  }
+
+  /**
+   * The documents of the given ids that still exist, with the fields asked
+   * for. Missing ids are simply absent from the answer.
+   *
+   * @param {number[]} ids
+   * @param {string} [fields]
+   * @returns {Promise<object[]>}
+   */
+  async getDocumentsByIds(ids, fields = 'id,tags,correspondent') {
+    const wanted = this._normalizeEntityIds(ids);
+    if (wanted.length === 0) {
+      return [];
+    }
+    const client = this._requireClient('reading documents by id');
+
+    const documents = [];
+    for (let start = 0; start < wanted.length; start += 100) {
+      const chunk = wanted.slice(start, start + 100);
+      let page = 1;
+      let hasNextPage = true;
+      while (hasNextPage) {
+        let response;
+        try {
+          response = await client.get('/documents/', {
+            params: {
+              id__in: chunk.join(','),
+              fields,
+              ordering: 'id',
+              page,
+              page_size: this.ENTITY_PAGE_SIZE,
+            },
+          });
+        } catch (error) {
+          console.error(
+            '[ERROR] reading documents by id:',
+            describeHttpError(error)
+          );
+          throw error;
+        }
+        const results = response?.data?.results;
+        if (!Array.isArray(results)) {
+          throw new Error('Unexpected answer while reading documents by id');
+        }
+        documents.push(...results);
+        hasNextPage = response.data.next != null;
+        page += 1;
+        if (hasNextPage) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+    }
+
+    return documents;
+  }
+
+  /**
+   * Runs a Paperless-ngx bulk edit over many documents, in batches.
+   *
+   * Sequential on purpose: Paperless-ngx serialises these edits anyway and a
+   * parallel burst only produces lock contention on a busy instance.
+   *
+   * @param {number[]} documentIds
+   * @param {string} method - e.g. 'modify_tags', 'set_correspondent'
+   * @param {object} parameters
+   * @returns {Promise<{edited:number}>}
+   * @throws with the failing batch's ids in the message
+   */
+  async bulkEditDocuments(documentIds, method, parameters) {
+    const ids = this._normalizeEntityIds(documentIds);
+    if (ids.length === 0) {
+      return { edited: 0 };
+    }
+    const client = this._requireClient(`bulk edit (${method})`);
+
+    let edited = 0;
+    for (
+      let start = 0;
+      start < ids.length;
+      start += this.BULK_EDIT_BATCH_SIZE
+    ) {
+      const batch = ids.slice(start, start + this.BULK_EDIT_BATCH_SIZE);
+      try {
+        await client.post('/documents/bulk_edit/', {
+          documents: batch,
+          method,
+          parameters,
+        });
+        edited += batch.length;
+      } catch (error) {
+        console.error(
+          `[ERROR] bulk edit ${method} on ${batch.length} documents:`,
+          describeHttpError(error)
+        );
+        throw new Error(
+          `Bulk edit "${method}" failed for documents ${batch.join(', ')}: ${
+            error?.message || 'unknown error'
+          }`,
+          { cause: error }
+        );
+      }
+    }
+
+    return { edited };
+  }
+
+  /**
+   * Drops every cached tag and correspondent name. A merge deletes objects,
+   * so anything cached from before it is wrong.
+   */
+  clearEntityCaches() {
+    this.clearTagCache();
+    this.correspondentNameCache.clear();
+    this.lastCorrespondentRefresh = 0;
+  }
 }
 
 const paperlessService = new PaperlessService();
