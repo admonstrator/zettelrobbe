@@ -133,6 +133,7 @@ const RELEASES = [
       'New: Pairs marked as "not a duplicate" stay hidden on later scans until you show them again',
       'Improvement: History and Restore keep working for documents a merge touched; the local records follow the merge and the undo',
       'New: "Merge by hand" on the Duplicates page merges any tags or correspondents you pick yourself, with the same checks, log and undo as a scanned group',
+      'New: "Ask the AI" on the Duplicates page lets your configured AI provider judge every proposed group and the near-misses below your sensitivity; verdicts and reasons appear beside the deterministic result, nothing merges by itself (DUPLICATES_AI_REVIEW, DUPLICATES_AI_REVIEW_BATCH_SIZE, DUPLICATES_AI_CANDIDATE_FLOOR)',
     ],
   },
 ];
