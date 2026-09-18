@@ -772,49 +772,51 @@ function fuzzyScore(a, b) {
     best = paired.mean * FUZZY.TOKEN_FACTOR;
   }
 
-  // The characters the two names share bound all three whole-string measures
-  // from above, and counting them is much cheaper than running them.
-  const shared = commonCharacters(charCodesOf(a), charCodesOf(b));
-
-  if (
-    ratio >= FUZZY.LENGTH_RATIO_MIN &&
-    jaroWinklerCeiling(shared, lengthA, lengthB) >= FUZZY.JARO_WINKLER_MIN
-  ) {
-    const winkler = jaroWinkler(a.asciiKey, b.asciiKey);
-    if (winkler >= FUZZY.JARO_WINKLER_MIN && winkler > best) best = winkler;
-  }
-
   let allowedDistance = 0;
   if (maxLength >= FUZZY.DISTANCE_LENGTH_2) allowedDistance = 2;
   else if (maxLength >= FUZZY.DISTANCE_LENGTH_1) allowedDistance = 1;
-  if (
-    allowedDistance > 0 &&
-    Math.abs(lengthA - lengthB) <= allowedDistance &&
-    // Every character without a partner costs at least one edit.
-    maxLength - shared <= allowedDistance
-  ) {
-    const distance = damerauLevenshtein(
-      a.asciiKey,
-      b.asciiKey,
-      allowedDistance
-    );
-    if (distance <= allowedDistance) {
-      const score = Math.max(FUZZY.DISTANCE_FLOOR, 1 - distance / maxLength);
-      if (score > best) best = score;
-    }
-  }
 
-  if (
+  const tryWinkler = ratio >= FUZZY.LENGTH_RATIO_MIN;
+  const tryDistance =
+    allowedDistance > 0 && Math.abs(lengthA - lengthB) <= allowedDistance;
+  const tryDice =
     a.tokens.length > 1 &&
     b.tokens.length > 1 &&
-    ratio >= FUZZY.DICE_LENGTH_RATIO_MIN &&
+    ratio >= FUZZY.DICE_LENGTH_RATIO_MIN;
+
+  if (tryWinkler || tryDistance || tryDice) {
+    // The characters the two names share bound all three measures from above,
+    // and counting them is much cheaper than running them.
+    const shared = commonCharacters(charCodesOf(a), charCodesOf(b));
+
+    if (
+      tryWinkler &&
+      jaroWinklerCeiling(shared, lengthA, lengthB) >= FUZZY.JARO_WINKLER_MIN
+    ) {
+      const winkler = jaroWinkler(a.asciiKey, b.asciiKey);
+      if (winkler >= FUZZY.JARO_WINKLER_MIN && winkler > best) best = winkler;
+    }
+
+    // Every character without a partner costs at least one edit.
+    if (tryDistance && maxLength - shared <= allowedDistance) {
+      const distance = damerauLevenshtein(
+        a.asciiKey,
+        b.asciiKey,
+        allowedDistance
+      );
+      if (distance <= allowedDistance) {
+        const score = Math.max(FUZZY.DISTANCE_FLOOR, 1 - distance / maxLength);
+        if (score > best) best = score;
+      }
+    }
+
     // A shared bigram needs a shared character to start with.
-    (2 * shared) / (lengthA + lengthB - 2) >= FUZZY.DICE_MIN
-  ) {
-    const dice = diceFromCounts(bigramsOf(a), bigramsOf(b));
-    if (dice >= FUZZY.DICE_MIN) {
-      const score = dice * FUZZY.DICE_FACTOR;
-      if (score > best) best = score;
+    if (tryDice && (2 * shared) / (lengthA + lengthB - 2) >= FUZZY.DICE_MIN) {
+      const dice = diceFromCounts(bigramsOf(a), bigramsOf(b));
+      if (dice >= FUZZY.DICE_MIN) {
+        const score = dice * FUZZY.DICE_FACTOR;
+        if (score > best) best = score;
+      }
     }
   }
 
