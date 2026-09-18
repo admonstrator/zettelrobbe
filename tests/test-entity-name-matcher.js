@@ -1005,5 +1005,253 @@ test('Five thousand tags stay in the same order of magnitude', () => {
   assert.ok(elapsed < 3000, `took ${elapsed.toFixed(0)} ms, budget is 3000 ms`);
 });
 
+// ---------------------------------------------------------------------------
+// The candidate band and the exposed group builder. Both exist for the AI
+// review: it needs the pairs the scan did not offer, and it needs to turn the
+// ones a model confirmed into the same groups the scan would have built.
+
+/** Every pair in [floor, threshold), scored one by one. The reference. */
+function bruteForceCandidates(entities, kind, floor, threshold) {
+  const pairs = [];
+  for (let i = 0; i < entities.length; i += 1) {
+    for (let j = i + 1; j < entities.length; j += 1) {
+      const result = matcher.scorePair(
+        entities[i].name,
+        entities[j].name,
+        kind
+      );
+      if (!result || result.score < floor || result.score >= threshold) {
+        continue;
+      }
+      const [a, b] =
+        entities[i].id < entities[j].id
+          ? [entities[i], entities[j]]
+          : [entities[j], entities[i]];
+      pairs.push({
+        key: matcher.pairKey(kind, a.id, b.id),
+        a,
+        b,
+        score: result.score,
+        reason: result.reason,
+      });
+    }
+  }
+  pairs.sort(
+    (x, y) => y.score - x.score || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0)
+  );
+  return pairs;
+}
+
+test('findCandidatePairs finds exactly what scoring every pair finds', () => {
+  const entities = generateArchive(300, 20260918);
+  let total = 0;
+  for (const kind of matcher.KIND_LIST) {
+    for (const threshold of Object.values(matcher.SENSITIVITY)) {
+      const expected = bruteForceCandidates(entities, kind, 0.6, threshold);
+      const actual = matcher.findCandidatePairs(entities, {
+        kind,
+        floor: 0.6,
+        threshold,
+        limit: 100000,
+      });
+      assert.deepStrictEqual(
+        actual,
+        expected,
+        `${kind} @ ${threshold}: the blocked band differs from the reference`
+      );
+      total += actual.length;
+    }
+  }
+  assert.ok(total > 0, 'the generated archive has to fill the band somewhere');
+});
+
+test('The band stops where the scan starts and where the floor ends', () => {
+  const entities = generateArchive(300, 20260918);
+  const pairs = matcher.findCandidatePairs(entities, {
+    kind: 'correspondents',
+    floor: 0.6,
+    threshold: 0.95,
+    limit: 100000,
+  });
+  assert.ok(pairs.length > 0, 'expected candidates below the strict preset');
+  for (const pair of pairs) {
+    assert.ok(
+      pair.score >= 0.6 && pair.score < 0.95,
+      `${pair.key} scores ${pair.score}, which is outside the band`
+    );
+    assert.strictEqual(
+      pair.key,
+      matcher.pairKey('correspondents', pair.a.id, pair.b.id)
+    );
+    assert.ok(pair.a.id < pair.b.id, 'a is the lower id');
+  }
+  const offered = matcher.findDuplicateGroups(entities, {
+    kind: 'correspondents',
+    threshold: 0.95,
+  });
+  const inGroups = new Set();
+  for (const group of offered) {
+    for (const member of group.members) {
+      for (const other of group.members) {
+        if (member.id !== other.id) {
+          inGroups.add(matcher.pairKey('correspondents', member.id, other.id));
+        }
+      }
+    }
+  }
+  assert.ok(
+    pairs.every((pair) => !inGroups.has(pair.key)),
+    'a pair the scan already offers is not a candidate'
+  );
+});
+
+test('Candidates are sorted by score, then by key, and cut to the limit', () => {
+  const entities = generateArchive(300, 20260918);
+  const all = matcher.findCandidatePairs(entities, {
+    kind: 'tags',
+    floor: 0.6,
+    threshold: 0.95,
+    limit: 100000,
+  });
+  assert.ok(all.length > 5, 'need a few candidates to sort');
+  for (let index = 1; index < all.length; index += 1) {
+    const previous = all[index - 1];
+    const current = all[index];
+    assert.ok(
+      previous.score > current.score ||
+        (previous.score === current.score && previous.key < current.key),
+      `${previous.key} and ${current.key} are out of order`
+    );
+  }
+  const cut = matcher.findCandidatePairs(entities, {
+    kind: 'tags',
+    floor: 0.6,
+    threshold: 0.95,
+    limit: 5,
+  });
+  assert.strictEqual(cut.length, 5, 'the limit cuts the list');
+  assert.deepStrictEqual(cut, all.slice(0, 5), 'and keeps the strongest');
+  assert.strictEqual(
+    matcher.findCandidatePairs(entities, {
+      kind: 'tags',
+      floor: 0.6,
+      threshold: 0.95,
+      limit: 0,
+    }).length,
+    0
+  );
+});
+
+test('A dismissed candidate never comes back and an unknown kind is refused', () => {
+  const entities = [
+    entity(1, 'Vodafone Kundenservice'),
+    entity(2, 'Kundenservice Vodafone Nord'),
+    entity(3, 'Techniker Krankenkasse'),
+    entity(4, 'Krankenkasse Techniker Nord'),
+  ];
+  const options = {
+    kind: 'correspondents',
+    floor: 0.6,
+    threshold: 0.95,
+  };
+  const all = matcher.findCandidatePairs(entities, options);
+  assert.deepStrictEqual(
+    all.map((pair) => pair.key).sort(),
+    ['correspondents:1-2', 'correspondents:3-4'],
+    'both reordered names are candidates below the strict preset'
+  );
+  const hidden = matcher.findCandidatePairs(entities, {
+    ...options,
+    dismissedPairs: ['correspondents:1-2'],
+  });
+  assert.deepStrictEqual(
+    hidden.map((pair) => pair.key),
+    ['correspondents:3-4']
+  );
+  assert.throws(
+    () => matcher.findCandidatePairs(entities, { kind: 'document_types' }),
+    /Unknown entity kind/
+  );
+});
+
+test('The default floor and limit are the ones the AI review counts on', () => {
+  assert.strictEqual(matcher.DEFAULT_CANDIDATE_FLOOR, 0.6);
+  assert.strictEqual(matcher.DEFAULT_CANDIDATE_LIMIT, 400);
+  const many = [];
+  for (let id = 1; id <= 60; id += 1) {
+    many.push(entity(id, `Rechnung ${id} Strom`));
+    many.push(entity(id + 1000, `Strom Rechnung ${id} Nord`));
+  }
+  const capped = matcher.findCandidatePairs(many, {
+    kind: 'tags',
+    threshold: 0.95,
+  });
+  assert.ok(capped.length <= 400, 'the default limit holds');
+});
+
+test('buildGroupsFromEdges builds what findDuplicateGroups builds', () => {
+  const entities = generateArchive(300, 20260918);
+  const configuredTagNames = ['ai-processed', 'Rechnung'];
+  for (const kind of matcher.KIND_LIST) {
+    for (const threshold of Object.values(matcher.SENSITIVITY)) {
+      const edges = [];
+      for (let i = 0; i < entities.length; i += 1) {
+        for (let j = i + 1; j < entities.length; j += 1) {
+          const result = matcher.scorePair(
+            entities[i].name,
+            entities[j].name,
+            kind
+          );
+          if (!result || result.score < threshold) continue;
+          edges.push({
+            key: matcher.pairKey(kind, entities[i].id, entities[j].id),
+            score: result.score,
+            reason: result.reason,
+          });
+        }
+      }
+      const built = matcher.buildGroupsFromEdges(kind, entities, edges, {
+        configuredTagNames,
+      });
+      const scanned = matcher.findDuplicateGroups(entities, {
+        kind,
+        threshold,
+        configuredTagNames,
+      });
+      assert.deepStrictEqual(
+        built,
+        scanned,
+        `${kind} @ ${threshold}: the exposed builder differs from the scan`
+      );
+    }
+  }
+});
+
+test('buildGroupsFromEdges ignores edges it has no entities for', () => {
+  const entities = [
+    entity(1, 'Vodafone Kundenservice', { documentCount: 9 }),
+    entity(2, 'Kundenservice Vodafone Nord', { documentCount: 2 }),
+  ];
+  const groups = matcher.buildGroupsFromEdges(
+    'correspondents',
+    entities,
+    [
+      { key: 'correspondents:1-2', score: 0.8, reason: 'fuzzy' },
+      { key: 'correspondents:1-77', score: 0.9, reason: 'fuzzy' },
+      { key: 'nonsense', score: 0.9, reason: 'fuzzy' },
+    ],
+    {}
+  );
+  assert.strictEqual(groups.length, 1);
+  assert.strictEqual(groups[0].id, 'correspondents:1-2');
+  assert.strictEqual(groups[0].suggestedTargetId, 1, 'more documents wins');
+  assert.strictEqual(groups[0].confidence, 0.8, 'the given score is the one');
+  assert.deepStrictEqual(groups[0].reasons, ['fuzzy']);
+  assert.throws(
+    () => matcher.buildGroupsFromEdges('document_types', entities, []),
+    /Unknown entity kind/
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

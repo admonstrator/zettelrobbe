@@ -138,6 +138,12 @@ const LARGE_GROUP_SIZE = 8;
 /** Paperless-ngx `matching_algorithm` value meaning "no automatic matching". */
 const MATCHING_ALGORITHM_NONE = 0;
 
+/** Lowest score findCandidatePairs reports when nothing else is asked for. */
+const DEFAULT_CANDIDATE_FLOOR = 0.6;
+
+/** How many candidate pairs findCandidatePairs hands back at most. */
+const DEFAULT_CANDIDATE_LIMIT = 400;
+
 /** Score of every tier; the file header explains what each one means. */
 const TIER_SCORES = Object.freeze({
   EXACT: 1,
@@ -277,6 +283,25 @@ const TOKEN_SEPARATOR = /[\s&_/\-.,'"()+:;]+/;
  * @property {'blocking'|'pairwise'} [candidateStrategy]  how candidate pairs are found;
  *   'blocking' (default) buckets the names first, 'pairwise' scores every pair. Both
  *   return the same groups; 'pairwise' is the reference the tests compare against.
+ */
+
+/**
+ * @typedef {object} CandidateOptions
+ * @property {'tags'|'correspondents'} kind
+ * @property {number} [floor]       lowest score a pair needs; default DEFAULT_CANDIDATE_FLOOR
+ * @property {number} [threshold]   score the scan already offers; default DEFAULT_THRESHOLD
+ * @property {Iterable<string>} [dismissedPairs]
+ * @property {number} [limit]       default DEFAULT_CANDIDATE_LIMIT
+ * @property {'blocking'|'pairwise'} [candidateStrategy]
+ */
+
+/**
+ * @typedef {object} CandidatePair
+ * @property {string} key      pairKey() of the two ids
+ * @property {EntityRecord} a  the entity with the lower id
+ * @property {EntityRecord} b  the other one
+ * @property {number} score    floor <= score < threshold
+ * @property {string} reason   MATCH_REASONS value that produced the score
  */
 
 /**
@@ -1086,41 +1111,46 @@ function forEachPair(prepared, visit) {
 }
 
 /**
- * Finds groups of entities that look like duplicates of each other.
- *
- * @param {EntityRecord[]} entities
- * @param {MatchOptions} options
- * @returns {DuplicateGroup[]} sorted by confidence desc, then by documents desc
+ * Memoised normalisation for one run: the hot loops ask for the same name
+ * again and again, and prepareName is the most expensive part of a scan.
  */
-function findDuplicateGroups(entities, options) {
-  const kind = options?.kind;
-  if (!KIND_LIST.includes(kind)) {
-    throw new Error(`Unknown entity kind: ${kind}`);
-  }
-  const threshold = Number.isFinite(options.threshold)
-    ? options.threshold
-    : DEFAULT_THRESHOLD;
-  const dismissed = new Set(options.dismissedPairs || []);
-
+function createNormalizer(kind) {
   const cache = new Map();
-  const normalize = (name) => {
+  return (name) => {
     const cached = cache.get(name);
     if (cached) return cached;
     const fresh = prepareName(name, kind);
     cache.set(name, fresh);
     return fresh;
   };
+}
 
-  const configuredTagNames = new Set(
-    [...(options.configuredTagNames || [])].map((name) => normalize(name).key)
-  );
-
-  const records = (Array.isArray(entities) ? entities : [])
+/** Everything with a usable id and a name, with the id coerced to a number. */
+function toRecords(entities) {
+  return (Array.isArray(entities) ? entities : [])
     .filter((e) => e && Number.isInteger(Number(e.id)) && e.name != null)
     .map((e) => ({ ...e, id: Number(e.id) }));
-  const prepared = records.map((record) => normalize(record.name));
+}
 
-  // Union-find over the pairs above the threshold.
+/** The two ids of a pairKey() of this kind; null when it is not one. */
+function pairIdsFromKey(kind, key) {
+  const prefix = `${kind}:`;
+  if (typeof key !== 'string' || !key.startsWith(prefix)) return null;
+  const parts = key.slice(prefix.length).split('-');
+  if (parts.length !== 2) return null;
+  const a = Number(parts[0]);
+  const b = Number(parts[1]);
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return null;
+  return [a, b];
+}
+
+/**
+ * The second half of a scan: the edges decide the components, every component
+ * is split into star-shaped groups and the groups are sorted.
+ */
+function groupsFromEdges(kind, records, edges, configuredTagNames, normalize) {
+  const byId = new Map(records.map((record) => [record.id, record]));
+
   const parent = new Map(records.map((r) => [r.id, r.id]));
   const find = (id) => {
     while (parent.get(id) !== id) {
@@ -1130,22 +1160,11 @@ function findDuplicateGroups(entities, options) {
     return id;
   };
   const union = (a, b) => parent.set(find(a), find(b));
-
-  /** @type {Map<string, {score:number, reason:string}>} */
-  const edges = new Map();
-  const visit = (i, j) => {
-    const result = scorePrepared(prepared[i], prepared[j], kind);
-    if (!result || result.score < threshold) return;
-    const key = pairKey(kind, records[i].id, records[j].id);
-    if (dismissed.has(key)) return;
-    edges.set(key, result);
-    union(records[i].id, records[j].id);
-  };
-  const walk =
-    options.candidateStrategy === 'pairwise'
-      ? forEachPair
-      : forEachCandidatePair;
-  walk(prepared, visit);
+  for (const key of edges.keys()) {
+    const ids = pairIdsFromKey(kind, key);
+    if (!ids || !byId.has(ids[0]) || !byId.has(ids[1])) continue;
+    union(ids[0], ids[1]);
+  }
 
   const components = new Map();
   for (const record of records) {
@@ -1170,6 +1189,151 @@ function findDuplicateGroups(entities, options) {
   return groups;
 }
 
+/**
+ * Finds groups of entities that look like duplicates of each other.
+ *
+ * @param {EntityRecord[]} entities
+ * @param {MatchOptions} options
+ * @returns {DuplicateGroup[]} sorted by confidence desc, then by documents desc
+ */
+function findDuplicateGroups(entities, options) {
+  const kind = options?.kind;
+  if (!KIND_LIST.includes(kind)) {
+    throw new Error(`Unknown entity kind: ${kind}`);
+  }
+  const threshold = Number.isFinite(options.threshold)
+    ? options.threshold
+    : DEFAULT_THRESHOLD;
+  const dismissed = new Set(options.dismissedPairs || []);
+
+  const normalize = createNormalizer(kind);
+  const configuredTagNames = new Set(
+    [...(options.configuredTagNames || [])].map((name) => normalize(name).key)
+  );
+
+  const records = toRecords(entities);
+  const prepared = records.map((record) => normalize(record.name));
+
+  /** @type {Map<string, {score:number, reason:string}>} */
+  const edges = new Map();
+  const visit = (i, j) => {
+    const result = scorePrepared(prepared[i], prepared[j], kind);
+    if (!result || result.score < threshold) return;
+    const key = pairKey(kind, records[i].id, records[j].id);
+    if (dismissed.has(key)) return;
+    edges.set(key, result);
+  };
+  const walk =
+    options.candidateStrategy === 'pairwise'
+      ? forEachPair
+      : forEachCandidatePair;
+  walk(prepared, visit);
+
+  return groupsFromEdges(kind, records, edges, configuredTagNames, normalize);
+}
+
+/**
+ * The pairs the scan did not offer: everything that scores at least `floor`
+ * but stays below `threshold`. The AI review looks at this band — the matcher
+ * found a reason for these names, it just did not find enough of one.
+ *
+ * Same blocking and the same memoised normalisation as findDuplicateGroups,
+ * so a pair that could score is never missed and a scan of a large archive
+ * does not pay for the names twice.
+ *
+ * @param {EntityRecord[]} entities
+ * @param {CandidateOptions} options
+ * @returns {CandidatePair[]} score desc, then key; at most `limit` entries
+ */
+function findCandidatePairs(entities, options = {}) {
+  const kind = options?.kind;
+  if (!KIND_LIST.includes(kind)) {
+    throw new Error(`Unknown entity kind: ${kind}`);
+  }
+  const threshold = Number.isFinite(options.threshold)
+    ? options.threshold
+    : DEFAULT_THRESHOLD;
+  const floor = Number.isFinite(options.floor)
+    ? options.floor
+    : DEFAULT_CANDIDATE_FLOOR;
+  const limit =
+    Number.isInteger(options.limit) && options.limit >= 0
+      ? options.limit
+      : DEFAULT_CANDIDATE_LIMIT;
+  const dismissed = new Set(options.dismissedPairs || []);
+
+  const normalize = createNormalizer(kind);
+  const records = toRecords(entities);
+  const prepared = records.map((record) => normalize(record.name));
+
+  /** @type {CandidatePair[]} */
+  const candidates = [];
+  const visit = (i, j) => {
+    const result = scorePrepared(prepared[i], prepared[j], kind);
+    if (!result || result.score < floor || result.score >= threshold) return;
+    const key = pairKey(kind, records[i].id, records[j].id);
+    if (dismissed.has(key)) return;
+    const [a, b] =
+      records[i].id < records[j].id
+        ? [records[i], records[j]]
+        : [records[j], records[i]];
+    candidates.push({ key, a, b, score: result.score, reason: result.reason });
+  };
+  const walk =
+    options.candidateStrategy === 'pairwise'
+      ? forEachPair
+      : forEachCandidatePair;
+  walk(prepared, visit);
+
+  candidates.sort(
+    (x, y) => y.score - x.score || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0)
+  );
+  return candidates.slice(0, limit);
+}
+
+/**
+ * Builds groups from edges somebody else decided on — the AI review confirms
+ * pairs below the threshold and hands them in here. Star clustering, target
+ * rule, member order, confidence, reasons, id and warnings are the ones
+ * findDuplicateGroups produces; only the edges come from outside.
+ *
+ * @param {'tags'|'correspondents'} kind
+ * @param {EntityRecord[]} entities   every entity the edges may name
+ * @param {Iterable<{key:string, score:number, reason:string}>|Map<string, {score:number, reason:string}>} edges
+ * @param {{configuredTagNames?: Iterable<string>}} [options]
+ * @returns {DuplicateGroup[]} sorted by confidence desc, then by documents desc
+ */
+function buildGroupsFromEdges(kind, entities, edges, options = {}) {
+  if (!KIND_LIST.includes(kind)) {
+    throw new Error(`Unknown entity kind: ${kind}`);
+  }
+  const normalize = createNormalizer(kind);
+  const configuredTagNames = new Set(
+    [...(options.configuredTagNames || [])].map((name) => normalize(name).key)
+  );
+
+  /** @type {Map<string, {score:number, reason:string}>} */
+  const edgeMap = new Map();
+  if (edges instanceof Map) {
+    for (const [key, edge] of edges) {
+      edgeMap.set(key, { score: edge.score, reason: edge.reason });
+    }
+  } else {
+    for (const edge of edges || []) {
+      if (!edge || typeof edge.key !== 'string') continue;
+      edgeMap.set(edge.key, { score: edge.score, reason: edge.reason });
+    }
+  }
+
+  return groupsFromEdges(
+    kind,
+    toRecords(entities),
+    edgeMap,
+    configuredTagNames,
+    normalize
+  );
+}
+
 module.exports = {
   KINDS,
   KIND_LIST,
@@ -1181,11 +1345,15 @@ module.exports = {
   MATCHING_ALGORITHM_NONE,
   TIER_SCORES,
   FUZZY,
+  DEFAULT_CANDIDATE_FLOOR,
+  DEFAULT_CANDIDATE_LIMIT,
   pairKey,
   normalizeName,
   scorePair,
   suggestTarget,
   findDuplicateGroups,
+  findCandidatePairs,
+  buildGroupsFromEdges,
   jaro,
   jaroWinkler,
   damerauLevenshtein,
