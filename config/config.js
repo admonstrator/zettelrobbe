@@ -514,6 +514,23 @@ module.exports = {
   duplicatesAiCandidateFloor: parseFloat(
     process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6'
   ),
+  // Evidence for the judge beyond names and titles: a short excerpt of the
+  // content of a couple of documents per entity, only for pairs the matcher
+  // linked by spelling alone (typo-like distance, prefix, word order). That
+  // is where a name pair such as "Kontoauszug" / "Kontoumzug" reads like a
+  // typo but means two different things.
+  duplicatesAiExcerpts: parseEnvBoolean(
+    process.env.DUPLICATES_AI_EXCERPTS,
+    'yes'
+  ),
+  duplicatesAiExcerptChars: parseInt(
+    process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
+    10
+  ),
+  duplicatesAiExcerptDocuments: parseInt(
+    process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+    10
+  ),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:
