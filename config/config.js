@@ -531,6 +531,9 @@ module.exports = {
     process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
     10
   ),
+  // Optional: a stronger model of the configured provider for the judge
+  // only. Empty means the provider's configured model.
+  duplicatesAiModel: (process.env.DUPLICATES_AI_MODEL || '').trim(),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:

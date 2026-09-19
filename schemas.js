@@ -816,6 +816,11 @@
  *           nullable: true
  *           enum: [high, low]
  *           description: how sure the model is; the AI proposal pre-ticks only same with high
+ *         source:
+ *           type: string
+ *           nullable: true
+ *           enum: [model, spelling-rule]
+ *           description: spelling-rule when the matcher's hard tier settled the pair and the model was not asked
  *
  *     DuplicateAiReviewRequest:
  *       type: object
@@ -897,6 +902,12 @@
  *                 excerpts:
  *                   type: integer
  *                   description: entities whose document excerpts were fetched as evidence
+ *                 escalated:
+ *                   type: integer
+ *                   description: pairs the model called unsure that were asked once more with excerpts
+ *                 spellingRules:
+ *                   type: integer
+ *                   description: pairs settled by the matcher's hard tiers (exact, umlaut, legal form) without asking the model
  *
  *     EntityMergeDismissRequest:
  *       type: object
