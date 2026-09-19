@@ -16,7 +16,8 @@
  *   fake.handle  — the raw router, for a real http.createServer in front of it
  *
  * Deliberate fidelity to the real API:
- *   - names are case sensitive and unique, POST with a taken name gives 400
+ *   - names are case sensitive and unique; a POST or a rename onto a taken
+ *     name gives 400
  *   - document_count is derived, never stored
  *   - `next` is an absolute URL on a different host, so any code that follows
  *     it instead of counting pages itself fails visibly here
@@ -56,6 +57,7 @@ function project(document, fields) {
  * @param {object[]} [seed.correspondents]  { id, name, match?, ... }
  * @param {object[]} [seed.documents]       { id, title?, content?, tags?: number[], correspondent?: number|null }
  * @param {Set<number>|number[]} [seed.bulkEditIgnores] document ids a bulk edit silently does not touch
+ * @param {number} [seed.requestDelayMs] milliseconds every request waits before it is answered
  * @returns {object} the stand-in
  */
 function createFakePaperless(seed = {}) {
@@ -71,7 +73,29 @@ function createFakePaperless(seed = {}) {
         : [...(seed.bulkEditIgnores || [])]
     ),
     nextId: 1000,
+    /** Requests being answered right now, and the most there ever were. */
+    inFlight: 0,
+    maxInFlight: 0,
   };
+
+  /**
+   * A request that takes time, so a caller reading several pages at once can
+   * be told apart from one reading them in a row: `maxInFlight` says how many
+   * overlapped, and the wall clock says what that saved.
+   */
+  const requestDelayMs = Number(seed.requestDelayMs) || 0;
+  async function answer(fn) {
+    state.inFlight += 1;
+    state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
+    try {
+      if (requestDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, requestDelayMs));
+      }
+      return fn();
+    } finally {
+      state.inFlight -= 1;
+    }
+  }
 
   const addEntity = (kind, raw) => {
     const entity = {
@@ -216,6 +240,17 @@ function createFakePaperless(seed = {}) {
             detail: 'You do not have permission to perform this action.',
           });
         }
+        // A rename runs into the same unique constraint a create does.
+        if (body?.name != null) {
+          const taken = [...state[kind].values()].some(
+            (other) => other.id !== id && other.name === String(body.name)
+          );
+          if (taken) {
+            throw httpError(400, {
+              name: [`${kind} with this name already exists.`],
+            });
+          }
+        }
         Object.assign(entity, body);
         return { status: 200, data: serialize(kind, entity) };
       }
@@ -321,19 +356,19 @@ function createFakePaperless(seed = {}) {
   const client = {
     defaults: { baseURL: 'http://paperless.test/api' },
     async get(url, config = {}) {
-      return handle('get', url, config.params || {});
+      return answer(() => handle('get', url, config.params || {}));
     },
     async post(url, body) {
-      return handle('post', url, {}, body);
+      return answer(() => handle('post', url, {}, body));
     },
     async patch(url, body) {
-      return handle('patch', url, {}, body);
+      return answer(() => handle('patch', url, {}, body));
     },
     async put(url, body) {
-      return handle('put', url, {}, body);
+      return answer(() => handle('put', url, {}, body));
     },
     async delete(url) {
-      return handle('delete', url, {});
+      return answer(() => handle('delete', url, {}));
     },
   };
 
