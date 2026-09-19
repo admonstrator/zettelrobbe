@@ -2467,7 +2467,14 @@ class EntityMatchAiService {
       message: `Scanning ${kinds.join(' and ')} for duplicate names…`,
     });
 
-    const scan = await duplicateMergeService.scan(options);
+    // Never `fresh`: the page has just scanned, and a review that scans the
+    // same archive again costs the user thirteen seconds for the same answer.
+    // The flag is dropped rather than passed on, so a route that forwards the
+    // page's own scan options cannot buy a second scan by accident.
+    const scan = await duplicateMergeService.scan({
+      ...options,
+      fresh: false,
+    });
     const configuredTagNames =
       typeof duplicateMergeService._configuredTagNames === 'function'
         ? duplicateMergeService._configuredTagNames()
