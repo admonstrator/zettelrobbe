@@ -29,6 +29,7 @@
  *     and a malformed targeting option is a 400
  * 13. The review as a job: start, current, read, the event stream and the
  *     stop, plus the synchronous route running through that same job
+ * 14. The scan route asks the service for a fresh scan, never a cached one
  */
 
 'use strict';
@@ -1396,6 +1397,49 @@ async function main() {
       } finally {
         entityMatchAiService.reviewScan = realReviewScan;
         reviewJobs.reset();
+      }
+    });
+
+    /* ── the scan asks for a fresh one ────────────────────────────────────
+       The scan route is only ever reached because somebody pressed the
+       button, so a cached answer would be the wrong one: what they want to
+       see is the archive as it is now. */
+
+    await test('GET /api/duplicates/scan asks the service for a fresh scan', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realScan = duplicateMergeService.scan;
+      const seen = [];
+      duplicateMergeService.scan = async (options) => {
+        seen.push(options);
+        return {
+          scannedAt: '2026-09-19T10:00:00.000Z',
+          threshold: options.threshold,
+          totals: { tags: 0, correspondents: null },
+          dismissedPairs: 0,
+          paperlessUrl: 'https://paperless.test',
+          groups: [],
+        };
+      };
+      try {
+        const response = await call(
+          'GET',
+          '/api/duplicates/scan?kind=tags&threshold=0.9'
+        );
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(seen.length, 1, 'the route scanned once');
+        assert.strictEqual(
+          seen[0].fresh,
+          true,
+          'a scan the user asked for must not be answered from a cache'
+        );
+        // The options the route always passed are untouched by it.
+        assert.strictEqual(seen[0].kind, 'tags');
+        assert.strictEqual(seen[0].threshold, 0.9);
+        assert.strictEqual(seen[0].includeDismissed, false);
+      } finally {
+        duplicateMergeService.scan = realScan;
       }
     });
   } finally {

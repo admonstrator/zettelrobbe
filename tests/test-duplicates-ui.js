@@ -26,9 +26,12 @@
  * 11. the one-click "AI proposal": what it sends, what it pre-ticks, how its
  *    rows are ordered, the basis and confidence both dialogs show, the
  *    evidence counters of the stats tile, and the aligned member tables
- * 12. the review as a job the page watches: the progress panel, the five
- *    pure helpers that word its numbers, the event stream with its polling
+ * 12. the review as a job the page watches: the progress panel, the pure
+ *    helpers that word its numbers, the event stream with its polling
  *    fallback, and the re-attach after a reload
+ * 13. what the panel shows inside one request: the bar moving on streamed
+ *    answers, the warm-up and the measured batch size, the thinking state,
+ *    and the settings link a failed review offers
  */
 
 'use strict';
@@ -1117,7 +1120,7 @@ test('The guided flow asks about the selection only, and never merges on its own
   // An error is reported where a full review reports, and no dialog opens.
   assert.match(
     body,
-    /htmlAlert\(\s*'danger',\s*'The AI review failed'/,
+    /htmlReviewFailure\(error\.message\)/,
     'a failed review must say so above the results'
   );
   assert.match(body, /if \(!asked\) return;/, 'a failed review opens a dialog');
@@ -2072,6 +2075,299 @@ test('The stylesheet carries the progress panel and stops its animation', () => 
     CSS,
     /\.dup-progress__text > span \{[^}]*min-height:/,
     'the text lines collapse when they are empty'
+  );
+});
+
+/* ── 13. inside one request ───────────────────────────────────────────────── */
+/* A request that asks about eighty pairs takes minutes, and a panel that only
+   moves between requests shows nothing for all of it. The judge now streams
+   its answers, measures the model on a small first request and says when it
+   is thinking; every one of those has to reach the page. */
+
+test('progressPercent counts the answers that streamed in', () => {
+  const { progressPercent } = helpers(['progressPercent']);
+  // Pairs win over requests: the batch size changes after the warm-up, so a
+  // request is no fixed amount of work, and the answers of the running one
+  // are work that is done.
+  assert.strictEqual(
+    progressPercent({
+      requestsDone: 1,
+      requestsPlanned: 9,
+      pairsJudged: 34,
+      pairsTotal: 82,
+      requestAnswers: 7,
+    }),
+    50,
+    '(34 + 7) of 82 pairs is half the review, not one ninth of it'
+  );
+  assert.strictEqual(
+    progressPercent({ pairsJudged: 0, pairsTotal: 82, requestAnswers: 0 }),
+    0
+  );
+  assert.strictEqual(
+    progressPercent({ pairsJudged: 82, pairsTotal: 82, requestAnswers: 4 }),
+    100,
+    'a re-asked batch must not push the bar past its track'
+  );
+  // No pair count yet: the request plan is the fallback, exactly as before.
+  assert.strictEqual(
+    progressPercent({ requestsDone: 3, requestsPlanned: 8, pairsTotal: null }),
+    38
+  );
+  assert.strictEqual(
+    progressPercent({ requestsDone: 2, pairsTotal: 0, requestAnswers: 5 }),
+    null,
+    'zero pairs is not a share to show; nothing is known yet'
+  );
+});
+
+test('progressCountsText says where the running request is', () => {
+  const { progressCountsText } = helpers([
+    'plural',
+    'formatTokens',
+    'progressCountsText',
+  ]);
+  assert.strictEqual(
+    progressCountsText({
+      requestsDone: 2,
+      requestsPlanned: 9,
+      pairsJudged: 34,
+      pairsTotal: 82,
+      tokens: 12400,
+      tokenBudget: 200000,
+      requestPairs: 10,
+      requestAnswers: 7,
+    }),
+    'Request 2 of 9 · 7 of 10 answers · 34 of 82 pairs · 12.4k of 200k tokens'
+  );
+  // Between two requests there is nothing to count, and the part is gone
+  // rather than showing "0 of 0 answers".
+  assert.strictEqual(
+    progressCountsText({
+      requestsDone: 2,
+      requestsPlanned: 9,
+      pairsJudged: 34,
+      pairsTotal: 82,
+      tokens: 12400,
+      tokenBudget: 200000,
+      requestPairs: null,
+      requestAnswers: 0,
+    }),
+    'Request 2 of 9 · 34 of 82 pairs · 12.4k of 200k tokens'
+  );
+  // An answer count that ran ahead of the request it belongs to is capped
+  // rather than printed as more answers than there are pairs.
+  assert.match(
+    progressCountsText({
+      requestsDone: 1,
+      requestsPlanned: 4,
+      pairsTotal: 40,
+      tokens: 0,
+      requestPairs: 10,
+      requestAnswers: 14,
+    }),
+    /10 of 10 answers/
+  );
+});
+
+test('progressTimeText names the warm-up and the thinking instead of a clock', () => {
+  const { progressTimeText } = helpers([
+    'formatEta',
+    'formatElapsed',
+    'progressTimeText',
+  ]);
+  assert.strictEqual(
+    progressTimeText({ phase: 'warming-up', etaMs: null }, 7000),
+    'measuring the model · 0:07 elapsed',
+    'the one request that exists to be measured cannot estimate anything'
+  );
+  assert.strictEqual(
+    progressTimeText({ phase: 'judging', thinking: true, etaMs: null }, 41000),
+    'the model is thinking · 0:41 elapsed',
+    'reasoning is not "estimating…", it is a state the user can read'
+  );
+  assert.strictEqual(
+    progressTimeText({ phase: 'judging', thinking: false, etaMs: null }, 5000),
+    'estimating… · 0:05 elapsed',
+    'the wording of the first request is unchanged'
+  );
+  // An estimate the job did make is shown next to the thinking, because it
+  // is still the answer to "how long is this going to take".
+  assert.strictEqual(
+    progressTimeText(
+      { phase: 'judging', thinking: true, etaMs: 120000 },
+      84000
+    ),
+    'the model is thinking · about 2 min left · 1:24 elapsed'
+  );
+  assert.strictEqual(
+    progressTimeText({ phase: 'judging', etaMs: 40000 }, 84000),
+    'about 40 s left · 1:24 elapsed'
+  );
+});
+
+test('progressNoteText says whether the batch size is a guess or a measurement', () => {
+  const { progressNoteText } = helpers(['num', 'plural', 'progressNoteText']);
+  assert.strictEqual(
+    progressNoteText({ batchSize: 4, calibrated: false }),
+    '4 pairs per request while the model is measured'
+  );
+  assert.strictEqual(
+    progressNoteText({ batchSize: 9, calibrated: true }),
+    "9 pairs per request, sized from the model's answers"
+  );
+  assert.strictEqual(
+    progressNoteText({ batchSize: 1, calibrated: true }),
+    "1 pair per request, sized from the model's answers"
+  );
+  assert.strictEqual(
+    progressNoteText({ batchSize: null, calibrated: false }),
+    '',
+    'nothing to say before the judge sized anything'
+  );
+  assert.strictEqual(progressNoteText({}), '');
+  assert.strictEqual(progressNoteText(null), '');
+});
+
+test('The outcome line keeps the measured batch size', () => {
+  const { progressOutcomeText } = helpers([
+    'num',
+    'plural',
+    'formatTokens',
+    'formatElapsed',
+    'progressOutcomeText',
+  ]);
+  const progress = {
+    elapsedMs: 84000,
+    requestsDone: 9,
+    requestsPlanned: 9,
+    pairsJudged: 82,
+    pairsTotal: 82,
+    tokens: 12400,
+    batchSize: 9,
+  };
+  assert.strictEqual(
+    progressOutcomeText({ type: 'done', job: { progress } }),
+    'Done in 1:24 · 9 requests · 82 pairs · 12.4k tokens · 9 pairs per request'
+  );
+  assert.strictEqual(
+    progressOutcomeText({
+      type: 'done',
+      job: { progress: Object.assign({}, progress, { batchSize: null }) },
+    }),
+    'Done in 1:24 · 9 requests · 82 pairs · 12.4k tokens',
+    'a review that never got to size anything says nothing about it'
+  );
+});
+
+test('The panel carries the note line and the thinking state', () => {
+  const offered = renderSync(
+    'duplicates.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  assert.ok(
+    offered.includes('id="dupAiProgressNote"'),
+    'the note line has no element to write into'
+  );
+  assert.ok(
+    offered.indexOf('id="dupAiProgressCounts"') <
+      offered.indexOf('id="dupAiProgressNote"') &&
+      offered.indexOf('id="dupAiProgressNote"') <
+        offered.indexOf('id="dupAiProgressEta"'),
+    'the note belongs under the counts it explains'
+  );
+
+  const render = functionBody('renderProgress');
+  assert.ok(
+    render.includes("'dup-progress__fill--thinking'"),
+    'nothing shows that the model is thinking'
+  );
+  assert.ok(
+    render.includes('progressNoteText(state)'),
+    'the note line is never written'
+  );
+  // The panel of a review that has finished says none of this any more.
+  const outcome = functionBody('renderProgressOutcome');
+  assert.ok(
+    outcome.includes("classList.remove('dup-progress__fill--thinking')"),
+    'a finished review keeps pulsing'
+  );
+  assert.ok(
+    outcome.includes('el.aiProgressNote.textContent = ') &&
+      functionBody('hideProgressPanel').includes('el.aiProgressNote'),
+    'the note survives the review it belongs to'
+  );
+  // The row is held open only while a review runs, so the tiles below do not
+  // jump the moment the warm-up fills it.
+  assert.ok(
+    functionBody('showProgressPanel').includes("'dup-progress--live'"),
+    'the note line has no reserved row while a review runs'
+  );
+});
+
+test('A failed review points at the settings that could have prevented it', () => {
+  const failure = functionBody('htmlReviewFailure');
+  assert.ok(
+    failure.includes('esc(text)'),
+    'the message of a failed review must be escaped like everything else'
+  );
+  assert.ok(
+    failure.includes('href="/settings#duplicates-tab"'),
+    'the link must land on the Duplicates section, not on the settings page'
+  );
+  assert.ok(
+    failure.includes('Open the Duplicates settings'),
+    'the link needs the wording the page promises'
+  );
+  // One link, and every path that reports a failed review uses it.
+  assert.strictEqual(
+    (SCRIPT.match(/Open the Duplicates settings/g) || []).length,
+    1,
+    'the settings link is written once, not copied into every catch block'
+  );
+  assert.strictEqual(
+    (SCRIPT.match(/htmlReviewFailure\(error\.message\)/g) || []).length,
+    3,
+    'the three AI paths must all report a failure the same way'
+  );
+  assert.ok(
+    !/htmlAlert\(\s*'danger',\s*'The AI review failed'/.test(SCRIPT),
+    'a failure notice without the settings link is left somewhere'
+  );
+});
+
+test('The stylesheet pulses while the model thinks, and stops for reduced motion', () => {
+  [
+    '.dup-progress__fill--thinking',
+    '.dup-progress--live .dup-progress__note:empty::before',
+  ].forEach((selector) => {
+    assert.ok(
+      selectorsOf(CSS).includes(selector),
+      `${selector} has no rule of its own`
+    );
+  });
+  assert.match(
+    CSS,
+    /\.dup-progress__fill--thinking \{[^}]*animation: dupProgressThink/,
+    'the thinking fill does not pulse'
+  );
+  assert.match(
+    CSS,
+    /@keyframes dupProgressThink \{/,
+    'the pulse has no keyframes'
+  );
+  // Slower than the sliding band: waiting is not progress.
+  const think = /animation: dupProgressThink ([\d.]+)s/.exec(CSS);
+  const slide = /animation: dupProgressSlide ([\d.]+)s/.exec(CSS);
+  assert.ok(think && slide, 'one of the two animations is gone');
+  assert.ok(
+    Number(think[1]) > Number(slide[1]),
+    'the thinking pulse must be calmer than the indeterminate band'
+  );
+  assert.match(
+    CSS,
+    /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.dup-progress__fill--thinking \{\s*animation: none;/,
+    'the pulse keeps pulsing for someone who asked it not to'
   );
 });
 

@@ -836,6 +836,17 @@ const quickstartKeyStored =
                                     <input type="number" id="duplicatesAiIdleStopSeconds" name="duplicatesAiIdleStopSeconds" min="0" max="3600" step="1" value="<%= config.DUPLICATES_AI_IDLE_STOP_SECONDS || 60 %>" class="zr-input">
                                     <p class="zr-field__hint">A review nobody has been watching for this long stops itself, so a closed tab cannot leave the model running, and 0 means never (0-3600) · Default: 60 · Restart required</p>
                                 </div>
+                                <%- include('partials/settings-switch', {
+                                    id: 'duplicatesAiThinking',
+                                    label: 'Let the judge think',
+                                    checked: (config.DUPLICATES_AI_THINKING || 'no') === 'yes',
+                                    hint: 'Reasoning models write their thoughts before the answer and spend the whole answer budget on them. Off, the judge gets its evidence instead and answers in a fraction of the time and cost. On only if your model answers badly without it. Default: off · Restart required.'
+                                }) %>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiRequestSeconds" class="zr-field__name">Seconds per model request</label>
+                                    <input type="number" id="duplicatesAiRequestSeconds" name="duplicatesAiRequestSeconds" min="5" max="300" step="5" value="<%= config.DUPLICATES_AI_REQUEST_SECONDS || 30 %>" class="zr-input">
+                                    <p class="zr-field__hint">The judge measures your model on a small first request and then asks about as many pairs per request as fit into this many seconds. Shorter means more, smaller requests and more frequent progress. Default: 30 · Restart required.</p>
+                                </div>
                                 </div>
                             </section>
                         </div>
