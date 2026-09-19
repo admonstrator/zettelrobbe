@@ -32,6 +32,13 @@
  * 13. what the panel shows inside one request: the bar moving on streamed
  *    answers, the warm-up and the measured batch size, the thinking state,
  *    and the settings link a failed review offers
+ * 14. the name the single merge dialog offers for the survivor, and the rule
+ *    that a name is only sent when it changed
+ * 15. the Unused section: its ids, what it confirms before it deletes, the
+ *    rows it draws and the one request it sends per kind
+ * 16. the log rows a delete and a rename write
+ * 17. the names the creation guard mapped, their rule and the document link
+ * 18. the semantic sweep: its checkbox, what it sends and what it counts
  */
 
 'use strict';
@@ -913,8 +920,8 @@ test('The batch dialog asks once, with one copy-rule checkbox', () => {
   );
   assert.strictEqual(
     (SCRIPT.match(/confirmDialog\(\{/g) || []).length,
-    5,
-    'one dialog for a group, one for a batch, one for the review, one for the proposal, one for undo'
+    7,
+    'one dialog for a group, one for a batch, one for the review, one for the proposal, one for undo, one for deleting unused objects, one for clearing the mappings'
   );
 });
 
@@ -1258,15 +1265,59 @@ function functionSource(name) {
   throw new Error(`${name}() is not balanced`);
 }
 
+/** The whole source of a top-level const whose value is an object literal. */
+function constantSource(name) {
+  const start = SCRIPT.indexOf(`const ${name} = {`);
+  assert.notStrictEqual(start, -1, `${name} is gone from the page script`);
+  const open = SCRIPT.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < SCRIPT.length; i += 1) {
+    if (SCRIPT[i] === '{') depth += 1;
+    if (SCRIPT[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return `${SCRIPT.slice(start, i + 1)};`;
+    }
+  }
+  throw new Error(`${name} is not balanced`);
+}
+
+/** What a markup helper taken out of the module needs from the page. */
+const escForTest = (value) =>
+  String(value == null ? '' : value).replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[character]
+  );
+
 /**
  * The named helpers of the page script, evaluated out of their module. Only
  * pure functions can be taken this way, which is why the two rules the
  * proposal turns on — what is pre-ticked, and in which order — are written as
  * pure functions in the first place.
+ *
+ * A markup helper needs the page's vocabulary as well: `constants` copies the
+ * real object literals in (so a renamed label fails here), and `globals`
+ * hands in what the module itself imports or keeps in a variable — the
+ * escaper, the Paperless-ngx base URL, the date formatter.
+ *
+ * @param {string[]} names
+ * @param {{constants?: string[], globals?: object}} [extra]
  */
-function helpers(names) {
+function helpers(names, extra = {}) {
+  const constants = (extra.constants || []).map(constantSource).join('\n');
   const source = names.map(functionSource).join('\n');
-  return new Function(`${source}\nreturn { ${names.join(', ')} };`)();
+  const globals = extra.globals || {};
+  const keys = Object.keys(globals);
+  return new Function(
+    ...keys,
+    `${constants}\n${source}\nreturn { ${names.join(', ')} };`
+  )(...keys.map((key) => globals[key]));
 }
 
 test('The AI proposal is rendered only when the review is offered', () => {
@@ -2368,6 +2419,671 @@ test('The stylesheet pulses while the model thinks, and stops for reduced motion
     CSS,
     /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.dup-progress__fill--thinking \{\s*animation: none;/,
     'the pulse keeps pulsing for someone who asked it not to'
+  );
+});
+
+/* ── 14. a name for the survivor ──────────────────────────────────────────── */
+/* A group of spellings often has no member that is the name the archive
+   should end up with. The single dialog therefore carries a field; the batch
+   and the two AI dialogs keep every target's name, because one field cannot
+   stand for a dozen groups. */
+
+test('The merge dialog asks for the name of the survivor', () => {
+  assert.ok(
+    SCRIPT.includes('id="dupTargetName"'),
+    'the merge dialog has no name field'
+  );
+  assert.ok(
+    SCRIPT.includes('Name of the survivor'),
+    'the name field is not labelled'
+  );
+  assert.match(
+    SCRIPT,
+    /const MAX_TARGET_NAME = 128;/,
+    'the page must cap the name where the route caps it'
+  );
+  assert.match(
+    SCRIPT,
+    /id="dupTargetName" maxlength="\$\{num\(MAX_TARGET_NAME\)\}"/,
+    'the field must carry the same maximum the route enforces'
+  );
+  // Prefilled with the name it has, so leaving it alone is the default and
+  // "rename" is something the user does on purpose.
+  assert.match(
+    SCRIPT,
+    /id="dupTargetName"[^`]*value="\$\{esc\(targetName\)\}"/,
+    'the field must come up with the target name'
+  );
+
+  // The field belongs to htmlMergeDialog, which is the one dialog both the
+  // group card and "Merge by hand" go through.
+  const dialog = SCRIPT.slice(
+    SCRIPT.indexOf('function htmlMergeDialog('),
+    SCRIPT.indexOf('function mergeTargetName(')
+  );
+  assert.ok(
+    dialog.includes('dupTargetName'),
+    'the field must live in the dialog both merge paths share'
+  );
+  ['htmlBatchDialog', 'htmlReviewDialog', 'htmlProposalDialog'].forEach(
+    (name) => {
+      const start = SCRIPT.indexOf(`function ${name}(`);
+      assert.notStrictEqual(start, -1, `${name}() is gone`);
+      const body = SCRIPT.slice(start, SCRIPT.indexOf('\n}\n', start));
+      assert.ok(
+        !body.includes('dupTargetName'),
+        `${name} must keep the names of its groups, not rename them all at once`
+      );
+    }
+  );
+});
+
+test('mergeTargetName sends a name only when it changed', () => {
+  const { mergeTargetName } = helpers(['mergeTargetName'], {
+    globals: { MAX_TARGET_NAME: 128 },
+  });
+  // Unchanged is silence: a merge that renamed the target to the name it
+  // already has would write a pointless "renamed from" into the log.
+  assert.strictEqual(mergeTargetName('Amazon', 'Amazon'), null);
+  assert.strictEqual(mergeTargetName('Amazon', '  Amazon  '), null);
+  assert.strictEqual(mergeTargetName('Amazon', ''), null);
+  assert.strictEqual(mergeTargetName('Amazon', '   '), null);
+  assert.strictEqual(mergeTargetName('Amazon', null), null);
+  assert.strictEqual(mergeTargetName(null, ''), null);
+
+  assert.strictEqual(
+    mergeTargetName('Amazon', '  Amazon EU S.a.r.l. '),
+    'Amazon EU S.a.r.l.',
+    'a new name arrives trimmed'
+  );
+  // Case is a change: "amazon" and "Amazon" are two objects in Paperless-ngx.
+  assert.strictEqual(mergeTargetName('Amazon', 'amazon'), 'amazon');
+  assert.strictEqual(
+    mergeTargetName('Amazon', 'x'.repeat(200)).length,
+    128,
+    'a pasted essay is cut where the route would refuse it'
+  );
+});
+
+test('The merge request carries targetName only when the dialog changed it', () => {
+  assert.match(
+    SCRIPT,
+    /\.\.\.\(renameTo === null \? \{\} : \{ targetName: renameTo \}\),/,
+    'an unchanged name must not be part of the request at all'
+  );
+  // A batch answered one dialog for all of its groups, and that dialog has no
+  // name field; the rename must stay null on that path.
+  assert.match(
+    SCRIPT,
+    /\/\/ A batch keeps the names of its groups; only the single dialog offers one\.\n\s+let renameTo = null;/,
+    'a batch step must not carry a rename'
+  );
+  assert.match(
+    SCRIPT,
+    /const nameField = document\.getElementById\('dupTargetName'\);/,
+    'the dialog value must be captured while the dialog is open'
+  );
+});
+
+/* ── 15. unused objects ───────────────────────────────────────────────────── */
+
+test('The view carries the Unused section, hidden until a scan ran', () => {
+  [
+    'dupUnused',
+    'dupUnusedSummary',
+    'dupUnusedAlert',
+    'dupUnusedBody',
+    'dupUnusedSelectAllBtn',
+    'dupUnusedDeleteBtn',
+  ].forEach((id) => {
+    assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
+  });
+  assert.match(
+    page,
+    /<details class="zr-module dup-unused hidden" id="dupUnused">/,
+    'the section must be a closed drawer and hidden until a scan looked'
+  );
+  assert.match(
+    page,
+    /id="dupUnusedDeleteBtn"[^>]*disabled/,
+    'the delete button must start disabled; nothing is selected yet'
+  );
+  assert.match(
+    page,
+    /class="zr-btn zr-btn--danger" id="dupUnusedDeleteBtn"/,
+    'deleting objects is a danger-toned action, like every other delete'
+  );
+  assert.match(
+    page,
+    /id="dupUnusedDeleteBtn"[\s\S]{0,140}icons\.svg#i-trash/,
+    'the delete button has no i-trash icon'
+  );
+  // It sits between the results and the log: the log is where its undo is.
+  assert.ok(
+    page.indexOf('id="dupResults"') < page.indexOf('id="dupUnused"') &&
+      page.indexOf('id="dupUnused"') < page.indexOf('id="dupLog"'),
+    'the section belongs under the results and above the log'
+  );
+  assert.ok(
+    /can be undone/.test(page),
+    'the section must say that a delete is undoable before anything is ticked'
+  );
+});
+
+test('unusedFromScan flattens what a scan called unused', () => {
+  const { unusedFromScan } = helpers(['unusedFromScan']);
+  assert.deepStrictEqual(unusedFromScan(null), []);
+  assert.deepStrictEqual(unusedFromScan({}), [], 'a scan of round 8 has none');
+  assert.deepStrictEqual(unusedFromScan({ unused: {} }), []);
+  assert.deepStrictEqual(
+    unusedFromScan({ unused: { tags: null, correspondents: 'nope' } }),
+    [],
+    'a malformed answer must not throw the section away'
+  );
+
+  const rows = unusedFromScan({
+    unused: {
+      correspondents: [{ id: 5, name: 'Nobody' }],
+      tags: [{ id: 1, name: 'Old' }, { id: 2, name: 'Older' }, { name: 'x' }],
+    },
+  });
+  assert.deepStrictEqual(
+    rows.map((row) => `${row.kind}:${row.record.id}`),
+    ['tags:1', 'tags:2', 'correspondents:5'],
+    'tags come first, and an entry without an id is not a row'
+  );
+});
+
+test('unusedConfirmText names the number, the kind and the way back', () => {
+  const { unusedConfirmText } = helpers(
+    ['num', 'plural', 'normalizeKind', 'unusedConfirmText'],
+    { constants: ['KIND_LABELS', 'KIND_PLURALS'] }
+  );
+  const tags = (count) =>
+    Array.from({ length: count }, () => ({ kind: 'tags' }));
+
+  assert.strictEqual(
+    unusedConfirmText(tags(12)),
+    'Delete 12 unused tags? Undo re-creates them from the log, with new ids.'
+  );
+  assert.strictEqual(
+    unusedConfirmText(tags(1)),
+    'Delete 1 unused tag? Undo re-creates them from the log, with new ids.',
+    'one object is not "1 tags"'
+  );
+  assert.match(
+    unusedConfirmText([{ kind: 'correspondents' }, { kind: 'correspondents' }]),
+    /^Delete 2 unused correspondents\?/
+  );
+  // A scan over both kinds produces a mixed selection; naming one of them
+  // would be a lie about what is deleted.
+  assert.match(
+    unusedConfirmText([{ kind: 'tags' }, { kind: 'correspondents' }]),
+    /^Delete 2 unused objects\?/
+  );
+});
+
+test('htmlUnusedRows draws a pick, a kind and the matching rule', () => {
+  const { htmlUnusedRows } = helpers(
+    ['num', 'normalizeKind', 'htmlMatchingRule', 'htmlUnusedRows'],
+    {
+      constants: ['KIND_LABELS', 'ALGORITHM_LABELS', 'htmlIcons'],
+      globals: { esc: escForTest },
+    }
+  );
+  const markup = htmlUnusedRows([
+    {
+      kind: 'tags',
+      record: { id: 7, name: 'Old <b>', matchingAlgorithm: 0, match: '' },
+    },
+    {
+      kind: 'correspondents',
+      record: { id: 8, name: 'Nobody', matchingAlgorithm: 1, match: 'nobody' },
+    },
+  ]);
+  assert.ok(
+    markup.includes('data-unused-kind="tags" data-unused-id="7"'),
+    'a row must say which object it is, or the delete cannot name it'
+  );
+  assert.ok(
+    markup.includes('class="zr-check dup-unused__pick"'),
+    'every row needs its own checkbox'
+  );
+  assert.ok(
+    markup.includes('Old &lt;b&gt;'),
+    'a tag name is user data and must be escaped'
+  );
+  assert.ok(
+    markup.includes('<span class="zr-faint">none</span>'),
+    'an object without a rule says so'
+  );
+  assert.ok(markup.includes('Any word'), 'a rule is named, not printed as 1');
+  // The error cell is rendered empty, so a refusal can be written into the
+  // row rather than into a toast that is gone before the row is read.
+  assert.ok(
+    markup.includes('class="zr-sm dup-unused__error"></span>'),
+    'a row has nowhere to show why it was kept'
+  );
+});
+
+test('The delete goes to its own endpoint, one request per kind', () => {
+  assert.strictEqual(
+    (SCRIPT.match(/'\/api\/duplicates\/delete'/g) || []).length,
+    1,
+    'there is one place that deletes, and it is the delete endpoint'
+  );
+  assert.match(
+    SCRIPT,
+    /const payload = await postJson\('\/api\/duplicates\/delete', \{ kind, ids \}\);/,
+    'the request must carry exactly the kind and the ids'
+  );
+  // A mixed selection is the normal case after a scan over both kinds, and
+  // the endpoint takes one kind at a time.
+  assert.match(
+    SCRIPT,
+    /const byKind = new Map\(\);/,
+    'the selection must be split by kind before it is sent'
+  );
+  assert.match(
+    SCRIPT,
+    /\/\/ A delete is a log entry like a merge, so the table below must show it\.\n\s+loadLog\(true\);/,
+    'the log must be reloaded after a delete'
+  );
+  // Nothing is deleted without the question that names the way back.
+  const deleteFn = SCRIPT.slice(
+    SCRIPT.indexOf('async function deleteUnused()'),
+    SCRIPT.indexOf('function initUnused()')
+  );
+  assert.ok(
+    deleteFn.indexOf('confirmDialog({') <
+      deleteFn.indexOf('setUnusedBusy(true)'),
+    'the confirm dialog must come before anything is sent'
+  );
+  assert.ok(
+    deleteFn.includes('unusedConfirmText(picked)'),
+    'the dialog must ask the sentence the pure helper builds'
+  );
+  assert.ok(
+    deleteFn.includes('markUnusedFailure'),
+    'a refused object must keep its reason next to it'
+  );
+});
+
+/* ── 16. the log speaks about deletes and renames ─────────────────────────── */
+
+test('The log tells a delete from a merge and shows what a merge renamed', () => {
+  const { isDeleteEntry, logSourceNames, htmlLogTargetCell } = helpers(
+    ['isDeleteEntry', 'logSourceNames', 'htmlLogTargetCell'],
+    { globals: { esc: escForTest, LOG_ACTION_DELETE: 'delete' } }
+  );
+  assert.match(
+    SCRIPT,
+    /const LOG_ACTION_DELETE = 'delete';/,
+    'the action value is contract and must not drift'
+  );
+
+  // A row without an action is a merge: every row written before the log
+  // knew about deletes is one.
+  assert.strictEqual(isDeleteEntry({}), false);
+  assert.strictEqual(isDeleteEntry({ action: 'merge' }), false);
+  assert.strictEqual(isDeleteEntry({ action: 'delete' }), true);
+
+  assert.strictEqual(
+    logSourceNames({ sources: [{ name: 'a' }, { name: 'b' }, {}] }),
+    'a, b, '
+  );
+
+  const merged = htmlLogTargetCell({
+    targetName: 'Amazon EU',
+    targetRenamedFrom: null,
+  });
+  assert.ok(merged.includes('>Amazon EU<'), 'a merge names its survivor');
+  assert.ok(
+    !merged.includes('renamed from'),
+    'a merge that renamed nothing must not say it did'
+  );
+
+  const renamed = htmlLogTargetCell({
+    targetName: 'Amazon EU S.a.r.l.',
+    targetRenamedFrom: 'Amazon',
+  });
+  assert.ok(
+    renamed.includes('renamed from Amazon'),
+    'the old name belongs under the new one, or a rename is invisible'
+  );
+  assert.ok(
+    renamed.includes('dup-log__renamed'),
+    'the old name needs its own line'
+  );
+
+  const deleted = htmlLogTargetCell({
+    action: 'delete',
+    targetName: '',
+    sources: [{ name: 'Leftover' }, { name: 'Also <b>' }],
+  });
+  assert.ok(
+    deleted.includes('<span class="zr-badge zr-badge--warn">delete</span>'),
+    'a delete row must be recognisable as one'
+  );
+  assert.ok(
+    deleted.includes('Deleted: Leftover, Also &lt;b&gt;'),
+    'a delete row lists what it removed, escaped'
+  );
+
+  // The two number cells a delete has no answer for read as a dash rather
+  // than as a zero that looks like a merge that moved nothing.
+  assert.match(
+    SCRIPT,
+    /const htmlDocuments = deleteRow\n\s+\? '<td data-label="Documents" class="zr-mono zr-faint">–<\/td>'/,
+    'a delete row must not claim it moved 0 documents'
+  );
+  assert.match(
+    SCRIPT,
+    /data-log-action="delete"/,
+    'a delete row must be findable by what it recorded'
+  );
+  // The undo dialog cannot promise to move documents back that never moved.
+  assert.match(
+    SCRIPT,
+    /isDeleteEntry\(entry\)\n\s+\? `Re-creates \$\{names\} in Paperless-ngx with new ids\./,
+    'the undo of a delete must be worded as one'
+  );
+});
+
+/* ── 17. the names the creation guard mapped ──────────────────────────────── */
+
+test('The view carries the mappings section, with no scan to wait for', () => {
+  [
+    'dupMappings',
+    'dupMappingsSummary',
+    'dupMappingsAlert',
+    'dupMappingsBody',
+    'dupMappingsClearBtn',
+  ].forEach((id) => {
+    assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
+  });
+  assert.ok(
+    !/id="dupMappings"[^>]*hidden/.test(page),
+    'the mappings do not depend on a scan and must not be hidden until one'
+  );
+  assert.ok(
+    page.indexOf('id="dupLog"') < page.indexOf('id="dupMappings"'),
+    'the mappings belong under the log'
+  );
+  assert.ok(
+    page.includes('Proposed → mapped to'),
+    'the table must say which name became which'
+  );
+  assert.match(
+    SCRIPT,
+    /await requestJson\('\/api\/duplicates\/mappings'\)/,
+    'the section must load itself from its own endpoint'
+  );
+  assert.match(
+    SCRIPT,
+    /method: 'DELETE',/,
+    'the Clear button has nothing to call'
+  );
+  assert.match(
+    SCRIPT,
+    /initMappings\(\);/,
+    'the section must be wired up when the page opens'
+  );
+});
+
+test('mappingDocumentLink points at the document, or nowhere', () => {
+  const { mappingDocumentLink } = helpers(['num', 'mappingDocumentLink']);
+  assert.strictEqual(
+    mappingDocumentLink('https://paperless.example.org', 4711),
+    'https://paperless.example.org/documents/4711/details'
+  );
+  assert.strictEqual(
+    mappingDocumentLink('https://paperless.example.org/', '4711'),
+    'https://paperless.example.org/documents/4711/details',
+    'a trailing slash must not produce a double one'
+  );
+  // Both halves have to be known: the base URL only arrives with a scan, and
+  // a mapping made outside a document carries no id.
+  assert.strictEqual(mappingDocumentLink('', 4711), '');
+  assert.strictEqual(mappingDocumentLink(null, 4711), '');
+  assert.strictEqual(mappingDocumentLink('https://p.test', null), '');
+  assert.strictEqual(mappingDocumentLink('https://p.test', 0), '');
+  assert.strictEqual(mappingDocumentLink('https://p.test', 'nonsense'), '');
+});
+
+test('htmlMappingRows names the rule and links the document', () => {
+  const zrDate = {
+    format: () => '19.09.2026',
+    formatDateTime: () => '19.09.2026 10:00',
+  };
+  const build = (baseUrl) =>
+    helpers(
+      [
+        'num',
+        'normalizeKind',
+        'mappingDocumentLink',
+        'htmlMappingDocument',
+        'htmlMappingRows',
+      ],
+      {
+        constants: ['KIND_LABELS', 'REASON_LABELS', 'htmlIcons'],
+        globals: {
+          esc: escForTest,
+          paperlessUrl: baseUrl,
+          window: { zrDate },
+        },
+      }
+    ).htmlMappingRows;
+
+  const rows = [
+    {
+      id: 1,
+      kind: 'tags',
+      proposedName: 'rechnungen',
+      targetName: 'Rechnung',
+      reason: 'plural',
+      documentId: 4711,
+      createdAt: '2026-09-19T10:00:00.000Z',
+    },
+    {
+      id: 2,
+      kind: 'correspondents',
+      proposedName: 'Mueller <b>',
+      targetName: 'Müller GmbH',
+      reason: 'semantic',
+      documentId: null,
+      createdAt: '2026-09-19T09:00:00.000Z',
+    },
+  ];
+
+  const linked = build('https://paperless.example.org')(rows);
+  assert.ok(
+    linked.includes('rechnungen → Rechnung'),
+    'a row must read as one name becoming another'
+  );
+  assert.ok(
+    linked.includes('Singular / plural'),
+    'the rule is named the way the cards name it, not printed as "plural"'
+  );
+  assert.ok(
+    linked.includes('Semantic (AI)'),
+    'a sweep-proposed rule reads the same here as on a card'
+  );
+  assert.ok(
+    linked.includes(
+      'href="https://paperless.example.org/documents/4711/details"'
+    ),
+    'the document must be reachable from the row'
+  );
+  assert.ok(
+    linked.includes('rel="noopener"'),
+    'an outbound link opens without handing the opener over'
+  );
+  assert.ok(
+    linked.includes('Mueller &lt;b&gt;'),
+    'a proposed name is user data and must be escaped'
+  );
+  assert.ok(
+    linked.includes('<span class="zr-faint">–</span>'),
+    'a mapping without a document says so instead of linking nowhere'
+  );
+
+  // Before the first scan the page does not know the public URL; the row
+  // still says which document it was, it just cannot link it.
+  const plain = build('')(rows);
+  assert.ok(
+    !plain.includes('<a '),
+    "no base URL means no link (the kind icon's href does not count)"
+  );
+  assert.ok(
+    plain.includes('#4711'),
+    'the document id stays readable without a link'
+  );
+  assert.match(
+    SCRIPT,
+    /function refreshMappingLinks\(\) \{/,
+    'the rows must be drawn again once a scan hands over the base URL'
+  );
+  assert.ok(
+    SCRIPT.includes(
+      'Nothing mapped yet. Document analysis records here when it used an '
+    ),
+    'the empty state must say what would put a row here'
+  );
+});
+
+/* ── 18. the semantic sweep ───────────────────────────────────────────────── */
+
+test('The sweep is a checkbox of the AI row, off and remembered', () => {
+  const offered = renderSync(
+    'duplicates.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  assert.ok(
+    offered.includes('id="dupAiSweep"'),
+    'the sweep checkbox is missing although the review is offered'
+  );
+  assert.ok(
+    offered.includes(
+      'Let the AI look at the whole list for synonyms and translations (more requests)'
+    ),
+    'the checkbox must say what it costs'
+  );
+  assert.ok(
+    !/id="dupAiSweep"[^>]*checked/.test(offered),
+    'a sweep costs requests of its own and must never be on by default'
+  );
+  // It is the third line of the AI row, under the two evidence options.
+  assert.ok(
+    offered.indexOf('id="dupAiExcerpts"') < offered.indexOf('id="dupAiSweep"'),
+    'the sweep belongs under the two options it extends'
+  );
+  // An instance without the review renders none of it.
+  assert.ok(
+    !page.includes('id="dupAiSweep"'),
+    'the sweep must not be rendered where no review is offered'
+  );
+
+  assert.match(
+    SCRIPT,
+    /semanticSweep: Boolean\(el\.aiSweep && el\.aiSweep\.checked\),/,
+    'every AI path must send what the checkbox says'
+  );
+  assert.match(
+    SCRIPT,
+    /aiSweep: 'dup\.aiSweep',/,
+    'the sweep must be remembered like the rest of the toolbar'
+  );
+  assert.match(
+    SCRIPT,
+    /el\.aiSweep\.checked = storeRead\(STORE_KEYS\.aiSweep\) === 'true';/,
+    'a remembered sweep must come back ticked'
+  );
+  // The three AI paths all go through askForVerdicts, so one line covers the
+  // proposal, "Ask the AI" and the guided flow.
+  assert.strictEqual(
+    (SCRIPT.match(/semanticSweep:/g) || []).length,
+    1,
+    'the sweep must be sent from the one place all three paths share'
+  );
+});
+
+test('The judged tile says how many pairs came from the sweep', () => {
+  const stats = SCRIPT.slice(
+    SCRIPT.indexOf('function renderAiStats('),
+    SCRIPT.indexOf('/** Registers a group and returns its card')
+  );
+  assert.match(
+    stats,
+    /if \(num\(review\.sweepProposals\) > 0\) \{\n\s+parts\.push\(`\$\{num\(review\.sweepProposals\)\} from the sweep`\);/,
+    'the sub line must say how many pairs no string matcher could have found'
+  );
+  // Nothing is added when the sweep did not run; a "0 from the sweep" would
+  // read like a sweep that found nothing rather than one that never ran.
+  assert.ok(
+    stats.indexOf('sweepProposals') > stats.indexOf('escalated'),
+    'the sweep count belongs after the evidence counters'
+  );
+  assert.ok(
+    /`requests` is every request the review made/.test(stats),
+    'the request tile must say that the sweep is part of its number'
+  );
+  assert.strictEqual(
+    (stats.match(/el\.statAiRequests\.textContent/g) || []).length,
+    1,
+    'the request count stays one number, the sweep included'
+  );
+  // The label of the reason the sweep produces is the page vocabulary.
+  assert.match(
+    SCRIPT,
+    /semantic: 'Semantic \(AI\)',/,
+    'a pair the sweep proposed must read as one wherever reasons are shown'
+  );
+});
+
+test('The stylesheet carries the unused, mapping and log classes', () => {
+  [
+    '.dup-unused__summary',
+    '.dup-unused__chevron',
+    '.dup-unused__body',
+    '.dup-unused__error',
+    '.dup-unused__actions',
+    '.dup-mappings__summary',
+    '.dup-mappings__chevron',
+    '.dup-mappings__body',
+    '.dup-mappings__pair',
+    '.dup-mappings__actions',
+    '.dup-log__renamed',
+    '.dup-dialog__field',
+  ].forEach((selector) => {
+    assert.ok(
+      CSS.includes(selector),
+      `${selector} is used by the page but has no rule`
+    );
+  });
+  // The drawers open like the two that were there before them.
+  assert.match(
+    CSS,
+    /\.dup-unused\[open\] \.dup-unused__chevron \{\n\s+transform: rotate\(90deg\);/,
+    'the unused drawer does not turn its chevron'
+  );
+  assert.match(
+    CSS,
+    /\.dup-mappings\[open\] \.dup-mappings__chevron \{\n\s+transform: rotate\(90deg\);/,
+    'the mappings drawer does not turn its chevron'
+  );
+  // A refusal is red where the object it refers to is.
+  assert.match(
+    CSS,
+    /\.dup-unused__error:not\(:empty\) \{[^}]*color: var\(--zr-danger\)/,
+    'the reason an object was kept must read as a problem'
+  );
+  // Phone width: the pick column stops being a narrow centred column once
+  // the table stacks, or the checkbox sits alone in the middle of a line.
+  assert.match(
+    CSS,
+    /@media \(max-width: 720px\) \{\n\s+\.dup-unused__table \.dup-unused__pickcol \{\n\s+width: auto;/,
+    'the pick column does not stack on a phone'
   );
 });
 

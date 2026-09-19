@@ -97,6 +97,14 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 <input type="checkbox" class="zr-check" id="dupAiExcerpts" checked>
                                 Use document excerpts for spelling-only pairs
                             </label>
+                            <!-- The one option that makes the model look past
+                                 spelling: it sees the whole list of names and
+                                 proposes groups the string matcher cannot.
+                                 Off, because it costs requests of its own. -->
+                            <label class="zr-row">
+                                <input type="checkbox" class="zr-check" id="dupAiSweep">
+                                Let the AI look at the whole list for synonyms and translations (more requests)
+                            </label>
                             <span class="zr-sm zr-faint dup-ai-hint" id="dupAiHint">Most useful at Strict sensitivity: the near-misses below the threshold are what the model gets to judge.</span>
                         </div>
                         <!-- What the one-click path does, and what it is doing
@@ -320,6 +328,45 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     </div>
                 </div>
 
+                <!-- Objects the scan found that carry no document at all. They
+                     are not duplicates of anything, they are leftovers — a
+                     merge of last year, a renamed tag, an import that went
+                     wrong. Deleting them is the same kind of decision as a
+                     merge, so it goes through the same log and the same undo.
+                     Hidden until a scan has looked. -->
+                <details class="zr-module dup-unused hidden" id="dupUnused">
+                    <summary class="zr-module__head dup-unused__summary">
+                        <svg class="zr-icon zr-icon--sm dup-unused__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
+                        <span class="zr-module__title" id="dupUnusedSummary">Unused (0)</span>
+                    </summary>
+                    <div class="zr-module__body dup-unused__body">
+                        <p class="zr-sm zr-faint dup-unused__hint">
+                            These carry no document in Paperless-ngx. Deleting them is logged below and can be undone; the re-created objects get new ids.
+                        </p>
+                        <div class="dup-unused__alert" id="dupUnusedAlert"></div>
+                        <div class="zr-table-wrap">
+                            <table class="zr-table zr-table--stack dup-unused__table">
+                                <thead>
+                                    <tr>
+                                        <th class="dup-unused__pickcol">Delete</th>
+                                        <th>Kind</th>
+                                        <th>Name</th>
+                                        <th>Matching rule</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dupUnusedBody"></tbody>
+                            </table>
+                        </div>
+                        <div class="dup-unused__actions">
+                            <button class="zr-btn zr-btn--ghost" id="dupUnusedSelectAllBtn" type="button">Select all</button>
+                            <button class="zr-btn zr-btn--danger" id="dupUnusedDeleteBtn" type="button" disabled>
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                Delete selected
+                            </button>
+                        </div>
+                    </div>
+                </details>
+
                 <section class="zr-module" id="dupLog">
                     <div class="zr-module__head">
                         <h2 class="zr-module__title">Recent merges</h2>
@@ -357,6 +404,41 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                         </button>
                     </div>
                 </section>
+
+                <!-- Drift prevented at the source: every time document
+                     analysis proposed a name that was another spelling of one
+                     that exists, the existing object was used and the mapping
+                     recorded here. It depends on no scan, so it is loaded when
+                     the page opens. -->
+                <details class="zr-module dup-mappings" id="dupMappings">
+                    <summary class="zr-module__head dup-mappings__summary">
+                        <svg class="zr-icon zr-icon--sm dup-mappings__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
+                        <span class="zr-module__title" id="dupMappingsSummary">Names mapped while processing (0)</span>
+                    </summary>
+                    <div class="zr-module__body dup-mappings__body">
+                        <div class="dup-mappings__alert" id="dupMappingsAlert"></div>
+                        <div class="zr-table-wrap">
+                            <table class="zr-table zr-table--stack dup-mappings__table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Kind</th>
+                                        <th>Proposed → mapped to</th>
+                                        <th>Rule</th>
+                                        <th>Document</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dupMappingsBody"></tbody>
+                            </table>
+                        </div>
+                        <div class="dup-mappings__actions">
+                            <button class="zr-btn zr-btn--ghost" id="dupMappingsClearBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                Clear
+                            </button>
+                        </div>
+                    </div>
+                </details>
 
                 <details class="zr-module dup-hidden" id="dupDismissals">
                     <summary class="zr-module__head dup-hidden__summary">

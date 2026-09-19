@@ -5,7 +5,7 @@
  *
  * Every DUPLICATES_* variable used to be reachable only by editing the
  * container environment, which is exactly the kind of setting the settings
- * page exists for. The section makes the eleven of them editable, so this
+ * page exists for. The section makes the thirteen of them editable, so this
  * test holds the whole path together: the rendered fields, the nav entry that
  * reaches them, the POST that stores them, the "Managed by ENV" marking that
  * greys them out, and the .env export that lists them.
@@ -22,10 +22,16 @@
  * review) rather than an unset one. A clamp that treated them like the others
  * would quietly turn "no limit" into the smallest allowed limit.
  *
- * The last two fields say how the judge talks to the model: whether it may
+ * Two of the fields say how the judge talks to the model: whether it may
  * think before it answers, and how long one request should take. The seconds
  * are the only number of the section whose range does not start at or below
  * one, because a request nobody can measure is no measurement.
+ *
+ * The last two belong to the archive rather than to one review. The guard
+ * switch decides whether document analysis may reuse an existing name instead
+ * of creating a near-duplicate — the one setting of this section that changes
+ * what the app writes into Paperless-ngx — and the sweep size says how many
+ * names one request of the semantic sweep shows the model.
  *
  * The page is rendered through the real router, so a field that stops being
  * emitted, a renamed body key or a group missing from the export all fail
@@ -95,6 +101,8 @@ const START_ENV = {
   DUPLICATES_AI_IDLE_STOP_SECONDS: '90',
   DUPLICATES_AI_THINKING: 'yes',
   DUPLICATES_AI_REQUEST_SECONDS: '45',
+  DUPLICATES_GUARD_NEW_NAMES: 'no',
+  DUPLICATES_AI_SWEEP_NAMES: '450',
 };
 
 const ENV_KEYS = Object.keys(START_ENV);
@@ -127,6 +135,8 @@ const FIELDS = [
     input: 'duplicatesAiRequestSeconds',
     envKey: 'DUPLICATES_AI_REQUEST_SECONDS',
   },
+  { input: 'duplicatesGuardNewNames', envKey: 'DUPLICATES_GUARD_NEW_NAMES' },
+  { input: 'duplicatesAiSweepNames', envKey: 'DUPLICATES_AI_SWEEP_NAMES' },
 ];
 
 let passed = 0;
@@ -285,6 +295,7 @@ function sliceBetween(source, from, to) {
         'duplicatesAiReview',
         'duplicatesAiExcerpts',
         'duplicatesAiThinking',
+        'duplicatesGuardNewNames',
       ].forEach((id) => {
         assert.ok(
           section.includes(`data-switch-target="${id}"`),
@@ -298,8 +309,8 @@ function sliceBetween(source, from, to) {
 
       assert.strictEqual(
         countOccurrences(section, 'class="zr-field__hint"'),
-        11,
-        'each of the eleven fields says what it does and what its default is'
+        13,
+        'each of the thirteen fields says what it does and what its default is'
       );
     });
 
@@ -347,14 +358,92 @@ function sliceBetween(source, from, to) {
         'its hint says what the number does and what the default is'
       );
 
-      // They close the section: everything above says what one review may
-      // cost, these two say how the judge talks to the model.
+      // Everything above says what one review may cost, these two say how
+      // the judge talks to the model; only the archive settings follow them.
       assert.ok(
         section.indexOf('id="duplicatesAiIdleStopSeconds"') <
           section.indexOf('id="duplicatesAiThinking"') &&
           section.indexOf('id="duplicatesAiThinking"') <
             section.indexOf('id="duplicatesAiRequestSeconds"'),
-        'thinking and the request length close the section, in that order'
+        'thinking and the request length follow the brakes, in that order'
+      );
+    });
+
+    // ── The two settings that outlive a single review ──────────────────────
+    await test('the creation guard renders as a switch that is on by default', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+
+      const guard = sliceBetween(
+        section,
+        'for="duplicatesGuardNewNamesSwitch"',
+        '</div>'
+      );
+      assert.match(
+        guard,
+        /Reuse an existing name instead of creating a near-duplicate/,
+        'the switch must say what it switches'
+      );
+      // The hint has to name the tiers, or "the same word in another
+      // spelling" is a promise nobody can check.
+      assert.ok(
+        /case, umlauts, legal form, plural, word order/.test(guard),
+        'the hint must name the spellings the guard treats as the same word'
+      );
+      assert.ok(
+        /A typo-like match is only logged/.test(guard),
+        'the hint must say that a fuzzy match is not mapped, only recorded'
+      );
+      assert.ok(
+        /Default: on/.test(guard),
+        'the hint must say that the guard is on unless it is switched off'
+      );
+      // START_ENV has it off, so an unchecked switch proves the field reads
+      // the configuration rather than printing its own default.
+      assert.ok(
+        section.includes('data-switch-target="duplicatesGuardNewNames"'),
+        'the guard must be a settings-switch, not a bare checkbox'
+      );
+      assert.ok(
+        !section.includes(
+          'data-switch-target="duplicatesGuardNewNames" checked'
+        ),
+        'the switch must show the configured DUPLICATES_GUARD_NEW_NAMES (no)'
+      );
+    });
+
+    await test('the sweep size renders as a number field in steps of fifty', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+
+      const sweep = sliceBetween(
+        section,
+        'id="duplicatesAiSweepNames"',
+        '</div>'
+      );
+      assert.ok(
+        sweep.includes('min="50"') &&
+          sweep.includes('max="1000"') &&
+          sweep.includes('step="50"'),
+        'the sweep size spans 50 to 1000 names in steps of fifty'
+      );
+      assert.ok(
+        sweep.includes('value="450"'),
+        'it must show the configured DUPLICATES_AI_SWEEP_NAMES'
+      );
+      assert.ok(
+        /looks at the whole list/.test(sweep) && /Default: 300/.test(sweep),
+        'its hint says what the number does and what the default is'
+      );
+
+      // The two archive settings close the section, after everything that
+      // only governs one review.
+      assert.ok(
+        section.indexOf('id="duplicatesAiRequestSeconds"') <
+          section.indexOf('id="duplicatesGuardNewNames"') &&
+          section.indexOf('id="duplicatesGuardNewNames"') <
+            section.indexOf('id="duplicatesAiSweepNames"'),
+        'the guard and the sweep size close the section, in that order'
       );
     });
 
@@ -431,8 +520,8 @@ function sliceBetween(source, from, to) {
       });
     });
 
-    // ── 2. Saving stores all nine ───────────────────────────────────────────
-    await test('POST /settings persists all eleven values', async () => {
+    // ── 2. Saving stores all of them ────────────────────────────────────────
+    await test('POST /settings persists all thirteen values', async () => {
       const response = await postSettings({
         duplicatesAiReview: 'yes',
         duplicatesAiModel: '  gpt-judge  ',
@@ -445,6 +534,8 @@ function sliceBetween(source, from, to) {
         duplicatesAiIdleStopSeconds: '30',
         duplicatesAiThinking: 'no',
         duplicatesAiRequestSeconds: '20',
+        duplicatesGuardNewNames: 'yes',
+        duplicatesAiSweepNames: '500',
       });
       assert.strictEqual(response.status, 200, await response.text());
 
@@ -460,6 +551,8 @@ function sliceBetween(source, from, to) {
         DUPLICATES_AI_IDLE_STOP_SECONDS: '30',
         DUPLICATES_AI_THINKING: 'no',
         DUPLICATES_AI_REQUEST_SECONDS: '20',
+        DUPLICATES_GUARD_NEW_NAMES: 'yes',
+        DUPLICATES_AI_SWEEP_NAMES: '500',
       };
       Object.entries(expected).forEach(([key, value]) => {
         assert.strictEqual(
@@ -667,8 +760,79 @@ function sliceBetween(source, from, to) {
       );
     });
 
+    await test('the sweep size is clamped into its range and rounded', async () => {
+      const tooMany = await postSettings({ duplicatesAiSweepNames: '5000' });
+      assert.strictEqual(tooMany.status, 200, await tooMany.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_SWEEP_NAMES,
+        '1000',
+        'a sweep larger than the ceiling is capped, not rejected'
+      );
+
+      const tooFew = await postSettings({ duplicatesAiSweepNames: '1' });
+      assert.strictEqual(tooFew.status, 200, await tooFew.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_SWEEP_NAMES,
+        '50',
+        'a sweep too small to be worth a request is lifted to the floor'
+      );
+
+      // Not a multiple of the step: the field steps in fifties, the route
+      // does not insist on it — a hand-written 333 is a number, not an error.
+      const odd = await postSettings({ duplicatesAiSweepNames: '333.4' });
+      assert.strictEqual(odd.status, 200, await odd.text());
+      assert.strictEqual(lastSaved().DUPLICATES_AI_SWEEP_NAMES, '333');
+
+      const cleared = await postSettings({ duplicatesAiSweepNames: '' });
+      assert.strictEqual(cleared.status, 200, await cleared.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_SWEEP_NAMES,
+        '333',
+        'a cleared field keeps what the last save stored, not the default'
+      );
+    });
+
+    await test('the creation guard survives the round trip and an unknown answer', async () => {
+      const off = await postSettings({ duplicatesGuardNewNames: 'no' });
+      assert.strictEqual(off.status, 200, await off.text());
+      assert.strictEqual(lastSaved().DUPLICATES_GUARD_NEW_NAMES, 'no');
+
+      const nonsense = await postSettings({
+        duplicatesGuardNewNames: 'sometimes',
+      });
+      assert.strictEqual(nonsense.status, 200, await nonsense.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_GUARD_NEW_NAMES,
+        'no',
+        'an unknown switch value must not turn the guard back on'
+      );
+
+      const on = await postSettings({ duplicatesGuardNewNames: 'true' });
+      assert.strictEqual(on.status, 200, await on.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_GUARD_NEW_NAMES,
+        'yes',
+        'the switch takes the same spellings as every other one'
+      );
+
+      const html = await getSettingsPage();
+      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      assert.ok(
+        section.includes(
+          'data-switch-target="duplicatesGuardNewNames" checked'
+        ),
+        'a saved switch must come back on, or the page lies about what is configured'
+      );
+      assert.ok(
+        section.includes(
+          '<input type="hidden" id="duplicatesGuardNewNames" name="duplicatesGuardNewNames" value="yes">'
+        ),
+        'the hidden input the next POST reads must carry the saved value'
+      );
+    });
+
     // ── 4. The .env export lists them ───────────────────────────────────────
-    await test('the .env export carries a Duplicates group with all eleven keys', async () => {
+    await test('the .env export carries a Duplicates group with all thirteen keys', async () => {
       const response = await fetch(harness.base + '/api/settings/env-file', {
         headers: { 'x-api-key': API_KEY },
       });
@@ -700,6 +864,13 @@ function sliceBetween(source, from, to) {
           env.indexOf('DUPLICATES_AI_THINKING=') <
             env.indexOf('DUPLICATES_AI_REQUEST_SECONDS='),
         'the two request settings follow the brakes, in the order the page shows them'
+      );
+      assert.ok(
+        env.indexOf('DUPLICATES_AI_REQUEST_SECONDS=') <
+          env.indexOf('DUPLICATES_GUARD_NEW_NAMES=') &&
+          env.indexOf('DUPLICATES_GUARD_NEW_NAMES=') <
+            env.indexOf('DUPLICATES_AI_SWEEP_NAMES='),
+        'the guard and the sweep size close the group, in the order the page shows them'
       );
     });
   } finally {

@@ -105,13 +105,41 @@
  *   `tokensPerPair × batchSize × 1.5 + TOKENS_OVERHEAD`, both still bounded by
  *   the context window. Every later answer re-measures, smoothed by half
  *   against the measurement before it.
- * - What was measured is kept per model on the singleton, so the next review
- *   of the same model starts sized and skips the warm-up. A measurement taken
- *   with thinking on is never reused with thinking off.
+ * - What was measured is kept per model on the singleton *and* in the
+ *   ai_calibration table, so the next review of the same model starts sized
+ *   and skips the warm-up — after a restart as well, which is what a user who
+ *   restarts the container between two reviews actually has. A measurement
+ *   taken with thinking on is never reused with thinking off; the switch is
+ *   part of the key in memory and in the table.
  * - A cut-off answer that salvaged nothing gets *twice the cap* and the same
  *   pairs once more; only when that bought nothing does the batch halve. A
  *   warm-up that does not fit either way ends the review with a message
  *   naming the two switches that can fix it.
+ *
+ * ## The semantic sweep, for the names spelling will never link
+ *
+ * The matcher links names by how they are written. "Kontoauszug" and "Bank
+ * statement", "KFZ" and "Auto", "Rechnung" and "Invoice" are the same thing
+ * and no string distance will ever say so. `reviewScan({ semanticSweep:
+ * true })` therefore adds one pass before the evidence is gathered: the model
+ * is shown the names of a kind — ids and names, nothing else — in chunks of
+ * DUPLICATES_AI_SWEEP_NAMES, and answers with the groups it believes name one
+ * thing in another language, as a synonym or as an abbreviation.
+ *
+ * Nothing it proposes becomes a group on the spot. A proposed pair that is
+ * not already inside a scan group, not already a candidate of the band and
+ * not dismissed becomes an ordinary candidate pair with the reason
+ * `semantic`, a score of 0.5 and the model's own basis and reason carried
+ * into the judging prompt as `sweep_basis` and `sweep_reason` — so the judge
+ * knows what it is being asked to check. These pairs always get document
+ * excerpts, because they are the furthest from spelling: a proposal made from
+ * names alone has to survive what the documents say. Then they are judged
+ * with everything else, and only a "same" builds a group.
+ *
+ * The sweep is off unless the page asks for it, its requests are in the plan
+ * before the first one is made (`sweepRequests`), the pairs it added are
+ * counted (`sweepProposals`), and a kind with more than SWEEP_MAX_NAMES names
+ * is not swept at all.
  *
  * ## What comes back
  *
@@ -214,6 +242,22 @@ function switchedOn(value) {
   return value === true || String(value).trim().toLowerCase() === 'yes';
 }
 
+/**
+ * An option the page may send as a boolean or as the string a form control
+ * produces. Only the spellings of "on" count; an absent option, above all, is
+ * off. This is for options that default to off, where `!== false` would be
+ * the wrong reading.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function optedIn(value) {
+  return (
+    value === true ||
+    ['yes', 'true', '1', 'on'].includes(String(value).trim().toLowerCase())
+  );
+}
+
 /** Where a group in an AI review result came from. */
 const GROUP_SOURCES = Object.freeze({
   SCAN: 'scan',
@@ -299,6 +343,36 @@ const TITLE_CONCURRENCY = 4;
 const EXCERPT_CONCURRENCY = 4;
 /** Documents one neighbourhood read looks at. */
 const NEIGHBOUR_DOCUMENTS = 30;
+
+/**
+ * The most names one semantic sweep reads. Beyond this a sweep is dozens of
+ * requests that each carry a slice of the archive, and a model that is shown
+ * a fortieth of the names at a time proposes little worth judging. An archive
+ * that large is told so in the log rather than swept badly.
+ */
+const SWEEP_MAX_NAMES = 5000;
+/** The fewest names a sweep request may carry, whatever the setting says. */
+const MIN_SWEEP_NAMES = 50;
+/** Names the setting asks for when it says nothing usable. */
+const DEFAULT_SWEEP_NAMES = 300;
+/**
+ * What one proposed group costs to write: two or three ids, a basis and a
+ * twelve-word reason. The cap of a sweep request is this times the groups the
+ * plan expects, and a cut-off answer raises it once, as a judged batch does.
+ */
+const SWEEP_TOKENS_PER_GROUP = 40;
+/** The share of the names a sweep expects to end up in a group. */
+const SWEEP_GROUPED_SHARE = 10;
+/**
+ * The score a semantic pair carries into the judging and, when the model
+ * confirms it, into the group: the sweep saw names, nothing else, so the page
+ * shows 50 % next to the semantic label rather than a number that pretends to
+ * come from a measurement.
+ */
+const SEMANTIC_SCORE = 0.5;
+/** Why the sweep says two names are one thing. Anything else becomes null. */
+const SWEEP_BASES = Object.freeze(['translation', 'synonym', 'abbreviation']);
+const SWEEP_BASIS_SET = new Set(SWEEP_BASES);
 /** Neighbour names per entity handed to the model, most frequent first. */
 const NEIGHBOUR_LIMIT = 3;
 
@@ -315,6 +389,17 @@ const SPELLING_ONLY_REASONS = Object.freeze([
   entityNameMatcher.MATCH_REASONS.TOKEN_ORDER,
 ]);
 const SPELLING_ONLY_REASON_SET = new Set(SPELLING_ONLY_REASONS);
+
+/**
+ * The reasons that buy an entity its document excerpts: the spelling-only
+ * tiers, and the semantic pairs of the sweep. A proposal the model made from
+ * a list of names is the one pair that has seen no evidence at all, so it
+ * gets the expensive kind before it is judged.
+ */
+const EXCERPT_REASON_SET = new Set([
+  ...SPELLING_ONLY_REASONS,
+  entityNameMatcher.MATCH_REASONS.SEMANTIC,
+]);
 
 /** Where a verdict came from. */
 const VERDICT_SOURCES = Object.freeze({
@@ -389,6 +474,7 @@ const RAW_ANSWER_LOG_LENGTH = 200;
 const REVIEW_PHASES = Object.freeze({
   SCANNING: 'scanning',
   EVIDENCE: 'evidence',
+  SWEEPING: 'sweeping',
   WARMING_UP: 'warming-up',
   JUDGING: 'judging',
   ESCALATING: 'escalating',
@@ -443,6 +529,20 @@ const STOP_REASON_FALLBACK = 'user';
  * @property {AiReviewEntity} b
  * @property {string|null} [matchedBy]  the MATCH_REASONS value of the edge
  * @property {number} [score]           the matcher score of the edge
+ * @property {string|null} [sweepBasis]   why the semantic sweep proposed this
+ *   pair: translation, synonym or abbreviation
+ * @property {string} [sweepReason]       the short reason the sweep gave
+ */
+
+/**
+ * One group of the semantic sweep, after the ids were checked against the
+ * names the request carried.
+ *
+ * @typedef {object} SweepProposal
+ * @property {number[]} ids        two or more entity ids of the same chunk
+ * @property {string|null} basis   a SWEEP_BASES value, null when the model
+ *   named none or named something else
+ * @property {string} reason       the model's short reason, '' when none
  */
 
 /**
@@ -485,6 +585,8 @@ const STOP_REASON_FALLBACK = 'user';
  *                                    it stopped, the job knows why and fills
  *                                    this in
  * @property {number} pairsNotJudged  pairs that were due and never answered
+ * @property {number} sweepRequests   requests the semantic sweep made
+ * @property {number} sweepProposals  pairs the sweep added to the review
  */
 
 /**
@@ -510,6 +612,9 @@ const STOP_REASON_FALLBACK = 'user';
  *   with groupIds both have to hold
  * @property {boolean} [includeCandidates] default true; false leaves the band
  *   of near-misses below the threshold out of the review entirely
+ * @property {boolean} [semanticSweep] default false; let the model read the
+ *   names of every kind of the review and propose the groups the string
+ *   matcher cannot see. Its proposals are judged with evidence like the band.
  */
 
 /**
@@ -630,7 +735,8 @@ function splitInHalves(items) {
 }
 
 /**
- * The complete `{...}` objects of a cut-off answer.
+ * The complete `{...}` objects of a cut-off answer, whatever the answer was
+ * about: verdicts, or the groups of a semantic sweep.
  *
  * parseVerdictArray() needs the closing bracket and gives up without it; this
  * one walks the text from the first `[` and takes every object whose braces
@@ -639,9 +745,10 @@ function splitInHalves(items) {
  * may well contain a brace.
  *
  * @param {string|null|undefined} text
- * @returns {object[]} objects carrying at least `id` and `verdict`
+ * @param {(parsed: object) => boolean} accept  what a usable object looks like
+ * @returns {object[]}
  */
-function salvageVerdictObjects(text) {
+function salvageJsonObjects(text, accept) {
   const raw = String(text ?? '');
   const start = raw.indexOf('[');
   if (start === -1) return [];
@@ -675,9 +782,7 @@ function salvageVerdictObjects(text) {
       if (depth > 0) continue;
       try {
         const parsed = JSON.parse(raw.slice(objectStart, index + 1));
-        if (parsed && parsed.id != null && parsed.verdict != null) {
-          objects.push(parsed);
-        }
+        if (parsed && accept(parsed)) objects.push(parsed);
       } catch {
         // A half-written object is exactly what this function expects to meet.
       }
@@ -686,6 +791,40 @@ function salvageVerdictObjects(text) {
   }
 
   return objects;
+}
+
+/**
+ * The complete verdict objects of a cut-off answer.
+ *
+ * @param {string|null|undefined} text
+ * @returns {object[]} objects carrying at least `id` and `verdict`
+ */
+function salvageVerdictObjects(text) {
+  return salvageJsonObjects(
+    text,
+    (parsed) => parsed.id != null && parsed.verdict != null
+  );
+}
+
+/**
+ * The complete group objects of a cut-off sweep answer: the same walk, a
+ * different shape. A sweep group is worth keeping as soon as it carries a
+ * list of ids; the ids themselves are checked against the names the request
+ * carried afterwards.
+ *
+ * @param {string|null|undefined} text
+ * @returns {object[]}
+ */
+function salvageSweepGroups(text) {
+  return salvageJsonObjects(text, (parsed) => Array.isArray(parsed.ids));
+}
+
+/** The sweep's basis, or null when it named none or named something else. */
+function toSweepBasis(value) {
+  const basis = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return SWEEP_BASIS_SET.has(basis) ? basis : null;
 }
 
 /**
@@ -761,13 +900,25 @@ class EntityMatchAiService {
      * says nothing about the same model with thinking off, so the switch is
      * part of what is stored and is compared before it is reused.
      *
-     * In memory on purpose: it is worth a restart, not a table.
+     * Backed by the ai_calibration table: what one review measured is written
+     * there and read back at the start of the next one, so a restart between
+     * two reviews does not cost another warm-up.
      *
-     * @type {Map<string, {tokensPerPair:number, tokensPerSecond:number, thinking:boolean, measuredAt:number}>}
+     * @type {Map<string, {tokensPerPair:number, tokensPerSecond:number, largestCompletion:number, thinking:boolean, measuredAt:number}>}
      */
     this.calibration = new Map();
     /** Overridable so a test does not have to wait a quarter of a second. */
     this.progressIntervalMs = PROGRESS_INTERVAL_MS;
+    /**
+     * The last write to the ai_calibration table. Nothing waits for it — a
+     * measurement is saved detached — but a test that wants to read the row
+     * back has something to await.
+     *
+     * @type {Promise<unknown>}
+     */
+    this.lastCalibrationSave = Promise.resolve();
+    /** One warning is enough when the table cannot be written. */
+    this._calibrationWarned = false;
   }
 
   /**
@@ -895,6 +1046,7 @@ class EntityMatchAiService {
       '- one spelling might be a word of its own and you cannot tell; if excerpts are given, decide from them, otherwise answer "unsure"',
       '',
       'Each pair says how the string matcher linked the names ("matched_by"). "fuzzy", "prefix" and "token-order" mean nothing but spelling links them; treat those as different unless the titles or excerpts show the same thing. When excerpts are given they are the beginning of the documents filed under that name; decide from what the documents are about.',
+      '"matched_by":"semantic" is a pair nothing in the spelling links: it was proposed from the names alone, and "sweep_basis" and "sweep_reason" say why. Treat that as a claim to check against the evidence, never as a reason of its own.',
       '',
       'When document titles are given they are examples of what is filed under that name. Use them as evidence; they are never the answer.',
       kind === entityNameMatcher.KINDS.TAGS
@@ -906,6 +1058,65 @@ class EntityMatchAiService {
       `"basis" is one of: ${VERDICT_BASES.join(', ')}.`,
       '"confidence" is "high" when the evidence settles the pair and "low" when it does not. The basis "typo" is "high" only when one of the two spellings is not a word or a name of its own; otherwise answer "low".',
       'Answer every pair you were given exactly once, with the id copied as it was given.',
+    ].join('\n');
+  }
+
+  /**
+   * What the model is told about the semantic sweep: it reads names, it
+   * proposes groups, and it proposes nothing the string matcher already has.
+   * English and in the shape of the judge's prompt, for the same reason —
+   * the rules are what makes the answers comparable.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @returns {string}
+   */
+  buildSweepSystemPrompt(kind) {
+    const words = KIND_WORDS[kind] || KIND_WORDS.tags;
+    return [
+      `You are given the names of the ${words.plural} of one personal document archive (Paperless-ngx).`,
+      words.explanation,
+      `Find groups of names that denote the same ${words.singular} although they are written differently.`,
+      '',
+      'Group two or more names only when they clearly name one and the same thing:',
+      '- the same thing in two languages ("Rechnung" / "Invoice", "Kontoauszug" / "Bank statement")',
+      '- two words for the same thing in one language ("Auto" / "KFZ", "Arzt" / "Mediziner")',
+      '- an abbreviation and the long form of the same name ("TK" / "Techniker Krankenkasse", "KFZ" / "Kraftfahrzeug")',
+      '',
+      'Propose nothing else:',
+      '- nothing that is merely related, near or part of the other ("Auto" / "Versicherung", "Rechnung" / "Mahnung", "Miete" / "Mietvertrag")',
+      '- nothing that differs only in how it is written — case, spacing, umlauts, a legal form, singular and plural, or a typo ("Amazon" / "amazon", "Müller" / "Mueller", "Rechnung" / "Rechnungen"). Those are already known.',
+      '- nothing you are unsure about. A wrong group costs the user a question; a missing one costs nothing.',
+      '',
+      'Answer with a JSON array and nothing else — no prose, no explanation, no code fence:',
+      '[{"ids": ["<id>", "<id>"], "basis": "translation" | "synonym" | "abbreviation", "reason": "<at most twelve words>"}]',
+      'Every group carries at least two ids, copied exactly as they were given. Use an id at most once in the whole answer.',
+      'Answer with an empty array when no group is worth proposing.',
+    ].join('\n');
+  }
+
+  /**
+   * The names of one sweep request: ids and names, nothing else. Three
+   * hundred names of a real archive are roughly three thousand tokens this
+   * way, which is what makes a sweep of a whole kind affordable.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {AiReviewEntity[]} entities
+   * @returns {string}
+   */
+  buildSweepUserPrompt(kind, entities) {
+    const words = KIND_WORDS[kind] || KIND_WORDS.tags;
+    const lines = entities.map((entity) =>
+      JSON.stringify({
+        id: String(entity.id),
+        name: String(entity?.name ?? ''),
+      })
+    );
+    return [
+      `Kind: ${words.plural}`,
+      `Names: ${entities.length}`,
+      '[',
+      lines.join(',\n'),
+      ']',
     ].join('\n');
   }
 
@@ -964,6 +1175,11 @@ class EntityMatchAiService {
       if (Number.isFinite(Number(pair.score))) {
         line.score = Number(Number(pair.score).toFixed(2));
       }
+      // Only a pair the semantic sweep proposed carries these: what the model
+      // said when it saw nothing but the two names, so the judge knows what
+      // claim it is being asked to check.
+      if (pair.sweepBasis) line.sweep_basis = String(pair.sweepBasis);
+      if (pair.sweepReason) line.sweep_reason = String(pair.sweepReason);
       line.a = describe(pair.a);
       line.b = describe(pair.b);
       return JSON.stringify(line);
@@ -1026,9 +1242,150 @@ class EntityMatchAiService {
     return Number.isFinite(tokens) && tokens > 0 ? tokens : 1000;
   }
 
-  /** Forgets every measurement, so the next review measures again. */
+  /**
+   * Forgets every measurement, in memory and in the table, so the next review
+   * measures again. The current model is always among the ones forgotten,
+   * even when this service has never measured it itself — a fresh process
+   * that only ever read the row must be able to drop it too.
+   *
+   * @returns {Promise<unknown>} the write, for a caller that wants to wait
+   */
   resetCalibration() {
+    const models = new Set(this.calibration.keys());
+    models.add(this.modelName() || '');
     this.calibration.clear();
+    return this._forgetCalibrationRows([...models]);
+  }
+
+  /**
+   * Forgets one model, in memory and in the table. The same thing
+   * resetCalibration() does, for the operator who wants to re-measure one
+   * model rather than all of them.
+   *
+   * @param {string} [model]  the judge's current model when none is given
+   * @returns {Promise<unknown>}
+   */
+  forgetCalibration(model) {
+    const name = String(model ?? this.modelName() ?? '');
+    this.calibration.delete(name);
+    return this._forgetCalibrationRows([name]);
+  }
+
+  /**
+   * Empties the stored measurement of every named model, for both settings of
+   * the thinking switch.
+   *
+   * models/document.js has no delete for a calibration row and it is the
+   * contract of this round, so the row is overwritten with nothing instead:
+   * a row without tokens per pair is a model that was never measured, and
+   * _loadCalibration() steps over it exactly as it steps over a missing row.
+   *
+   * @param {string[]} models
+   * @returns {Promise<unknown>}
+   */
+  _forgetCalibrationRows(models) {
+    const documentModel = require('../models/document');
+    if (typeof documentModel.saveAiCalibration !== 'function') {
+      return Promise.resolve();
+    }
+    const writes = [];
+    for (const model of models) {
+      for (const thinking of [false, true]) {
+        writes.push(
+          this._writeCalibration({
+            model,
+            thinking,
+            tokensPerPair: null,
+            tokensPerSecond: null,
+            largestCompletion: 0,
+          })
+        );
+      }
+    }
+    this.lastCalibrationSave = Promise.all(writes);
+    return this.lastCalibrationSave;
+  }
+
+  /**
+   * Reads what an earlier review — possibly in an earlier process — measured
+   * about this model into the in-memory calibration, so _sizer() finds it and
+   * the review starts sized. What this process measured itself wins: it is
+   * newer than the row, and the row is what it will be overwritten with.
+   *
+   * @returns {Promise<void>}
+   */
+  async _loadCalibration() {
+    const documentModel = require('../models/document');
+    if (typeof documentModel.getAiCalibration !== 'function') return;
+    const model = this.modelName() || '';
+    const thinking = this.thinkingEnabled();
+    const known = this.calibration.get(model);
+    if (known && known.thinking === thinking) return;
+    let stored;
+    try {
+      stored = await documentModel.getAiCalibration(model, thinking);
+    } catch (error) {
+      this._warnCalibration('read', error);
+      return;
+    }
+    // A row without both numbers measures nothing: it is either a model that
+    // only ever truncated or one whose measurement was forgotten.
+    if (
+      !stored ||
+      stored.tokensPerPair == null ||
+      stored.tokensPerSecond == null
+    ) {
+      return;
+    }
+    this.calibration.set(model, {
+      tokensPerPair: Number(stored.tokensPerPair),
+      tokensPerSecond: Number(stored.tokensPerSecond),
+      largestCompletion: Number(stored.largestCompletion) || 0,
+      thinking,
+      measuredAt: Date.parse(stored.measuredAt) || Date.now(),
+    });
+  }
+
+  /**
+   * Saves what a request measured. Detached on purpose: a review must not
+   * wait for a disk write between two model requests, and a table that
+   * refuses is worth one warning, not a failed review.
+   *
+   * @param {object} measurement
+   * @returns {Promise<unknown>}
+   */
+  _persistCalibration(measurement) {
+    this.lastCalibrationSave = this._writeCalibration(measurement);
+    return this.lastCalibrationSave;
+  }
+
+  /** One write, with its own error handling. */
+  _writeCalibration(measurement) {
+    const documentModel = require('../models/document');
+    if (typeof documentModel.saveAiCalibration !== 'function') {
+      return Promise.resolve(false);
+    }
+    try {
+      return Promise.resolve(
+        documentModel.saveAiCalibration(measurement)
+      ).catch((error) => {
+        this._warnCalibration('save', error);
+        return false;
+      });
+    } catch (error) {
+      this._warnCalibration('save', error);
+      return Promise.resolve(false);
+    }
+  }
+
+  /** The one line a broken calibration table is worth. */
+  _warnCalibration(what, error) {
+    if (this._calibrationWarned) return;
+    this._calibrationWarned = true;
+    console.warn(
+      `${LOG_PREFIX} the calibration could not be ${what === 'read' ? 'read' : 'saved'}: ` +
+        `${error?.message || error}. The judge measures the model again instead.`
+    );
   }
 
   /**
@@ -1197,6 +1554,14 @@ class EntityMatchAiService {
       largestCompletion: sizer.largestCompletion,
       thinking: sizer.thinking,
       measuredAt: Date.now(),
+    });
+    // And into the table, so the next review after a restart starts sized.
+    this._persistCalibration({
+      model: sizer.model,
+      thinking: sizer.thinking,
+      tokensPerPair: sizer.tokensPerPair,
+      tokensPerSecond: sizer.tokensPerSecond,
+      largestCompletion: sizer.largestCompletion,
     });
 
     const before = sizer.batchSize;
@@ -2124,6 +2489,362 @@ class EntityMatchAiService {
   }
 
   /**
+   * The completion budget of one sweep request: enough room for a tenth of
+   * the names it carries to come back inside a group. A group nobody proposes
+   * costs nothing, and a cap that is one group short costs the whole tail of
+   * the answer.
+   *
+   * @param {number} nameCount
+   * @returns {number}
+   */
+  _sweepCap(nameCount) {
+    const groups = Math.ceil(Math.max(1, nameCount) / SWEEP_GROUPED_SHARE);
+    return SWEEP_TOKENS_PER_GROUP * groups + TOKENS_OVERHEAD;
+  }
+
+  /**
+   * One report from inside a sweep request the provider is streaming. The
+   * sweep has no pairs to count answers against, so it reports what it has:
+   * whether the model is thinking and what that has cost so far.
+   *
+   * @param {object} context
+   * @param {AiReviewEntity[]} chunk
+   * @param {import('./aiGenerateOptions').GenerateTextProgress} update
+   */
+  _onSweepStream(context, chunk, update) {
+    const { tracker, state } = context;
+    if (!tracker || !tracker.onProgress) return;
+    const now = Date.now();
+    const interval = Number(this.progressIntervalMs);
+    if (
+      now - state.lastStreamMs <
+      (interval >= 0 ? interval : PROGRESS_INTERVAL_MS)
+    ) {
+      return;
+    }
+    state.lastStreamMs = now;
+    const thinking = update?.thinking === true;
+    const produced = Number(update?.completionTokens);
+    const requestTokens = Number.isFinite(produced) ? produced : null;
+    this._report(tracker, {
+      requestPairs: chunk.length,
+      requestAnswers: 0,
+      requestTokens,
+      thinking,
+      tokens: (tracker.tokens || 0) + (requestTokens || 0),
+      message: thinking
+        ? `The model is thinking… (${requestTokens || 0} tokens so far)`
+        : `Reading ${chunk.length} names for synonyms and translations…`,
+    });
+  }
+
+  /**
+   * The groups of one sweep answer, checked against the names that request
+   * carried. An id the request never showed the model is dropped, exactly as
+   * an invented pair id is dropped from a verdict.
+   *
+   * @param {object[]} items
+   * @param {AiReviewEntity[]} chunk
+   * @returns {SweepProposal[]}
+   */
+  _sweepProposals(items, chunk) {
+    const allowed = new Set(chunk.map((entity) => Number(entity.id)));
+    const proposals = [];
+    for (const item of Array.isArray(items) ? items : []) {
+      const ids = [
+        ...new Set(
+          (Array.isArray(item?.ids) ? item.ids : [])
+            .map((id) => Number(String(id).trim()))
+            .filter((id) => Number.isInteger(id) && allowed.has(id))
+        ),
+      ];
+      if (ids.length < 2) continue;
+      proposals.push({
+        ids,
+        basis: toSweepBasis(item?.basis),
+        reason: toReason(item?.reason),
+      });
+    }
+    return proposals;
+  }
+
+  /**
+   * One sweep request: a chunk of names in, the groups the model proposes
+   * out.
+   *
+   * A cut-off answer is treated the way a cut-off batch of verdicts is: what
+   * the model managed to write is salvaged, and an answer that salvaged
+   * nothing is asked once more with a raised cap. There is no halving to fall
+   * back on — the names of a chunk are not a question that gets smaller — so
+   * a second cut-off simply costs this chunk its proposals.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {AiReviewEntity[]} chunk
+   * @param {object} context  service, usage, tracker, sizer, state
+   * @param {{cap?: number|null, raises?: number}} [options]
+   * @returns {Promise<SweepProposal[]>}
+   */
+  async _sweepChunk(
+    kind,
+    chunk,
+    context,
+    { cap: wanted = null, raises = 0 } = {}
+  ) {
+    const { service, usage, tracker, sizer, state } = context;
+    if (this._stopped(tracker)) return [];
+
+    const systemPrompt = this.buildSweepSystemPrompt(kind);
+    const userPrompt = this.buildSweepUserPrompt(kind, chunk);
+    const promptTokens = await this._promptTokens(systemPrompt, userPrompt);
+    const budget = this._capForRequest(sizer, 0, promptTokens, {
+      wanted: wanted == null ? this._sweepCap(chunk.length) : wanted,
+    });
+    const cap = budget.cap;
+
+    state.lastStreamMs = 0;
+    usage.requests += 1;
+    const startedAt = Date.now();
+    const head = () =>
+      `sweep ${kind}: ${chunk.length} name(s), ~${promptTokens} prompt tokens, ` +
+      `cap ${cap}, ${Date.now() - startedAt}ms`;
+
+    const requestOptions = {
+      systemPrompt,
+      temperature: 0,
+      maxTokens: cap,
+      // The same switch as every judge request: off unless the operator
+      // turned it on. A sweep is a lookup, not a deliberation.
+      reasoning: Boolean(sizer && sizer.thinking),
+    };
+    const judgeModel = this.judgeModel();
+    if (judgeModel !== '') requestOptions.model = judgeModel;
+    if (tracker?.signal) requestOptions.signal = tracker.signal;
+    if (tracker?.onProgress) {
+      requestOptions.onProgress = (update) =>
+        this._onSweepStream(context, chunk, update);
+    }
+
+    let answer;
+    let truncated = false;
+    try {
+      answer = await service.generateText(userPrompt, requestOptions);
+    } catch (error) {
+      if (this._stopped(tracker)) {
+        this._log(`${head()} — stopped while waiting for the answer.`);
+        return [];
+      }
+      if (error?.code !== TRUNCATION_ERROR_CODE) {
+        usage.failedRequests += 1;
+        console.warn(
+          `${LOG_PREFIX} ${head()} — failed: ${error?.message || 'the AI provider could not be reached'}.`
+        );
+        this._afterSweepRequest(kind, context);
+        return [];
+      }
+      truncated = true;
+      answer = this._partialAnswerOf(error);
+    }
+
+    await this._countRequestTokens(context, promptTokens, answer);
+
+    let items = null;
+    let parseError = null;
+    if (!truncated) {
+      try {
+        items = parseVerdictArray(answer);
+      } catch (error) {
+        parseError = error;
+      }
+    }
+    if (items === null) {
+      const salvaged = salvageSweepGroups(answer);
+      if (
+        salvaged.length === 0 &&
+        truncated &&
+        !budget.atBound &&
+        raises < MAX_CAP_RAISES
+      ) {
+        const raised = Math.min(cap * 2, budget.bound);
+        this._log(
+          `${head()} — the answer hit the token limit and salvaged nothing, ` +
+            `raising the cap from ${cap} to ${raised} and reading the same names again.`
+        );
+        if (tracker) tracker.requestsPlanned += 1;
+        this._afterSweepRequest(kind, context);
+        return this._sweepChunk(kind, chunk, context, {
+          cap: raised,
+          raises: raises + 1,
+        });
+      }
+      if (salvaged.length === 0) {
+        usage.failedRequests += 1;
+        console.warn(
+          `${LOG_PREFIX} ${head()} — failed: ` +
+            `${truncated ? 'the answer was cut off with nothing usable in it' : parseError?.message || 'the answer could not be read'}. ` +
+            `Raw answer: ${String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'}`
+        );
+        this._afterSweepRequest(kind, context);
+        return [];
+      }
+      this._log(
+        `${head()} — the answer was cut off, salvaged ${salvaged.length} group(s).`
+      );
+      items = salvaged;
+    }
+
+    const proposals = this._sweepProposals(items, chunk);
+    if (!truncated) {
+      this._log(`${head()} — ${proposals.length} group(s) proposed.`);
+    }
+    this._afterSweepRequest(kind, context);
+    return proposals;
+  }
+
+  /**
+   * What an answered sweep request adds to the progress: one request done,
+   * the running token total, and the line the page waits on next.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} context
+   */
+  _afterSweepRequest(kind, context) {
+    const { tracker } = context;
+    if (!tracker) return;
+    tracker.requestsDone += 1;
+    tracker.kind = kind;
+    this._report(tracker, {
+      phase: REVIEW_PHASES.SWEEPING,
+      kind,
+      requestsDone: tracker.requestsDone,
+      requestsPlanned: tracker.requestsPlanned,
+      tokens: tracker.tokens,
+      failedRequests: tracker.failedRequests,
+      requestPairs: null,
+      requestAnswers: 0,
+      requestTokens: null,
+      thinking: false,
+      // The judging requests of this kind are not in the plan yet — they are
+      // counted once the sweep's pairs are part of it — so the generic line
+      // would read "waiting for the last answer" after the last chunk.
+      message:
+        tracker.requestsDone < tracker.requestsPlanned
+          ? this._requestMessage(tracker)
+          : 'The sweep is done, gathering the evidence…',
+    });
+    this._checkTokenBudget(tracker);
+  }
+
+  /**
+   * The semantic sweep of one kind: the model reads every name, in chunks,
+   * and proposes the groups spelling will never produce.
+   *
+   * What comes back are candidate pairs, not groups: a proposed pair that is
+   * already inside a scan group, already a candidate of the band or dismissed
+   * is dropped, and everything else is judged with evidence like any other
+   * candidate.
+   *
+   * A group whose names sit in two different chunks cannot be found. That is
+   * the accepted cost of a bounded request: a sweep that showed the model
+   * every name at once would be the whole archive in one prompt.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {AiReviewEntity[]} entities  every entity of the kind
+   * @param {object} options
+   * @param {Set<string>} options.known      pair keys the review already has
+   * @param {Set<string>} options.dismissed  pair keys the user put away
+   * @param {object} options.service         the provider
+   * @param {object|null} options.tracker
+   * @param {object|null} options.sizer
+   * @returns {Promise<{pairs: AiReviewPair[], groups: number, usage: {requests:number, tokens:number|null, failedRequests:number}}>}
+   */
+  async _sweepKind(kind, entities, options) {
+    const { known, dismissed, service, tracker, sizer } = options;
+    const usage = { requests: 0, tokens: null, failedRequests: 0 };
+    /** @type {AiReviewPair[]} */
+    const pairs = [];
+    const result = { pairs, groups: 0, usage };
+
+    const names = (Array.isArray(entities) ? entities : []).filter(
+      (entity) =>
+        entity &&
+        Number.isInteger(Number(entity.id)) &&
+        String(entity.name ?? '').trim() !== ''
+    );
+    if (names.length < 2) return result;
+    if (names.length > SWEEP_MAX_NAMES) {
+      this._log(
+        `sweep: ${kind}, ${names.length} names is more than the ${SWEEP_MAX_NAMES} ` +
+          'a sweep reads, so it was skipped — a model that sees a fortieth of the ' +
+          'archive per request proposes little worth judging.'
+      );
+      return result;
+    }
+
+    const chunkSize = this.sweepNames();
+    const chunks = [];
+    for (let index = 0; index < names.length; index += chunkSize) {
+      chunks.push(names.slice(index, index + chunkSize));
+    }
+
+    // The plan knows what the sweep will cost before the first request of it
+    // is made, so the page's bar does not grow a denominator mid-sweep.
+    if (tracker) tracker.requestsPlanned += chunks.length;
+    const words = KIND_WORDS[kind] || KIND_WORDS.tags;
+    const announcement = {
+      phase: REVIEW_PHASES.SWEEPING,
+      kind,
+      message:
+        `Asking the model for synonyms and translations among ${names.length} ` +
+        `${words.singular} names…`,
+    };
+    if (tracker) announcement.requestsPlanned = tracker.requestsPlanned;
+    this._report(tracker, announcement);
+
+    const context = {
+      service,
+      usage,
+      tracker,
+      sizer,
+      state: { lastStreamMs: 0 },
+    };
+    const byId = new Map(names.map((entity) => [Number(entity.id), entity]));
+    const seen = new Set();
+    for (const chunk of chunks) {
+      if (this._stopped(tracker)) break;
+      const proposals = await this._sweepChunk(kind, chunk, context);
+      result.groups += proposals.length;
+      for (const proposal of proposals) {
+        for (let i = 0; i < proposal.ids.length; i += 1) {
+          for (let j = i + 1; j < proposal.ids.length; j += 1) {
+            const [low, high] =
+              proposal.ids[i] < proposal.ids[j]
+                ? [proposal.ids[i], proposal.ids[j]]
+                : [proposal.ids[j], proposal.ids[i]];
+            const key = entityNameMatcher.pairKey(kind, low, high);
+            if (known.has(key) || dismissed.has(key) || seen.has(key)) continue;
+            seen.add(key);
+            pairs.push({
+              key,
+              a: byId.get(low),
+              b: byId.get(high),
+              matchedBy: entityNameMatcher.MATCH_REASONS.SEMANTIC,
+              score: SEMANTIC_SCORE,
+              sweepBasis: proposal.basis,
+              sweepReason: proposal.reason,
+            });
+          }
+        }
+      }
+    }
+
+    this._log(
+      `sweep: ${kind}, ${names.length} names in ${usage.requests} request(s), ` +
+        `${result.groups} group(s) proposed, ${pairs.length} new pair(s) to judge.`
+    );
+    return result;
+  }
+
+  /**
    * The pairs of one scanned kind: every non-target member against its
    * group's target, plus the candidates from the band below the threshold
    * that are not already inside one group.
@@ -2140,7 +2861,10 @@ class EntityMatchAiService {
    * @param {object[]} groups        every scan group of this kind
    * @param {object[]} candidates    the band below the threshold, possibly empty
    * @param {Set<string>|null} [judgedGroupIds]  null judges every group
-   * @returns {{pairs: AiReviewPair[], candidates: AiReviewPair[], candidateEdges: Map<string, {score:number, reason:string}>, settled: Map<string, AiVerdict>}}
+   * @returns {{pairs: AiReviewPair[], candidates: AiReviewPair[], candidateEdges: Map<string, {score:number, reason:string}>, settled: Map<string, AiVerdict>, insideOneGroup: Set<string>}}
+   *   `insideOneGroup` is every pair key a scan group already holds, whether
+   *   that group is judged or not; the semantic sweep needs it to know what
+   *   it must not propose again.
    */
   _pairsForKind(kind, groups, candidates, judgedGroupIds = null) {
     /** @type {AiReviewPair[]} */
@@ -2212,6 +2936,7 @@ class EntityMatchAiService {
       candidates: candidatePairs,
       candidateEdges,
       settled,
+      insideOneGroup,
     };
   }
 
@@ -2324,10 +3049,11 @@ class EntityMatchAiService {
   }
 
   /**
-   * Adds document excerpts to the entities of the pairs the matcher linked by
-   * spelling alone — and to no others. This is the evidence that separates
-   * "Kontoauszug" from "Kontoumzug", and it is the expensive kind: one read
-   * and a few hundred characters of prompt per entity.
+   * Adds document excerpts to the entities of the pairs that have nothing
+   * but a name behind them — the ones the matcher linked by spelling alone,
+   * and the ones the semantic sweep proposed. This is the evidence that
+   * separates "Kontoauszug" from "Kontoumzug", and it is the expensive kind:
+   * one read and a few hundred characters of prompt per entity.
    *
    * Three things keep the cost where it belongs:
    * - a pair whose `matched_by` is a strong tier never triggers a read;
@@ -2346,21 +3072,29 @@ class EntityMatchAiService {
    *   evidence, whatever linked it; that is what the escalation of an unsure
    *   verdict asks for.
    * @returns {Promise<{pairs: AiReviewPair[], spellingOnly: number}>}
+   *   `spellingOnly` counts the pairs a spelling tier linked, for the log
+   *   line; the pairs of the sweep are counted with the sweep.
    */
   async _addExcerpts(kind, pairs, store, { force = false } = {}) {
     const paperlessService = require('./paperlessService');
-    const spellingOnly = force
+    const worthIt = force
       ? pairs
-      : pairs.filter((pair) => SPELLING_ONLY_REASON_SET.has(pair.matchedBy));
+      : pairs.filter((pair) => EXCERPT_REASON_SET.has(pair.matchedBy));
+    // What the log calls spelling-only stays what it always was; a pair the
+    // sweep proposed is counted where the sweep is counted.
+    const spellingOnly = force
+      ? pairs.length
+      : worthIt.filter((pair) => SPELLING_ONLY_REASON_SET.has(pair.matchedBy))
+          .length;
     if (
-      spellingOnly.length === 0 ||
+      worthIt.length === 0 ||
       typeof paperlessService.getRecentDocumentExcerptsByEntity !== 'function'
     ) {
-      return { pairs, spellingOnly: spellingOnly.length };
+      return { pairs, spellingOnly };
     }
 
     const ids = [
-      ...new Set(spellingOnly.flatMap((pair) => [pair.a.id, pair.b.id])),
+      ...new Set(worthIt.flatMap((pair) => [pair.a.id, pair.b.id])),
     ].filter((id) => Number.isInteger(Number(id)));
     const unread = ids.filter((id) => !store.cache.has(`${kind}:${id}`));
     const fetched = await mapWithConcurrency(
@@ -2384,7 +3118,7 @@ class EntityMatchAiService {
       store.cache.set(`${kind}:${id}`, list);
     });
 
-    const keys = new Set(spellingOnly.map((pair) => pair.key));
+    const keys = new Set(worthIt.map((pair) => pair.key));
     const withExcerpts = (entity) => {
       const list = store.cache.get(`${kind}:${Number(entity.id)}`);
       if (!list || list.length === 0) return entity;
@@ -2397,7 +3131,7 @@ class EntityMatchAiService {
           ? { ...pair, a: withExcerpts(pair.a), b: withExcerpts(pair.b) }
           : pair
       ),
-      spellingOnly: spellingOnly.length,
+      spellingOnly,
     };
   }
 
@@ -2472,6 +3206,10 @@ class EntityMatchAiService {
 
     const startedAt = Date.now();
     const tracker = this._reviewTracker(control);
+    // What an earlier review measured about this model, from the table when
+    // this process has not measured it itself. It has to be read before the
+    // sizer, because the sizer is what reads it.
+    await this._loadCalibration();
     // One measurement for the whole review: the model does not get faster
     // between two kinds, and the warm-up is worth paying for once.
     const sizer = this._sizer();
@@ -2486,7 +3224,8 @@ class EntityMatchAiService {
       requested === 'all' ? [...entityNameMatcher.KIND_LIST] : [requested];
 
     // A review that cannot ask anybody should not read an archive first.
-    this._provider();
+    // The sweep asks this one directly; reviewPairs() asks for its own.
+    const provider = this._provider();
 
     this._report(tracker, {
       phase: REVIEW_PHASES.SCANNING,
@@ -2520,6 +3259,9 @@ class EntityMatchAiService {
         : Number(options.minConfidence);
     const targeted =
       selectedIds !== null || minConfidence !== null || !includeCandidates;
+    // The semantic sweep is off unless the page asks for it, and it is the
+    // one part of a review that reads names the matcher never linked.
+    const semanticSweep = optedIn(options.semanticSweep);
 
     // The evidence. Titles are context for every pair; excerpts are evidence
     // for the spelling-only ones and are read once per entity per review.
@@ -2556,6 +3298,8 @@ class EntityMatchAiService {
     let spellingRules = 0;
     let escalated = 0;
     let pairsNotJudged = 0;
+    let sweepRequests = 0;
+    let sweepProposals = 0;
     let model = this.modelName();
 
     /** Folds the usage of one round of requests into the totals above. */
@@ -2588,63 +3332,91 @@ class EntityMatchAiService {
 
       // Without the band nothing needs the entity list either, which is what
       // makes a targeted review cheap: one scan, no second read per kind.
+      // The sweep needs the same list, so it buys the read back.
       let entities = [];
       let band = [];
-      if (includeCandidates && !this._stopped(tracker)) {
+      const dismissed = new Set();
+      if ((includeCandidates || semanticSweep) && !this._stopped(tracker)) {
         entities = await paperlessService.listEntities(kind);
 
-        let dismissed = [];
         if (!options.includeDismissed) {
           const rows = await documentModel.listEntityMergeDismissals(kind);
-          dismissed = rows.map((row) =>
-            entityNameMatcher.pairKey(kind, row.idA, row.idB)
-          );
+          for (const row of rows) {
+            dismissed.add(entityNameMatcher.pairKey(kind, row.idA, row.idB));
+          }
         }
-
+      }
+      if (includeCandidates && !this._stopped(tracker)) {
         band = entityNameMatcher.findCandidatePairs(entities, {
           kind,
           floor: this.candidateFloor(),
           threshold: scan.threshold,
-          dismissedPairs: dismissed,
+          dismissedPairs: [...dismissed],
           limit: CANDIDATE_LIMIT,
         });
       }
 
-      const { pairs, candidates, candidateEdges, settled } = this._pairsForKind(
-        kind,
-        groups,
-        band,
-        selectedGroupIds
-      );
+      const { pairs, candidates, candidateEdges, settled, insideOneGroup } =
+        this._pairsForKind(kind, groups, band, selectedGroupIds);
       candidateCount += candidates.length;
-      judged += pairs.length;
       spellingRules += settled.size;
       if (tracker) tracker.spellingRules = spellingRules;
 
+      // The semantic sweep, after the scan and before the evidence: what it
+      // proposes is a candidate pair like any other from here on, so it has
+      // to exist before the titles and excerpts are read.
+      const reviewed = [...candidates];
+      let toJudge = pairs;
+      if (semanticSweep && !this._stopped(tracker)) {
+        const swept = await this._sweepKind(kind, entities, {
+          known: new Set([...insideOneGroup, ...candidateEdges.keys()]),
+          dismissed,
+          service: provider,
+          tracker,
+          sizer,
+        });
+        requests += swept.usage.requests;
+        sweepRequests += swept.usage.requests;
+        failedRequests += swept.usage.failedRequests;
+        if (swept.usage.tokens != null) {
+          tokens = (tokens || 0) + swept.usage.tokens;
+        }
+        sweepProposals += swept.pairs.length;
+        for (const pair of swept.pairs) {
+          candidateEdges.set(pair.key, {
+            score: pair.score,
+            reason: pair.matchedBy,
+          });
+          reviewed.push(pair);
+        }
+        toJudge = [...pairs, ...swept.pairs];
+      }
+      judged += toJudge.length;
+
       // The evidence is gathered before the start line, so the line can say
       // what the model is about to see rather than what it was offered.
-      let asked = pairs;
+      let asked = toJudge;
       let spellingOnly = 0;
       const fetchedBefore = excerptStore.entities.size;
-      const gathering = pairs.length > 0 && !this._stopped(tracker);
+      const gathering = toJudge.length > 0 && !this._stopped(tracker);
       if (gathering && withTitles) {
         this._report(tracker, {
           phase: REVIEW_PHASES.EVIDENCE,
           kind,
-          message: `Reading titles and neighbours for ${this._entityCount(pairs)} entities…`,
+          message: `Reading titles and neighbours for ${this._entityCount(toJudge)} entities…`,
         });
         asked = await this._addTitles(kind, asked);
         asked = await this._addNeighbourhood(kind, asked, excerptStore);
       }
       if (gathering && withExcerpts) {
-        const spellingEntities = this._entityCount(
-          pairs.filter((pair) => SPELLING_ONLY_REASON_SET.has(pair.matchedBy))
+        const evidenceEntities = this._entityCount(
+          toJudge.filter((pair) => EXCERPT_REASON_SET.has(pair.matchedBy))
         );
-        if (spellingEntities > 0) {
+        if (evidenceEntities > 0) {
           this._report(tracker, {
             phase: REVIEW_PHASES.EVIDENCE,
             kind,
-            message: `Reading excerpts for ${spellingEntities} entities…`,
+            message: `Reading excerpts for ${evidenceEntities} entities…`,
           });
         }
         const evidence = await this._addExcerpts(kind, asked, excerptStore);
@@ -2664,10 +3436,13 @@ class EntityMatchAiService {
           includeCandidates
             ? `${candidates.length} candidate(s) in the band`
             : 'band skipped',
+          ...(semanticSweep
+            ? [`${reviewed.length - candidates.length} pair(s) from the sweep`]
+            : []),
           ...(settled.size > 0
             ? [`${settled.size} pair(s) settled by a spelling rule`]
             : []),
-          `${pairs.length} pair(s) to judge`,
+          `${toJudge.length} pair(s) to judge`,
           `titles ${withTitles ? 'on' : 'off'}`,
           withExcerpts
             ? `excerpts on for ${spellingOnly} spelling-only pair(s), ` +
@@ -2696,7 +3471,9 @@ class EntityMatchAiService {
         kind,
         groups,
         entities,
-        candidates,
+        // Band and sweep together: both are pairs that become a group only
+        // when the model confirms them.
+        candidates: reviewed,
         candidateEdges,
         settled,
         asked,
@@ -2909,6 +3686,9 @@ class EntityMatchAiService {
       `review finished: ${requests} request(s) (${retries} retry/retries, ${failedRequests} failed), ` +
         `${tokens == null ? 'unknown' : tokens} token(s), ${judged} pair(s) planned, ` +
         `${candidateCount} candidate(s), ${confirmed} group(s) confirmed` +
+        (semanticSweep
+          ? `, ${sweepRequests} sweep request(s), ${sweepProposals} sweep pair(s)`
+          : '') +
         (targeted
           ? `, ${groupsJudged} group(s) judged, ${groupsSkipped} skipped`
           : '') +
@@ -2939,6 +3719,10 @@ class EntityMatchAiService {
         stopped,
         stopReason: null,
         pairsNotJudged,
+        // Both 0 without the sweep, because a review that did not sweep made
+        // no sweep request and proposed no pair.
+        sweepRequests,
+        sweepProposals,
       },
     };
   }
@@ -2982,6 +3766,10 @@ entityMatchAiService.VERDICT_SOURCES = VERDICT_SOURCES;
 entityMatchAiService.VERDICT_BASES = VERDICT_BASES;
 entityMatchAiService.CONFIDENCE_LEVELS = CONFIDENCE_LEVELS;
 entityMatchAiService.SPELLING_ONLY_REASONS = SPELLING_ONLY_REASONS;
+entityMatchAiService.SWEEP_BASES = SWEEP_BASES;
+entityMatchAiService.SWEEP_MAX_NAMES = SWEEP_MAX_NAMES;
+entityMatchAiService.MIN_SWEEP_NAMES = MIN_SWEEP_NAMES;
+entityMatchAiService.SEMANTIC_SCORE = SEMANTIC_SCORE;
 entityMatchAiService.SETTLED_REASON_BASES = SETTLED_REASON_BASES;
 entityMatchAiService.CANDIDATE_LIMIT = CANDIDATE_LIMIT;
 entityMatchAiService.REVIEW_PHASES = REVIEW_PHASES;
@@ -3021,6 +3809,18 @@ entityMatchAiService.excerptChars = () => {
 entityMatchAiService.excerptDocuments = () => {
   const documents = Number(config.duplicatesAiExcerptDocuments);
   return Number.isInteger(documents) && documents > 0 ? documents : 2;
+};
+/**
+ * Names per semantic sweep request. Never fewer than MIN_SWEEP_NAMES: a
+ * sweep of twenty names at a time is a request per twenty names and a model
+ * that cannot see the two names it is meant to link.
+ */
+entityMatchAiService.sweepNames = () => {
+  const names = Number(config.duplicatesAiSweepNames);
+  return Math.max(
+    MIN_SWEEP_NAMES,
+    Number.isInteger(names) && names > 0 ? names : DEFAULT_SWEEP_NAMES
+  );
 };
 
 module.exports = entityMatchAiService;

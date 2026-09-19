@@ -619,6 +619,18 @@
  *           nullable: true
  *           description: public Paperless-ngx base URL the page links its entries to
  *           example: https://paperless.example.org
+ *         unused:
+ *           type: object
+ *           description: objects of the scanned kinds that carry no document; inbox and configured tags are never listed
+ *           properties:
+ *             tags:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/EntityRecord'
+ *             correspondents:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/EntityRecord'
  *
  *     EntityMergeRequest:
  *       type: object
@@ -640,6 +652,9 @@
  *           items:
  *             type: integer
  *           example: [48, 97]
+ *         targetName:
+ *           type: string
+ *           description: a new name for the target, applied before the merge; empty or absent keeps its name
  *         copyMatchingRule:
  *           type: boolean
  *           description: copy a source's matching rule to the target when the target has none
@@ -757,6 +772,14 @@
  *           nullable: true
  *         undoResult:
  *           $ref: '#/components/schemas/EntityMergeUndoResult'
+ *         action:
+ *           type: string
+ *           enum: [merge, delete]
+ *           description: what the row records; a delete row lists the removed objects as its sources and can be undone like a merge
+ *         targetRenamedFrom:
+ *           type: string
+ *           nullable: true
+ *           description: the target's name before this merge renamed it; null when it did not
  *
  *     EntityMergeUndoResult:
  *       type: object
@@ -856,6 +879,10 @@
  *           type: boolean
  *           default: true
  *           description: give the model short content excerpts of a couple of documents per entity for pairs the matcher linked by spelling alone
+ *         semanticSweep:
+ *           type: boolean
+ *           default: false
+ *           description: let the model see the names of each kind and propose groups the string matcher cannot (synonyms, translations); the proposals are judged with evidence like the band
  *
  *     DuplicateAiReviewResult:
  *       allOf:
@@ -919,6 +946,12 @@
  *                 pairsNotJudged:
  *                   type: integer
  *                   description: pairs that were due but never reached the model because the review stopped
+ *                 sweepRequests:
+ *                   type: integer
+ *                   description: model requests the semantic sweep made (names only)
+ *                 sweepProposals:
+ *                   type: integer
+ *                   description: pairs the sweep proposed that the string matcher had not; they were judged with evidence like any candidate
  *
  *     AiReviewProgress:
  *       type: object
@@ -926,7 +959,7 @@
  *       properties:
  *         phase:
  *           type: string
- *           enum: [starting, scanning, evidence, warming-up, judging, escalating, finishing]
+ *           enum: [starting, scanning, evidence, sweeping, warming-up, judging, escalating, finishing]
  *         message:
  *           type: string
  *           description: one line for the page, e.g. "Asking the model, request 3 of 8"
@@ -1044,6 +1077,77 @@
  *         error:
  *           type: string
  *           nullable: true
+ *
+ *     EntityDeleteRequest:
+ *       type: object
+ *       required:
+ *         - kind
+ *         - ids
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *         ids:
+ *           type: array
+ *           description: unused objects to delete; an object that carries a document by now is refused, not deleted
+ *           items:
+ *             type: integer
+ *
+ *     EntityDeleteResult:
+ *       type: object
+ *       properties:
+ *         kind:
+ *           type: string
+ *         deleted:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: integer
+ *               name:
+ *                 type: string
+ *         failed:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: integer
+ *               name:
+ *                 type: string
+ *               error:
+ *                 type: string
+ *         logId:
+ *           type: integer
+ *           nullable: true
+ *           description: the merge-log row (action delete) that an undo re-creates the objects from
+ *
+ *     EntityNameMapping:
+ *       type: object
+ *       description: document analysis proposed a name and the creation guard used an existing object instead
+ *       properties:
+ *         id:
+ *           type: integer
+ *         kind:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *         proposedName:
+ *           type: string
+ *         targetId:
+ *           type: integer
+ *         targetName:
+ *           type: string
+ *         reason:
+ *           type: string
+ *           description: the matcher tier that linked the names
+ *         score:
+ *           type: number
+ *         documentId:
+ *           type: integer
+ *           nullable: true
+ *         createdAt:
+ *           type: string
  *
  *     EntityMergeDismissRequest:
  *       type: object

@@ -107,6 +107,20 @@
  *     and clears itself in the report that counts it; an unwatched review
  *     does not ask the provider to stream at all
  * 61. A review reuses the scan the page just made
+ * 62. The semantic sweep: names only, chunked by the setting, with its own
+ *     system prompt; an archive above the limit is skipped and says why
+ * 63. A proposal becomes a candidate pair with the reason semantic, a score
+ *     of 0.5 and the sweep's basis and reason as a hint in the judging prompt
+ * 64. A confirmed proposal is a group at fifty per cent, a rejected one is
+ *     nothing; a proposal the review already knows is never made twice
+ * 65. A pair of the sweep always carries excerpts; the counters, the log line
+ *     and the sweeping phase; a cut-off sweep answer is salvaged, one that
+ *     salvaged nothing is re-asked with a raised cap, and the token budget
+ *     stops a review inside its sweep
+ * 66. Without the option no sweep request is made at all
+ * 67. The calibration survives a restart: it is loaded from ai_calibration
+ *     into a fresh review, saved after every measurement, and resetCalibration
+ *     and forgetCalibration clear memory and table alike
  */
 
 'use strict';
@@ -1055,6 +1069,10 @@ async function main() {
         stopped: false,
         stopReason: null,
         pairsNotJudged: 0,
+        // A review that did not sweep made no sweep request and proposed
+        // no pair; both numbers are on every result all the same.
+        sweepRequests: 0,
+        sweepProposals: 0,
       });
       assert.strictEqual(result.threshold, 0.95, 'the scan result is kept');
       assert.strictEqual(result.paperlessUrl, 'https://paperless.example');
@@ -3825,6 +3843,799 @@ async function main() {
         'a later review starts with it'
       );
       service.resetCalibration();
+    });
+
+    // ------------------------------------------ the semantic sweep (round 9)
+
+    /**
+     * The user prompt of a sweep request. The judge's says "Pairs:", the
+     * sweep's says "Names:", and nothing else in a prompt looks like either.
+     */
+    function isSweepPrompt(prompt) {
+      return /^Names: \d+$/m.test(String(prompt));
+    }
+
+    /** The ids and names one sweep request carried, in order. */
+    function namesInPrompt(prompt) {
+      return [
+        ...String(prompt).matchAll(/\{"id":"(\d+)","name":"([^"]*)"\}/g),
+      ].map((hit) => ({ id: Number(hit[1]), name: hit[2] }));
+    }
+
+    /** The error every provider raises when it runs out of room. */
+    function truncation(partialText) {
+      const error = new Error('the answer hit a token limit');
+      error.code = 'ai_response_truncated';
+      if (partialText != null) error.partialText = partialText;
+      return error;
+    }
+
+    /**
+     * A provider that answers both questions of a swept review: `groups`
+     * answers a sweep request (an array, a string, or an Error to throw),
+     * `verdict` answers every judged pair.
+     */
+    function useSweepProvider({
+      groups = () => [],
+      verdict = () => 'same',
+      reason = 'one thing in two languages',
+    } = {}) {
+      const sweeps = [];
+      const judged = [];
+      service.resetCalibration();
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText(prompt, options) {
+          provider.lastGenerateTextUsage = { totalTokens: 100 };
+          if (isSweepPrompt(prompt)) {
+            sweeps.push({ prompt, options });
+            const answer = await groups(
+              namesInPrompt(prompt),
+              sweeps.length,
+              options
+            );
+            if (answer instanceof Error) throw answer;
+            return typeof answer === 'string' ? answer : JSON.stringify(answer);
+          }
+          judged.push({ prompt, options });
+          return JSON.stringify(
+            idsInPrompt(prompt).map((id) => ({
+              id,
+              verdict: verdict(id),
+              reason,
+            }))
+          );
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+      return { provider, sweeps, judged };
+    }
+
+    /** Runs `fn` with a given DUPLICATES_AI_SWEEP_NAMES. */
+    async function withSweepNames(names, fn) {
+      const previous = config.duplicatesAiSweepNames;
+      config.duplicatesAiSweepNames = names;
+      try {
+        return await fn();
+      } finally {
+        config.duplicatesAiSweepNames = previous;
+      }
+    }
+
+    /** Runs `fn` with console.log captured, and returns the lines. */
+    async function withLoggedLines(fn) {
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      try {
+        await fn();
+      } finally {
+        console.log = realLog;
+      }
+      return lines;
+    }
+
+    /**
+     * Six tags no string matcher will ever link: two pairs that are one thing
+     * in two languages, and two names that are merely related. Every tag
+     * carries a document with content, because a pair the sweep proposed is
+     * judged on the documents.
+     */
+    function seedSemantic() {
+      return useFake({
+        tags: [
+          { id: 1, name: 'Rechnung' },
+          { id: 2, name: 'Invoice' },
+          { id: 3, name: 'Kontoauszug' },
+          { id: 4, name: 'Bank statement' },
+          { id: 5, name: 'Auto' },
+          { id: 6, name: 'Versicherung' },
+        ],
+        correspondents: [{ id: 20, name: 'Sparkasse Koeln' }],
+        documents: [
+          {
+            id: 100,
+            title: 'Rechnung 2025-04',
+            tags: [1],
+            correspondent: 20,
+            content: 'Rechnung Nr. 4711 Betrag 120,00 EUR zahlbar bis',
+          },
+          {
+            id: 101,
+            title: 'Invoice 2025-05',
+            tags: [2],
+            correspondent: 20,
+            content: 'Invoice No. 4712 amount due 120.00 EUR payable by',
+          },
+          {
+            id: 102,
+            title: 'Kontoauszug 03/2025',
+            tags: [3],
+            correspondent: 20,
+            content: 'Kontoauszug Nr. 3 Saldo neuer Kontostand 980,12 EUR',
+          },
+          {
+            id: 103,
+            title: 'Bank statement 04/2025',
+            tags: [4],
+            correspondent: 20,
+            content: 'Bank statement No. 4 closing balance 1,450.00 EUR',
+          },
+          {
+            id: 104,
+            title: 'Fahrzeugschein',
+            tags: [5],
+            correspondent: 20,
+            content: 'Zulassungsbescheinigung Teil I Fahrzeug',
+          },
+          {
+            id: 105,
+            title: 'Haftpflicht',
+            tags: [6],
+            correspondent: 20,
+            content: 'Versicherungsschein Haftpflicht Jahresbeitrag',
+          },
+        ],
+      });
+    }
+
+    /** The review every sweep case runs, over the six tags above. */
+    const SWEEP_REVIEW = {
+      kind: 'tags',
+      threshold: 0.95,
+      semanticSweep: true,
+    };
+
+    /** Answers one sweep request with the two translation pairs. */
+    const TWO_TRANSLATIONS = () => [
+      { ids: ['1', '2'], basis: 'translation', reason: 'German and English' },
+      {
+        ids: ['3', '4'],
+        basis: 'translation',
+        reason: 'the same bank document',
+      },
+    ];
+
+    await test('The fixture of the sweep is invisible to the string matcher', async () => {
+      seedSemantic();
+      const scan = await duplicateMergeService.scan({
+        kind: 'tags',
+        threshold: 0.95,
+        fresh: true,
+      });
+      assert.deepStrictEqual(scan.groups, [], 'no group is found by spelling');
+      const entities = await paperlessService.listEntities('tags');
+      assert.deepStrictEqual(
+        matcher.findCandidatePairs(entities, {
+          kind: 'tags',
+          floor: service.candidateFloor(),
+          threshold: 0.95,
+          limit: 100,
+        }),
+        [],
+        'and nothing lands in the band either'
+      );
+    });
+
+    await test('The sweep shows the model names only, in chunks of the setting', async () => {
+      const entities = [];
+      for (let index = 1; index <= 120; index += 1) {
+        entities.push(entity(index, `Name ${index}`, index));
+      }
+      const calls = [];
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: { totalTokens: 50 },
+        async generateText(prompt, options) {
+          calls.push({ prompt, options });
+          return '[]';
+        },
+      };
+
+      await withSweepNames(50, () =>
+        service._sweepKind('tags', entities, {
+          known: new Set(),
+          dismissed: new Set(),
+          service: provider,
+          tracker: null,
+          sizer: null,
+        })
+      );
+
+      assert.deepStrictEqual(
+        calls.map((call) => namesInPrompt(call.prompt).length),
+        [50, 50, 20],
+        'one request per chunk of the setting'
+      );
+      assert.deepStrictEqual(namesInPrompt(calls[0].prompt)[0], {
+        id: 1,
+        name: 'Name 1',
+      });
+      assert.match(calls[0].prompt, /^Kind: tags\nNames: 50\n\[/);
+      assert.strictEqual(
+        /"documents"|"titles"|"excerpts"|Pairs:/.test(calls[0].prompt),
+        false,
+        'a sweep carries ids and names and nothing else'
+      );
+      const system = calls[0].options.systemPrompt;
+      assert.match(system, /"ids": \["<id>", "<id>"\]/);
+      assert.match(system, /"translation" \| "synonym" \| "abbreviation"/);
+      assert.match(system, /nothing that is merely related/);
+      assert.match(system, /nothing that differs only in how it is written/);
+      assert.strictEqual(calls[0].options.temperature, 0);
+      assert.strictEqual(calls[0].options.reasoning, false);
+      assert.ok(calls[0].options.maxTokens > 0);
+    });
+
+    await test('The sweep never reads fewer than fifty names per request', async () => {
+      await withSweepNames(10, () => {
+        assert.strictEqual(service.sweepNames(), service.MIN_SWEEP_NAMES);
+      });
+      await withSweepNames(300, () => {
+        assert.strictEqual(service.sweepNames(), 300);
+      });
+    });
+
+    await test('A kind with more names than a sweep reads is skipped, and says why', async () => {
+      const entities = [];
+      for (let index = 1; index <= service.SWEEP_MAX_NAMES + 1; index += 1) {
+        entities.push(entity(index, `Name ${index}`, 0));
+      }
+      const provider = {
+        client: {},
+        async generateText() {
+          throw new Error('the sweep must not ask about an archive this large');
+        },
+      };
+      let swept = null;
+      const lines = await withLoggedLines(async () => {
+        swept = await service._sweepKind('tags', entities, {
+          known: new Set(),
+          dismissed: new Set(),
+          service: provider,
+          tracker: null,
+          sizer: null,
+        });
+      });
+      assert.deepStrictEqual(swept.pairs, []);
+      assert.strictEqual(swept.usage.requests, 0);
+      assert.ok(
+        lines.some((line) =>
+          new RegExp(
+            `sweep: tags, 5001 names is more than the ${service.SWEEP_MAX_NAMES}`
+          ).test(line)
+        ),
+        `no skip line:\n${lines.join('\n')}`
+      );
+    });
+
+    await test('A proposal becomes a pair the judge sees with the sweep’s own hint', async () => {
+      seedSemantic();
+      const { sweeps, judged } = useSweepProvider({
+        groups: TWO_TRANSLATIONS,
+      });
+
+      const result = await service.reviewScan(SWEEP_REVIEW);
+
+      assert.strictEqual(sweeps.length, 1, 'six names are one sweep request');
+      assert.strictEqual(judged.length, 1, 'and two proposals one request');
+      assert.deepStrictEqual(idsInPrompt(judged[0].prompt).sort(), [
+        'tags:1-2',
+        'tags:3-4',
+      ]);
+      assert.match(judged[0].prompt, /"matched_by":"semantic","score":0\.5/);
+      assert.match(
+        judged[0].prompt,
+        /"sweep_basis":"translation","sweep_reason":"German and English"/
+      );
+      assert.match(
+        judged[0].options.systemPrompt,
+        /"matched_by":"semantic" is a pair nothing in the spelling links/,
+        'and the judge is told what such a pair is'
+      );
+      assert.strictEqual(result.aiReview.sweepRequests, 1);
+      assert.strictEqual(result.aiReview.sweepProposals, 2);
+      assert.strictEqual(result.aiReview.judged, 2);
+      assert.strictEqual(
+        result.aiReview.candidates,
+        0,
+        'the band is empty here; the pairs of the sweep are counted on their own'
+      );
+      assert.strictEqual(
+        result.aiReview.requests,
+        2,
+        'the sweep and the judge'
+      );
+    });
+
+    await test('A same verdict on a proposal builds a semantic group at fifty per cent', async () => {
+      seedSemantic();
+      useSweepProvider({ groups: TWO_TRANSLATIONS });
+
+      const result = await service.reviewScan(SWEEP_REVIEW);
+
+      assert.strictEqual(result.groups.length, 2);
+      const [first] = result.groups;
+      assert.strictEqual(first.source, 'ai-candidate');
+      assert.deepStrictEqual(first.reasons, ['semantic']);
+      assert.strictEqual(first.confidence, service.SEMANTIC_SCORE);
+      assert.deepStrictEqual(
+        result.groups
+          .flatMap((group) => group.members.map((member) => member.id))
+          .sort((x, y) => x - y),
+        [1, 2, 3, 4]
+      );
+      assert.deepStrictEqual(
+        first.aiVerdict,
+        verdict('same', 'one thing in two languages')
+      );
+      const member = first.members.find(
+        (one) => one.id !== first.suggestedTargetId
+      );
+      assert.strictEqual(member.scoreToTarget, service.SEMANTIC_SCORE);
+      assert.strictEqual(member.reason, 'semantic');
+    });
+
+    await test('A proposal the model then calls different becomes no group', async () => {
+      seedSemantic();
+      const { judged } = useSweepProvider({
+        groups: () => [
+          { ids: ['5', '6'], basis: 'synonym', reason: 'both about the car' },
+        ],
+        verdict: () => 'different',
+        reason: 'a car is not an insurance',
+      });
+
+      const result = await service.reviewScan(SWEEP_REVIEW);
+
+      assert.strictEqual(judged.length, 1, 'the proposal was judged');
+      assert.deepStrictEqual(result.groups, [], 'and it did not survive it');
+      assert.strictEqual(result.aiReview.sweepProposals, 1);
+    });
+
+    await test('A pair in a group, in the band or dismissed is not proposed again', async () => {
+      seedArchive();
+      await documentModel.addEntityMergeDismissals('correspondents', [
+        {
+          idA: 7,
+          idB: 8,
+          nameA: 'Stadtwerke Muenchen Energie',
+          nameB: 'Energie Stadtwerke Muenchen Nord',
+        },
+      ]);
+      const { sweeps, judged } = useSweepProvider({
+        groups: () => [
+          { ids: ['1', '2'], basis: 'synonym', reason: 'already one group' },
+          { ids: ['3', '4'], basis: 'synonym', reason: 'already a candidate' },
+          { ids: ['7', '8'], basis: 'synonym', reason: 'already dismissed' },
+          { ids: ['5', '7'], basis: 'synonym', reason: 'this one is new' },
+        ],
+        verdict: (id) => (id === 'correspondents:5-7' ? 'unsure' : 'same'),
+      });
+
+      const result = await service.reviewScan({
+        kind: 'correspondents',
+        threshold: 0.95,
+        semanticSweep: true,
+      });
+
+      assert.strictEqual(sweeps.length, 1);
+      assert.strictEqual(
+        result.aiReview.sweepProposals,
+        1,
+        'three of the four proposals were already known'
+      );
+      const asked = judged.flatMap((call) => idsInPrompt(call.prompt));
+      assert.ok(
+        asked.includes('correspondents:5-7'),
+        'and the one new pair is judged'
+      );
+      assert.strictEqual(
+        asked.filter((id) => id === 'correspondents:3-4').length,
+        1,
+        'the band pair is asked once, as the band pair it already was'
+      );
+      assert.strictEqual(asked.includes('correspondents:7-8'), false);
+      assert.strictEqual(asked.includes('correspondents:1-2'), false);
+    });
+
+    await test('A pair the sweep proposed always carries document excerpts', async () => {
+      seedSemantic();
+      const { judged } = useSweepProvider({ groups: TWO_TRANSLATIONS });
+
+      const result = await service.reviewScan(SWEEP_REVIEW);
+
+      assert.match(judged[0].prompt, /"excerpts":\["Rechnung Nr\. 4711/);
+      assert.match(judged[0].prompt, /"excerpts":\["Invoice No\. 4712/);
+      assert.strictEqual(
+        result.aiReview.excerpts,
+        4,
+        'one read per entity of the two proposals'
+      );
+    });
+
+    await test('The sweep counts its requests and its pairs, and says so in one line', async () => {
+      seedSemantic();
+      useSweepProvider({ groups: TWO_TRANSLATIONS });
+      let result = null;
+      const lines = await withLoggedLines(async () => {
+        result = await service.reviewScan(SWEEP_REVIEW);
+      });
+
+      assert.strictEqual(result.aiReview.sweepRequests, 1);
+      assert.strictEqual(result.aiReview.sweepProposals, 2);
+      assert.ok(
+        lines.some((line) =>
+          /sweep: tags, 6 names in 1 request\(s\), 2 group\(s\) proposed, 2 new pair\(s\) to judge\./.test(
+            line
+          )
+        ),
+        `no sweep line:\n${lines.join('\n')}`
+      );
+      assert.strictEqual(
+        lines.some((line) => /Rechnung 2025-04/.test(line)),
+        false,
+        'and no document title ever reaches the log'
+      );
+    });
+
+    await test('Without the option nothing of the sweep runs', async () => {
+      seedSemantic();
+      const { sweeps, judged } = useSweepProvider({
+        groups: TWO_TRANSLATIONS,
+      });
+
+      const result = await service.reviewScan({
+        kind: 'tags',
+        threshold: 0.95,
+      });
+
+      assert.strictEqual(sweeps.length, 0, 'no sweep request');
+      assert.strictEqual(judged.length, 0, 'and nothing to judge');
+      assert.strictEqual(result.aiReview.sweepRequests, 0);
+      assert.strictEqual(result.aiReview.sweepProposals, 0);
+      assert.deepStrictEqual(result.groups, []);
+
+      const off = await service.reviewScan({
+        ...SWEEP_REVIEW,
+        semanticSweep: false,
+      });
+      assert.strictEqual(off.aiReview.sweepRequests, 0, 'and false is off');
+    });
+
+    await test('The sweep is asked for by a checkbox, so its string counts too', async () => {
+      seedSemantic();
+      const { sweeps } = useSweepProvider({ groups: TWO_TRANSLATIONS });
+
+      const result = await service.reviewScan({
+        ...SWEEP_REVIEW,
+        semanticSweep: 'true',
+      });
+
+      assert.strictEqual(sweeps.length, 1, 'a checked box is a checked box');
+      assert.strictEqual(result.aiReview.sweepProposals, 2);
+    });
+
+    await test('The sweep reports its own phase and is in the plan before it asks', async () => {
+      seedSemantic();
+      const watch = useControl();
+      let plannedAtFirstSweep = null;
+      const { sweeps } = useSweepProvider({
+        groups: (names, callNumber, options) => {
+          if (callNumber === 1) {
+            plannedAtFirstSweep = watch.patches
+              .filter((patch) => patch.requestsPlanned != null)
+              .map((patch) => patch.requestsPlanned);
+            // What the provider reports while it writes the answer.
+            options.onProgress({
+              text: '',
+              thinking: true,
+              completionTokens: 64,
+              done: false,
+            });
+          }
+          return TWO_TRANSLATIONS();
+        },
+      });
+
+      await service.reviewScan(SWEEP_REVIEW, watch.control);
+
+      assert.strictEqual(
+        typeof sweeps[0].options.onProgress,
+        'function',
+        'a watched sweep asks the provider to stream'
+      );
+      assert.ok(sweeps[0].options.signal, 'and can be stopped mid-request');
+      const streamed = watch.streams();
+      assert.strictEqual(streamed.length, 1, 'the one report it was given');
+      assert.strictEqual(streamed[0].thinking, true);
+      assert.strictEqual(streamed[0].requestTokens, 64);
+      assert.strictEqual(
+        streamed[0].message,
+        'The model is thinking… (64 tokens so far)'
+      );
+      const sweeping = watch.ofPhase('sweeping');
+      assert.ok(sweeping.length >= 2, 'the announcement and the answer');
+      assert.strictEqual(sweeping[0].kind, 'tags');
+      assert.strictEqual(
+        sweeping[0].message,
+        'Asking the model for synonyms and translations among 6 tag names…'
+      );
+      assert.deepStrictEqual(
+        plannedAtFirstSweep,
+        [1],
+        'the one sweep request was in the plan before it was made'
+      );
+      const answered = sweeping.filter((patch) => patch.requestsDone === 1);
+      assert.strictEqual(answered.length, 1, 'and the answer counts a request');
+      assert.strictEqual(answered[0].tokens, 100);
+      assert.strictEqual(
+        answered[0].message,
+        'The sweep is done, gathering the evidence…',
+        'the judging requests of this kind are not in the plan yet'
+      );
+    });
+
+    await test('A cut-off sweep answer keeps the groups the model managed to write', async () => {
+      seedSemantic();
+      const { sweeps, judged } = useSweepProvider({
+        groups: () =>
+          truncation(
+            '[{"ids":["1","2"],"basis":"translation","reason":"German and English"},' +
+              '{"ids":["3","4"],"basis":"trans'
+          ),
+      });
+
+      const result = await service.reviewScan(SWEEP_REVIEW);
+
+      assert.strictEqual(sweeps.length, 1, 'a salvaged answer is not re-asked');
+      assert.strictEqual(result.aiReview.sweepProposals, 1);
+      assert.deepStrictEqual(idsInPrompt(judged[0].prompt), ['tags:1-2']);
+      assert.strictEqual(result.aiReview.failedRequests, 0);
+    });
+
+    await test('A sweep answer that salvaged nothing is asked once more with a raised cap', async () => {
+      seedSemantic();
+      const { sweeps } = useSweepProvider({
+        groups: (names, callNumber) =>
+          callNumber === 1 ? truncation('[') : TWO_TRANSLATIONS(),
+      });
+
+      const result = await service.reviewScan(SWEEP_REVIEW);
+
+      assert.strictEqual(sweeps.length, 2, 'the same names, once more');
+      assert.ok(
+        sweeps[1].options.maxTokens > sweeps[0].options.maxTokens,
+        'with more room to answer in'
+      );
+      assert.strictEqual(result.aiReview.sweepRequests, 2);
+      assert.strictEqual(result.aiReview.sweepProposals, 2);
+    });
+
+    await test('A sweep that answers nothing usable costs its own request and no more', async () => {
+      seedSemantic();
+      const warnings = [];
+      const realWarn = console.warn;
+      console.warn = (...args) => warnings.push(args.join(' '));
+      let result;
+      try {
+        useSweepProvider({ groups: () => 'I would rather not.' });
+        result = await service.reviewScan(SWEEP_REVIEW);
+      } finally {
+        console.warn = realWarn;
+      }
+
+      assert.strictEqual(result.aiReview.sweepRequests, 1);
+      assert.strictEqual(result.aiReview.sweepProposals, 0);
+      assert.strictEqual(result.aiReview.failedRequests, 1);
+      assert.deepStrictEqual(result.groups, []);
+      assert.ok(
+        warnings.some((line) => /sweep tags: .* — failed:/.test(line)),
+        `no warning:\n${warnings.join('\n')}`
+      );
+    });
+
+    await test('The token budget stops a review inside its sweep', async () => {
+      seedSemantic();
+      const watch = useControl({ tokenBudget: 50 });
+      const { sweeps, judged } = useSweepProvider({
+        groups: TWO_TRANSLATIONS,
+      });
+
+      const result = await service.reviewScan(SWEEP_REVIEW, watch.control);
+
+      assert.strictEqual(sweeps.length, 1, 'the one request it had paid for');
+      assert.strictEqual(judged.length, 0, 'nothing was judged after it');
+      assert.deepStrictEqual(watch.stops, ['token-budget']);
+      assert.strictEqual(result.aiReview.stopped, true);
+      assert.strictEqual(result.aiReview.sweepRequests, 1);
+      assert.deepStrictEqual(result.groups, [], 'and nothing became a group');
+    });
+
+    await test('Without the band the names are still read, for the sweep', async () => {
+      const fake = seedSemantic();
+      const { sweeps } = useSweepProvider({ groups: TWO_TRANSLATIONS });
+
+      const result = await service.reviewScan({
+        ...SWEEP_REVIEW,
+        includeCandidates: false,
+      });
+
+      assert.strictEqual(sweeps.length, 1);
+      assert.strictEqual(
+        namesInPrompt(sweeps[0].prompt).length,
+        6,
+        'the sweep bought the entity read the band would have paid for'
+      );
+      assert.ok(fake.calls.some((call) => call.path === '/tags/'));
+      assert.strictEqual(result.aiReview.sweepProposals, 2);
+      assert.strictEqual(result.aiReview.targeted, true);
+    });
+
+    // ------------------------------- the calibration that survives a restart
+
+    await test('A calibration in the table is loaded and skips the warm-up', async () => {
+      seedSemantic();
+      useSweepProvider({ groups: TWO_TRANSLATIONS });
+      // What an earlier process measured, in the table and nowhere else.
+      assert.strictEqual(service.calibration.size, 0);
+      await documentModel.saveAiCalibration({
+        model: 'test-model',
+        thinking: false,
+        tokensPerPair: 90,
+        tokensPerSecond: 45,
+        largestCompletion: 512,
+      });
+
+      const watch = useControl();
+      const lines = await withLoggedLines(() =>
+        service.reviewScan(SWEEP_REVIEW, watch.control)
+      );
+
+      assert.strictEqual(watch.ofPhase('warming-up').length, 0, 'no warm-up');
+      assert.strictEqual(watch.ofPhase('judging').length, 1);
+      assert.strictEqual(watch.ofPhase('judging')[0].calibrated, true);
+      assert.ok(
+        lines.some((line) =>
+          /calibrated from a previous review: 90 tokens per pair, 45 tokens\/s, thinking off\./.test(
+            line
+          )
+        ),
+        `no calibration line:\n${lines.join('\n')}`
+      );
+      const loaded = service.calibration.get('test-model');
+      assert.strictEqual(loaded.tokensPerPair, 90);
+      assert.strictEqual(loaded.largestCompletion, 512);
+    });
+
+    await test('A stored measurement of the other thinking switch is not loaded', async () => {
+      seedSemantic();
+      useSweepProvider({ groups: () => [] });
+      await documentModel.saveAiCalibration({
+        model: 'test-model',
+        thinking: true,
+        tokensPerPair: 90,
+        tokensPerSecond: 45,
+        largestCompletion: 512,
+      });
+
+      const watch = useControl();
+      await service.reviewScan(SWEEP_REVIEW, watch.control);
+
+      assert.strictEqual(
+        service.calibration.has('test-model'),
+        false,
+        'the row of the other switch says nothing about this review'
+      );
+      assert.ok(watch.ofPhase('sweeping').length > 0, 'the sweep still ran');
+    });
+
+    await test('What a review measures is written to the table', async () => {
+      seedArchive();
+      useStreamingProvider({ completionTokens: 600 });
+      assert.strictEqual(
+        (await documentModel.getAiCalibration('test-model', false))
+          ?.tokensPerPair ?? null,
+        null,
+        'the reset of the provider emptied the row'
+      );
+
+      await withBatchSize(2, () => service.reviewScan(BAND_REVIEW));
+      await service.lastCalibrationSave;
+
+      const stored = await documentModel.getAiCalibration('test-model', false);
+      const measured = service.calibration.get('test-model');
+      assert.ok(stored, 'the table has a row for this model');
+      assert.strictEqual(stored.tokensPerPair, measured.tokensPerPair);
+      assert.strictEqual(stored.tokensPerSecond, measured.tokensPerSecond);
+      assert.strictEqual(stored.largestCompletion, measured.largestCompletion);
+      assert.strictEqual(
+        (await documentModel.getAiCalibration('test-model', true))
+          ?.tokensPerPair ?? null,
+        null,
+        'and nothing under the other switch'
+      );
+    });
+
+    await test('resetCalibration forgets the measurement in memory and in the table', async () => {
+      seedArchive();
+      useStreamingProvider({ completionTokens: 600 });
+      await withBatchSize(2, () => service.reviewScan(BAND_REVIEW));
+      await service.lastCalibrationSave;
+      assert.ok(
+        (await documentModel.getAiCalibration('test-model', false))
+          .tokensPerPair > 0
+      );
+
+      await service.resetCalibration();
+
+      assert.strictEqual(service.calibration.size, 0);
+      assert.strictEqual(
+        (await documentModel.getAiCalibration('test-model', false))
+          .tokensPerPair,
+        null,
+        'and the row measures nothing any more'
+      );
+
+      // Which is what the next review sees: a model it has to measure again.
+      seedArchive();
+      const { calls } = useStreamingProvider({ completionTokens: 600 });
+      const watch = useControl();
+      await withBatchSize(3, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+      assert.strictEqual(watch.ofPhase('warming-up').length, 1);
+      assert.ok(calls.length > 0);
+    });
+
+    await test('forgetCalibration drops one model, in memory and in the table', async () => {
+      seedArchive();
+      useStreamingProvider({ completionTokens: 600 });
+      await withBatchSize(2, () => service.reviewScan(BAND_REVIEW));
+      await service.lastCalibrationSave;
+      service.calibration.set('another-model', {
+        tokensPerPair: 10,
+        tokensPerSecond: 10,
+        largestCompletion: 10,
+        thinking: false,
+        measuredAt: Date.now(),
+      });
+
+      await service.forgetCalibration('test-model');
+
+      assert.strictEqual(service.calibration.has('test-model'), false);
+      assert.strictEqual(
+        service.calibration.has('another-model'),
+        true,
+        'and nothing else is touched'
+      );
+      assert.strictEqual(
+        (await documentModel.getAiCalibration('test-model', false))
+          .tokensPerPair,
+        null
+      );
+      await service.resetCalibration();
     });
 
     await test('The three yes/no switches read the strings config.js hands over', async () => {

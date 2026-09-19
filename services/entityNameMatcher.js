@@ -112,7 +112,22 @@ const MATCH_REASONS = Object.freeze({
   TOKEN_ORDER: 'token-order',
   PREFIX: 'prefix',
   FUZZY: 'fuzzy',
+  /** A pair the AI's semantic sweep proposed; the string matcher saw nothing. */
+  SEMANTIC: 'semantic',
 });
+
+/**
+ * The tiers a name may be mapped onto an existing one by, without asking
+ * anyone: the two names are the same word or organisation in another
+ * spelling. Prefix and fuzzy are not in it ("Kontoauszug" / "Kontoumzug").
+ */
+const HARD_REASONS = Object.freeze([
+  MATCH_REASONS.EXACT,
+  MATCH_REASONS.UMLAUT,
+  MATCH_REASONS.LEGAL_FORM,
+  MATCH_REASONS.PLURAL,
+  MATCH_REASONS.TOKEN_ORDER,
+]);
 
 /** Things the page shows on a group before the user merges it. */
 const GROUP_WARNINGS = Object.freeze({
@@ -1334,8 +1349,47 @@ function buildGroupsFromEdges(kind, entities, edges, options = {}) {
   );
 }
 
+/**
+ * The existing entity a new name matches best, or null when none scores at
+ * least `minScore`. The highest score wins; among equal scores the entity
+ * with more documents. This is what the creation guard asks before it lets
+ * document analysis create a tag or correspondent.
+ *
+ * @param {string} name
+ * @param {Array<{id:number, name:string, documentCount?:number}>} entities
+ * @param {{kind:'tags'|'correspondents', minScore?:number}} options
+ * @returns {{entity:object, score:number, reason:string}|null}
+ */
+function bestMatch(name, entities, options = {}) {
+  const kind = options?.kind;
+  if (!KIND_LIST.includes(kind)) {
+    throw new Error(`Unknown entity kind: ${kind}`);
+  }
+  const minScore = Number.isFinite(options.minScore) ? options.minScore : 0;
+  if (typeof name !== 'string' || name.trim() === '') return null;
+  let best = null;
+  for (const entity of Array.isArray(entities) ? entities : []) {
+    if (!entity || typeof entity.name !== 'string') continue;
+    const result = scorePair(name, entity.name, kind);
+    if (!result || result.score < minScore) continue;
+    const documents = Number(entity.documentCount) || 0;
+    if (
+      !best ||
+      result.score > best.score ||
+      (result.score === best.score && documents > best.documents)
+    ) {
+      best = { entity, score: result.score, reason: result.reason, documents };
+    }
+  }
+  return best
+    ? { entity: best.entity, score: best.score, reason: best.reason }
+    : null;
+}
+
 module.exports = {
   KINDS,
+  HARD_REASONS,
+  bestMatch,
   KIND_LIST,
   MATCH_REASONS,
   GROUP_WARNINGS,

@@ -30,6 +30,15 @@
  * 13. The review as a job: start, current, read, the event stream and the
  *     stop, plus the synchronous route running through that same job
  * 14. The scan route asks the service for a fresh scan, never a cached one
+ * 15. A merge may rename the survivor: `targetName` reaches the service
+ *     trimmed, an unchanged or blank one is not sent at all, and a name no
+ *     object could carry is a 400
+ * 16. POST /api/duplicates/delete: what it refuses, what it hands to the
+ *     service, and the partial answer that is a 200 with success: false
+ * 17. The log says what a row recorded (`action`) and what a merge renamed
+ *     (`targetRenamedFrom`)
+ * 18. The names the creation guard mapped: the list and the way to forget it
+ * 19. `semanticSweep` reaches the review as the boolean it is, or not at all
  */
 
 'use strict';
@@ -1440,6 +1449,562 @@ async function main() {
         assert.strictEqual(seen[0].includeDismissed, false);
       } finally {
         duplicateMergeService.scan = realScan;
+      }
+    });
+    /* ── round 9: the name for the survivor ───────────────────────────────
+       The rename is an option of the merge, not a second request. The route
+       only has to hand it through and refuse a name no object could carry;
+       what the merge service does with it is its own test. */
+
+    await test('POST /api/duplicates/merge hands targetName to the service', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realMerge = duplicateMergeService.merge;
+      const seen = [];
+      duplicateMergeService.merge = async (options) => {
+        seen.push(options);
+        return {
+          mergeId: 1,
+          kind: options.kind,
+          target: { id: options.targetId, name: 'Amazon EU S.a.r.l.' },
+          documentsMoved: 3,
+          copiedMatchingRule: false,
+          status: 'done',
+          sources: [
+            { id: 48, name: 'amazon', documentsMoved: 3, deleted: true },
+          ],
+        };
+      };
+      try {
+        const renamed = await call('POST', '/api/duplicates/merge', {
+          kind: 'tags',
+          targetId: 12,
+          sourceIds: [48],
+          targetName: '  Amazon EU S.a.r.l.  ',
+        });
+        assert.strictEqual(renamed.status, 200);
+        const payload = await renamed.json();
+        assert.strictEqual(payload.success, true);
+        assert.strictEqual(
+          seen[0].targetName,
+          'Amazon EU S.a.r.l.',
+          'the name reaches the service trimmed'
+        );
+
+        // A merge that says nothing about the name must not carry one: the
+        // service would otherwise rename the target to "undefined" or have to
+        // guess what "no name" means.
+        await call('POST', '/api/duplicates/merge', {
+          kind: 'tags',
+          targetId: 12,
+          sourceIds: [48],
+        });
+        assert.ok(
+          !('targetName' in seen[1]),
+          'an unchanged name must not be sent at all'
+        );
+
+        // Blank is the same as absent — the page clears the field rather than
+        // deleting it when the user changes their mind.
+        await call('POST', '/api/duplicates/merge', {
+          kind: 'tags',
+          targetId: 12,
+          sourceIds: [48],
+          targetName: '   ',
+        });
+        assert.ok(
+          !('targetName' in seen[2]),
+          'a blank name must not reach the service as a rename'
+        );
+      } finally {
+        duplicateMergeService.merge = realMerge;
+      }
+    });
+
+    await test('POST /api/duplicates/merge refuses a name no object could carry', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realMerge = duplicateMergeService.merge;
+      let calls = 0;
+      duplicateMergeService.merge = async () => {
+        calls += 1;
+        return { status: 'done', sources: [], target: {}, documentsMoved: 0 };
+      };
+      try {
+        const cases = [
+          { targetName: 'x'.repeat(129) },
+          { targetName: 42 },
+          { targetName: ['Amazon'] },
+        ];
+        for (const extra of cases) {
+          const response = await call('POST', '/api/duplicates/merge', {
+            kind: 'tags',
+            targetId: 12,
+            sourceIds: [48],
+            ...extra,
+          });
+          assert.strictEqual(
+            response.status,
+            400,
+            `expected 400 for ${JSON.stringify(extra)}`
+          );
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.ok(payload.error);
+        }
+        assert.strictEqual(calls, 0, 'a refused name must not start a merge');
+
+        // Exactly at the limit is a name, not a refusal.
+        const ok = await call('POST', '/api/duplicates/merge', {
+          kind: 'tags',
+          targetId: 12,
+          sourceIds: [48],
+          targetName: 'y'.repeat(128),
+        });
+        assert.strictEqual(ok.status, 200);
+        assert.strictEqual(calls, 1);
+      } finally {
+        duplicateMergeService.merge = realMerge;
+      }
+    });
+
+    /* ── round 9: deleting unused objects ─────────────────────────────────
+       The service does the checking against Paperless-ngx; the route owns the
+       validation and the "partial answers 200 with success: false" rule the
+       merge route set. */
+
+    await test('POST /api/duplicates/delete validates kind and ids', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realDelete = duplicateMergeService.deleteUnused;
+      let calls = 0;
+      duplicateMergeService.deleteUnused = async () => {
+        calls += 1;
+        return { kind: 'tags', deleted: [], failed: [], logId: null };
+      };
+      try {
+        const cases = [
+          [{}, 'no body at all'],
+          [{ ids: [1] }, 'no kind'],
+          [{ kind: '', ids: [1] }, 'an empty kind'],
+          [{ kind: 'document_types', ids: [1] }, 'an unknown kind'],
+          [{ kind: 'tags' }, 'no ids'],
+          [{ kind: 'tags', ids: [] }, 'an empty list'],
+          [{ kind: 'tags', ids: 'all' }, 'ids that are not a list'],
+          [{ kind: 'tags', ids: [1, 'two'] }, 'an id that is not a number'],
+          [{ kind: 'tags', ids: [1, 0] }, 'a zero id'],
+          [{ kind: 'tags', ids: [1, -3] }, 'a negative id'],
+          [{ kind: 'tags', ids: [1, 2.5] }, 'a fractional id'],
+        ];
+        for (const [body, what] of cases) {
+          const response = await call('POST', '/api/duplicates/delete', body);
+          assert.strictEqual(response.status, 400, `expected 400 for ${what}`);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.ok(payload.error, `${what} must name its reason`);
+        }
+        assert.strictEqual(
+          calls,
+          0,
+          'nothing may be deleted on a refused request'
+        );
+      } finally {
+        duplicateMergeService.deleteUnused = realDelete;
+      }
+    });
+
+    await test('POST /api/duplicates/delete takes 500 ids and refuses 501', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realDelete = duplicateMergeService.deleteUnused;
+      let seen = null;
+      duplicateMergeService.deleteUnused = async (options) => {
+        seen = options;
+        return {
+          kind: options.kind,
+          deleted: options.ids.map((id) => ({ id, name: `tag-${id}` })),
+          failed: [],
+          logId: 7,
+        };
+      };
+      try {
+        const ids = Array.from({ length: 500 }, (_, index) => index + 1);
+        const ok = await call('POST', '/api/duplicates/delete', {
+          kind: 'tags',
+          ids,
+        });
+        assert.strictEqual(ok.status, 200);
+        assert.strictEqual(seen.ids.length, 500);
+        assert.strictEqual(
+          seen.performedBy,
+          'api-key',
+          'an API key request is recorded as api-key'
+        );
+
+        const tooMany = await call('POST', '/api/duplicates/delete', {
+          kind: 'tags',
+          ids: [...ids, 501],
+        });
+        assert.strictEqual(tooMany.status, 400);
+        assert.match((await tooMany.json()).error, /500/);
+      } finally {
+        duplicateMergeService.deleteUnused = realDelete;
+      }
+    });
+
+    await test('POST /api/duplicates/delete answers with the result and a message', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realDelete = duplicateMergeService.deleteUnused;
+      let seen = null;
+      duplicateMergeService.deleteUnused = async (options) => {
+        seen = options;
+        return {
+          kind: options.kind,
+          deleted: [
+            { id: 11, name: 'Old' },
+            { id: 12, name: 'Older' },
+          ],
+          failed: [],
+          logId: 42,
+        };
+      };
+      try {
+        const response = await call('POST', '/api/duplicates/delete', {
+          kind: 'correspondents',
+          ids: ['11', 12],
+        });
+        assert.strictEqual(response.status, 200);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, true);
+        assert.strictEqual(payload.data.logId, 42, 'the undo needs the log id');
+        assert.strictEqual(payload.data.deleted.length, 2);
+        assert.ok(payload.message, 'a message for the toast');
+        assert.deepStrictEqual(
+          seen.ids,
+          [11, 12],
+          'the ids reach the service as numbers, whatever the body carried'
+        );
+        assert.strictEqual(seen.kind, 'correspondents');
+      } finally {
+        duplicateMergeService.deleteUnused = realDelete;
+      }
+    });
+
+    await test('A partial delete answers 200 with success: false', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realDelete = duplicateMergeService.deleteUnused;
+      duplicateMergeService.deleteUnused = async (options) => ({
+        kind: options.kind,
+        deleted: [{ id: 11, name: 'Old' }],
+        failed: [{ id: 12, name: 'Busy', error: 'carries 3 documents' }],
+        logId: 43,
+      });
+      try {
+        const response = await call('POST', '/api/duplicates/delete', {
+          kind: 'tags',
+          ids: [11, 12],
+        });
+        assert.strictEqual(response.status, 200, 'the request itself worked');
+        const payload = await response.json();
+        assert.strictEqual(payload.success, false);
+        assert.strictEqual(
+          payload.data.deleted.length,
+          1,
+          'what was deleted is reported either way'
+        );
+        assert.strictEqual(payload.data.failed[0].error, 'carries 3 documents');
+        assert.match(payload.message, /Only 1 of 2/);
+      } finally {
+        duplicateMergeService.deleteUnused = realDelete;
+      }
+    });
+
+    await test('POST /api/duplicates/delete maps a refusal onto its status', async () => {
+      const duplicateMergeService = require(
+        path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+      );
+      const realDelete = duplicateMergeService.deleteUnused;
+      duplicateMergeService.deleteUnused = async () => {
+        const error = new Error('A document scan is running');
+        error.status = 409;
+        throw error;
+      };
+      try {
+        const response = await call('POST', '/api/duplicates/delete', {
+          kind: 'tags',
+          ids: [11],
+        });
+        assert.strictEqual(response.status, 409);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, false);
+        assert.match(payload.error, /scan is running/);
+      } finally {
+        duplicateMergeService.deleteUnused = realDelete;
+      }
+
+      const unauthenticated = await fetch(
+        harness.base + '/api/duplicates/delete',
+        {
+          method: 'POST',
+          redirect: 'manual',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'tags', ids: [11] }),
+        }
+      );
+      assert.ok(
+        unauthenticated.status === 401 || unauthenticated.status === 302,
+        'the delete route must not answer without authentication'
+      );
+    });
+
+    /* ── round 9: the log says what a row recorded ────────────────────────── */
+
+    await test('GET /api/duplicates/log carries action and targetRenamedFrom', async () => {
+      const mergeRowId = await harness.documentModel.addEntityMerge({
+        kind: 'tags',
+        targetId: 900,
+        targetName: 'Amazon EU S.a.r.l.',
+        sources: [{ id: 901, name: 'amazon', documentsMoved: 2 }],
+        documentsMoved: 2,
+        status: 'done',
+        targetRenamedFrom: 'Amazon',
+      });
+      const deleteRowId = await harness.documentModel.addEntityMerge({
+        kind: 'tags',
+        targetId: 0,
+        targetName: '',
+        sources: [
+          { id: 910, name: 'Leftover', snapshot: { name: 'Leftover' } },
+          { id: 911, name: 'Also leftover' },
+        ],
+        documentsMoved: 0,
+        status: 'done',
+        action: 'delete',
+      });
+      assert.ok(mergeRowId > 0 && deleteRowId > 0);
+
+      const response = await call('GET', '/api/duplicates/log?limit=100');
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      const rows = new Map(payload.data.map((row) => [row.id, row]));
+
+      const renamed = rows.get(mergeRowId);
+      assert.strictEqual(renamed.action, 'merge', 'a merge row says so');
+      assert.strictEqual(
+        renamed.targetRenamedFrom,
+        'Amazon',
+        'the page needs the old name to show "renamed from"'
+      );
+
+      const removed = rows.get(deleteRowId);
+      assert.strictEqual(removed.action, 'delete');
+      assert.strictEqual(
+        removed.targetRenamedFrom,
+        null,
+        'a delete renamed nothing'
+      );
+      assert.strictEqual(removed.sources.length, 2);
+      assert.strictEqual(removed.sources[0].name, 'Leftover');
+
+      // Rows written before the log knew about actions are merges; the
+      // column's default says so rather than leaving the page to guess.
+      const plainId = await harness.documentModel.addEntityMerge({
+        kind: 'tags',
+        targetId: 920,
+        targetName: 'Plain',
+        sources: [{ id: 921, name: 'plain' }],
+        documentsMoved: 1,
+      });
+      const again = await call('GET', '/api/duplicates/log?limit=100');
+      const plain = (await again.json()).data.find((row) => row.id === plainId);
+      assert.strictEqual(plain.action, 'merge');
+      assert.strictEqual(plain.targetRenamedFrom, null);
+    });
+
+    /* ── round 9: the names the creation guard mapped ─────────────────────── */
+
+    await test('GET /api/duplicates/mappings lists the newest first', async () => {
+      const empty = await call('GET', '/api/duplicates/mappings');
+      assert.strictEqual(empty.status, 200);
+      const emptyPayload = await empty.json();
+      assert.strictEqual(emptyPayload.success, true);
+      assert.deepStrictEqual(
+        emptyPayload.data,
+        [],
+        'an instance that never mapped a name answers with an empty list'
+      );
+
+      await harness.documentModel.addEntityNameMapping({
+        kind: 'tags',
+        proposedName: 'rechnungen',
+        targetId: 12,
+        targetName: 'Rechnung',
+        reason: 'plural',
+        score: 0.9,
+        documentId: 4711,
+      });
+      await harness.documentModel.addEntityNameMapping({
+        kind: 'correspondents',
+        proposedName: 'Mueller GmbH',
+        targetId: 13,
+        targetName: 'Müller GmbH',
+        reason: 'umlaut-variant',
+        score: 0.97,
+        documentId: null,
+      });
+
+      const response = await call('GET', '/api/duplicates/mappings');
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      assert.strictEqual(payload.success, true);
+      assert.strictEqual(payload.data.length, 2);
+      assert.strictEqual(
+        payload.data[0].proposedName,
+        'Mueller GmbH',
+        'the newest mapping is the first one'
+      );
+      assert.strictEqual(payload.data[0].kind, 'correspondents');
+      assert.strictEqual(payload.data[0].targetName, 'Müller GmbH');
+      assert.strictEqual(payload.data[0].reason, 'umlaut-variant');
+      assert.strictEqual(
+        payload.data[0].documentId,
+        null,
+        'a mapping without a document says so instead of inventing one'
+      );
+      assert.strictEqual(payload.data[1].documentId, 4711);
+      assert.ok(payload.data[1].createdAt, 'the row carries its timestamp');
+    });
+
+    await test('DELETE /api/duplicates/mappings forgets them and says how many', async () => {
+      const response = await call('DELETE', '/api/duplicates/mappings');
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      assert.strictEqual(payload.success, true);
+      assert.strictEqual(payload.data.removed, 2);
+      assert.ok(payload.message);
+
+      const after = await call('GET', '/api/duplicates/mappings');
+      assert.deepStrictEqual((await after.json()).data, []);
+
+      // Clearing an empty list is not an error; it is the same answer with a
+      // zero, so a double click cannot produce a red toast.
+      const again = await call('DELETE', '/api/duplicates/mappings');
+      assert.strictEqual(again.status, 200);
+      assert.strictEqual((await again.json()).data.removed, 0);
+
+      const unauthenticated = await fetch(
+        harness.base + '/api/duplicates/mappings',
+        { redirect: 'manual' }
+      );
+      assert.ok(
+        unauthenticated.status === 401 || unauthenticated.status === 302,
+        'the mapping list must not answer without authentication'
+      );
+    });
+
+    /* ── round 9: the semantic sweep is asked for, never assumed ──────────── */
+
+    await test('POST /api/duplicates/ai-review passes semanticSweep on', async () => {
+      const entityMatchAiService = require(
+        path.join(REPO_ROOT, 'services', 'entityMatchAiService')
+      );
+      const realReviewScan = entityMatchAiService.reviewScan;
+      const seen = [];
+      entityMatchAiService.reviewScan = async (options) => {
+        seen.push(options);
+        return {
+          scannedAt: '2026-09-19T10:00:00.000Z',
+          threshold: options.threshold,
+          totals: { tags: 0, correspondents: null },
+          dismissedPairs: 0,
+          groups: [],
+          aiReview: {
+            enabled: true,
+            model: 'test-judge',
+            requests: 2,
+            judged: 0,
+            candidates: 0,
+            sweepRequests: 1,
+            sweepProposals: 0,
+          },
+        };
+      };
+      try {
+        const asked = await call('POST', '/api/duplicates/ai-review', {
+          kind: 'tags',
+          semanticSweep: true,
+        });
+        assert.strictEqual(asked.status, 200);
+        assert.strictEqual(seen[0].semanticSweep, true);
+        const payload = await asked.json();
+        assert.strictEqual(payload.data.aiReview.sweepRequests, 1);
+
+        // Off is a real answer and has to reach the service as one, or a
+        // default further down could turn it back on.
+        await call('POST', '/api/duplicates/ai-review', {
+          kind: 'tags',
+          semanticSweep: false,
+        });
+        assert.strictEqual(seen[1].semanticSweep, false);
+
+        // A request that says nothing must not carry the option at all.
+        await call('POST', '/api/duplicates/ai-review', { kind: 'tags' });
+        assert.ok(
+          !('semanticSweep' in seen[2]),
+          'a review that was not asked for a sweep must not request one'
+        );
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review refuses a semanticSweep that is not a boolean', async () => {
+      const entityMatchAiService = require(
+        path.join(REPO_ROOT, 'services', 'entityMatchAiService')
+      );
+      const realReviewScan = entityMatchAiService.reviewScan;
+      let calls = 0;
+      entityMatchAiService.reviewScan = async () => {
+        calls += 1;
+        return { groups: [], totals: {}, aiReview: {} };
+      };
+      try {
+        for (const value of ['true', 'yes', 1, {}]) {
+          for (const url of [
+            '/api/duplicates/ai-review',
+            '/api/duplicates/ai-review/jobs',
+          ]) {
+            const response = await call('POST', url, {
+              kind: 'tags',
+              semanticSweep: value,
+            });
+            assert.strictEqual(
+              response.status,
+              400,
+              `${url} must refuse semanticSweep=${JSON.stringify(value)}`
+            );
+            const payload = await response.json();
+            assert.strictEqual(payload.success, false);
+            assert.match(payload.error, /semanticSweep/);
+          }
+        }
+        assert.strictEqual(
+          calls,
+          0,
+          'a refused option must not start a review'
+        );
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
       }
     });
   } finally {

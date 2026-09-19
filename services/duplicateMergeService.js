@@ -3,10 +3,11 @@
 /**
  * Duplicate merge service: the Duplicates page's whole backend.
  *
- * Three jobs, all on request, none of them automatic:
- *   scan()   — load tags or correspondents, hand them to the matcher, return groups
- *   merge()  — move the documents of the sources onto the target and delete the sources
- *   undo()   — re-create the deleted sources from the local log and move the documents back
+ * Four jobs, all on request, none of them automatic:
+ *   scan()          — load tags or correspondents, hand them to the matcher, return groups
+ *   merge()         — move the documents of the sources onto the target and delete the sources
+ *   deleteUnused()  — delete objects that carry no document, through the same log
+ *   undo()          — re-create what a merge or a delete removed and move the documents back
  *
  * Two rules run through everything here. First: an object that still has
  * documents is never deleted — the move is verified against Paperless-ngx
@@ -109,6 +110,11 @@ function splitNames(value) {
 
 function isPositiveInteger(value) {
   return Number.isInteger(value) && value > 0;
+}
+
+/** The singular noun a log line uses for a kind. */
+function entityNoun(kind) {
+  return kind === KINDS.CORRESPONDENTS ? 'correspondent' : 'tag';
 }
 
 /** True when a raw Paperless-ngx object carries a usable matching rule. */
@@ -280,6 +286,63 @@ class DuplicateMergeService {
   }
 
   /**
+   * True when a tag is one the settings refer to by name, compared the way
+   * the group warnings compare it: through the matcher's normalisation, so a
+   * setting that says "AI-Processed" also protects the tag "ai processed".
+   *
+   * @param {string[]} configuredTagNames
+   * @param {string} name
+   * @returns {boolean}
+   */
+  _isConfiguredTagName(configuredTagNames, name) {
+    if (!Array.isArray(configuredTagNames) || configuredTagNames.length === 0) {
+      return false;
+    }
+    const key = entityNameMatcher.normalizeName(name, KINDS.TAGS).key;
+    return configuredTagNames.some(
+      (configured) =>
+        entityNameMatcher.normalizeName(configured, KINDS.TAGS).key === key
+    );
+  }
+
+  /**
+   * The objects of one kind that carry no document at all, sorted by name.
+   *
+   * These are what the Duplicates page offers for deletion, so everything
+   * that must not be deleted is filtered out here rather than at the moment
+   * of the DELETE: the inbox tag (Paperless-ngx routes new documents through
+   * it), a tag the Zettelrobbe settings name (deleting it breaks the
+   * setting), and anything the API token may not change. deleteUnused()
+   * checks the same three again against a fresh read, because a scan is a
+   * picture of a minute ago.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object[]} entities  EntityRecord objects
+   * @param {string[]} configuredTagNames
+   * @returns {object[]}
+   */
+  _unusedEntities(kind, entities, configuredTagNames) {
+    const isTag = kind === KINDS.TAGS;
+    return (Array.isArray(entities) ? entities : [])
+      .filter((entity) => {
+        if (Number(entity?.documentCount) !== 0) return false;
+        if (entity?.userCanChange === false) return false;
+        if (isTag && entity?.isInboxTag) return false;
+        if (isTag && this._isConfiguredTagName(configuredTagNames, entity.name))
+          return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const byName = String(a?.name ?? '').localeCompare(
+          String(b?.name ?? ''),
+          undefined,
+          { sensitivity: 'base' }
+        );
+        return byName !== 0 ? byName : Number(a?.id) - Number(b?.id);
+      });
+  }
+
+  /**
    * Wraps a Paperless-ngx failure so the route answers 502 instead of 500.
    * A refusal this service raised itself passes through untouched.
    */
@@ -394,6 +457,7 @@ class DuplicateMergeService {
     const configuredTagNames = this._configuredTagNames();
     const totals = { tags: null, correspondents: null };
     const groups = [];
+    const unused = { tags: [], correspondents: [] };
     let dismissedPairs = 0;
 
     for (const one of kinds) {
@@ -404,6 +468,7 @@ class DuplicateMergeService {
         throw this._asPaperlessError(error, `loading the ${one}`);
       }
       totals[one] = entities.length;
+      unused[one] = this._unusedEntities(one, entities, configuredTagNames);
 
       let dismissed = [];
       if (!includeDismissed) {
@@ -431,6 +496,7 @@ class DuplicateMergeService {
       groups,
       dismissedPairs,
       paperlessUrl: await this._publicBaseUrl(),
+      unused,
     };
     this._scanCache.set(cacheKey, {
       result,
@@ -510,6 +576,77 @@ class DuplicateMergeService {
   }
 
   /**
+   * Renames the merge target.
+   *
+   * The survivor of "Rechnung" and "rechnungen" is often neither spelling,
+   * and renaming it afterwards would mean a second trip through the page. It
+   * happens before anything moves on purpose: a name that is already taken
+   * answers 400, and at that point nothing has been touched yet, so the
+   * refusal costs nothing. The one exception is a name held by a source of
+   * this very merge — see merge() — which is renamed to once that source is
+   * gone, because refusing "call the survivor Amazon" while deleting the
+   * "Amazon" next to it would be refusing the obvious.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} target  the raw object, renamed in place on success
+   * @param {string|null|undefined} targetName
+   * @param {string} [when] how the log line ends
+   * @returns {Promise<string|null>} the name before the rename, null when it kept it
+   */
+  async _renameTarget(kind, target, targetName, when = 'before the merge') {
+    const wanted = targetName == null ? '' : String(targetName).trim();
+    const before = String(target?.name ?? '');
+    if (wanted === '' || wanted === before) {
+      return null;
+    }
+    const id = Number(target.id);
+    if (target?.user_can_change === false) {
+      throw new MergeValidationError(
+        `The API token may not rename the ${kind} entry ${id}`,
+        403
+      );
+    }
+    let updated;
+    try {
+      updated = await paperlessService.updateEntity(kind, id, { name: wanted });
+    } catch (error) {
+      if (error?.response?.status === 400) {
+        throw new MergeValidationError(
+          `The name "${wanted}" is already taken in Paperless-ngx; nothing was merged`,
+          409
+        );
+      }
+      throw this._asPaperlessError(error, 'renaming the merge target');
+    }
+    target.name = String(updated?.name ?? wanted);
+    this._log(
+      `renamed ${entityNoun(kind)} ${id} "${before}" to "${target.name}" ${when}.`
+    );
+    return before;
+  }
+
+  /**
+   * Points the local records at the target's new name. History stores the
+   * correspondent by name, so every row naming the old one follows the
+   * rename, not only the rows of this merge.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} targetId
+   * @param {string} fromName
+   * @param {string} toName
+   */
+  async _renameInLocalRecords(kind, targetId, fromName, toName) {
+    if (kind !== KINDS.CORRESPONDENTS) return;
+    await documentModel.replaceEntityInLocalRecords(kind, {
+      fromId: targetId,
+      toId: targetId,
+      fromName,
+      toName,
+      documentIds: null,
+    });
+  }
+
+  /**
    * Moves the documents of every source onto the target and deletes the
    * sources afterwards, one source after the other.
    *
@@ -517,6 +654,7 @@ class DuplicateMergeService {
    * @param {'tags'|'correspondents'} request.kind
    * @param {number} request.targetId
    * @param {number[]} request.sourceIds
+   * @param {string} [request.targetName] a new name for the target, applied before the merge
    * @param {boolean} [request.copyMatchingRule]
    * @param {string|null} [request.performedBy]
    * @returns {Promise<object>} EntityMergeResult
@@ -525,6 +663,7 @@ class DuplicateMergeService {
     kind,
     targetId,
     sourceIds,
+    targetName = null,
     copyMatchingRule = false,
     performedBy = null,
   }) {
@@ -536,6 +675,28 @@ class DuplicateMergeService {
     const targetNumericId = Number(targetId);
     const targetBefore = matchingRuleOf(target);
     let copiedMatchingRule = false;
+
+    // A name one of the sources currently holds is not a clash, it is the
+    // point: "amazon" survives and should be spelled "Amazon" from now on.
+    // Paperless-ngx only frees that name once the source is deleted, so that
+    // one rename waits for the end of the merge; every other rename happens
+    // first, where a refusal still costs nothing because nothing has moved.
+    const wantedName = targetName == null ? '' : String(targetName).trim();
+    const heldBySource =
+      wantedName !== '' &&
+      sources.some((source) => String(source.name) === wantedName);
+    let targetRenamedFrom = null;
+    if (!heldBySource) {
+      targetRenamedFrom = await this._renameTarget(kind, target, wantedName);
+      if (targetRenamedFrom != null) {
+        await this._renameInLocalRecords(
+          kind,
+          targetNumericId,
+          targetRenamedFrom,
+          target.name
+        );
+      }
+    }
 
     const startedAt = Date.now();
     this._log(
@@ -671,6 +832,43 @@ class DuplicateMergeService {
       }
     }
 
+    // The rename that waited for its name to be freed. The documents have
+    // moved by now, so a failure here is reported rather than thrown: the
+    // merge itself stands, and the target simply kept its name.
+    if (heldBySource) {
+      const stillThere = details.some(
+        (detail) => String(detail.name) === wantedName && !detail.deleted
+      );
+      if (stillThere) {
+        this._log(
+          `${entityNoun(kind)} ${targetNumericId} kept its name "${target.name}": ` +
+            `the source called "${wantedName}" was not deleted.`
+        );
+      } else {
+        try {
+          targetRenamedFrom = await this._renameTarget(
+            kind,
+            target,
+            wantedName,
+            'after the merge'
+          );
+          if (targetRenamedFrom != null) {
+            await this._renameInLocalRecords(
+              kind,
+              targetNumericId,
+              targetRenamedFrom,
+              target.name
+            );
+          }
+        } catch (error) {
+          this._log(
+            `${entityNoun(kind)} ${targetNumericId} kept its name "${target.name}": ` +
+              `${error?.message || 'unknown error'}.`
+          );
+        }
+      }
+    }
+
     const documentsMoved = details.reduce(
       (sum, detail) => sum + detail.documentsMoved,
       0
@@ -693,6 +891,7 @@ class DuplicateMergeService {
       copiedMatchingRule,
       status,
       performedBy,
+      targetRenamedFrom,
     });
 
     this._log(
@@ -877,8 +1076,65 @@ class DuplicateMergeService {
   }
 
   /**
+   * Gives the target the name it had before the merge renamed it.
+   *
+   * Only when it still carries the name the merge gave it: a name the user
+   * has changed since is theirs, and an undo that overwrote it would be a
+   * surprise. Anything that stops the rename is logged and left alone — the
+   * documents matter more than the spelling.
+   *
+   * @param {object} entry  the merge log row
+   * @param {object|null} targetNow  the target as Paperless-ngx has it now
+   * @returns {Promise<boolean>} true when the old name is back
+   */
+  async _revertTargetName(entry, targetNow) {
+    const before = entry?.targetRenamedFrom;
+    if (before == null) return false;
+    const kind = entry.kind;
+    const targetId = Number(entry.targetId);
+    const noun = entityNoun(kind);
+    if (!targetNow) {
+      this._log(
+        `undo ${noun} ${targetId}: it is gone in Paperless-ngx, the name "${before}" was not restored.`
+      );
+      return false;
+    }
+    if (String(targetNow.name) !== String(entry.targetName)) {
+      this._log(
+        `undo ${noun} ${targetId}: it is called "${targetNow.name}" and no longer ` +
+          `"${entry.targetName}", so the name was left alone.`
+      );
+      return false;
+    }
+    try {
+      await paperlessService.updateEntity(kind, targetId, { name: before });
+    } catch (error) {
+      this._log(
+        `undo ${noun} ${targetId}: the name "${before}" could not be restored ` +
+          `(${error?.message || 'unknown error'}).`
+      );
+      return false;
+    }
+    if (kind === KINDS.CORRESPONDENTS) {
+      await documentModel.replaceEntityInLocalRecords(kind, {
+        fromId: targetId,
+        toId: targetId,
+        fromName: entry.targetName,
+        toName: before,
+        documentIds: null,
+      });
+    }
+    this._log(
+      `undo ${noun} ${targetId}: renamed "${entry.targetName}" back to "${before}".`
+    );
+    return true;
+  }
+
+  /**
    * Undoes a logged merge: every deleted source comes back and takes the
-   * documents it still qualifies for with it.
+   * documents it still qualifies for with it. A row of a deleteUnused() call
+   * takes the same path with nothing to move: the objects are re-created and
+   * that is the whole undo.
    *
    * @param {number} mergeId
    * @param {object} [options]
@@ -900,12 +1156,15 @@ class DuplicateMergeService {
     this._assertScanIdle();
 
     const kind = entry.kind;
+    const isDelete = entry.action === 'delete';
     const targetId = Number(entry.targetId);
-    let targetNow;
-    try {
-      targetNow = await paperlessService.getEntity(kind, targetId);
-    } catch (error) {
-      throw this._asPaperlessError(error, 'reading the merge target');
+    let targetNow = null;
+    if (!isDelete) {
+      try {
+        targetNow = await paperlessService.getEntity(kind, targetId);
+      } catch (error) {
+        throw this._asPaperlessError(error, 'reading the merge target');
+      }
     }
 
     const deletedSources = (
@@ -914,13 +1173,23 @@ class DuplicateMergeService {
 
     const startedAt = Date.now();
     this._log(
-      `undo started: merge ${id}, ${kind}, target ${targetId} "${entry.targetName}", ` +
-        `${deletedSources.length} deleted source(s).`
+      isDelete
+        ? `undo started: delete ${id}, ${kind}, ${deletedSources.length} deleted object(s).`
+        : `undo started: merge ${id}, ${kind}, target ${targetId} "${entry.targetName}", ` +
+            `${deletedSources.length} deleted source(s).`
     );
+
+    // The name goes back first: a merge that renamed the target to what a
+    // source was called would otherwise make that source impossible to
+    // re-create, because Paperless-ngx keeps names unique.
+    const renamedBack = await this._revertTargetName(entry, targetNow);
+    const effectiveEntry = renamedBack
+      ? { ...entry, targetName: entry.targetRenamedFrom }
+      : entry;
 
     const sources = [];
     for (const source of deletedSources) {
-      const restored = await this._restoreSource(kind, entry, source);
+      const restored = await this._restoreSource(kind, effectiveEntry, source);
       sources.push(restored);
       this._log(
         restored.error
@@ -977,6 +1246,169 @@ class DuplicateMergeService {
       }, in ${Date.now() - startedAt}ms.`
     );
     return undoResult;
+  }
+
+  /**
+   * Deletes tags or correspondents that carry no document.
+   *
+   * A scan is a picture of a minute ago, so nothing here trusts it: every id
+   * is read again, and an object that has meanwhile been given a document, is
+   * the inbox tag, is named by the settings, may not be changed by the token
+   * or is already gone is refused with a reason instead of deleted. The call
+   * writes one row to the merge log with a snapshot of everything it removed,
+   * which is what undo() re-creates them from — the same code path a merge's
+   * sources take, because a deleted object is a deleted object.
+   *
+   * @param {object} request
+   * @param {'tags'|'correspondents'} request.kind
+   * @param {number[]} request.ids
+   * @param {string|null} [request.performedBy]
+   * @returns {Promise<object>} EntityDeleteResult
+   */
+  async deleteUnused({ kind, ids, performedBy = null }) {
+    if (!KIND_LIST.includes(kind)) {
+      throw new MergeValidationError(`Unknown entity kind: ${kind}`, 400);
+    }
+    const numeric = Array.isArray(ids) ? ids.map(Number) : [];
+    if (numeric.length === 0 || !numeric.every(isPositiveInteger)) {
+      throw new MergeValidationError(
+        'ids must be at least one positive integer',
+        400
+      );
+    }
+    this._assertScanIdle();
+
+    const unique = [...new Set(numeric)];
+    const configuredTagNames =
+      kind === KINDS.TAGS ? this._configuredTagNames() : [];
+    const startedAt = Date.now();
+    this._log(`delete started: ${kind}, ${unique.length} object(s) requested.`);
+
+    const deleted = [];
+    const failed = [];
+    const details = [];
+
+    for (const id of unique) {
+      let raw;
+      try {
+        raw = await paperlessService.getEntity(kind, id);
+      } catch (error) {
+        failed.push({
+          id,
+          name: '',
+          error: `could not be read: ${error?.message || 'unknown error'}`,
+        });
+        continue;
+      }
+      if (!raw) {
+        failed.push({
+          id,
+          name: '',
+          error: 'It does not exist in Paperless-ngx any more',
+        });
+        continue;
+      }
+      const name = String(raw.name ?? '');
+      if (raw.user_can_change === false) {
+        failed.push({ id, name, error: 'The API token may not change it' });
+        continue;
+      }
+      if (kind === KINDS.TAGS && raw.is_inbox_tag) {
+        failed.push({ id, name, error: 'It is an inbox tag' });
+        continue;
+      }
+      if (
+        kind === KINDS.TAGS &&
+        this._isConfiguredTagName(configuredTagNames, name)
+      ) {
+        failed.push({ id, name, error: 'The settings refer to this tag' });
+        continue;
+      }
+
+      let documentIds;
+      try {
+        documentIds = await paperlessService.getDocumentIdsByEntity(kind, id);
+      } catch (error) {
+        failed.push({
+          id,
+          name,
+          error: `its documents could not be counted: ${
+            error?.message || 'unknown error'
+          }`,
+        });
+        continue;
+      }
+      if (documentIds.length > 0) {
+        failed.push({
+          id,
+          name,
+          error: `${documentIds.length} document(s) carry it by now`,
+        });
+        continue;
+      }
+
+      try {
+        const removed = await paperlessService.deleteEntity(kind, id);
+        if (!removed) {
+          failed.push({
+            id,
+            name,
+            error: 'It was already gone in Paperless-ngx',
+          });
+          continue;
+        }
+      } catch (error) {
+        failed.push({
+          id,
+          name,
+          error: `it was not deleted: ${error?.message || 'unknown error'}`,
+        });
+        continue;
+      }
+
+      deleted.push({ id, name });
+      // The same shape a merge stores for a source, so _restoreSource() can
+      // bring it back without knowing which of the two wrote the row.
+      details.push({
+        id,
+        name,
+        snapshot: snapshotOf(kind, raw),
+        documentIds: [],
+        documentsAlreadyOnTarget: [],
+        documentsMoved: 0,
+        deleted: true,
+        error: null,
+      });
+    }
+
+    this._afterWrite('delete');
+
+    let logId = null;
+    if (deleted.length > 0) {
+      logId = await documentModel.addEntityMerge({
+        kind,
+        // A delete has no survivor; the row is about its sources alone.
+        targetId: 0,
+        targetName: '',
+        targetBefore: null,
+        sources: details,
+        documentsMoved: 0,
+        copiedMatchingRule: false,
+        status: failed.length === 0 ? 'done' : 'partial',
+        performedBy,
+        action: 'delete',
+      });
+      this._log(
+        `deleted ${deleted.length} unused ${entityNoun(kind)}(s): ` +
+          `${deleted.map((entry) => entry.name).join(', ')}.`
+      );
+    }
+    this._log(
+      `delete finished: ${deleted.length} deleted, ${failed.length} refused, ` +
+        `log id ${logId}, in ${Date.now() - startedAt}ms.`
+    );
+
+    return { kind, deleted, failed, logId };
   }
 
   /**

@@ -150,6 +150,11 @@ const RELEASES = [
       'Improvement: The AI judge measures your model on a small first request and then asks about as many pairs per request as fit into a chosen number of seconds (DUPLICATES_AI_REQUEST_SECONDS, default 30), remembers the measurement per model, and raises its answer limit before it halves a batch; a cut-off answer keeps the verdicts already in it',
       'New: The judge asks the model not to think unless you say so (DUPLICATES_AI_THINKING, default off): reasoning models spent the whole answer budget on their thoughts before the first verdict',
       'Improvement: The AI review streams the answers, so the progress bar moves inside a request, says when the model is thinking and how many answers have arrived; a review of a fresh scan no longer scans again',
+      'New: Document analysis no longer creates a near-duplicate of an existing tag or correspondent: a name that is the same word or organisation in another spelling (case, umlauts, legal form, plural, word order) uses the existing object, and every such mapping is listed on the Duplicates page with a link to the document (DUPLICATES_GUARD_NEW_NAMES)',
+      'New: "Let the AI look at the whole list" on the Duplicates page: the model reads the names of each kind and proposes synonyms, translations and abbreviations the string matcher cannot see; the proposals are judged with evidence like every other candidate (DUPLICATES_AI_SWEEP_NAMES)',
+      'New: An "Unused" section on the Duplicates page lists tags and correspondents without documents; delete them with one confirmation, undo re-creates them from the log',
+      'New: A merge can name its survivor: the merge dialog carries a name field, the log remembers the old name, undo restores it',
+      'Improvement: The judge keeps its measurement of a model across restarts, and the scan reads its pages in parallel',
     ],
   },
 ];
