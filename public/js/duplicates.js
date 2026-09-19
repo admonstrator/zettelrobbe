@@ -66,6 +66,37 @@ const AI_VERDICT_TONES = {
   unsure: 'dup-verdict--unsure',
 };
 
+/**
+ * The rule the model says it applied. The values are contract (AiVerdict.basis
+ * in schemas.js); the short labels are this page's. An answer may carry none,
+ * and a value this page does not know yet is shown as it came.
+ */
+const AI_BASIS_LABELS = {
+  'case-or-spacing': 'Case/spacing',
+  umlaut: 'Umlaut',
+  'legal-form': 'Legal form',
+  plural: 'Plural',
+  abbreviation: 'Abbreviation',
+  translation: 'Translation',
+  synonym: 'Synonym',
+  typo: 'Typo',
+  'different-thing': 'Different thing',
+  'different-topic': 'Different topic',
+  'insufficient-evidence': 'Not enough evidence',
+};
+
+/** How sure the model says it is. Null on an answer that did not say. */
+const AI_CONFIDENCE_LABELS = { high: 'high', low: 'low' };
+
+/**
+ * Where a verdict came from. `spelling-rule` means no model saw the pair at
+ * all: the matcher linked it by a hard tier and the server settled it itself.
+ * A verdict without a source is the model's, as every earlier answer was.
+ */
+const AI_SOURCE_RULE = 'spelling-rule';
+const AI_RULE_LABEL = 'Spelling rule';
+const AI_RULE_TONE = 'dup-verdict--rule';
+
 /** A group the model proposed although the scan scored it below the threshold. */
 const AI_CANDIDATE_SOURCE = 'ai-candidate';
 
@@ -201,6 +232,10 @@ const el = {
   aiReviewBtn: document.getElementById('dupAiReviewBtn'),
   aiReviewIcon: document.getElementById('dupAiReviewIcon'),
   aiTitles: document.getElementById('dupAiTitles'),
+  aiExcerpts: document.getElementById('dupAiExcerpts'),
+  aiProposalBtn: document.getElementById('dupAiProposalBtn'),
+  aiProposalIcon: document.getElementById('dupAiProposalIcon'),
+  aiProposalStatus: document.getElementById('dupAiProposalStatus'),
   aiNotice: document.getElementById('dupAiNotice'),
   stats: document.getElementById('dupStats'),
   statTags: document.getElementById('dupStatTags'),
@@ -268,6 +303,8 @@ let logTotal = 0;
 let dismissalCount = 0;
 /** True while a batch merge walks its groups; the bar then belongs to it. */
 let merging = false;
+/** True from the click on "AI proposal" until its dialog is done with. */
+let proposing = false;
 
 /* --- small helpers -------------------------------------------------------- */
 
@@ -392,12 +429,97 @@ function shortReason(text) {
     : raw;
 }
 
-/** The verdict a group carries, as a chip beside its reason chips. */
+/** The rule the model applied, worded for the page; '' when it named none. */
+function basisLabel(verdict) {
+  const value =
+    verdict == null || verdict.basis == null ? '' : String(verdict.basis);
+  if (value === '') return '';
+  return AI_BASIS_LABELS[value] || value;
+}
+
+/** True when the server settled this pair by a spelling rule, without a model. */
+function isRuleVerdict(verdict) {
+  return Boolean(verdict) && String(verdict.source) === AI_SOURCE_RULE;
+}
+
+/** 'high', 'low' or '' — an older answer carries no confidence at all. */
+function confidenceLabel(verdict) {
+  const value =
+    verdict == null || verdict.confidence == null
+      ? ''
+      : String(verdict.confidence);
+  return AI_CONFIDENCE_LABELS[value] || '';
+}
+
+/**
+ * Only a "same" the model is sure about comes up ticked, in both dialogs. A
+ * "same" without a confidence, or with a low one, is a proposal to look at —
+ * never one to merge unseen. Pure on purpose: tests/test-duplicates-ui.js
+ * evaluates this function itself.
+ */
+function isSureSame(verdict) {
+  return (
+    Boolean(verdict) &&
+    String(verdict.verdict) === 'same' &&
+    String(verdict.confidence) === 'high'
+  );
+}
+
+/**
+ * Where a verdict puts its row in the proposal: what is settled first, what
+ * needs a decision after it. Pure on purpose — tests/test-duplicates-ui.js
+ * evaluates this function and sorts a list with it.
+ *
+ * @param {object|null} verdict
+ * @returns {number} 0 sure same, 1 same, 2 unsure, 3 different, 4 not judged
+ */
+function proposalRank(verdict) {
+  const value = verdict ? String(verdict.verdict) : '';
+  const confidence = verdict ? String(verdict.confidence) : '';
+  if (value === 'same') return confidence === 'high' ? 0 : 1;
+  if (value === 'unsure') return 2;
+  if (value === 'different') return 3;
+  return 4;
+}
+
+/** What a verdict's title attribute says: the rule first, then the sentence. */
+function verdictTitle(verdict) {
+  const basis = basisLabel(verdict);
+  const reason = verdict ? shortReason(verdict.reason) : '';
+  if (basis === '') return reason;
+  return reason === '' ? basis : `${basis} · ${reason}`;
+}
+
+/** 'AI: same · high', or '' when nothing is known about the confidence. */
+function htmlConfidenceSuffix(verdict) {
+  const confidence = confidenceLabel(verdict);
+  // The suffix is part of the verdict, not a second chip: "AI: same · high".
+  return confidence === ''
+    ? ''
+    : `<span class="dup-verdict__confidence">· ${esc(confidence)}</span>`;
+}
+
+/**
+ * The verdict a group carries, as a chip beside its reason chips. A pair a
+ * spelling rule settled says so instead of quoting a model that never saw it;
+ * it is as sure as this page gets, which is why it wears the "same" tone.
+ */
 function htmlVerdictChip(verdict) {
   const value = verdict ? String(verdict.verdict) : '';
   if (!AI_VERDICT_LABELS[value]) return '';
+  if (isRuleVerdict(verdict)) {
+    return `<span class="zr-chip dup-verdict ${esc(AI_RULE_TONE)}" title="${esc(shortReason(verdict.reason))}">${htmlVerdictIcons.same}${esc(AI_RULE_LABEL)}</span>`;
+  }
   const htmlIcon = htmlVerdictIcons[value];
-  return `<span class="zr-chip dup-verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(shortReason(verdict.reason))}">${htmlIcon}${esc(AI_VERDICT_LABELS[value])}</span>`;
+  return `<span class="zr-chip dup-verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(verdictTitle(verdict))}">${htmlIcon}${esc(AI_VERDICT_LABELS[value])}${htmlConfidenceSuffix(verdict)}</span>`;
+}
+
+/** The rule the model applied, as a badge of its own in the two dialogs. */
+function htmlBasisBadge(verdict) {
+  const label = basisLabel(verdict);
+  return label === ''
+    ? ''
+    : `<span class="zr-badge dup-basis">${esc(label)}</span>`;
 }
 
 /** The verdict a single member carries, under its match percentage. */
@@ -405,7 +527,10 @@ function htmlMemberVerdict(member) {
   const verdict = member.aiVerdict;
   const value = verdict ? String(verdict.verdict) : '';
   if (!AI_VERDICT_LABELS[value]) return '';
-  return `<span class="zr-sm dup-member__verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(shortReason(verdict.reason))}">${esc(AI_VERDICT_LABELS[value])}</span>`;
+  if (isRuleVerdict(verdict)) {
+    return `<span class="zr-sm dup-member__verdict ${esc(AI_RULE_TONE)}" title="${esc(shortReason(verdict.reason))}">${esc(AI_RULE_LABEL)}</span>`;
+  }
+  return `<span class="zr-sm dup-member__verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(verdictTitle(verdict))}">${esc(AI_VERDICT_LABELS[value])}${htmlConfidenceSuffix(verdict)}</span>`;
 }
 
 function htmlDocumentsLink(kind, member) {
@@ -475,9 +600,9 @@ function htmlMemberRows(state) {
       return `<tr data-member-id="${num(member.id)}">
         <td data-label="Keep" class="dup-members__pick">${htmlPick}</td>
         <td data-label="Merge" class="dup-members__pick">${htmlMerge}</td>
-        <td data-label="Name">${htmlMemberName(member, withDot)}</td>
+        <td data-label="Name" class="dup-members__name">${htmlMemberName(member, withDot)}</td>
         <td data-label="Documents" class="dup-members__num">${htmlDocumentsLink(kind, member)}</td>
-        <td data-label="Matching rule">${htmlMatchingRule(member)}</td>
+        <td data-label="Matching rule" class="dup-members__rule">${htmlMatchingRule(member)}</td>
         <td data-label="Match" class="dup-members__score">${htmlScore}${htmlMemberVerdict(member)}</td>
       </tr>`;
     })
@@ -517,9 +642,9 @@ function htmlGroupCard(state) {
           <tr>
             <th class="dup-members__pick">Keep</th>
             <th class="dup-members__pick">Merge</th>
-            <th>Name</th>
+            <th class="dup-members__name">Name</th>
             <th class="dup-members__num">Documents</th>
-            <th>Matching rule</th>
+            <th class="dup-members__rule">Matching rule</th>
             <th class="dup-members__score" title="Similarity to the suggested target">Match</th>
           </tr>
         </thead>
@@ -742,12 +867,26 @@ function renderAiStats(review) {
   }
   el.statAiJudged.textContent = String(num(review.judged));
   // `candidates` counts the pairs from the band below the threshold the model
-  // was shown, not the groups that came out of it.
+  // was shown, not the groups that came out of it. What follows it is the
+  // evidence the review used and the work it saved: excerpts it fetched, pairs
+  // a spelling rule settled without a model, pairs it asked about twice.
+  const parts = [];
   const candidates = Number(review.candidates);
-  el.statAiCandidates.textContent =
-    review.candidates != null && Number.isFinite(candidates)
-      ? `${candidates} near-${plural(candidates, 'miss', 'misses')} judged`
-      : '';
+  if (review.candidates != null && Number.isFinite(candidates)) {
+    parts.push(
+      `${candidates} near-${plural(candidates, 'miss', 'misses')} judged`
+    );
+  }
+  if (num(review.excerpts) > 0) {
+    parts.push(`${num(review.excerpts)} excerpts`);
+  }
+  if (num(review.spellingRules) > 0) {
+    parts.push(`${num(review.spellingRules)} by spelling rule`);
+  }
+  if (num(review.escalated) > 0) {
+    parts.push(`${num(review.escalated)} escalated`);
+  }
+  el.statAiCandidates.textContent = parts.join(' · ');
   el.statAiRequests.textContent = String(num(review.requests));
   const tokens = Number(review.tokens);
   el.statAiTokens.textContent =
@@ -1053,10 +1192,16 @@ function clearAiNotice() {
   if (el.aiNotice) el.aiNotice.innerHTML = '';
 }
 
-/** Disabled until a scan has produced cards, and while anything is running. */
+/**
+ * "Ask the AI" is disabled until a scan has produced cards, and while anything
+ * is running. "AI proposal" scans by itself, so it only waits for a run that
+ * is already going on.
+ */
 function updateAiButton() {
+  const busy = scanning || aiReviewing || merging || proposing;
+  if (el.aiProposalBtn) el.aiProposalBtn.disabled = busy;
   if (!el.aiReviewBtn) return;
-  el.aiReviewBtn.disabled = !scanned || scanning || aiReviewing;
+  el.aiReviewBtn.disabled = !scanned || busy;
   el.aiReviewBtn.title = scanned
     ? ''
     : 'Scan first — the AI judges what the scan found.';
@@ -1130,6 +1275,7 @@ async function askForVerdicts(extra) {
       el.includeDismissed && el.includeDismissed.checked
     ),
     withTitles: Boolean(el.aiTitles && el.aiTitles.checked),
+    withExcerpts: Boolean(el.aiExcerpts && el.aiExcerpts.checked),
     ...extra,
   });
   if (status === 409) {
@@ -1466,21 +1612,27 @@ function updateSelect(card, state) {
   check.checked = selectedGroups.has(id);
 }
 
+/** What one card would merge right now, or null when it would merge nothing. */
+function entryFor(card, state) {
+  const target = memberOf(state, state.targetId);
+  const sources = selectedSources(state);
+  if (!target || sources.length === 0) return null;
+  return {
+    card,
+    state,
+    target,
+    sources,
+    kind: normalizeKind(state.group.kind),
+  };
+}
+
 /** Every ticked group that is ready to merge, in the order the page shows. */
 function selectedBatch() {
   const entries = [];
   eachGroupCard((card, state) => {
     if (!selectedGroups.has(String(state.group.id))) return;
-    const target = memberOf(state, state.targetId);
-    const sources = selectedSources(state);
-    if (!target || sources.length === 0) return;
-    entries.push({
-      card,
-      state,
-      target,
-      sources,
-      kind: normalizeKind(state.group.kind),
-    });
+    const entry = entryFor(card, state);
+    if (entry) entries.push(entry);
   });
   return entries;
 }
@@ -1516,6 +1668,8 @@ function setSelectionBusy(busy) {
   ].forEach((button) => {
     if (button) button.disabled = busy;
   });
+  // The one-click path would scan over a running batch; it waits like the rest.
+  updateAiButton();
 }
 
 function updateSelectionBar() {
@@ -1605,9 +1759,7 @@ function htmlBatchDialog(entries, offerCopy) {
   const htmlLines = entries.map(htmlBatchLine).join('');
   const intro = `${entries.length} ${plural(entries.length, 'group is', 'groups are')} merged one after the other:`;
   const totals = `${documents} ${plural(documents, 'document', 'documents')} will be moved and ${deleted} ${plural(deleted, 'entry', 'entries')} deleted in Paperless-ngx.`;
-  const htmlCopy = offerCopy
-    ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRuleAll" checked><span>Copy a source's matching rule where the target has none</span></label>`
-    : '';
+  const htmlCopy = htmlCopyRuleCheck(offerCopy);
   // One line, once, and only where the guided path exists at all. The matcher
   // is the page's own answer; the model is an offer beside it.
   const htmlTip = aiReviewOffered()
@@ -1745,12 +1897,23 @@ function restorePicks(picks) {
   });
 }
 
-/** One row of the review dialog: what would be merged, and what the model said. */
-function htmlReviewRow(entry) {
-  const verdict = entry.state.group.aiVerdict;
+/**
+ * One row of a verdict dialog: what would be merged, and what the model — or
+ * the spelling rule the server applied instead — said about it. Both dialogs
+ * share it, so a verdict reads the same in the guided path and in the
+ * proposal; only the cell class differs, which is how the proposal styles and
+ * finds its own column.
+ *
+ * @param {object} entry     what selectedBatch() / proposalEntries() returned
+ * @param {string} cellClass classes of the tick cell
+ */
+function htmlReviewRow(entry, cellClass) {
+  const group = entry.state.group;
+  const verdict = group.aiVerdict;
   const value = verdict ? String(verdict.verdict) : '';
-  // Only a clear "same" comes up ticked; everything else is the user's call.
-  const htmlChecked = value === 'same' ? ' checked' : '';
+  // Only a "same" that is settled comes up ticked — a spelling rule or a model
+  // that says it is sure. Everything else is the user's call.
+  const htmlChecked = isSureSame(verdict) ? ' checked' : '';
   const documents = countDocuments(entry.sources);
   const targetName = String(entry.target.name == null ? '' : entry.target.name);
   const names = entry.sources
@@ -1758,21 +1921,23 @@ function htmlReviewRow(entry) {
     .join(', ');
   const htmlVerdict =
     htmlVerdictChip(verdict) || '<span class="zr-faint">not judged</span>';
+  const htmlCandidate =
+    group.source === AI_CANDIDATE_SOURCE
+      ? '<span class="zr-badge zr-badge--info">AI suggested</span>'
+      : '';
   const reason = verdict ? shortReason(verdict.reason) : '';
-  return `<tr data-group-id="${esc(String(entry.state.group.id))}" data-documents="${num(documents)}">
-    <td data-label="Merge"><input type="checkbox" class="zr-check dup-review-pick" value="${esc(String(entry.state.group.id))}"${htmlChecked} aria-label="Merge into ${esc(targetName)}"></td>
-    <td data-label="Group"><span class="dup-review__names"><strong>${esc(targetName)}</strong> <span class="zr-faint">←</span> ${esc(names)}</span></td>
+  return `<tr data-group-id="${esc(String(group.id))}" data-documents="${num(documents)}" data-sources="${num(entry.sources.length)}" data-verdict="${esc(value)}">
+    <td data-label="Merge" class="${esc(cellClass)}"><input type="checkbox" class="zr-check dup-review-pick" value="${esc(String(group.id))}"${htmlChecked} aria-label="Merge into ${esc(targetName)}"></td>
+    <td data-label="Group"><span class="dup-review__names"><strong>${esc(targetName)}</strong> <span class="zr-faint">←</span> ${esc(names)}</span>${htmlCandidate}</td>
     <td data-label="Documents" class="zr-mono">${num(documents)}</td>
     <td data-label="AI">${htmlVerdict}</td>
+    <td data-label="Basis">${htmlBasisBadge(verdict)}</td>
     <td data-label="Why" class="dup-review__reason">${esc(reason)}</td>
   </tr>`;
 }
 
-function htmlReviewDialog(entries, offerCopy) {
-  const htmlRows = entries.map(htmlReviewRow).join('');
-  const htmlCopy = offerCopy
-    ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRuleAll" checked><span>Copy a source's matching rule where the target has none</span></label>`
-    : '';
+/** The table both verdict dialogs are built around. */
+function htmlVerdictTable(htmlRows) {
   return `<div class="zr-table-wrap"><table class="zr-table zr-table--stack dup-review-table">
       <thead>
         <tr>
@@ -1780,25 +1945,54 @@ function htmlReviewDialog(entries, offerCopy) {
           <th>Group</th>
           <th>Documents</th>
           <th>AI</th>
+          <th>Basis</th>
           <th>Why</th>
         </tr>
       </thead>
       <tbody>${htmlRows}</tbody>
-    </table></div>
-    <p class="zr-sm dup-review__summary" id="dupReviewSummary"></p>
-    <p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopy}`;
+    </table></div>`;
 }
 
-/** "N of M ticked · K documents", live while the checks are used. */
-function reviewSummaryText(dialog, total) {
+/** The copy-rule question both batch dialogs ask once for all their groups. */
+function htmlCopyRuleCheck(offerCopy) {
+  return offerCopy
+    ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRuleAll" checked><span>Copy a source's matching rule where the target has none</span></label>`
+    : '';
+}
+
+function htmlReviewDialog(entries, offerCopy) {
+  const htmlRows = entries
+    .map((entry) => htmlReviewRow(entry, 'dup-review__pick'))
+    .join('');
+  return `${htmlVerdictTable(htmlRows)}
+    <p class="zr-sm dup-review__summary" id="dupReviewSummary"></p>
+    <p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopyRuleCheck(offerCopy)}`;
+}
+
+/**
+ * "N of M ticked · K documents", live while the checks are used, and what the
+ * merge would delete where the dialog promises to say so.
+ *
+ * @param {HTMLElement} dialog
+ * @param {number} total       rows the dialog shows
+ * @param {boolean} [withDeleted]  also count the objects that would be deleted
+ */
+function pickedSummaryText(dialog, total, withDeleted) {
   const picked = [...dialog.querySelectorAll('.dup-review-pick')].filter(
     (check) => check.checked
   );
+  const rowOf = (check) => check.closest('tr');
   const documents = picked.reduce((sum, check) => {
-    const row = check.closest('tr');
+    const row = rowOf(check);
     return sum + num(row ? row.dataset.documents : 0);
   }, 0);
-  return `${picked.length} of ${total} ticked · ${documents} ${plural(documents, 'document', 'documents')}`;
+  const text = `${picked.length} of ${total} ticked · ${documents} ${plural(documents, 'document', 'documents')}`;
+  if (!withDeleted) return text;
+  const deleted = picked.reduce((sum, check) => {
+    const row = rowOf(check);
+    return sum + num(row ? row.dataset.sources : 0);
+  }, 0);
+  return `${text} · ${deleted} ${plural(deleted, 'object', 'objects')} will be deleted`;
 }
 
 /** The dialog confirmDialog() has just appended; it does so synchronously. */
@@ -1848,7 +2042,7 @@ async function confirmReviewedBatch(entries) {
     const summary = dialog.querySelector('#dupReviewSummary');
     const update = () => {
       if (summary) {
-        summary.textContent = reviewSummaryText(dialog, entries.length);
+        summary.textContent = pickedSummaryText(dialog, entries.length);
       }
       picked = [...dialog.querySelectorAll('.dup-review-pick')]
         .filter((check) => check.checked)
@@ -1925,6 +2119,221 @@ async function reviewThenMerge() {
   const judged = selectedBatch();
   if (judged.length === 0) return;
   await confirmReviewedBatch(judged);
+}
+
+/* --- the AI proposal: one click, one overview, deselect what you do not want */
+/* The path for an archive nobody wants to work through group by group: one
+   button scans, lets the model judge everything the scan found and everything
+   in the band below it, and then shows one proposal. Only what is settled —
+   a spelling rule, or a model that says it is sure — comes up ticked; the rest
+   waits. Nothing merges until the dialog is confirmed, and every other path on
+   this page is exactly what it was. */
+
+/** The first line of the proposal dialog: what a tick means. */
+const PROPOSAL_LEGEND =
+  'Pre-ticked: settled by a spelling rule, or the model is sure. ' +
+  'Everything else waits for you.';
+
+/** Every card that could be merged right now — the rows of the proposal. */
+function proposalEntries() {
+  const entries = [];
+  eachGroupCard((card, state) => {
+    if (selectBlockReason(card, state) !== '') return;
+    const entry = entryFor(card, state);
+    if (entry) entries.push(entry);
+  });
+  return entries;
+}
+
+/**
+ * The order of the proposal: what is settled first, then what needs a look,
+ * and inside a verdict the strongest match first. Pure on purpose —
+ * tests/test-duplicates-ui.js evaluates it and sorts a list with it.
+ */
+function compareProposalEntries(a, b) {
+  const rank =
+    proposalRank(a.state.group.aiVerdict) -
+    proposalRank(b.state.group.aiVerdict);
+  if (rank !== 0) return rank;
+  return num(b.state.group.confidence) - num(a.state.group.confidence);
+}
+
+function htmlProposalDialog(entries, offerCopy) {
+  const htmlRows = entries
+    .map((entry) => htmlReviewRow(entry, 'dup-review__pick dup-proposal-pick'))
+    .join('');
+  return `<p class="zr-sm zr-faint dup-proposal__legend">${esc(PROPOSAL_LEGEND)}</p>
+    <div class="dup-proposal__quick">
+      <button type="button" class="zr-btn zr-btn--ghost" id="dupProposalTickSame">Tick all same</button>
+      <button type="button" class="zr-btn zr-btn--ghost" id="dupProposalUntickAll">Untick all</button>
+    </div>
+    ${htmlVerdictTable(htmlRows)}
+    <p class="zr-sm dup-review__summary" id="dupProposalSummary"></p>
+    <p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopyRuleCheck(offerCopy)}`;
+}
+
+/**
+ * The proposal itself: every judged group in one table, sorted by verdict,
+ * with the sure ones ticked. What stays ticked is merged through the batch
+ * runner of round 4; cancelling leaves the verdicts on the cards and ticks
+ * nothing.
+ */
+async function confirmProposal(entries) {
+  const sorted = [...entries].sort(compareProposalEntries);
+  const sure = sorted.filter((entry) =>
+    isSureSame(entry.state.group.aiVerdict)
+  ).length;
+  const offerCopy = sorted.some((entry) =>
+    groupOffersCopy(entry.state, entry.target)
+  );
+  const answer = confirmDialog({
+    title: `The AI's proposal: ${sure} of ${sorted.length} ${plural(sorted.length, 'group', 'groups')}`,
+    html: htmlProposalDialog(sorted, offerCopy),
+    confirmLabel: 'Merge ticked',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  const dialog = lastDialog();
+  const copyMatchingRule = copyRuleAnswer('dupCopyRuleAll');
+  let picked = [];
+  if (dialog) {
+    // Six columns need the room the guided dialog already takes, and a little
+    // more: the proposal shows every group of a scan, not a handful.
+    dialog.classList.add(
+      'zr-dialog--wide',
+      'dup-review-dialog',
+      'dup-proposal-dialog'
+    );
+    const summary = dialog.querySelector('#dupProposalSummary');
+    const update = () => {
+      if (summary) {
+        summary.textContent = pickedSummaryText(dialog, sorted.length, true);
+      }
+      picked = [...dialog.querySelectorAll('.dup-review-pick')]
+        .filter((check) => check.checked)
+        .map((check) => check.value);
+    };
+    update();
+    dialog.addEventListener('change', (event) => {
+      if (event.target.classList.contains('dup-review-pick')) update();
+    });
+    // The two quick buttons are type="button" inside the dialog's form, so
+    // neither of them closes it.
+    dialog.addEventListener('click', (event) => {
+      const tickSame = event.target.closest('#dupProposalTickSame');
+      const untickAll = event.target.closest('#dupProposalUntickAll');
+      if (!tickSame && !untickAll) return;
+      dialog.querySelectorAll('.dup-review-pick').forEach((check) => {
+        const row = check.closest('tr');
+        const verdict = row ? row.dataset.verdict : '';
+        check.checked = Boolean(tickSame) && verdict === 'same';
+      });
+      update();
+    });
+  }
+  if (!(await answer)) {
+    // Cancelled: the verdicts stay on the cards, and nothing is ticked.
+    clearSelection();
+    return;
+  }
+
+  const wanted = new Set(picked);
+  const ticked = sorted.filter((entry) =>
+    wanted.has(String(entry.state.group.id))
+  );
+  if (ticked.length === 0) {
+    setSelectionProgress('Nothing was ticked; nothing was merged.');
+    updateSelectionBar();
+    window.setTimeout(() => {
+      setSelectionProgress('');
+      updateSelectionBar();
+    }, SELECTION_SUMMARY_MS);
+    return;
+  }
+  // The selection bar reports the batch, so it has to hold exactly what runs.
+  clearSelection();
+  selectGroups((state) => wanted.has(String(state.group.id)));
+  await runBatch(ticked, copyMatchingRule());
+}
+
+function setProposalStatus(text) {
+  if (!el.aiProposalStatus) return;
+  el.aiProposalStatus.textContent = text;
+  el.aiProposalStatus.classList.toggle('hidden', text === '');
+}
+
+function setProposalBusy(active) {
+  if (!el.aiProposalBtn) return;
+  proposing = active;
+  const use = el.aiProposalIcon ? el.aiProposalIcon.querySelector('use') : null;
+  if (use) {
+    use.setAttribute(
+      'href',
+      active ? '/icons.svg#i-refresh' : '/icons.svg#i-wand'
+    );
+  }
+  if (el.aiProposalIcon) {
+    el.aiProposalIcon.classList.toggle('zr-icon--spin', active);
+  }
+  updateAiButton();
+}
+
+/**
+ * One click: scan, let the model judge every group and every near-miss, then
+ * propose. The scan is the one the button beside it runs — same kind, same
+ * sensitivity, same hidden pairs — and the review is the one "Ask the AI"
+ * sends, only never narrowed. Two requests in total, and no merge until the
+ * dialog is confirmed.
+ */
+async function runAiProposal() {
+  if (!el.aiProposalBtn || scanning || aiReviewing || merging || proposing) {
+    return;
+  }
+  setProposalBusy(true);
+  clearAiNotice();
+  try {
+    setProposalStatus('Scanning…');
+    await runScan();
+    // A failed scan has already said so where the results are; the proposal
+    // has nothing to add and nothing to ask about.
+    if (!scanned) return;
+    const pairs = reviewPairCount();
+    setProposalStatus(
+      `Asking the AI about ${pairs} ${plural(pairs, 'pair', 'pairs')} and near-misses…`
+    );
+    setAiReviewing(true);
+    let review;
+    try {
+      review = await askForVerdicts({ includeCandidates: true });
+    } finally {
+      setAiReviewing(false);
+    }
+    if (el.aiNotice) el.aiNotice.innerHTML = htmlFailedRequests(review);
+    setProposalStatus('');
+    const entries = proposalEntries();
+    if (entries.length === 0) {
+      if (el.aiNotice) {
+        el.aiNotice.innerHTML = htmlAlert(
+          'info',
+          '',
+          'Nothing came back that could be merged.'
+        );
+      }
+      return;
+    }
+    await confirmProposal(entries);
+  } catch (error) {
+    if (el.aiNotice) {
+      el.aiNotice.innerHTML = htmlAlert(
+        'danger',
+        'The AI proposal failed',
+        error.message
+      );
+    }
+  } finally {
+    setProposalStatus('');
+    setProposalBusy(false);
+  }
 }
 
 function initSelection() {
@@ -2692,6 +3101,9 @@ function init() {
   if (el.aiReviewBtn) {
     el.aiReviewBtn.addEventListener('click', runAiReview);
     updateAiButton();
+  }
+  if (el.aiProposalBtn) {
+    el.aiProposalBtn.addEventListener('click', runAiProposal);
   }
   if (el.logMore) el.logMore.addEventListener('click', () => loadLog(false));
 
