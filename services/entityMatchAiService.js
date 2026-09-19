@@ -1668,15 +1668,25 @@ class EntityMatchAiService {
           excerptStore,
           { force: true }
         );
+        // Asking the same question again with the same evidence buys
+        // nothing, and an archive of documents without text would double
+        // its requests for it. Only the pairs that gained something go.
+        const again = evidence.pairs.filter(
+          (pair) =>
+            (pair.a?.sampleExcerpts || []).length > 0 ||
+            (pair.b?.sampleExcerpts || []).length > 0
+        );
         this._log(
-          `${kind}: escalated ${unsureWithoutExcerpts.length} unsure pair(s) with excerpts, ` +
+          `${kind}: escalated ${again.length} of ${unsureWithoutExcerpts.length} unsure pair(s) with excerpts, ` +
             `${excerptStore.entities.size - fetchedBefore - fetchedHere} entity/entities fetched.`
         );
-        const second = await this.reviewPairs(evidence.pairs, { kind });
-        foldUsage(second.usage);
-        escalated += unsureWithoutExcerpts.length;
-        for (const [key, verdict] of second.verdicts) {
-          review.verdicts.set(key, verdict);
+        if (again.length > 0) {
+          const second = await this.reviewPairs(again, { kind });
+          foldUsage(second.usage);
+          escalated += again.length;
+          for (const [key, verdict] of second.verdicts) {
+            review.verdicts.set(key, verdict);
+          }
         }
       }
 

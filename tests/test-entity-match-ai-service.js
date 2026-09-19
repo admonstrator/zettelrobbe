@@ -65,7 +65,8 @@
  *     why, and a rejected candidate never becomes a group
  * 36. A pair a matcher rule settles costs no request, no read and no token
  * 37. The neighbourhood of an entity is read once and reaches the model
- * 38. An unsure pair without excerpts is asked a second time, with them
+ * 38. An unsure pair without excerpts is asked a second time, with them, and
+ *     an escalation that finds no document does not ask again
  * 39. The judge can run on its own model, and the option reaches every
  *     provider the way its API spells it
  * 40. getRecentDocumentExcerptsByEntity and getEntityNeighbourhood: what they
@@ -2095,9 +2096,44 @@ async function main() {
       );
       assert.ok(
         lines.some((line) =>
-          /escalated 1 unsure pair\(s\) with excerpts, 2 entity\/entities fetched\./.test(
+          /escalated 1 of 1 unsure pair\(s\) with excerpts, 2 entity\/entities fetched\./.test(
             line
           )
+        ),
+        `no escalation line:\n${lines.join('\n')}`
+      );
+    });
+
+    await test('An escalation that finds no document does not ask again', async () => {
+      // The archive of somebody whose documents carry no text: the read
+      // happens, it brings nothing, and nothing is asked a second time.
+      useFake({
+        tags: [
+          { id: 4, name: 'Versicherung' },
+          { id: 5, name: 'Versicherungen' },
+        ],
+        documents: [
+          { id: 105, title: 'Scan 1', tags: [4] },
+          { id: 106, title: 'Scan 2', tags: [5] },
+        ],
+      });
+      const { calls } = useProvider(answerAll('unsure', 'the names alone'));
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let result;
+      try {
+        result = await service.reviewScan({ kind: 'tags', threshold: 0.85 });
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.strictEqual(calls.length, 1, 'one round and no second one');
+      assert.strictEqual(result.aiReview.escalated, 0);
+      assert.strictEqual(result.aiReview.excerpts, 0);
+      assert.ok(
+        lines.some((line) =>
+          /escalated 0 of 1 unsure pair\(s\) with excerpts/.test(line)
         ),
         `no escalation line:\n${lines.join('\n')}`
       );
