@@ -2026,6 +2026,21 @@ test('A broken stream falls back to polling, and a reload re-attaches', () => {
   );
 });
 
+test('The answer of a Stop request cannot paint over a finished review', () => {
+  // The stream can end the job before the stop request answers; that late
+  // snapshot from the stopping moment must not replace the outcome line or
+  // restart the elapsed clock.
+  const stop = functionBody('stopReview');
+  assert.ok(
+    stop.includes('reviewJobId === id'),
+    'the stop answer is rendered even when the review is no longer followed'
+  );
+  assert.ok(
+    stop.includes('REVIEW_LIVE_STATES.includes(job.status)'),
+    'the stop answer is rendered even when the job already finished'
+  );
+});
+
 test('The stylesheet carries the progress panel and stops its animation', () => {
   [
     '.dup-progress',

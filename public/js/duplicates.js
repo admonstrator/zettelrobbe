@@ -1564,8 +1564,13 @@ async function stopReview() {
       `/api/duplicates/ai-review/jobs/${encodeURIComponent(id)}/stop`,
       {}
     );
-    // The job words its own stop; the panel only repeats it.
-    if (payload.data && payload.data.job) renderProgress(payload.data.job);
+    // The job words its own stop; the panel only repeats it. The answer can
+    // arrive after the stream already ended the job, and a snapshot from the
+    // stopping moment must not paint over the outcome or restart the clock.
+    const job = payload.data ? payload.data.job : null;
+    if (job && reviewJobId === id && REVIEW_LIVE_STATES.includes(job.status)) {
+      renderProgress(job);
+    }
   } catch (error) {
     // The request failed, so nothing was stopped: the button goes back to
     // being a button and the stream still decides how this ends.
