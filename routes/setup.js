@@ -10983,8 +10983,16 @@ const MAX_AI_REVIEW_GROUP_IDS = 500;
  *
  *       Read-only and never automatic: it runs when the user asks for it,
  *       nothing is merged, and a verdict is information the user decides on.
- *       `withTitles` lets the model see a few recent document titles per
- *       entry as context; leave it out and it is on.
+ *
+ *       Two options say how much the model gets to see. `withTitles` gives it
+ *       a few recent document titles per entry and the entries it is usually
+ *       filed with; `withExcerpts` adds the beginning of a couple of documents
+ *       per entry, but only for the pairs the matcher linked by spelling alone
+ *       ("Kontoauszug" / "Kontoumzug"), which is where names and titles are
+ *       not enough. Both default to on; `withExcerpts` is capped by
+ *       DUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS and
+ *       DUPLICATES_AI_EXCERPT_DOCUMENTS. `aiReview.excerpts` reports how many
+ *       entries were read.
  *
  *       The review can be targeted, which is what makes it cheap on a large
  *       archive: `groupIds` names the scan groups to judge, `minConfidence`
@@ -11069,11 +11077,24 @@ router.post('/api/duplicates/ai-review', isAuthenticated, async (req, res) => {
         ? true
         : body.withTitles === true ||
           String(body.withTitles).toLowerCase() === 'true';
+    // Same rule for the excerpts, which are the expensive half of the
+    // evidence: on unless the request or the instance says otherwise.
+    const withExcerpts =
+      body.withExcerpts === undefined || body.withExcerpts === null
+        ? true
+        : body.withExcerpts === true ||
+          String(body.withExcerpts).toLowerCase() === 'true';
 
     // The three targeting options. Each one is left out of the call when the
     // request says nothing about it, so an untargeted review asks for exactly
     // what it asked for before.
-    const reviewOptions = { kind, threshold, includeDismissed, withTitles };
+    const reviewOptions = {
+      kind,
+      threshold,
+      includeDismissed,
+      withTitles,
+      withExcerpts,
+    };
 
     if (body.groupIds !== undefined && body.groupIds !== null) {
       const groupIds = body.groupIds;

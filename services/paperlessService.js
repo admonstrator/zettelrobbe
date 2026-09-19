@@ -3109,6 +3109,181 @@ class PaperlessService {
       return [];
     }
   }
+
+  /**
+   * The beginning of the content of a few recent documents of a tag or a
+   * correspondent, as evidence for the AI review of the Duplicates page.
+   *
+   * Titles are often too thin to tell "Kontoauszug" from "Kontoumzug"; the
+   * first few hundred characters of the documents themselves are not. The
+   * read is bounded on both sides: `truncate_content=true` asks Paperless-ngx
+   * to send at most 500 characters per document (a documented list parameter;
+   * a version that ignores it costs a little more transfer and nothing else),
+   * `page_size` is the document count, and every excerpt is cut to `chars` at
+   * a word boundary here, so what reaches the model is bounded whatever the
+   * instance answers.
+   *
+   * Like the titles above: never throws, never pages. Missing evidence makes
+   * the review blinder, it must not make it fail. The excerpt text is
+   * document content and is never logged — only an HTTP error is, and that
+   * carries the API's error body, not a document.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} id
+   * @param {object} [options]
+   * @param {number} [options.limit] how many documents at most; default 2
+   * @param {number} [options.chars] characters per excerpt at most; default 300
+   * @returns {Promise<string[]>} whitespace-collapsed excerpts, [] on any problem
+   */
+  async getRecentDocumentExcerptsByEntity(kind, id, options = {}) {
+    const wantedLimit = Number(options?.limit);
+    const pageSize =
+      Number.isFinite(wantedLimit) && wantedLimit > 0
+        ? Math.min(Math.floor(wantedLimit), this.ENTITY_PAGE_SIZE)
+        : 2;
+    const wantedChars = Number(options?.chars);
+    const chars =
+      Number.isFinite(wantedChars) && wantedChars > 0
+        ? Math.floor(wantedChars)
+        : 300;
+
+    /** Collapses whitespace and cuts at the last word boundary that fits. */
+    const toExcerpt = (raw) => {
+      const text = String(raw ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text.length <= chars) {
+        return text;
+      }
+      const cut = text.slice(0, chars);
+      const lastSpace = cut.lastIndexOf(' ');
+      // Only fall back to a hard cut when the last word is longer than half
+      // the excerpt; otherwise a single long token would empty it.
+      return (lastSpace > chars / 2 ? cut.slice(0, lastSpace) : cut).trim();
+    };
+
+    try {
+      this._assertEntityKind(kind);
+      const client = this._requireClient(`reading excerpts of ${kind} ${id}`);
+      const filter =
+        kind === 'tags' ? { tags__id__all: id } : { correspondent__id: id };
+      const response = await client.get('/documents/', {
+        params: {
+          ...filter,
+          fields: 'id,content',
+          ordering: '-created',
+          page: 1,
+          page_size: pageSize,
+          truncate_content: true,
+        },
+      });
+      const results = response?.data?.results;
+      if (!Array.isArray(results)) {
+        return [];
+      }
+      return results
+        .map((document) => toExcerpt(document?.content))
+        .filter(Boolean)
+        .slice(0, pageSize);
+    } catch (error) {
+      console.error(
+        `[ERROR] reading document excerpts of ${kind} ${id}:`,
+        describeHttpError(error)
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Who a tag is usually filed with, or what a correspondent is usually filed
+   * under: the most frequent correspondents of a tag's recent documents, or
+   * the most frequent tags of a correspondent's recent documents.
+   *
+   * Cheap evidence for the AI review, and often decisive where the names
+   * alone are not: a tag whose documents come from banks is not the tag whose
+   * documents come from a removal company, however close the two names read.
+   * One list request for the ids, then the names off the caches the service
+   * already keeps, so a review of a few hundred entities does not turn into a
+   * few hundred name lookups.
+   *
+   * Never throws: missing evidence makes a review blinder, not broken.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {number} id
+   * @param {object} [options]
+   * @param {number} [options.documents] documents to look at; default 30
+   * @param {number} [options.limit] names at most, most frequent first; default 3
+   * @returns {Promise<string[]>} names, [] on any problem
+   */
+  async getEntityNeighbourhood(kind, id, options = {}) {
+    const wantedDocuments = Number(options?.documents);
+    const pageSize =
+      Number.isFinite(wantedDocuments) && wantedDocuments > 0
+        ? Math.min(Math.floor(wantedDocuments), this.ENTITY_PAGE_SIZE)
+        : 30;
+    const wantedLimit = Number(options?.limit);
+    const limit =
+      Number.isFinite(wantedLimit) && wantedLimit > 0
+        ? Math.floor(wantedLimit)
+        : 3;
+
+    try {
+      this._assertEntityKind(kind);
+      const client = this._requireClient(
+        `reading the neighbourhood of ${kind} ${id}`
+      );
+      const isTag = kind === 'tags';
+      const response = await client.get('/documents/', {
+        params: {
+          ...(isTag ? { tags__id__all: id } : { correspondent__id: id }),
+          fields: isTag ? 'id,correspondent' : 'id,tags',
+          ordering: '-created',
+          page: 1,
+          page_size: pageSize,
+        },
+      });
+      const results = response?.data?.results;
+      if (!Array.isArray(results)) {
+        return [];
+      }
+
+      const counts = new Map();
+      for (const document of results) {
+        const neighbours = isTag
+          ? [document?.correspondent]
+          : Array.isArray(document?.tags)
+            ? document.tags
+            : [];
+        for (const raw of neighbours) {
+          const neighbourId = Number(raw);
+          if (!Number.isInteger(neighbourId) || neighbourId <= 0) continue;
+          counts.set(neighbourId, (counts.get(neighbourId) || 0) + 1);
+        }
+      }
+      if (counts.size === 0) {
+        return [];
+      }
+      // Most frequent first; the id breaks a tie so the answer is stable.
+      const ranked = [...counts.entries()]
+        .sort((x, y) => y[1] - x[1] || x[0] - y[0])
+        .slice(0, limit)
+        .map(([neighbourId]) => neighbourId);
+
+      const names = isTag
+        ? await this.getCorrespondentNamesByIds(ranked)
+        : await this.getTagNamesByIds(ranked);
+      return ranked
+        .map((neighbourId) => names?.[neighbourId])
+        .filter(Boolean)
+        .map((name) => String(name));
+    } catch (error) {
+      console.error(
+        `[ERROR] reading the neighbourhood of ${kind} ${id}:`,
+        describeHttpError(error)
+      );
+      return [];
+    }
+  }
 }
 
 const paperlessService = new PaperlessService();

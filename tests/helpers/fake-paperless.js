@@ -24,6 +24,8 @@
  */
 
 const DEFAULT_PAGE_SIZE = 25;
+/** What Paperless-ngx leaves of a document's content for truncate_content=true. */
+const TRUNCATED_CONTENT_LENGTH = 500;
 const NEXT_HOST = 'http://paperless-public.invalid';
 
 function httpError(status, data) {
@@ -52,7 +54,7 @@ function project(document, fields) {
  * @param {object} [seed]
  * @param {object[]} [seed.tags]            { id, name, match?, matching_algorithm?, is_insensitive?, is_inbox_tag?, color?, owner?, user_can_change? }
  * @param {object[]} [seed.correspondents]  { id, name, match?, ... }
- * @param {object[]} [seed.documents]       { id, title?, tags?: number[], correspondent?: number|null }
+ * @param {object[]} [seed.documents]       { id, title?, content?, tags?: number[], correspondent?: number|null }
  * @param {Set<number>|number[]} [seed.bulkEditIgnores] document ids a bulk edit silently does not touch
  * @returns {object} the stand-in
  */
@@ -102,6 +104,7 @@ function createFakePaperless(seed = {}) {
     state.documents.set(Number(document.id), {
       id: Number(document.id),
       title: document.title ?? `Document ${document.id}`,
+      content: document.content == null ? '' : String(document.content),
       tags: (document.tags || []).map(Number),
       correspondent:
         document.correspondent == null ? null : Number(document.correspondent),
@@ -137,13 +140,21 @@ function createFakePaperless(seed = {}) {
   };
 
   /**
-   * The router. `path` is relative to /api, e.g. '/tags/' or '/documents/'.
+   * The router. `rawPath` is relative to /api, e.g. '/tags/' or
+   * '/documents/', and may carry its own query string.
    *
    * @returns {{status:number, data:any}}
    */
-  function handle(method, path, params = {}, body = {}) {
-    state.calls.push({ method, path, params, body });
+  function handle(method, rawPath, rawParams = {}, body = {}) {
+    state.calls.push({ method, path: rawPath, params: rawParams, body });
     const verb = String(method).toLowerCase();
+    // Some callers spell their query into the URL rather than into `params`
+    // (the tag cache does). Route on the path, and read both the same way.
+    const [path, query] = String(rawPath).split('?');
+    const params = { ...rawParams };
+    for (const [key, value] of new URLSearchParams(query || '')) {
+      if (!(key in params)) params[key] = value;
+    }
 
     const entityMatch = /^\/(tags|correspondents)\/(?:(\d+)\/)?$/.exec(path);
     if (entityMatch) {
@@ -243,10 +254,25 @@ function createFakePaperless(seed = {}) {
         items = items.filter((document) => wanted.has(document.id));
       }
       items.sort((a, b) => a.id - b.id);
+      // Documented list parameter: the answer carries only the beginning of
+      // each content. Code that asks for it must still bound the result
+      // itself, which is what the cut below makes visible.
+      const truncated =
+        params.truncate_content === true ||
+        String(params.truncate_content) === 'true';
       return {
         status: 200,
         data: paginate(
-          items.map((document) => project(document, params.fields)),
+          items.map((document) => {
+            const projected = project(document, params.fields);
+            if (truncated && typeof projected.content === 'string') {
+              projected.content = projected.content.slice(
+                0,
+                TRUNCATED_CONTENT_LENGTH
+              );
+            }
+            return projected;
+          }),
           params,
           (page) => `/api/documents/?page=${page}`
         ),
@@ -326,4 +352,8 @@ function createFakePaperless(seed = {}) {
   };
 }
 
-module.exports = { createFakePaperless, DEFAULT_PAGE_SIZE };
+module.exports = {
+  createFakePaperless,
+  DEFAULT_PAGE_SIZE,
+  TRUNCATED_CONTENT_LENGTH,
+};

@@ -692,6 +692,7 @@ async function main() {
           threshold: 0.9,
           includeDismissed: true,
           withTitles: false,
+          withExcerpts: true,
         });
 
         assert.strictEqual(payload.data.aiReview.judged, 2);
@@ -716,6 +717,7 @@ async function main() {
           threshold: 0.85,
           includeDismissed: false,
           withTitles: true,
+          withExcerpts: true,
         });
       } finally {
         entityMatchAiService.reviewScan = realReviewScan;
@@ -749,6 +751,7 @@ async function main() {
           threshold: 0.85,
           includeDismissed: false,
           withTitles: true,
+          withExcerpts: true,
           groupIds: ['tags:1-2', 'tags:7-9'],
           minConfidence: 0.95,
           includeCandidates: false,
@@ -766,6 +769,7 @@ async function main() {
           'includeDismissed',
           'kind',
           'threshold',
+          'withExcerpts',
           'withTitles',
         ]);
 
@@ -840,6 +844,54 @@ async function main() {
         assert.strictEqual(tooMany.status, 400);
         assert.match((await tooMany.json()).error, /500/);
         assert.strictEqual(seen.length, 1, 'the service was asked once');
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review reads withExcerpts the way it reads withTitles', async () => {
+      const seen = [];
+      entityMatchAiService.reviewScan = async (options) => {
+        seen.push(options);
+        return {
+          ...reviewFixture(),
+          aiReview: { ...reviewFixture().aiReview, excerpts: 4 },
+        };
+      };
+      try {
+        const off = await call('POST', '/api/duplicates/ai-review', {
+          withExcerpts: false,
+        });
+        assert.strictEqual(off.status, 200);
+        assert.strictEqual(seen[0].withExcerpts, false);
+
+        await call('POST', '/api/duplicates/ai-review', {
+          withExcerpts: 'false',
+        });
+        assert.strictEqual(
+          seen[1].withExcerpts,
+          false,
+          'a form sends its checkbox as a string'
+        );
+
+        const on = await call('POST', '/api/duplicates/ai-review', {
+          withExcerpts: true,
+        });
+        assert.strictEqual(seen[2].withExcerpts, true);
+        assert.strictEqual(
+          (await on.json()).data.aiReview.excerpts,
+          4,
+          'and the result says how many entries were read'
+        );
+
+        await call('POST', '/api/duplicates/ai-review', {
+          withExcerpts: null,
+        });
+        assert.strictEqual(
+          seen[3].withExcerpts,
+          true,
+          'a request that says nothing gets the evidence'
+        );
       } finally {
         entityMatchAiService.reviewScan = realReviewScan;
       }

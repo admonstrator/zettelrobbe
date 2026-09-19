@@ -11,6 +11,7 @@ const {
 const {
   hasNumber,
   hasSystemPrompt,
+  modelOverride,
   readCompletionUsage,
 } = require('./aiGenerateOptions');
 const OpenAI = require('openai');
@@ -643,7 +644,7 @@ class CustomOpenAIService {
         );
       }
 
-      const model = config.custom.model;
+      const model = modelOverride(options) || config.custom.model;
       const maxContextTokens = Number(config.tokenLimit) || 128000;
       const desiredCompletionTokens =
         hasNumber(options.maxTokens) && options.maxTokens > 0
