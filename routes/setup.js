@@ -10807,6 +10807,13 @@ router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
 });
 
 /**
+ * How many group ids one AI review may be pointed at. Far more than a person
+ * selects by hand, and low enough that a malformed request cannot turn into a
+ * long walk over the scan.
+ */
+const MAX_AI_REVIEW_GROUP_IDS = 500;
+
+/**
  * @swagger
  * /api/duplicates/ai-review:
  *   post:
@@ -10822,6 +10829,16 @@ router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
  *       nothing is merged, and a verdict is information the user decides on.
  *       `withTitles` lets the model see a few recent document titles per
  *       entry as context; leave it out and it is on.
+ *
+ *       The review can be targeted, which is what makes it cheap on a large
+ *       archive: `groupIds` names the scan groups to judge, `minConfidence`
+ *       judges only groups scoring at least that much, and
+ *       `includeCandidates: false` leaves the band of near-misses out
+ *       entirely. Together they narrow the question, not the answer — every
+ *       group of the scan still comes back, the ones nobody asked about with
+ *       `aiVerdict: null` on the group and its members. A group id this scan
+ *       does not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`
+ *       and `aiReview.groupsSkipped` report what the targeting did.
  *     tags:
  *       - Duplicates
  *       - API
@@ -10847,7 +10864,10 @@ router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
  *                 data:
  *                   $ref: '#/components/schemas/DuplicateAiReviewResult'
  *       400:
- *         description: Unknown kind or threshold outside [0.5, 1]
+ *         description: |
+ *           Unknown kind, threshold outside [0.5, 1], `groupIds` that is not a
+ *           list of at most 500 non-empty strings, `minConfidence` outside
+ *           [0.5, 1] or an `includeCandidates` that is not a boolean
  *       401:
  *         description: Not authenticated
  *       409:
@@ -10894,12 +10914,63 @@ router.post('/api/duplicates/ai-review', isAuthenticated, async (req, res) => {
         : body.withTitles === true ||
           String(body.withTitles).toLowerCase() === 'true';
 
-    const data = await entityMatchAiService.reviewScan({
-      kind,
-      threshold,
-      includeDismissed,
-      withTitles,
-    });
+    // The three targeting options. Each one is left out of the call when the
+    // request says nothing about it, so an untargeted review asks for exactly
+    // what it asked for before.
+    const reviewOptions = { kind, threshold, includeDismissed, withTitles };
+
+    if (body.groupIds !== undefined && body.groupIds !== null) {
+      const groupIds = body.groupIds;
+      if (!Array.isArray(groupIds)) {
+        return res.status(400).json({
+          success: false,
+          error: 'groupIds must be an array of group ids',
+        });
+      }
+      if (groupIds.length > MAX_AI_REVIEW_GROUP_IDS) {
+        return res.status(400).json({
+          success: false,
+          error: `groupIds must not name more than ${MAX_AI_REVIEW_GROUP_IDS} groups`,
+        });
+      }
+      if (!groupIds.every((id) => typeof id === 'string' && id.trim() !== '')) {
+        return res.status(400).json({
+          success: false,
+          error: 'every entry of groupIds must be a non-empty string',
+        });
+      }
+      reviewOptions.groupIds = groupIds;
+    }
+
+    if (body.minConfidence !== undefined && body.minConfidence !== null) {
+      const minConfidence = Number(body.minConfidence);
+      if (
+        !Number.isFinite(minConfidence) ||
+        minConfidence < 0.5 ||
+        minConfidence > 1
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: 'minConfidence must be a number between 0.5 and 1',
+        });
+      }
+      reviewOptions.minConfidence = minConfidence;
+    }
+
+    if (
+      body.includeCandidates !== undefined &&
+      body.includeCandidates !== null
+    ) {
+      if (typeof body.includeCandidates !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          error: 'includeCandidates must be true or false',
+        });
+      }
+      reviewOptions.includeCandidates = body.includeCandidates;
+    }
+
+    const data = await entityMatchAiService.reviewScan(reviewOptions);
     return res.json({ success: true, data });
   } catch (error) {
     return respondDuplicatesError(res, 'POST /api/duplicates/ai-review', error);

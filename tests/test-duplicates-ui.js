@@ -20,6 +20,9 @@
  *    the page speaks all three verdicts
  * 9. the selection bar, the select check on every card and the one dialog a
  *    batch merge asks with
+ * 10. the results toolbar (sorting, "Select ≥"), the custom threshold and the
+ *    guided "ask, review, merge" flow — including that every one of them
+ *    works on an instance without the AI review
  */
 
 'use strict';
@@ -187,13 +190,22 @@ test('The page script is loaded as an ES module', () => {
   );
 });
 
-test('The sensitivity select offers the three presets, normal preselected', () => {
-  const options = [...page.matchAll(/<option value="([^"]+)"([^>]*)>/g)].map(
+/** The options of one select, so a second select on the page cannot confuse it. */
+function optionsOf(markup, id) {
+  const select = new RegExp(
+    `<select[^>]*id="${id}"[^>]*>([\\s\\S]*?)</select>`
+  ).exec(markup);
+  assert.ok(select, `#${id} is not a <select> on this page`);
+  return [...select[1].matchAll(/<option value="([^"]+)"([^>]*)>/g)].map(
     (match) => ({ value: match[1], attrs: match[2] })
   );
+}
+
+test('The sensitivity select offers the three presets and Custom, normal preselected', () => {
+  const options = optionsOf(page, 'dupSensitivity');
   assert.deepStrictEqual(
     options.map((option) => option.value),
-    ['0.95', '0.85', '0.75'],
+    ['0.95', '0.85', '0.75', 'custom'],
     'the option values no longer match SENSITIVITY in the matcher'
   );
   const preselected = options.filter((option) =>
@@ -203,6 +215,93 @@ test('The sensitivity select offers the three presets, normal preselected', () =
     preselected.map((option) => option.value),
     ['0.85'],
     'exactly the default threshold must come up preselected'
+  );
+});
+
+test('Custom sensitivity brings a number field the scan sends instead', () => {
+  assert.ok(
+    page.includes('>Custom</option>'),
+    'the fourth option is not labelled'
+  );
+  // Hidden until "Custom" is chosen; .hidden is the framework's !important
+  // class, which the page script toggles.
+  assert.match(
+    page,
+    /class="dup-controls__field dup-controls__custom hidden" id="dupThresholdCustomField"/,
+    'the number field must come up hidden beside the select'
+  );
+  const field = /<input[^>]*id="dupThresholdCustom"[^>]*>/.exec(page);
+  assert.ok(field, '#dupThresholdCustom is missing from the view');
+  ['type="number"', 'min="50"', 'max="100"', 'step="1"'].forEach(
+    (attribute) => {
+      assert.ok(
+        field[0].includes(attribute),
+        `the threshold field is missing ${attribute}`
+      );
+    }
+  );
+  assert.ok(
+    field[0].includes('class="zr-input"'),
+    'the threshold field is not a framework input'
+  );
+});
+
+test('The results toolbar renders hidden above the selection bar', () => {
+  [
+    'dupResultsBar',
+    'dupSortSelect',
+    'dupMinConfidence',
+    'dupSelectMinBtn',
+    'dupMinConfidenceCount',
+  ].forEach((id) => {
+    assert.ok(
+      page.includes(`id="${id}"`),
+      `#${id} is missing from the view; the toolbar cannot bind to it`
+    );
+  });
+  // Nothing to order until a scan has answered.
+  assert.match(
+    page,
+    /class="dup-results-bar hidden" id="dupResultsBar"/,
+    'the toolbar must come up hidden'
+  );
+  assert.ok(
+    page.indexOf('id="dupResultsBar"') < page.indexOf('id="dupSelection"'),
+    'the toolbar belongs above the selection bar'
+  );
+  assert.ok(
+    page.indexOf('id="dupSelection"') < page.indexOf('id="dupResults"'),
+    'both bars belong above the cards they act on'
+  );
+  assert.deepStrictEqual(
+    optionsOf(page, 'dupSortSelect').map((option) => option.value),
+    ['confidence', 'documents', 'name', 'kind'],
+    'the sort modes drifted away from the ones the page script knows'
+  );
+  const number = /<input[^>]*id="dupMinConfidence"[^>]*>/.exec(page);
+  assert.ok(number, '#dupMinConfidence is missing from the view');
+  ['type="number"', 'min="50"', 'max="100"', 'step="1"', 'value="95"'].forEach(
+    (attribute) => {
+      assert.ok(
+        number[0].includes(attribute),
+        `the confidence field is missing ${attribute}`
+      );
+    }
+  );
+  ['Sort by', 'Select ≥'].forEach((label) => {
+    assert.ok(page.includes(label), `the toolbar has no "${label}"`);
+  });
+});
+
+test('The stats row carries the confidence breakdown', () => {
+  assert.match(
+    page,
+    /class="zr-stat__delta dup-stat__buckets" id="dupStatBuckets"/,
+    'the breakdown under "Groups found" is missing'
+  );
+  assert.ok(
+    page.indexOf('id="dupStatGroups"') < page.indexOf('id="dupStatBuckets"'),
+    'the breakdown belongs under the number it breaks down'
   );
 });
 
@@ -273,6 +372,84 @@ test('The AI review is rendered only when the route offers it', () => {
         `"${needle}" must not be rendered without aiReviewEnabled`
       );
     });
+  });
+});
+
+test('The guided button is rendered only when the review is offered', () => {
+  const offered = renderSync(
+    'duplicates.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  assert.ok(
+    offered.includes('id="dupReviewThenMergeBtn"'),
+    'the guided button is missing although the review is offered'
+  );
+  assert.ok(
+    offered.includes('Ask the AI, then merge'),
+    'the guided button is not labelled'
+  );
+  assert.match(
+    offered,
+    /id="dupReviewThenMergeBtn"[^>]*disabled/,
+    'the guided button waits for a selection'
+  );
+  assert.match(
+    offered,
+    /id="dupReviewThenMergeIcon"[\s\S]{0,120}icons\.svg#i-wand/,
+    'the guided button has no i-wand icon'
+  );
+  // Both buttons carry the same weight, and the one without a model comes
+  // first: the AI is an addition, never a condition.
+  assert.ok(
+    offered.indexOf('id="dupMergeSelectedBtn"') <
+      offered.indexOf('id="dupReviewThenMergeBtn"'),
+    '"Merge selected" belongs before the guided button'
+  );
+  [
+    /class="zr-btn zr-btn--primary" id="dupMergeSelectedBtn"/,
+    /class="zr-btn zr-btn--primary" id="dupReviewThenMergeBtn"/,
+  ].forEach((rule) => {
+    assert.match(offered, rule, 'the two buttons must look the same');
+  });
+});
+
+test('Without the review the page is whole: toolbar, "Select ≥", batch merge', () => {
+  // The user's rule for this page: the AI is an addition. Everything a merge
+  // needs has to render and work with the review switched off.
+  const plain = renderSync('duplicates.ejs', LOCALS);
+  [
+    'dupResultsBar',
+    'dupSortSelect',
+    'dupMinConfidence',
+    'dupSelectMinBtn',
+    'dupMinConfidenceCount',
+    'dupStatBuckets',
+    'dupThresholdCustom',
+    'dupSelection',
+    'dupMergeSelectedBtn',
+    'dupSelectAllBtn',
+    'dupClearSelectionBtn',
+  ].forEach((id) => {
+    assert.ok(
+      plain.includes(`id="${id}"`),
+      `#${id} must not depend on the AI review`
+    );
+  });
+  ['Sort by', 'Select ≥', 'Merge selected'].forEach((label) => {
+    assert.ok(
+      plain.includes(label),
+      `"${label}" must not depend on the review`
+    );
+  });
+  [
+    'dupReviewThenMergeBtn',
+    'dupReviewThenMergeIcon',
+    'Ask the AI, then merge',
+  ].forEach((needle) => {
+    assert.ok(
+      !plain.includes(needle),
+      `"${needle}" must not be rendered without aiReviewEnabled`
+    );
   });
 });
 
@@ -714,16 +891,17 @@ test('The batch dialog asks once, with one copy-rule checkbox', () => {
     SCRIPT.includes('id="dupCopyRule"'),
     'the single-group checkbox lost its id'
   );
-  // Both dialogs make the same promise about the log.
+  // Every dialog that merges makes the same promise about the log: the single
+  // merge, the batch and the guided review.
   assert.strictEqual(
     (SCRIPT.match(/esc\(UNDO_NOTE\)/g) || []).length,
-    2,
-    'the single merge and the batch must promise the same undo'
+    3,
+    'every merge dialog must promise the same undo'
   );
   assert.strictEqual(
     (SCRIPT.match(/confirmDialog\(\{/g) || []).length,
-    3,
-    'a batch asks once: one dialog for a group, one for a batch, one for undo'
+    4,
+    'one dialog for a group, one for a batch, one for the review, one for undo'
   );
 });
 
@@ -776,6 +954,271 @@ test('The stylesheet carries the selection classes and sticks the bar', () => {
     CSS,
     /\.dup-selection__actions \{\n\s+margin-left: 0;\n\s+width: 100%;/,
     'the bar does not wrap at phone width'
+  );
+});
+
+/* ── 10. the results toolbar and the guided flow ──────────────────────────── */
+
+/** The body of a top-level function of the page script, braces balanced. */
+function functionBody(name) {
+  const start = SCRIPT.indexOf(`function ${name}(`);
+  assert.notStrictEqual(start, -1, `${name}() is gone from the page script`);
+  const open = SCRIPT.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < SCRIPT.length; i += 1) {
+    if (SCRIPT[i] === '{') depth += 1;
+    if (SCRIPT[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return SCRIPT.slice(open, i + 1);
+    }
+  }
+  throw new Error(`${name}() is not balanced`);
+}
+
+test('The view and the page script agree on the toolbar ids', () => {
+  [
+    'dupResultsBar',
+    'dupSortSelect',
+    'dupMinConfidence',
+    'dupSelectMinBtn',
+    'dupMinConfidenceCount',
+    'dupStatBuckets',
+    'dupThresholdCustom',
+    'dupThresholdCustomField',
+    'dupReviewThenMergeBtn',
+    'dupReviewThenMergeIcon',
+  ].forEach((id) => {
+    assert.ok(
+      SCRIPT.includes(`'${id}'`),
+      `the page script never looks up #${id}`
+    );
+  });
+  // The threshold of a scan and of a review is one function, so the custom
+  // percent cannot reach one of them and not the other.
+  assert.match(
+    SCRIPT,
+    /threshold: String\(currentThreshold\(\)\)/,
+    'the scan no longer asks for the current threshold'
+  );
+  assert.match(
+    SCRIPT,
+    /threshold: currentThreshold\(\)/,
+    'the review no longer asks for the current threshold'
+  );
+  assert.match(
+    SCRIPT,
+    /return percent \/ 100;/,
+    'the custom percent is not turned into a 0-1 score'
+  );
+});
+
+test('Sorting moves the cards instead of rendering them again', () => {
+  const body = functionBody('sortResults');
+  assert.ok(
+    !body.includes('renderGroups'),
+    'a re-render would throw away the picks, the ticks and the verdicts'
+  );
+  assert.ok(
+    !body.includes('innerHTML'),
+    'the cards must be moved, not rebuilt'
+  );
+  assert.match(
+    body,
+    /el\.results\.appendChild\(node\)/,
+    'appendChild is what moves a node that is already in the document'
+  );
+  // The divider between the scan and the model's suggestions stays put, and
+  // each block is ordered inside itself.
+  assert.match(body, /\.dup-divider/, 'the divider is not taken into account');
+  // The handler behind the select does no more than store and re-order.
+  const handler =
+    /el\.sortSelect\.addEventListener\('change',[\s\S]{0,220}?\}\);/.exec(
+      SCRIPT
+    );
+  assert.ok(handler, 'the sort select has no change handler');
+  assert.ok(
+    !handler[0].includes('renderGroups') && !handler[0].includes('fetch'),
+    'sorting must neither re-render nor re-fetch anything'
+  );
+});
+
+test('"Select ≥" ticks by confidence and remembers its number', () => {
+  const body = functionBody('selectByMinConfidence');
+  assert.match(
+    body,
+    /selectedGroups\.clear\(\)/,
+    'the button must untick what is below the number'
+  );
+  assert.match(
+    body,
+    /pct\(state\.group\.confidence\) >= percent/,
+    'the card’s own percentage is what the number is compared against'
+  );
+  assert.match(
+    body,
+    /check\.disabled/,
+    'a group that cannot be merged must never be ticked'
+  );
+  assert.ok(
+    SCRIPT.includes('at or above'),
+    'the count beside the button is not worded'
+  );
+});
+
+test('Everything the toolbar remembers survives a blocked localStorage', () => {
+  [
+    'dup.sort',
+    'dup.minConfidence',
+    'dup.sensitivity',
+    'dup.thresholdCustom',
+  ].forEach((key) => {
+    assert.ok(SCRIPT.includes(`'${key}'`), `${key} is not persisted`);
+  });
+  // A private window, a blocked origin or a full quota makes either call
+  // throw; the page has to come up with its defaults rather than not at all.
+  [functionBody('storeRead'), functionBody('storeWrite')].forEach((body) => {
+    assert.match(body, /try \{/, 'the access is not wrapped in try/catch');
+    assert.match(body, /\} catch/, 'the access is not wrapped in try/catch');
+  });
+  assert.strictEqual(
+    (SCRIPT.match(/window\.localStorage/g) || []).length,
+    2,
+    'localStorage is touched in exactly the two wrapped helpers'
+  );
+});
+
+test('The guided flow asks about the selection only, and never merges on its own', () => {
+  const body = functionBody('reviewThenMerge');
+  assert.match(
+    body,
+    /groupIds: ids/,
+    'the guided review does not narrow the question to the ticked groups'
+  );
+  assert.match(
+    body,
+    /includeCandidates: false/,
+    'the guided review must not pull in the band below the threshold'
+  );
+  assert.match(
+    body,
+    /const ids = entries\.map\(/,
+    'the ids come from the selection'
+  );
+  // An error is reported where a full review reports, and no dialog opens.
+  assert.match(
+    body,
+    /htmlAlert\(\s*'danger',\s*'The AI review failed'/,
+    'a failed review must say so above the results'
+  );
+  assert.match(body, /if \(!asked\) return;/, 'a failed review opens a dialog');
+  // The path without a model never asks one.
+  const plain = functionBody('mergeSelected');
+  ['ai-review', 'askForVerdicts', 'aiVerdict'].forEach((needle) => {
+    assert.ok(
+      !plain.includes(needle),
+      `"Merge selected" must work without the review (${needle})`
+    );
+  });
+  assert.strictEqual(
+    (SCRIPT.match(/'\/api\/duplicates\/ai-review'/g) || []).length,
+    1,
+    'both review paths go through the one request'
+  );
+});
+
+test('The review dialog shows verdicts and merges what stays ticked', () => {
+  // Its markup goes through the escaping scanner above like every other
+  // template; what is checked here is that the untrusted parts go through esc.
+  const row = functionBody('htmlReviewRow');
+  ['esc(targetName)', 'esc(names)', 'esc(reason)'].forEach((call) => {
+    assert.ok(row.includes(call), `the review row writes ${call} unescaped`);
+  });
+  assert.match(
+    row,
+    /const reason = verdict \? shortReason\(verdict\.reason\) : '';/,
+    'the model’s sentence is not cut to length'
+  );
+  // Pre-ticked for "same" only; a verdict is information, never a veto.
+  assert.match(
+    row,
+    /value === 'same' \? ' checked' : ''/,
+    'the ticks must follow the group verdict'
+  );
+  assert.match(
+    SCRIPT,
+    /class="zr-check dup-review-pick"/,
+    'the rows have no pick check'
+  );
+  // Stacks on a phone: every cell carries its column name.
+  assert.match(SCRIPT, /class="zr-table zr-table--stack dup-review-table"/);
+  ['Merge', 'Group', 'Documents', 'AI', 'Why'].forEach((label) => {
+    assert.ok(
+      SCRIPT.includes(`data-label="${label}"`),
+      `the review table has no data-label="${label}"`
+    );
+  });
+  assert.ok(
+    SCRIPT.includes('ticked · '),
+    'the foot line does not count what is ticked'
+  );
+  assert.match(
+    SCRIPT,
+    /dialog\.classList\.add\('zr-dialog--wide', 'dup-review-dialog'\)/,
+    'the table needs the wide dialog'
+  );
+  // The batch machinery of round 4 does the merging, unchanged.
+  assert.match(
+    functionBody('confirmReviewedBatch'),
+    /await runBatch\(ticked, copyMatchingRule\(\)\)/,
+    'the review dialog must merge through the batch runner'
+  );
+});
+
+test('The batch dialog offers the guided path without insisting on it', () => {
+  const body = functionBody('htmlBatchDialog');
+  assert.match(
+    body,
+    /aiReviewOffered\(\)/,
+    'the tip must not be rendered where there is no review'
+  );
+  // The apostrophe is escaped in the source of the string literal.
+  assert.ok(
+    SCRIPT.replace(/\\'/g, "'").includes(
+      'Tip: "Ask the AI, then merge" shows the model\'s view first.'
+    ),
+    'the one line naming the guided path is gone'
+  );
+  assert.match(
+    body,
+    /class="zr-sm zr-faint dup-dialog__tip"/,
+    'the tip must stay a faint line, not a warning'
+  );
+});
+
+test('The stylesheet carries the toolbar and review classes', () => {
+  [
+    '.dup-results-bar',
+    '.dup-results-bar__sort',
+    '.dup-results-bar__min',
+    '.dup-review-table',
+    '.dup-review__reason',
+    '.dup-stat__buckets',
+  ].forEach((selector) => {
+    assert.ok(
+      selectorsOf(CSS).includes(selector),
+      `${selector} has no rule of its own`
+    );
+  });
+  assert.ok(
+    CSS.includes('.dup-review-pick') || SCRIPT.includes('dup-review-pick'),
+    'the pick check has no class'
+  );
+  // Phone width: both controls take a line of their own rather than widening
+  // the page past the viewport.
+  assert.match(
+    CSS,
+    /\.dup-results-bar__sort,\n\s+\.dup-results-bar__min \{\n\s+width: 100%;/,
+    'the toolbar does not wrap at phone width'
   );
 });
 

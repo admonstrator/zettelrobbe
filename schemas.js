@@ -825,6 +825,19 @@
  *           type: boolean
  *           default: true
  *           description: give the model a few recent document titles per entity as context
+ *         groupIds:
+ *           type: array
+ *           description: judge only these groups of the scan (ids as the scan returned them); other groups come back without a verdict
+ *           items:
+ *             type: string
+ *         minConfidence:
+ *           type: number
+ *           description: judge only groups whose confidence is at least this value (0.5 to 1); combined with groupIds both must hold
+ *           example: 0.95
+ *         includeCandidates:
+ *           type: boolean
+ *           default: true
+ *           description: false skips the band of near-misses below the threshold, so only scan groups are judged
  *
  *     DuplicateAiReviewResult:
  *       allOf:
@@ -859,6 +872,15 @@
  *                 batchSize:
  *                   type: integer
  *                   description: pairs per request actually used after sizing by the token budget
+ *                 targeted:
+ *                   type: boolean
+ *                   description: true when groupIds, minConfidence or includeCandidates narrowed the review
+ *                 groupsJudged:
+ *                   type: integer
+ *                   description: scan groups the model was asked about
+ *                 groupsSkipped:
+ *                   type: integer
+ *                   description: scan groups returned without a verdict because the targeting left them out
  *
  *     EntityMergeDismissRequest:
  *       type: object

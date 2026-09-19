@@ -57,6 +57,12 @@
     }
   }
 
+  /* The threshold behind the "Custom" preset. A number of at most three digits
+     next to a select that is far wider would read as a text field. */
+  .dup-controls__custom .zr-input {
+    width: 96px;
+  }
+
   /* --- the AI review row ------------------------------------------------ */
   /* A line of its own under the scan controls: the scan is the page's own
      answer, the review is a second question that only makes sense after it.
@@ -251,6 +257,116 @@
        stops short and scrolls instead. */
     .dup-picker__list {
       max-height: 210px;
+    }
+  }
+
+  /* --- the results toolbar ---------------------------------------------- */
+  /* Sits above the selection bar and belongs to the list below it: how it is
+     ordered, and where the line between "merge it" and "look at it" runs. It
+     scrolls away with the results — unlike the selection bar, it is not needed
+     while working through a long list. */
+  .dup-results-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--zr-2) var(--zr-4);
+    margin-top: var(--zr-3);
+    padding: var(--zr-2) var(--zr-3);
+    background: var(--zr-surface);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+  }
+
+  .dup-results-bar__sort,
+  .dup-results-bar__min {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  /* The number, its unit, the button and the count read as one control. */
+  .dup-results-bar__minrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+    min-width: 0;
+  }
+
+  .dup-results-bar__min .zr-input {
+    width: 84px;
+  }
+
+  /* --- the confidence breakdown ----------------------------------------- */
+  /* Three numbers under "Groups found"; the tile's own delta line is one line
+     of small text, and this one may need two on a narrow tile. */
+  .dup-stat__buckets {
+    line-height: 1.35;
+  }
+
+  /* --- the review dialog ------------------------------------------------ */
+  /* What the model said about each ticked group, in one table. The reason is
+     the only cell that can be long, so it is the one that gets the room. */
+  /* Five columns need more room than the 600px of the framework's wide dialog,
+     or the group column breaks every name over three lines. */
+  .dup-review-dialog {
+    width: min(820px, calc(100vw - 32px));
+  }
+
+  .dup-review-table {
+    width: 100%;
+  }
+
+  /* "AI: same" is two words and reads as one thing; it must not wrap. On a
+     card head the chip takes the far end of the row, which in a table cell —
+     and in a stacked row on a phone — would push it away from its label. */
+  .dup-review-table .zr-chip {
+    white-space: nowrap;
+  }
+
+  .dup-review-table .dup-verdict {
+    margin-left: 0;
+  }
+
+  .dup-review__pick {
+    width: 56px;
+  }
+
+  .dup-review__reason {
+    color: var(--zr-text-muted);
+    font-size: var(--zr-fs-sm);
+  }
+
+  .dup-review__names {
+    display: inline-block;
+    min-width: 0;
+  }
+
+  .dup-review__summary {
+    margin-top: var(--zr-2);
+    color: var(--zr-text);
+    font-weight: 600;
+  }
+
+  @media (max-width: 720px) {
+    /* Stacked, the number field and its button share the width rather than
+       pushing the bar past the viewport. */
+    .dup-results-bar__sort,
+    .dup-results-bar__min {
+      width: 100%;
+    }
+    .dup-results-bar__sort .zr-select {
+      width: 100%;
+    }
+    .dup-results-bar__minrow .zr-btn {
+      flex: 1 1 auto;
+      justify-content: center;
+    }
+    /* The rows of the dialog table stack; a fixed pick column would leave the
+       label of that cell without room. */
+    .dup-review__pick {
+      width: auto;
     }
   }
 
@@ -553,6 +669,12 @@
 
   .dup-dialog__note {
     margin-top: var(--zr-2);
+  }
+
+  /* The one line that names the guided path, in a dialog that does not need
+     it to work. Faint on purpose: an offer, not an instruction. */
+  .dup-dialog__tip {
+    margin-top: var(--zr-1);
   }
 
   .dup-dialog__check {

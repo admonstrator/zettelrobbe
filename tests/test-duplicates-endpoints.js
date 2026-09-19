@@ -24,6 +24,9 @@
  * 10. GET /api/duplicates/log pages and reports recordsTotal
  * 11. POST /api/duplicates/ai-review validates, passes its options on and
  *     hands the reviewed result through unchanged
+ * 12. The targeting (groupIds, minConfidence, includeCandidates) reaches the
+ *     service unchanged, an untargeted request still carries nothing extra,
+ *     and a malformed targeting option is a 400
  */
 
 'use strict';
@@ -599,6 +602,9 @@ async function main() {
           judged: 2,
           candidates: 1,
           failedRequests: 0,
+          targeted: false,
+          groupsJudged: 1,
+          groupsSkipped: 0,
         },
       };
     }
@@ -711,6 +717,129 @@ async function main() {
           includeDismissed: false,
           withTitles: true,
         });
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review hands the targeting to the service unchanged', async () => {
+      const seen = [];
+      entityMatchAiService.reviewScan = async (options) => {
+        seen.push(options);
+        return {
+          ...reviewFixture(),
+          aiReview: {
+            ...reviewFixture().aiReview,
+            targeted: true,
+            groupsJudged: 2,
+            groupsSkipped: 38,
+          },
+        };
+      };
+      try {
+        const response = await call('POST', '/api/duplicates/ai-review', {
+          kind: 'tags',
+          groupIds: ['tags:1-2', 'tags:7-9'],
+          minConfidence: 0.95,
+          includeCandidates: false,
+        });
+        assert.strictEqual(response.status, 200);
+        assert.deepStrictEqual(seen[0], {
+          kind: 'tags',
+          threshold: 0.85,
+          includeDismissed: false,
+          withTitles: true,
+          groupIds: ['tags:1-2', 'tags:7-9'],
+          minConfidence: 0.95,
+          includeCandidates: false,
+        });
+
+        const payload = await response.json();
+        assert.strictEqual(payload.data.aiReview.targeted, true);
+        assert.strictEqual(payload.data.aiReview.groupsJudged, 2);
+        assert.strictEqual(payload.data.aiReview.groupsSkipped, 38);
+
+        // An untargeted request must reach the service the way it did before
+        // the targeting existed: no keys it did not ask for.
+        await call('POST', '/api/duplicates/ai-review', { kind: 'tags' });
+        assert.deepStrictEqual(Object.keys(seen[1]).sort(), [
+          'includeDismissed',
+          'kind',
+          'threshold',
+          'withTitles',
+        ]);
+
+        // includeCandidates: true is a request the page makes explicitly.
+        await call('POST', '/api/duplicates/ai-review', {
+          includeCandidates: true,
+          groupIds: [],
+        });
+        assert.strictEqual(seen[2].includeCandidates, true);
+        assert.deepStrictEqual(seen[2].groupIds, []);
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review refuses a malformed targeting option', async () => {
+      entityMatchAiService.reviewScan = async () => {
+        throw new Error('the route must refuse before the service is asked');
+      };
+      try {
+        for (const body of [
+          { groupIds: 'tags:1-2' },
+          { groupIds: { 0: 'tags:1-2' } },
+          { groupIds: ['tags:1-2', 7] },
+          { groupIds: ['tags:1-2', '  '] },
+          { groupIds: new Array(501).fill('tags:1-2') },
+          { minConfidence: 2 },
+          { minConfidence: 0.2 },
+          { minConfidence: 'high' },
+          { includeCandidates: 'false' },
+          { includeCandidates: 0 },
+        ]) {
+          const response = await call(
+            'POST',
+            '/api/duplicates/ai-review',
+            body
+          );
+          assert.strictEqual(
+            response.status,
+            400,
+            `expected 400 for ${JSON.stringify(body).slice(0, 80)}`
+          );
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.ok(payload.error, 'a reason is given');
+        }
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review takes 500 group ids and refuses 501', async () => {
+      const seen = [];
+      entityMatchAiService.reviewScan = async (options) => {
+        seen.push(options);
+        return reviewFixture();
+      };
+      try {
+        const ids = Array.from(
+          { length: 500 },
+          (_, index) => `tags:${index}-${index + 1}`
+        );
+        const ok = await call('POST', '/api/duplicates/ai-review', {
+          groupIds: ids,
+        });
+        assert.strictEqual(ok.status, 200, '500 ids are still a request');
+        assert.strictEqual(seen[0].groupIds.length, 500);
+
+        const tooMany = await call('POST', '/api/duplicates/ai-review', {
+          groupIds: [...ids, 'tags:500-501'],
+        });
+        assert.strictEqual(tooMany.status, 400);
+        assert.match((await tooMany.json()).error, /500/);
+        assert.strictEqual(seen.length, 1, 'the service was asked once');
       } finally {
         entityMatchAiService.reviewScan = realReviewScan;
       }

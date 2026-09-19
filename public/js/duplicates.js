@@ -156,11 +156,43 @@ const UNDO_NOTE =
 /** How long the finished batch leaves its summary in the bar, in ms. */
 const SELECTION_SUMMARY_MS = 2600;
 
+/**
+ * The guided path is an offer, never a condition: the batch dialog names it in
+ * one faint line and is otherwise unchanged. On an instance without the review
+ * the line is not rendered at all.
+ */
+const GUIDED_TIP =
+  'Tip: "Ask the AI, then merge" shows the model\'s view first.';
+
+/** The sensitivity option that hands the threshold to the number field. */
+const CUSTOM_SENSITIVITY = 'custom';
+
+/** Both number fields are whole percent and share these bounds. */
+const PERCENT_MIN = 50;
+const PERCENT_MAX = 100;
+
+/** The two lines the confidence breakdown under "Groups found" draws. */
+const BUCKET_HIGH = 95;
+const BUCKET_MID = 90;
+
+/** What the toolbar remembers between visits. Values are whole percent. */
+const STORE_KEYS = {
+  sort: 'dup.sort',
+  minConfidence: 'dup.minConfidence',
+  sensitivity: 'dup.sensitivity',
+  thresholdCustom: 'dup.thresholdCustom',
+};
+
+/** How the results list can be ordered; the first one is the default. */
+const SORT_MODES = ['confidence', 'documents', 'name', 'kind'];
+
 /* --- state ---------------------------------------------------------------- */
 
 const el = {
   kind: document.getElementById('dupKind'),
   sensitivity: document.getElementById('dupSensitivity'),
+  thresholdCustom: document.getElementById('dupThresholdCustom'),
+  thresholdCustomField: document.getElementById('dupThresholdCustomField'),
   includeDismissed: document.getElementById('dupIncludeDismissed'),
   scanBtn: document.getElementById('dupScanBtn'),
   scanIcon: document.getElementById('dupScanIcon'),
@@ -181,11 +213,20 @@ const el = {
   statAiRequestsTile: document.getElementById('dupStatAiRequestsTile'),
   statAiRequests: document.getElementById('dupStatAiRequests'),
   statAiTokens: document.getElementById('dupStatAiTokens'),
+  statBuckets: document.getElementById('dupStatBuckets'),
   results: document.getElementById('dupResults'),
+  resultsBar: document.getElementById('dupResultsBar'),
+  sortSelect: document.getElementById('dupSortSelect'),
+  minConfidence: document.getElementById('dupMinConfidence'),
+  selectMinBtn: document.getElementById('dupSelectMinBtn'),
+  minConfidenceCount: document.getElementById('dupMinConfidenceCount'),
   selection: document.getElementById('dupSelection'),
   selectionCount: document.getElementById('dupSelectionCount'),
   selectionProgress: document.getElementById('dupSelectionProgress'),
   mergeSelectedBtn: document.getElementById('dupMergeSelectedBtn'),
+  // null on every instance without the AI review; every use is guarded.
+  reviewThenMergeBtn: document.getElementById('dupReviewThenMergeBtn'),
+  reviewThenMergeIcon: document.getElementById('dupReviewThenMergeIcon'),
   selectAllBtn: document.getElementById('dupSelectAllBtn'),
   selectAiSameBtn: document.getElementById('dupSelectAiSameBtn'),
   clearSelectionBtn: document.getElementById('dupClearSelectionBtn'),
@@ -232,6 +273,33 @@ let merging = false;
 
 function normalizeKind(kind) {
   return kind === 'correspondents' ? 'correspondents' : 'tags';
+}
+
+/** A whole percent inside the bounds both number fields use. */
+function clampPercent(value, fallback) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(PERCENT_MAX, Math.max(PERCENT_MIN, parsed));
+}
+
+/* localStorage is a convenience here and nothing more: a private window, a
+   blocked origin or a full quota makes either call throw, and the page has to
+   come up with its defaults rather than not at all. */
+
+function storeRead(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storeWrite(key, value) {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // Nothing to do: the page keeps working, it just forgets the setting.
+  }
 }
 
 function plural(count, one, many) {
@@ -562,6 +630,33 @@ function selectedKind() {
   return active ? active.dataset.kind : 'all';
 }
 
+/**
+ * The threshold the scan and the review are asked with, as a 0–1 score. The
+ * three presets carry theirs in the option value; "Custom" hands the question
+ * to the number field beside the select, where 94 and 96 are a different
+ * answer than "strict" and "normal" ever are.
+ */
+function currentThreshold() {
+  if (!el.sensitivity) return 0.85;
+  if (el.sensitivity.value !== CUSTOM_SENSITIVITY) {
+    return Number(el.sensitivity.value);
+  }
+  const percent = clampPercent(
+    el.thresholdCustom ? el.thresholdCustom.value : PERCENT_MAX,
+    BUCKET_HIGH
+  );
+  return percent / 100;
+}
+
+/** Shows the number field for "Custom" and hides it for the presets. */
+function updateThresholdField() {
+  if (!el.sensitivity || !el.thresholdCustomField) return;
+  el.thresholdCustomField.classList.toggle(
+    'hidden',
+    el.sensitivity.value !== CUSTOM_SENSITIVITY
+  );
+}
+
 function setScanning(active) {
   scanning = active;
   if (el.scanBtn) el.scanBtn.disabled = active;
@@ -579,7 +674,12 @@ function setScanning(active) {
 function showSkeletons() {
   el.results.innerHTML =
     '<div class="dup-skeletons"><div class="zr-skeleton dup-skeleton"></div><div class="zr-skeleton dup-skeleton"></div><div class="zr-skeleton dup-skeleton"></div></div>';
+  // The cards are gone from the page, so everything that counts them has to be
+  // told; a scan that then fails leaves no toolbar over an error message.
+  groups.clear();
   selectedGroups.clear();
+  renderBuckets();
+  updateResultsBar();
   updateSelectionBar();
 }
 
@@ -602,6 +702,29 @@ function renderStats(data) {
   el.statDocuments.textContent = String(documents);
   renderAiStats(data.aiReview || null);
   el.stats.classList.remove('hidden');
+}
+
+/**
+ * How the groups on the page are spread over the confidence bands, under the
+ * "Groups found" tile. It is what makes "everything above 95 %" a decision
+ * rather than a guess, and it is counted from the cards, not from the answer,
+ * so a review that adds candidates updates it too.
+ */
+function renderBuckets() {
+  if (!el.statBuckets) return;
+  let high = 0;
+  let mid = 0;
+  let low = 0;
+  groups.forEach((state) => {
+    const percent = pct(state.group.confidence);
+    if (percent >= BUCKET_HIGH) high += 1;
+    else if (percent >= BUCKET_MID) mid += 1;
+    else low += 1;
+  });
+  el.statBuckets.textContent =
+    groups.size === 0
+      ? ''
+      : `≥${BUCKET_HIGH} %: ${high} · ${BUCKET_MID}–${BUCKET_HIGH} %: ${mid} · <${BUCKET_MID} %: ${low}`;
 }
 
 /**
@@ -664,6 +787,8 @@ function renderGroups(list) {
       'No duplicates found',
       'No duplicates found at this sensitivity.'
     );
+    renderBuckets();
+    updateResultsBar();
     updateSelectionBar();
     return;
   }
@@ -681,7 +806,205 @@ function renderGroups(list) {
     : '';
   el.results.innerHTML = `${htmlScanned}${htmlCandidates}`;
   el.results.querySelectorAll('.dup-group').forEach(bindGroup);
+  renderBuckets();
+  // The order the user chose survives a new scan and a review; it is a way of
+  // reading the list, not a property of one answer.
+  sortResults();
+  updateResultsBar();
   updateSelectionBar();
+}
+
+/* --- ordering and picking by confidence ----------------------------------- */
+/* A grown archive answers a scan with dozens of groups that all read "94 %",
+   "95 %", "96 %". The toolbar is what turns that list into a decision: put it
+   in the order that helps, and tick everything above a confidence in one move.
+   Neither fetches anything — the sort moves the cards that are already there,
+   so a card keeps its picks, its tick, its verdict and its busy state. */
+
+function sortMode() {
+  const value = el.sortSelect ? el.sortSelect.value : SORT_MODES[0];
+  return SORT_MODES.includes(value) ? value : SORT_MODES[0];
+}
+
+function groupDocuments(state) {
+  return (state.group.members || []).reduce(
+    (sum, member) => sum + num(member.documentCount),
+    0
+  );
+}
+
+/** The name the card is headed by: what survives the merge it proposes. */
+function groupTargetName(state) {
+  const target =
+    memberOf(state, state.targetId) || (state.group.members || [])[0] || {};
+  return String(target.name == null ? '' : target.name);
+}
+
+/**
+ * The comparator behind the "Sort by" select. Confidence and documents run
+ * from high to low — the interesting end of both is the top — while a name is
+ * compared the way the browser's locale sorts it.
+ */
+function compareStates(mode, a, b) {
+  if (mode === 'documents') {
+    return groupDocuments(b) - groupDocuments(a);
+  }
+  if (mode === 'name') {
+    return groupTargetName(a).localeCompare(groupTargetName(b));
+  }
+  if (mode === 'kind') {
+    const kinds = normalizeKind(a.group.kind).localeCompare(
+      normalizeKind(b.group.kind)
+    );
+    if (kinds !== 0) return kinds;
+    return num(b.group.confidence) - num(a.group.confidence);
+  }
+  return num(b.group.confidence) - num(a.group.confidence);
+}
+
+/**
+ * Re-orders the cards in place. The divider stays where it is and both blocks
+ * are sorted inside themselves: what the scan found and what the model
+ * proposed below the threshold are two answers, not one list.
+ */
+function sortResults() {
+  if (!el.results) return;
+  const cards = [...el.results.querySelectorAll('.dup-group')];
+  if (cards.length < 2) return;
+  const divider = el.results.querySelector('.dup-divider');
+  const mode = sortMode();
+  const scanned = [];
+  const candidates = [];
+  cards.forEach((card) => {
+    const state = groups.get(card.dataset.groupId);
+    if (!state) return;
+    const below =
+      divider !== null &&
+      (divider.compareDocumentPosition(card) &
+        Node.DOCUMENT_POSITION_FOLLOWING) !==
+        0;
+    (below ? candidates : scanned).push({ card, state });
+  });
+  const order = (entries) =>
+    entries
+      .sort((a, b) => compareStates(mode, a.state, b.state))
+      .map((entry) => entry.card);
+  const ordered = [
+    ...order(scanned),
+    ...(divider ? [divider] : []),
+    ...order(candidates),
+  ];
+  // appendChild moves a node that is already in the document, so every card
+  // keeps its listeners, its checks and whatever it is in the middle of.
+  ordered.forEach((node) => el.results.appendChild(node));
+}
+
+/** The percent the "Select ≥" button compares against. */
+function minConfidencePercent() {
+  return clampPercent(
+    el.minConfidence ? el.minConfidence.value : BUCKET_HIGH,
+    BUCKET_HIGH
+  );
+}
+
+/**
+ * Groups the button would tick right now. Only selectable cards are counted:
+ * a count that promised more than the click delivers would be worse than no
+ * count at all. The card's own rounded percentage decides, so a card that
+ * reads "95 % match" is ticked by "Select ≥ 95".
+ */
+function groupsAtOrAbove(percent) {
+  let count = 0;
+  eachGroupCard((card, state) => {
+    const check = card.querySelector('.dup-select');
+    if (!check || check.disabled) return;
+    if (pct(state.group.confidence) >= percent) count += 1;
+  });
+  return count;
+}
+
+function updateMinConfidenceCount() {
+  if (!el.minConfidenceCount) return;
+  const count = groupsAtOrAbove(minConfidencePercent());
+  el.minConfidenceCount.textContent = `${count} ${plural(count, 'group', 'groups')} at or above`;
+}
+
+/** The bar belongs to a result list; without cards there is nothing to order. */
+function updateResultsBar() {
+  if (!el.resultsBar) return;
+  el.resultsBar.classList.toggle('hidden', groups.size === 0);
+  updateMinConfidenceCount();
+}
+
+/** Ticks every selectable group at or above the number, unticks the rest. */
+function selectByMinConfidence() {
+  const percent = minConfidencePercent();
+  selectedGroups.clear();
+  eachGroupCard((card, state) => {
+    const check = card.querySelector('.dup-select');
+    if (!check) return;
+    const wanted = !check.disabled && pct(state.group.confidence) >= percent;
+    check.checked = wanted;
+    if (wanted) selectedGroups.add(String(state.group.id));
+  });
+  setSelectionProgress('');
+  updateSelectionBar();
+}
+
+function initResultsBar() {
+  if (el.sortSelect) {
+    const stored = storeRead(STORE_KEYS.sort);
+    if (stored && SORT_MODES.includes(stored)) el.sortSelect.value = stored;
+    el.sortSelect.addEventListener('change', () => {
+      storeWrite(STORE_KEYS.sort, sortMode());
+      sortResults();
+    });
+  }
+  if (el.minConfidence) {
+    const stored = Number(storeRead(STORE_KEYS.minConfidence));
+    if (Number.isFinite(stored) && stored > 0) {
+      el.minConfidence.value = String(clampPercent(stored, BUCKET_HIGH));
+    }
+    el.minConfidence.addEventListener('input', updateMinConfidenceCount);
+    el.minConfidence.addEventListener('change', () => {
+      el.minConfidence.value = String(minConfidencePercent());
+      storeWrite(STORE_KEYS.minConfidence, minConfidencePercent());
+      updateMinConfidenceCount();
+    });
+  }
+  if (el.selectMinBtn) {
+    el.selectMinBtn.addEventListener('click', selectByMinConfidence);
+  }
+  updateResultsBar();
+}
+
+function initSensitivity() {
+  if (!el.sensitivity) return;
+  const storedSensitivity = storeRead(STORE_KEYS.sensitivity);
+  if (
+    storedSensitivity &&
+    [...el.sensitivity.options].some(
+      (option) => option.value === storedSensitivity
+    )
+  ) {
+    el.sensitivity.value = storedSensitivity;
+  }
+  if (el.thresholdCustom) {
+    const stored = Number(storeRead(STORE_KEYS.thresholdCustom));
+    if (Number.isFinite(stored) && stored > 0) {
+      el.thresholdCustom.value = String(clampPercent(stored, BUCKET_HIGH));
+    }
+    el.thresholdCustom.addEventListener('change', () => {
+      const percent = clampPercent(el.thresholdCustom.value, BUCKET_HIGH);
+      el.thresholdCustom.value = String(percent);
+      storeWrite(STORE_KEYS.thresholdCustom, percent);
+    });
+  }
+  el.sensitivity.addEventListener('change', () => {
+    storeWrite(STORE_KEYS.sensitivity, el.sensitivity.value);
+    updateThresholdField();
+  });
+  updateThresholdField();
 }
 
 async function runScan() {
@@ -695,7 +1018,7 @@ async function runScan() {
   try {
     const params = new URLSearchParams({
       kind: selectedKind(),
-      threshold: el.sensitivity ? el.sensitivity.value : '0.85',
+      threshold: String(currentThreshold()),
       includeDismissed:
         el.includeDismissed && el.includeDismissed.checked ? 'true' : 'false',
     });
@@ -783,6 +1106,60 @@ async function postForReview(url, body) {
   return { status: response.status, payload };
 }
 
+/** True on an instance that offers the review at all. */
+function aiReviewOffered() {
+  return Boolean(el.aiReviewBtn || el.reviewThenMergeBtn);
+}
+
+/**
+ * One question to the model, and its answer put on the page. Both ways into a
+ * review end here — the whole result list and the groups the user ticked —
+ * because the request, the refusals and what the answer does to the cards are
+ * the same in both cases. The page is only touched when an answer arrives; a
+ * throw leaves the cards exactly as they were and the caller words it.
+ *
+ * @param {object} extra  fields on top of the ones both callers send; the
+ *   guided path narrows the question with `groupIds` and `includeCandidates`
+ * @returns {Promise<object>} the `aiReview` block of the answer
+ */
+async function askForVerdicts(extra) {
+  const { status, payload } = await postForReview('/api/duplicates/ai-review', {
+    kind: selectedKind(),
+    threshold: currentThreshold(),
+    includeDismissed: Boolean(
+      el.includeDismissed && el.includeDismissed.checked
+    ),
+    withTitles: Boolean(el.aiTitles && el.aiTitles.checked),
+    ...extra,
+  });
+  if (status === 409) {
+    throw new Error('AI review is switched off (DUPLICATES_AI_REVIEW)');
+  }
+  if (!payload) {
+    throw new Error(`The server answered ${status} without a body.`);
+  }
+  if (!payload.success) {
+    throw new Error(payload.error || 'The AI review failed.');
+  }
+  const data = payload.data || {};
+  if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
+  renderStats(data);
+  renderGroups(data.groups);
+  return data.aiReview || {};
+}
+
+/** What a review has to admit about itself, or '' when it went through. */
+function htmlFailedRequests(review) {
+  const failed = num(review.failedRequests);
+  return failed > 0
+    ? htmlAlert(
+        'warn',
+        'Not every request reached the model',
+        `${failed} ${plural(failed, 'request', 'requests')} failed; the pairs they covered are marked as unsure.`
+      )
+    : '';
+}
+
 async function runAiReview() {
   if (!el.aiReviewBtn || scanning || aiReviewing || !scanned) return;
   setAiReviewing(true);
@@ -795,44 +1172,8 @@ async function runAiReview() {
     );
   }
   try {
-    const { status, payload } = await postForReview(
-      '/api/duplicates/ai-review',
-      {
-        kind: selectedKind(),
-        threshold: Number(el.sensitivity ? el.sensitivity.value : 0.85),
-        includeDismissed: Boolean(
-          el.includeDismissed && el.includeDismissed.checked
-        ),
-        withTitles: Boolean(el.aiTitles && el.aiTitles.checked),
-      }
-    );
-    if (status === 409) {
-      throw new Error('AI review is switched off (DUPLICATES_AI_REVIEW)');
-    }
-    if (!payload) {
-      throw new Error(`The server answered ${status} without a body.`);
-    }
-    if (!payload.success) {
-      throw new Error(payload.error || 'The AI review failed.');
-    }
-
-    const data = payload.data || {};
-    if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
-    renderStats(data);
-    renderGroups(data.groups);
-
-    const review = data.aiReview || {};
-    const failed = num(review.failedRequests);
-    if (el.aiNotice) {
-      el.aiNotice.innerHTML =
-        failed > 0
-          ? htmlAlert(
-              'warn',
-              'Not every request reached the model',
-              `${failed} ${plural(failed, 'request', 'requests')} failed; the pairs they covered are marked as unsure.`
-            )
-          : '';
-    }
+    const review = await askForVerdicts({});
+    if (el.aiNotice) el.aiNotice.innerHTML = htmlFailedRequests(review);
   } catch (error) {
     if (el.aiNotice) {
       el.aiNotice.innerHTML = htmlAlert(
@@ -1167,9 +1508,11 @@ function setSelectionProgress(text) {
 function setSelectionBusy(busy) {
   [
     el.mergeSelectedBtn,
+    el.reviewThenMergeBtn,
     el.selectAllBtn,
     el.selectAiSameBtn,
     el.clearSelectionBtn,
+    el.selectMinBtn,
   ].forEach((button) => {
     if (button) button.disabled = busy;
   });
@@ -1196,6 +1539,12 @@ function updateSelectionBar() {
     el.selectAiSameBtn.classList.toggle('hidden', !anyGroupVerdict());
   }
   if (el.mergeSelectedBtn) el.mergeSelectedBtn.disabled = entries.length === 0;
+  if (el.reviewThenMergeBtn) {
+    el.reviewThenMergeBtn.disabled = entries.length === 0;
+  }
+  // The count beside "Select ≥" counts selectable cards, which is what a card
+  // going busy or finishing changes.
+  updateMinConfidenceCount();
   // The bar appears as soon as a card can be selected, so "Select all" is
   // reachable before the first tick; without any selectable card it hides —
   // unless it is still reporting what the last batch did.
@@ -1259,40 +1608,25 @@ function htmlBatchDialog(entries, offerCopy) {
   const htmlCopy = offerCopy
     ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRuleAll" checked><span>Copy a source's matching rule where the target has none</span></label>`
     : '';
-  return `<p>${esc(intro)}</p><ul class="dup-dialog__list">${htmlLines}</ul><p>${esc(totals)}</p><p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopy}`;
+  // One line, once, and only where the guided path exists at all. The matcher
+  // is the page's own answer; the model is an offer beside it.
+  const htmlTip = aiReviewOffered()
+    ? `<p class="zr-sm zr-faint dup-dialog__tip">${esc(GUIDED_TIP)}</p>`
+    : '';
+  return `<p>${esc(intro)}</p><ul class="dup-dialog__list">${htmlLines}</ul><p>${esc(totals)}</p><p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlTip}${htmlCopy}`;
 }
 
 /**
- * Merge every selected group. One confirmation covers all of them, each group
- * then goes through the same request a single merge uses, and a failure on one
- * group leaves the rest of the batch running.
+ * Walk a batch: every entry through the request a single merge uses, one after
+ * the other, and a failure on one group leaves the rest running. Both paths
+ * into a batch end here — "Merge selected" and the guided review — so the
+ * progress line, the toast, the one log reload and what is left ticked
+ * afterwards are the same thing in both cases.
+ *
+ * @param {object[]} entries  what selectedBatch() returned, possibly filtered
+ * @param {boolean} copyMatchingRule  the one answer the dialog collected
  */
-async function mergeSelected() {
-  if (merging) return;
-  const entries = selectedBatch();
-  if (entries.length === 0) return;
-
-  const offerCopy = entries.some((entry) =>
-    groupOffersCopy(entry.state, entry.target)
-  );
-  // Same trick as the single merge: the checkbox lives in the dialog the call
-  // appends synchronously, so it is read before the promise settles.
-  const answer = confirmDialog({
-    title: `Merge ${entries.length} ${plural(entries.length, 'group', 'groups')}`,
-    html: htmlBatchDialog(entries, offerCopy),
-    confirmLabel: 'Merge all',
-    cancelLabel: 'Cancel',
-    tone: 'danger',
-  });
-  const checkbox = document.getElementById('dupCopyRuleAll');
-  let copyMatchingRule = Boolean(checkbox && checkbox.checked);
-  if (checkbox) {
-    checkbox.addEventListener('change', () => {
-      copyMatchingRule = checkbox.checked;
-    });
-  }
-  if (!(await answer)) return;
-
+async function runBatch(entries, copyMatchingRule) {
   merging = true;
   setSelectionBusy(true);
   let merged = 0;
@@ -1329,10 +1663,277 @@ async function mergeSelected() {
   }, SELECTION_SUMMARY_MS);
 }
 
+/**
+ * Reads the copy-rule answer out of a dialog that was just opened. The
+ * checkbox lives in the markup confirmDialog appends synchronously, so it is
+ * there before the promise settles and gone once the dialog closes.
+ *
+ * @param {string} id  the checkbox the dialog rendered
+ * @returns {() => boolean} the answer at the moment it is asked for
+ */
+function copyRuleAnswer(id) {
+  const checkbox = document.getElementById(id);
+  let value = Boolean(checkbox && checkbox.checked);
+  if (checkbox) {
+    checkbox.addEventListener('change', () => {
+      value = checkbox.checked;
+    });
+  }
+  return () => value;
+}
+
+/**
+ * Merge every selected group. One confirmation covers all of them, and no
+ * model is involved: this is the page's own answer, for an archive whose owner
+ * trusts the matcher — or has no review configured at all.
+ */
+async function mergeSelected() {
+  if (merging) return;
+  const entries = selectedBatch();
+  if (entries.length === 0) return;
+
+  const offerCopy = entries.some((entry) =>
+    groupOffersCopy(entry.state, entry.target)
+  );
+  const answer = confirmDialog({
+    title: `Merge ${entries.length} ${plural(entries.length, 'group', 'groups')}`,
+    html: htmlBatchDialog(entries, offerCopy),
+    confirmLabel: 'Merge all',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  const copyMatchingRule = copyRuleAnswer('dupCopyRuleAll');
+  if (!(await answer)) return;
+
+  await runBatch(entries, copyMatchingRule());
+}
+
+/* --- ask the AI about the selection, then merge --------------------------- */
+/* The guided path, and an offer rather than a condition: it asks the model
+   about exactly the groups that are ticked, puts the verdicts on the cards as
+   a full review would, and then shows them once in a dialog whose ticks decide
+   what is merged. A verdict never blocks anything — "different" and "unsure"
+   only come up unticked, and any row can be ticked again. */
+
+/** What every card is set to merge, so a re-render can put it back. */
+function capturePicks() {
+  const picks = new Map();
+  groups.forEach((state, id) => {
+    picks.set(id, { targetId: state.targetId, selected: [...state.selected] });
+  });
+  return picks;
+}
+
+/**
+ * Puts those picks back on the cards a review rebuilt. A group that came back
+ * changed — a member gone, a different target — keeps what the answer says;
+ * only a pick that still fits the members is restored.
+ */
+function restorePicks(picks) {
+  eachGroupCard((card, state) => {
+    const pick = picks.get(String(state.group.id));
+    if (!pick) return;
+    const ids = (state.group.members || []).map((member) => num(member.id));
+    if (!ids.includes(num(pick.targetId))) return;
+    state.targetId = num(pick.targetId);
+    state.selected = new Set(
+      pick.selected
+        .map(num)
+        .filter((id) => ids.includes(id) && id !== state.targetId)
+    );
+    renderMembers(card, state);
+  });
+}
+
+/** One row of the review dialog: what would be merged, and what the model said. */
+function htmlReviewRow(entry) {
+  const verdict = entry.state.group.aiVerdict;
+  const value = verdict ? String(verdict.verdict) : '';
+  // Only a clear "same" comes up ticked; everything else is the user's call.
+  const htmlChecked = value === 'same' ? ' checked' : '';
+  const documents = countDocuments(entry.sources);
+  const targetName = String(entry.target.name == null ? '' : entry.target.name);
+  const names = entry.sources
+    .map((member) => String(member.name == null ? '' : member.name))
+    .join(', ');
+  const htmlVerdict =
+    htmlVerdictChip(verdict) || '<span class="zr-faint">not judged</span>';
+  const reason = verdict ? shortReason(verdict.reason) : '';
+  return `<tr data-group-id="${esc(String(entry.state.group.id))}" data-documents="${num(documents)}">
+    <td data-label="Merge"><input type="checkbox" class="zr-check dup-review-pick" value="${esc(String(entry.state.group.id))}"${htmlChecked} aria-label="Merge into ${esc(targetName)}"></td>
+    <td data-label="Group"><span class="dup-review__names"><strong>${esc(targetName)}</strong> <span class="zr-faint">←</span> ${esc(names)}</span></td>
+    <td data-label="Documents" class="zr-mono">${num(documents)}</td>
+    <td data-label="AI">${htmlVerdict}</td>
+    <td data-label="Why" class="dup-review__reason">${esc(reason)}</td>
+  </tr>`;
+}
+
+function htmlReviewDialog(entries, offerCopy) {
+  const htmlRows = entries.map(htmlReviewRow).join('');
+  const htmlCopy = offerCopy
+    ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRuleAll" checked><span>Copy a source's matching rule where the target has none</span></label>`
+    : '';
+  return `<div class="zr-table-wrap"><table class="zr-table zr-table--stack dup-review-table">
+      <thead>
+        <tr>
+          <th class="dup-review__pick">Merge</th>
+          <th>Group</th>
+          <th>Documents</th>
+          <th>AI</th>
+          <th>Why</th>
+        </tr>
+      </thead>
+      <tbody>${htmlRows}</tbody>
+    </table></div>
+    <p class="zr-sm dup-review__summary" id="dupReviewSummary"></p>
+    <p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopy}`;
+}
+
+/** "N of M ticked · K documents", live while the checks are used. */
+function reviewSummaryText(dialog, total) {
+  const picked = [...dialog.querySelectorAll('.dup-review-pick')].filter(
+    (check) => check.checked
+  );
+  const documents = picked.reduce((sum, check) => {
+    const row = check.closest('tr');
+    return sum + num(row ? row.dataset.documents : 0);
+  }, 0);
+  return `${picked.length} of ${total} ticked · ${documents} ${plural(documents, 'document', 'documents')}`;
+}
+
+/** The dialog confirmDialog() has just appended; it does so synchronously. */
+function lastDialog() {
+  const dialogs = document.querySelectorAll('dialog.zr-dialog');
+  return dialogs.length > 0 ? dialogs[dialogs.length - 1] : null;
+}
+
+function setGuidedBusy(active) {
+  if (!el.reviewThenMergeBtn) return;
+  const use = el.reviewThenMergeIcon
+    ? el.reviewThenMergeIcon.querySelector('use')
+    : null;
+  if (use) {
+    use.setAttribute(
+      'href',
+      active ? '/icons.svg#i-refresh' : '/icons.svg#i-wand'
+    );
+  }
+  if (el.reviewThenMergeIcon) {
+    el.reviewThenMergeIcon.classList.toggle('zr-icon--spin', active);
+  }
+}
+
+/**
+ * Shows the verdicts of the groups that were just judged and merges what stays
+ * ticked. Returns without merging when the dialog is cancelled; the selection
+ * on the page is untouched either way.
+ */
+async function confirmReviewedBatch(entries) {
+  const offerCopy = entries.some((entry) =>
+    groupOffersCopy(entry.state, entry.target)
+  );
+  const answer = confirmDialog({
+    title: `The AI on ${entries.length} ${plural(entries.length, 'group', 'groups')}`,
+    html: htmlReviewDialog(entries, offerCopy),
+    confirmLabel: 'Merge ticked',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  const dialog = lastDialog();
+  const copyMatchingRule = copyRuleAnswer('dupCopyRuleAll');
+  // The table is wide for a dialog; the kernel appends it before this runs.
+  let picked = [];
+  if (dialog) {
+    dialog.classList.add('zr-dialog--wide', 'dup-review-dialog');
+    const summary = dialog.querySelector('#dupReviewSummary');
+    const update = () => {
+      if (summary) {
+        summary.textContent = reviewSummaryText(dialog, entries.length);
+      }
+      picked = [...dialog.querySelectorAll('.dup-review-pick')]
+        .filter((check) => check.checked)
+        .map((check) => check.value);
+    };
+    update();
+    dialog.addEventListener('change', (event) => {
+      if (event.target.classList.contains('dup-review-pick')) update();
+    });
+  }
+  if (!(await answer)) return;
+
+  const wanted = new Set(picked);
+  const ticked = entries.filter((entry) =>
+    wanted.has(String(entry.state.group.id))
+  );
+  if (ticked.length === 0) {
+    setSelectionProgress('Nothing was ticked; nothing was merged.');
+    window.setTimeout(() => {
+      setSelectionProgress('');
+      updateSelectionBar();
+    }, SELECTION_SUMMARY_MS);
+    return;
+  }
+  // Whatever stayed unticked keeps its tick on the page, so the groups the
+  // model was unsure about are still in front of the user afterwards.
+  await runBatch(ticked, copyMatchingRule());
+}
+
+async function reviewThenMerge() {
+  if (!el.reviewThenMergeBtn || merging || scanning || aiReviewing) return;
+  const entries = selectedBatch();
+  if (entries.length === 0) return;
+  const ids = entries.map((entry) => String(entry.state.group.id));
+  const picks = capturePicks();
+
+  setGuidedBusy(true);
+  setAiReviewing(true);
+  setSelectionBusy(true);
+  setSelectionProgress(
+    `Asking the AI about ${ids.length} ${plural(ids.length, 'group', 'groups')}…`
+  );
+  if (el.aiNotice) el.aiNotice.innerHTML = '';
+  let asked = false;
+  try {
+    const review = await askForVerdicts({
+      groupIds: ids,
+      includeCandidates: false,
+    });
+    // The answer rebuilt the cards; their picks and their ticks go back on.
+    restorePicks(picks);
+    const wanted = new Set(ids);
+    selectGroups((state) => wanted.has(String(state.group.id)));
+    if (el.aiNotice) el.aiNotice.innerHTML = htmlFailedRequests(review);
+    asked = true;
+  } catch (error) {
+    // Exactly where a full review reports: above the results, and no dialog.
+    if (el.aiNotice) {
+      el.aiNotice.innerHTML = htmlAlert(
+        'danger',
+        'The AI review failed',
+        error.message
+      );
+    }
+  } finally {
+    setGuidedBusy(false);
+    setAiReviewing(false);
+    setSelectionBusy(false);
+    setSelectionProgress('');
+    updateSelectionBar();
+  }
+  if (!asked) return;
+  // Re-read the selection: the cards are new elements after the answer.
+  const judged = selectedBatch();
+  if (judged.length === 0) return;
+  await confirmReviewedBatch(judged);
+}
+
 function initSelection() {
   if (!el.selection) return;
   if (el.mergeSelectedBtn) {
     el.mergeSelectedBtn.addEventListener('click', mergeSelected);
+  }
+  if (el.reviewThenMergeBtn) {
+    el.reviewThenMergeBtn.addEventListener('click', reviewThenMerge);
   }
   if (el.selectAllBtn) {
     el.selectAllBtn.addEventListener('click', () => selectGroups(() => true));
@@ -2109,6 +2710,8 @@ function init() {
     });
   }
 
+  initSensitivity();
+  initResultsBar();
   initSelection();
   initManual();
   loadLog(true);

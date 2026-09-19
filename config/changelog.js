@@ -137,6 +137,8 @@ const RELEASES = [
       'Improvement: Duplicates page merges several selected groups with one confirmation, one after the other, and reloads only the log at the end',
       'Fix: "Ask the AI" no longer fails on the completion token limit; batches are sized by the token budget, a cut-off answer is salvaged and the rest re-asked in smaller batches',
       'Improvement: The Duplicates feature writes readable log lines for scans, merges, undos and every model request; the dashboard refreshes once per burst of merges instead of once per merge',
+      'New: Duplicates page sorts groups by confidence, documents, name or kind, selects every group at or above a chosen percentage in one move, and shows how the groups spread over the confidence bands',
+      'New: "Ask the AI, then merge" reviews exactly the selected groups, shows the verdicts and reasons in one dialog with the confirmed ones pre-ticked, and merges what stays ticked; a custom scan threshold joins the three presets',
     ],
   },
 ];
