@@ -56,6 +56,34 @@ function modelOverride(options) {
 }
 
 /**
+ * The AbortSignal a caller handed in, or null when it handed in none.
+ *
+ * Only one caller does: the Duplicates review may be stopped while a request
+ * is in flight, and a stop that only takes effect after the answer arrived is
+ * not a stop. The provider services pass what comes back from here straight
+ * to their client — the OpenAI SDK takes it as request option, axios as part
+ * of the request config — and send exactly what they sent before when it is
+ * null.
+ *
+ * A real AbortSignal is what the callers use; the duck-typed check below also
+ * accepts a stand-in a test drives, because the value is only ever handed on.
+ *
+ * @param {{signal?: unknown}} [options]
+ * @returns {AbortSignal|null}
+ */
+function abortSignal(options) {
+  const signal = options?.signal;
+  if (!signal || typeof signal !== 'object') return null;
+  if (typeof AbortSignal === 'function' && signal instanceof AbortSignal) {
+    return signal;
+  }
+  return typeof signal.aborted === 'boolean' &&
+    typeof signal.addEventListener === 'function'
+    ? signal
+    : null;
+}
+
+/**
  * The token usage of an OpenAI-compatible completion, or null when the
  * provider did not report any. Kept separate from the return value of
  * `generateText` so its contract (a string) stays what it was; callers that
@@ -90,6 +118,7 @@ function readCompletionUsage(response) {
 }
 
 module.exports = {
+  abortSignal,
   hasNumber,
   hasSystemPrompt,
   modelOverride,

@@ -8,6 +8,7 @@ const {
   toNameList,
 } = require('./serviceUtils');
 const {
+  abortSignal,
   hasNumber,
   hasSystemPrompt,
   modelOverride,
@@ -585,6 +586,7 @@ class OpenAIService {
    * @param {string} [options.systemPrompt] - Sent as the system message
    * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
    * @param {number} [options.maxTokens] - Completion cap for this call
+   * @param {AbortSignal} [options.signal] - Cancels the request in flight
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
@@ -619,7 +621,12 @@ class OpenAIService {
       }
 
       this.lastGenerateTextUsage = null;
-      const response = await this.client.chat.completions.create(request);
+      // The second argument is the SDK's request option bag; a caller that
+      // brought no signal gets the call it always got.
+      const signal = abortSignal(options);
+      const response = signal
+        ? await this.client.chat.completions.create(request, { signal })
+        : await this.client.chat.completions.create(request);
       this.lastGenerateTextUsage = readCompletionUsage(response);
 
       assertCompletionNotTruncated(
