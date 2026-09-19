@@ -18,10 +18,11 @@
  *
  * ## What the model is asked
  *
- * One request per batch of `batchSize()` pairs (25 by default), temperature 0,
- * a completion cap of TOKENS_PER_PAIR × pairs + TOKENS_OVERHEAD. The system
- * prompt states the job, the rules and the output contract; the user prompt
- * carries the kind and the batch as JSON, one pair per line:
+ * One request per batch, temperature 0, thinking off unless the operator
+ * switched it on, and a completion cap the review measures rather than
+ * guesses (see "Measuring the model"). The system prompt states the job, the
+ * rules and the output contract; the user prompt carries the kind and the
+ * batch as JSON, one pair per line:
  *
  *   {"id":"tags:12-48","matched_by":"fuzzy","score":0.91,
  *    "a":{"name":"Kontoauszug","documents":31,"titles":[...],
@@ -72,13 +73,45 @@
  *    a local model with a small window, and for the custom provider, which
  *    clamps the cap to what is left of the window and would otherwise hand the
  *    model a budget too small for the batch it is looking at.
- * 3. If the answer is cut off anyway — OpenAI, Azure and the custom provider
- *    raise `ai_response_truncated`, Ollama simply returns a half-written array
- *    — whatever complete objects the answer already carries are salvaged and
- *    only the pairs still missing are asked again, as two halves, recursively
- *    down to a single pair. A single pair that still does not fit is the one
- *    case that ends in "unsure". These retries are counted in `usage.retries`;
- *    they are not failures.
+ * 3. If the answer is cut off anyway, all four providers raise
+ *    `ai_response_truncated` with the text they managed to write on
+ *    `error.partialText`; whatever complete objects that text already carries
+ *    are salvaged, the cap is raised once for the pairs still missing, and
+ *    only then are they asked again as two halves, recursively down to a
+ *    single pair. A single pair that still does not fit is the one case that
+ *    ends in "unsure". These retries are counted in `usage.retries`; they are
+ *    not failures.
+ *
+ * ## Measuring the model, because guessing it cost the user two minutes
+ *
+ * The three keep a batch inside the *context* window. They say nothing about
+ * how long a request takes, and on a hosted reasoning model at 31 tokens per
+ * second that is what hurt: 25 pairs, a cap of 3200, and the model spent all
+ * 3200 on its thoughts — 102 seconds for nothing, then a split into 13 + 12,
+ * which does not help either, because the thinking does not get cheaper with
+ * fewer pairs. The user watched "request 1 of 4 · estimating…" for two
+ * minutes and pressed Stop.
+ *
+ * So the judge measures instead:
+ *
+ * - Thinking is off (`reasoning: false`) unless DUPLICATES_AI_THINKING says
+ *   otherwise. The judge's job is to apply rules to evidence, and the
+ *   evidence is in the prompt.
+ * - The first request of an unmeasured model is a warm-up: WARMUP_PAIRS
+ *   pairs, a deliberately generous cap, a few seconds.
+ * - Its answer gives two numbers — tokens per pair and tokens per second —
+ *   and every request after it is sized to last DUPLICATES_AI_REQUEST_SECONDS:
+ *   `batchSize = requestSeconds × tokensPerSecond ÷ tokensPerPair`, capped at
+ *   `tokensPerPair × batchSize × 1.5 + TOKENS_OVERHEAD`, both still bounded by
+ *   the context window. Every later answer re-measures, smoothed by half
+ *   against the measurement before it.
+ * - What was measured is kept per model on the singleton, so the next review
+ *   of the same model starts sized and skips the warm-up. A measurement taken
+ *   with thinking on is never reused with thinking off.
+ * - A cut-off answer that salvaged nothing gets *twice the cap* and the same
+ *   pairs once more; only when that bought nothing does the batch halve. A
+ *   warm-up that does not fit either way ends the review with a message
+ *   naming the two switches that can fix it.
  *
  * ## What comes back
  *
@@ -109,6 +142,12 @@
  * `reviewScan(options, control)` takes the control object of
  * services/duplicateReviewJobService.js as its optional second argument.
  * Without it the review is what it always was; with it three things happen.
+ *
+ * It reports, inside a request as well as between two. The provider streams
+ * (`onProgress`), so the page is told whether the model is thinking, what
+ * that has cost so far and how many verdicts have actually arrived — at most
+ * one report every PROGRESS_INTERVAL_MS. A request that ends clears all of
+ * that in the same report that counts it.
  *
  * It reports. The review is planned in full before the first request —
  * entities, pairs, evidence and batch sizes for every kind — so the page's
@@ -177,6 +216,43 @@ const TOKENS_PER_PAIR = 120;
 /** Room for the brackets, a code fence and a model that explains itself. */
 const TOKENS_OVERHEAD = 200;
 /**
+ * Pairs the first request of an uncalibrated review asks about.
+ *
+ * Small enough that a slow model answers it in seconds rather than minutes,
+ * large enough that dividing its completion tokens by the pairs says
+ * something about what one verdict costs.
+ */
+const WARMUP_PAIRS = 4;
+/**
+ * The least the warm-up gives the model to answer in. A reasoning model
+ * spends a fixed few hundred tokens on its thoughts before the first verdict,
+ * and a warm-up that truncates measures nothing.
+ */
+const WARMUP_MIN_CAP = 1500;
+/** How much of a fresh measurement replaces the one before it. */
+const CALIBRATION_WEIGHT = 0.5;
+/** The shortest request length an operator may ask for. */
+const MIN_REQUEST_SECONDS = 5;
+/** The request length the judge aims at when the setting says nothing. */
+const DEFAULT_REQUEST_SECONDS = 30;
+/**
+ * Headroom on the measured cost per pair. The model that answered 200 tokens
+ * per pair last time may write longer reasons this time, and a cap that is
+ * half a verdict short costs a whole extra request.
+ */
+const CAP_SAFETY_FACTOR = 1.5;
+/** The least a request is ever given to answer in, whatever was measured. */
+const MIN_COMPLETION_CAP = 256;
+/**
+ * How often one batch may have its cap raised before the batch itself is
+ * halved. Once: a model that answers nothing with twice the room is not short
+ * of room, and doubling on towards a 128k window would cost eight requests to
+ * learn the same thing.
+ */
+const MAX_CAP_RAISES = 1;
+/** The most often a streamed request reports to the page. */
+const PROGRESS_INTERVAL_MS = 250;
+/**
  * What is left free in the context window after prompt and completion cap.
  * The estimate is an estimate (÷4 characters for every non-OpenAI model), and
  * the providers add a few tokens of their own message framing.
@@ -184,9 +260,9 @@ const TOKENS_OVERHEAD = 200;
 const TOKENS_CONTEXT_MARGIN = 256;
 /**
  * The code serviceUtils.assertCompletionNotTruncated() raises, and with it
- * OpenAI, Azure and the custom provider. Ollama's generateText() has no such
- * check: it returns the half-written answer, which arrives here as an array
- * that does not parse and is salvaged the same way.
+ * all four provider services — Ollama included, which used to return its
+ * half-written answer instead. The error carries what was written on
+ * `error.partialText`, so every truncation can be salvaged the same way.
  */
 const TRUNCATION_ERROR_CODE = 'ai_response_truncated';
 /** A reason longer than this is the model ignoring its instructions. */
@@ -291,10 +367,21 @@ const RAW_ANSWER_LOG_LENGTH = 200;
 const REVIEW_PHASES = Object.freeze({
   SCANNING: 'scanning',
   EVIDENCE: 'evidence',
+  WARMING_UP: 'warming-up',
   JUDGING: 'judging',
   ESCALATING: 'escalating',
   FINISHING: 'finishing',
 });
+
+/** What the page is told while the model is being measured. */
+const WARMUP_MESSAGE = 'Measuring the model with a small first request…';
+/**
+ * What a review says when even a warm-up does not fit. Both switches are the
+ * operator's, and both are spelled the way the settings page spells them.
+ */
+const WARMUP_IMPOSSIBLE_MESSAGE = (pairs) =>
+  `The model's answers do not fit the token limit even for ${pairs} pair(s). ` +
+  'Switch thinking off for the judge (DUPLICATES_AI_THINKING) or raise TOKEN_LIMIT.';
 
 /** The only stop the judge asks for itself. */
 const STOP_REASON_TOKEN_BUDGET = 'token-budget';
@@ -579,13 +666,18 @@ function salvageVerdictObjects(text) {
   return objects;
 }
 
-/** Splits a list into chunks of at most `size`. */
-function chunk(items, size) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
+/**
+ * How many verdicts have fully arrived in a streamed answer.
+ *
+ * The same walk that salvages a cut-off answer, counted instead of kept, so
+ * "7 of 10 answers" on the page and the verdicts a truncation keeps are
+ * always the same number.
+ *
+ * @param {string|null|undefined} text
+ * @returns {number}
+ */
+function countCompleteVerdicts(text) {
+  return salvageVerdictObjects(text).length;
 }
 
 /** Runs `worker` over `items`, never more than `limit` at the same time. */
@@ -639,6 +731,23 @@ function parseVerdictArray(text) {
 }
 
 class EntityMatchAiService {
+  constructor() {
+    /**
+     * What the last review measured, per model name. A review that finds a
+     * measurement of its own model starts sized from it instead of spending
+     * a warm-up on the same question; a measurement taken with thinking on
+     * says nothing about the same model with thinking off, so the switch is
+     * part of what is stored and is compared before it is reused.
+     *
+     * In memory on purpose: it is worth a restart, not a table.
+     *
+     * @type {Map<string, {tokensPerPair:number, tokensPerSecond:number, thinking:boolean, measuredAt:number}>}
+     */
+    this.calibration = new Map();
+    /** Overridable so a test does not have to wait a quarter of a second. */
+    this.progressIntervalMs = PROGRESS_INTERVAL_MS;
+  }
+
   /**
    * Whether the page should offer the review at all: the setting is on and
    * an AI provider is configured.
@@ -851,9 +960,258 @@ class EntityMatchAiService {
     console.log(`${LOG_PREFIX} ${message}`);
   }
 
-  /** The completion budget of a batch of this size. */
+  /** The completion budget of a batch of this size, before anything is measured. */
   _completionCap(pairCount) {
     return TOKENS_PER_PAIR * pairCount + TOKENS_OVERHEAD;
+  }
+
+  /**
+   * Whether the model may think before it answers.
+   *
+   * Off unless the operator switched it on. The user's model spent all 3200
+   * tokens of its budget on reasoning and answered nothing, twice, on a batch
+   * of 25 pairs — and halving the batch does not help, because the thinking
+   * does not get cheaper with fewer pairs. The judge gives the model evidence
+   * instead of room to think about it.
+   *
+   * @returns {boolean}
+   */
+  thinkingEnabled() {
+    const runtimeConfig = require('../config/config');
+    return runtimeConfig.duplicatesAiThinking === true;
+  }
+
+  /**
+   * How long one model request should take, in seconds. Everything the judge
+   * measures serves this number: a request the page can show progress for and
+   * a person can wait out, instead of a two-minute silence.
+   *
+   * @returns {number}
+   */
+  requestSeconds() {
+    const runtimeConfig = require('../config/config');
+    const seconds = Number(runtimeConfig.duplicatesAiRequestSeconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return DEFAULT_REQUEST_SECONDS;
+    }
+    return Math.max(MIN_REQUEST_SECONDS, Math.floor(seconds));
+  }
+
+  /** What the provider is configured to spend on one answer (RESPONSE_TOKENS). */
+  _responseTokens() {
+    const runtimeConfig = require('../config/config');
+    const tokens = Number(runtimeConfig.responseTokens);
+    return Number.isFinite(tokens) && tokens > 0 ? tokens : 1000;
+  }
+
+  /** Forgets every measurement, so the next review measures again. */
+  resetCalibration() {
+    this.calibration.clear();
+  }
+
+  /**
+   * The sizing of one review: what it knows about the model before its first
+   * request, and what it learns from every answer.
+   *
+   * A review that finds a measurement of its own model (same model, same
+   * thinking switch) starts calibrated: no warm-up, the first request already
+   * at the computed size and cap. Everything else starts at `null` and the
+   * first request is the warm-up.
+   *
+   * @returns {object}
+   */
+  _sizer() {
+    const thinking = this.thinkingEnabled();
+    const model = this.modelName() || '';
+    const stored = this.calibration.get(model);
+    const usable = stored && stored.thinking === thinking ? stored : null;
+    return {
+      model,
+      thinking,
+      tokensPerPair: usable ? usable.tokensPerPair : null,
+      tokensPerSecond: usable ? usable.tokensPerSecond : null,
+      /** True once size and cap come from a measurement rather than defaults. */
+      calibrated: Boolean(usable),
+      /** True when that measurement came from an earlier review. */
+      fromMemory: Boolean(usable),
+      /** False while the first, small request is still due. */
+      warmedUp: Boolean(usable),
+      /** True once somebody has told the page that the warm-up is coming. */
+      warmupAnnounced: false,
+      /** The context-safe ceiling of the kind being judged. */
+      maxSize: Math.max(1, this.batchSize()),
+      /** Pairs per request in use, null before the first one is sized. */
+      batchSize: null,
+      measurements: 0,
+      lastPromptTokens: 0,
+      lastPairs: 1,
+      lastCap: 0,
+    };
+  }
+
+  /**
+   * The batch size a measurement asks for: as many pairs as the model can
+   * answer within the configured request seconds, never more than the
+   * operator's batch size and never more than the context window allows.
+   *
+   * @param {object} sizer
+   * @param {number} bound  the context-safe ceiling for this kind
+   * @returns {number}
+   */
+  _sizeFor(sizer, bound) {
+    const ceiling = Math.max(1, Math.min(this.batchSize(), bound));
+    if (
+      !sizer ||
+      sizer.tokensPerPair == null ||
+      sizer.tokensPerSecond == null
+    ) {
+      return ceiling;
+    }
+    const affordable = Math.floor(
+      (this.requestSeconds() * sizer.tokensPerSecond) / sizer.tokensPerPair
+    );
+    return Math.max(1, Math.min(affordable, ceiling));
+  }
+
+  /**
+   * What a batch of this size may spend on its answer, before the context
+   * window has its say: the measured cost per pair with headroom, the
+   * warm-up's own generous budget, or the flat estimate of the first version.
+   *
+   * @param {object} sizer
+   * @param {number} pairCount
+   * @param {{warmingUp?: boolean}} [options]
+   * @returns {number}
+   */
+  _capFor(sizer, pairCount, { warmingUp = false } = {}) {
+    if (warmingUp) {
+      return Math.max(
+        this._responseTokens(),
+        this._completionCap(pairCount),
+        WARMUP_MIN_CAP
+      );
+    }
+    if (!sizer || sizer.tokensPerPair == null) {
+      return this._completionCap(pairCount);
+    }
+    return (
+      Math.ceil(sizer.tokensPerPair * pairCount * CAP_SAFETY_FACTOR) +
+      TOKENS_OVERHEAD
+    );
+  }
+
+  /**
+   * The cap one request actually gets, and the ceiling the context window
+   * puts on it. `atBound` is what tells a truncation apart from a cap that is
+   * merely too small: at the bound there is no more room to give, so the
+   * batch has to get smaller instead.
+   *
+   * @param {object} sizer
+   * @param {number} pairCount
+   * @param {number} promptTokens
+   * @param {{warmingUp?: boolean, wanted?: number|null}} [options]
+   * @returns {{cap:number, bound:number, atBound:boolean}}
+   */
+  _capForRequest(sizer, pairCount, promptTokens, options = {}) {
+    const limit = this._contextLimit();
+    const bound = Math.max(
+      MIN_COMPLETION_CAP,
+      limit - promptTokens - TOKENS_CONTEXT_MARGIN
+    );
+    // `Number(null)` is 0, not NaN: a missing cap must not pass for one.
+    const wanted =
+      typeof options.wanted === 'number' && Number.isFinite(options.wanted)
+        ? options.wanted
+        : this._capFor(sizer, pairCount, { warmingUp: options.warmingUp });
+    const cap = Math.max(MIN_COMPLETION_CAP, Math.min(wanted, bound));
+    return { cap, bound, atBound: cap >= bound };
+  }
+
+  /**
+   * Takes one answered request into the sizing and returns true when the
+   * batch size changed because of it.
+   *
+   * Two numbers come out of every request: what a verdict costs this model
+   * (completion tokens ÷ pairs, thinking included — it is part of the bill
+   * and part of the wait) and how fast it writes them (completion tokens ÷
+   * seconds). Both are smoothed against the measurement before them, so one
+   * slow minute on a busy server does not halve the batch for the rest of the
+   * review.
+   *
+   * A truncated answer measures only the speed: it stopped at the cap, so its
+   * tokens per pair say nothing except that the cap was too small.
+   *
+   * @param {object} context
+   * @param {{pairs:number, completionTokens:number|null, elapsedMs:number, truncated:boolean, warmingUp:boolean}} measurement
+   * @returns {boolean} true when the next request will be a different size
+   */
+  _measure(context, measurement) {
+    const { sizer } = context;
+    const tokens = Number(measurement.completionTokens);
+    if (!sizer || !Number.isFinite(tokens) || tokens <= 0) return false;
+
+    const seconds = Math.max(0.001, Number(measurement.elapsedMs) / 1000);
+    const blend = (previous, fresh) =>
+      previous == null
+        ? fresh
+        : previous * (1 - CALIBRATION_WEIGHT) + fresh * CALIBRATION_WEIGHT;
+    const pairs = Math.max(1, Number(measurement.pairs) || 1);
+
+    sizer.tokensPerSecond = blend(sizer.tokensPerSecond, tokens / seconds);
+    if (!measurement.truncated) {
+      sizer.tokensPerPair = blend(sizer.tokensPerPair, tokens / pairs);
+    }
+    sizer.measurements += 1;
+    if (sizer.tokensPerPair == null) return false;
+
+    sizer.calibrated = true;
+    this.calibration.set(sizer.model, {
+      tokensPerPair: sizer.tokensPerPair,
+      tokensPerSecond: sizer.tokensPerSecond,
+      thinking: sizer.thinking,
+      measuredAt: Date.now(),
+    });
+
+    const before = sizer.batchSize;
+    sizer.batchSize = this._sizeFor(sizer, sizer.maxSize);
+    const cap = this._capFor(sizer, sizer.batchSize);
+    const perPair = Math.round(sizer.tokensPerPair);
+    const perSecond = Math.round(sizer.tokensPerSecond);
+    if (measurement.warmingUp) {
+      this._log(
+        `warm-up: ${pairs} pair(s), ${tokens} completion tokens (${perPair} per pair), ` +
+          `${perSecond} tokens/s, thinking ${sizer.thinking ? 'on' : 'off'} ` +
+          `→ batch size ${sizer.batchSize}, cap ${cap}.`
+      );
+    } else if (sizer.batchSize !== before) {
+      this._log(
+        `re-sized after ${sizer.measurements} measurement(s): ${perPair} tokens per pair, ` +
+          `${perSecond} tokens/s → batch size ${before} becomes ${sizer.batchSize}, cap ${cap}.`
+      );
+    }
+    return sizer.batchSize !== before;
+  }
+
+  /**
+   * Re-derives the plan from what the model turned out to cost: the requests
+   * still to make for the pairs nobody has asked about yet, and what they are
+   * expected to spend. Only a calibrated review does this — before the first
+   * measurement the numbers of pass one are all there is.
+   *
+   * @param {object} context
+   */
+  _replan(context) {
+    const { tracker, sizer } = context;
+    if (!tracker || !sizer || !sizer.calibrated || !sizer.batchSize) return;
+    const remaining = Math.max(0, tracker.pairsTotal - tracker.pairsAsked);
+    const batches = Math.ceil(remaining / sizer.batchSize);
+    tracker.requestsPlanned =
+      tracker.requestsDone + tracker.pendingRequests + batches;
+    const promptPerPair = sizer.lastPromptTokens / Math.max(1, sizer.lastPairs);
+    const perRequest =
+      Math.round(promptPerPair * sizer.batchSize) +
+      this._capFor(sizer, sizer.batchSize);
+    tracker.estimatedTokens = (tracker.tokens || 0) + batches * perRequest;
   }
 
   /**
@@ -923,11 +1281,11 @@ class EntityMatchAiService {
   /**
    * The text a provider produced before it hit the limit.
    *
-   * None of the four attaches it today — assertCompletionNotTruncated() throws
-   * before the content is read — so a thrown truncation currently splits
-   * without salvaging, and only Ollama's half-written answers are salvaged.
-   * The day a provider starts carrying its prefix on the error, this picks it
-   * up and the split gets cheaper.
+   * All four attach it as `error.partialText` now, reasoning stripped, so
+   * every truncation arrives here with whatever verdicts the model had
+   * already written; they are kept and only the missing pairs are asked
+   * again. The two other names are read as well, because an error that
+   * travels through another layer may arrive under one of them.
    *
    * @returns {string|null}
    */
@@ -1044,8 +1402,14 @@ class EntityMatchAiService {
       kind: null,
       requestsPlanned: 0,
       requestsDone: 0,
+      // Requests a cut-off answer added and that have not been made yet; they
+      // belong in the denominator without being part of the pairs still to ask.
+      pendingRequests: 0,
       pairsJudged: 0,
       pairsTotal: 0,
+      // Pairs that were put into a request, retries not counted twice. What
+      // is left of pairsTotal is what the plan still has to pay for.
+      pairsAsked: 0,
       estimatedTokens: 0,
       tokens: null,
       failedRequests: 0,
@@ -1159,27 +1523,122 @@ class EntityMatchAiService {
    * @param {number} [splits]
    */
   _afterRequest(context, batch, splits = 0) {
-    const { tracker, verdicts, kind } = context;
+    const { tracker, verdicts, kind, sizer, state } = context;
     if (!tracker) return;
     tracker.requestsDone += 1;
     tracker.requestsPlanned += splits;
+    tracker.pendingRequests += splits;
     // The pairs this request settled: a split answers only what it salvaged,
     // and its halves report their own, so nothing is counted twice.
     tracker.pairsJudged += batch.filter((pair) =>
       verdicts.has(pair.key)
     ).length;
     tracker.kind = kind;
-    this._report(tracker, {
+    // What the measurement of this request changed, if anything: the plan for
+    // the pairs nobody has asked about yet, and what they should cost.
+    this._replan(context);
+    const patch = {
       kind,
       requestsDone: tracker.requestsDone,
       requestsPlanned: tracker.requestsPlanned,
       pairsJudged: tracker.pairsJudged,
+      pairsTotal: tracker.pairsTotal,
+      estimatedTokens: tracker.estimatedTokens,
       tokens: tracker.tokens,
       failedRequests: tracker.failedRequests,
       retries: tracker.retries,
+      batchSize: sizer ? sizer.batchSize : null,
+      calibrated: Boolean(sizer && sizer.calibrated),
+      // The request is over; nothing about it is in flight any more.
+      requestPairs: null,
+      requestAnswers: 0,
+      requestTokens: null,
+      thinking: false,
+      message: this._requestMessage(tracker),
+    };
+    // The warm-up is the one request the page waits out under its own phase;
+    // its answer is what moves the review into judging.
+    if (state?.warmupReported) {
+      patch.phase = REVIEW_PHASES.JUDGING;
+      state.warmupReported = false;
+    }
+    this._report(tracker, patch);
+    this._checkTokenBudget(tracker);
+  }
+
+  /**
+   * One report from inside a request the provider is streaming.
+   *
+   * What the page shows while an answer is being written: whether the model
+   * is still thinking, how many tokens that has cost so far, and how many of
+   * the pairs it has actually answered. At most one report every
+   * PROGRESS_INTERVAL_MS — a fast model produces chunks faster than any page
+   * can paint them.
+   *
+   * The running token total is the tracker's plus what this request has
+   * produced so far; it is never written back, because the provider's own
+   * number replaces it once the request is over.
+   *
+   * @param {object} context
+   * @param {AiReviewPair[]} batch
+   * @param {import('./aiGenerateOptions').GenerateTextProgress} update
+   */
+  _onStream(context, batch, update) {
+    const { tracker, state } = context;
+    if (!tracker || !tracker.onProgress) return;
+    const now = Date.now();
+    const interval = Number(this.progressIntervalMs);
+    if (
+      now - state.lastStreamMs <
+      (interval >= 0 ? interval : PROGRESS_INTERVAL_MS)
+    ) {
+      return;
+    }
+    state.lastStreamMs = now;
+    state.streamed = true;
+
+    const thinking = update?.thinking === true;
+    const produced = Number(update?.completionTokens);
+    const requestTokens = Number.isFinite(produced) ? produced : null;
+    const answers = thinking ? 0 : countCompleteVerdicts(update?.text);
+    const answered =
+      answers > 0 ? ` · ${answers} of ${batch.length} answers` : '';
+    // While the warm-up is running the page is told what it is for, not
+    // which request it is; the plan behind that number is still provisional.
+    const waiting = state.warmingUp
+      ? WARMUP_MESSAGE
+      : this._requestMessage(tracker);
+    this._report(tracker, {
+      requestPairs: batch.length,
+      requestAnswers: answers,
+      requestTokens,
+      thinking,
+      tokens: (tracker.tokens || 0) + (requestTokens || 0),
+      message: thinking
+        ? `The model is thinking… (${requestTokens || 0} tokens so far)`
+        : `${waiting}${answered}`,
+    });
+  }
+
+  /**
+   * Clears what a request left on the page when it ends without a report of
+   * its own — a stop while the answer was still arriving. Only for a request
+   * that streamed something, so a review nobody streamed to reports nothing
+   * extra.
+   *
+   * @param {object} context
+   */
+  _clearRequestProgress(context) {
+    const { tracker, state } = context;
+    if (!tracker || !state?.streamed) return;
+    state.streamed = false;
+    this._report(tracker, {
+      requestPairs: null,
+      requestAnswers: 0,
+      requestTokens: null,
+      thinking: false,
       message: this._requestMessage(tracker),
     });
-    this._checkTokenBudget(tracker);
   }
 
   /** The line the page shows while it waits for the next answer. */
@@ -1242,10 +1701,13 @@ class EntityMatchAiService {
   /**
    * One model request, and everything that can come back from it.
    *
-   * Recursive on one path only: an answer that was cut off is salvaged and the
-   * pairs still missing are asked again as two halves. Each half is strictly
-   * smaller than the batch it came from, so the recursion ends at single
-   * pairs.
+   * Recursive on two paths. An answer that was cut off with nothing usable in
+   * it is asked again with twice the cap, because on a model that thinks the
+   * cut is the thinking rather than the pairs, and halving the batch would
+   * only buy the same truncation at half the value. Once the cap has reached
+   * what the context window allows, or MAX_CAP_RAISES raises have bought
+   * nothing, the batch itself is split in two — each half strictly smaller,
+   * so the recursion ends at single pairs.
    *
    * Two things a stopped review needs from here: nothing is asked once the
    * signal is aborted, and a request that dies on the signal while it is in
@@ -1253,26 +1715,80 @@ class EntityMatchAiService {
    *
    * @param {AiReviewPair[]} batch
    * @param {object} context  kind, systemPrompt, service, verdicts, usage,
-   *   state, tracker
-   * @param {{isRetry?: boolean}} [options]
+   *   state, tracker, sizer
+   * @param {{isRetry?: boolean, cap?: number|null, raises?: number, warmup?: boolean}} [options]
+   *   `cap` is the budget a raised retry asks for; without one the sizing
+   *   decides. `warmup` keeps a raised retry of the warm-up the warm-up.
    */
-  async _judgeBatch(batch, context, { isRetry = false } = {}) {
-    const { kind, systemPrompt, service, verdicts, usage, state, tracker } =
-      context;
+  async _judgeBatch(
+    batch,
+    context,
+    { isRetry = false, cap: wanted = null, raises = 0, warmup = false } = {}
+  ) {
+    const {
+      kind,
+      systemPrompt,
+      service,
+      verdicts,
+      usage,
+      state,
+      tracker,
+      sizer,
+    } = context;
     // Between two requests is where a stop costs nothing at all.
     if (this._stopped(tracker)) return;
 
     const keys = new Set(batch.map((pair) => pair.key));
-    const cap = this._completionCap(batch.length);
     const userPrompt = this.buildUserPrompt(kind, batch);
     const promptTokens = await this._promptTokens(systemPrompt, userPrompt);
+    // The first request of an unmeasured review is the warm-up: few pairs, a
+    // generous budget, and the measurement every later request is sized by.
+    const warmingUp = warmup || (Boolean(sizer) && !sizer.warmedUp);
+    const budget = this._capForRequest(sizer, batch.length, promptTokens, {
+      warmingUp,
+      wanted,
+    });
+    const cap = budget.cap;
 
     state.requestNumber += 1;
     const requestNumber = state.requestNumber;
+    state.lastStreamMs = 0;
+    state.streamed = false;
+    state.warmingUp = warmingUp;
     usage.requests += 1;
     if (isRetry) {
       usage.retries += 1;
-      if (tracker) tracker.retries += 1;
+      if (tracker) {
+        tracker.retries += 1;
+        tracker.pendingRequests = Math.max(0, tracker.pendingRequests - 1);
+      }
+    } else if (tracker) {
+      tracker.pairsAsked += batch.length;
+    }
+    if (sizer) {
+      sizer.lastPromptTokens = promptTokens;
+      sizer.lastPairs = batch.length;
+      sizer.lastCap = cap;
+      if (sizer.batchSize === null) sizer.batchSize = batch.length;
+    }
+    if (warmingUp && tracker) {
+      // The answer of this request is what moves the page out of the
+      // warming-up phase, whoever announced the phase itself.
+      state.warmupReported = true;
+    }
+    if (warmingUp && tracker && !sizer.warmupAnnounced) {
+      sizer.warmupAnnounced = true;
+      this._report(tracker, {
+        phase: REVIEW_PHASES.WARMING_UP,
+        kind,
+        batchSize: batch.length,
+        calibrated: false,
+        requestPairs: batch.length,
+        requestAnswers: 0,
+        requestTokens: null,
+        thinking: false,
+        message: WARMUP_MESSAGE,
+      });
     }
 
     const startedAt = Date.now();
@@ -1294,6 +1810,8 @@ class EntityMatchAiService {
       systemPrompt,
       temperature: 0,
       maxTokens: cap,
+      // Off unless the operator switched it on; see thinkingEnabled().
+      reasoning: Boolean(sizer && sizer.thinking),
     };
     // Only when the operator picked a model for the judge; without it the
     // provider stays on the model it is configured with.
@@ -1302,12 +1820,19 @@ class EntityMatchAiService {
     // With a signal the provider can be stopped mid-request; without one it
     // sends exactly what it sent before.
     if (tracker?.signal) requestOptions.signal = tracker.signal;
+    // Streaming is for the page: with nobody to report to, the plain request
+    // says the same thing at the end.
+    if (tracker?.onProgress) {
+      requestOptions.onProgress = (update) =>
+        this._onStream(context, batch, update);
+    }
     try {
       answer = await service.generateText(userPrompt, requestOptions);
     } catch (error) {
       if (this._stopped(tracker)) {
         // A stop, not a failure: no failed request, no retry, and above all
         // no "unsure" for pairs nobody answered.
+        this._clearRequestProgress(context);
         this._log(
           `${head()} — stopped while waiting for the answer, ${batch.length} pair(s) left unjudged.`
         );
@@ -1326,9 +1851,12 @@ class EntityMatchAiService {
         return report();
       }
       truncated = true;
+      // What the provider wrote before it ran out of room. All four carry it
+      // now, so the salvage below has something to work with.
       answer = this._partialAnswerOf(error);
     }
 
+    const elapsedMs = Date.now() - startedAt;
     await this._countRequestTokens(context, promptTokens, answer);
     const completionTokens = Number(
       service.lastGenerateTextUsage?.completionTokens
@@ -1346,6 +1874,18 @@ class EntityMatchAiService {
         parseError = error;
       }
     }
+
+    // What this request says about the model. A cut-off answer only says how
+    // fast it writes; it stopped at the cap, so its tokens per pair are the
+    // cap rather than the cost of a verdict.
+    this._measure(context, {
+      pairs: batch.length,
+      completionTokens,
+      elapsedMs,
+      truncated: truncated || items === null,
+      warmingUp,
+    });
+    if (sizer) sizer.warmedUp = true;
 
     // The ordinary case: an answer that parses. Gaps in it are the model's
     // business, not a failure of the request.
@@ -1389,6 +1929,36 @@ class EntityMatchAiService {
       return report();
     }
 
+    // Nothing came back at all and there is still room in the window: the cap
+    // was the problem, not the batch. Asking the same pairs with twice the
+    // budget is one request; halving the batch would be two, and on a model
+    // that spends its budget on thinking it would truncate again.
+    if (salvaged.recorded === 0 && !budget.atBound && raises < MAX_CAP_RAISES) {
+      // The warm-up gets the whole window in one step: it is a measurement,
+      // it is four pairs, and the review cannot start without it. An ordinary
+      // request doubles, because it has halving to fall back on.
+      const raised = warmingUp ? budget.bound : Math.min(cap * 2, budget.bound);
+      this._log(
+        `${head()}${spent} — the answer hit the token limit and salvaged nothing, ` +
+          `raising the cap from ${cap} to ${raised} and asking the same ${batch.length} pair(s) again.`
+      );
+      report(1);
+      return this._judgeBatch(batch, context, {
+        isRetry: true,
+        cap: raised,
+        raises: raises + 1,
+        warmup: warmingUp,
+      });
+    }
+
+    if (warmingUp && salvaged.recorded === 0 && budget.atBound) {
+      // The measurement itself does not fit, with the whole window behind it.
+      // Splitting would not help: a review whose warm-up cannot answer four
+      // pairs will not answer four hundred, and the operator has two switches
+      // that can do something about it.
+      throw this._unavailable(WARMUP_IMPOSSIBLE_MESSAGE(batch.length));
+    }
+
     if (batch.length === 1) {
       this._fillMissing(keys, verdicts, SINGLE_PAIR_TRUNCATION_REASON);
       this._log(
@@ -1401,7 +1971,7 @@ class EntityMatchAiService {
     this._log(
       salvaged.recorded > 0
         ? `${head()}${spent} — the answer was cut off, salvaged ${salvaged.recorded}, re-asking ${missing.length} in ${halves.length} request(s).`
-        : `${head()}${spent} — the answer hit the token limit, splitting into ${halves.map((half) => half.length).join(' + ')}.`
+        : `${head()}${spent} — the answer hit the token limit and a raised cap did not help, halving into ${halves.map((half) => half.length).join(' + ')}.`
     );
     report(halves.length);
     for (const half of halves) {
@@ -1412,11 +1982,18 @@ class EntityMatchAiService {
   /**
    * Asks the model about every pair and returns one verdict per pair.
    *
-   * `plan`, `systemPrompt` and `tracker` are what reviewScan() hands in: it
-   * has sized the batches before the first request of the whole review, so
-   * this must not size them again, and the progress of a request belongs to
-   * the review, not to one round of it. A caller that brings none of them
-   * gets what it always got.
+   * `plan`, `systemPrompt`, `tracker` and `sizer` are what reviewScan() hands
+   * in: it has sized the batches before the first request of the whole review,
+   * so this must not size them again, the progress of a request belongs to the
+   * review rather than to one round of it, and the model is measured once for
+   * the review and not once per kind.
+   *
+   * The batch is taken off the front of the queue rather than chunked up
+   * front, because the size changes: the warm-up asks WARMUP_PAIRS, and every
+   * answer may resize the requests after it. A caller that brings no sizer —
+   * the tests, and nothing else today — gets plan-sized batches from the
+   * first request on, because a warm-up is a property of a review, not of one
+   * list of pairs.
    *
    * @param {AiReviewPair[]} pairs
    * @param {object} options
@@ -1424,6 +2001,7 @@ class EntityMatchAiService {
    * @param {{size:number, promptTokens:number, cap:number, limit:number}} [options.plan]
    * @param {string} [options.systemPrompt]
    * @param {object|null} [options.tracker]  the review's bookkeeping
+   * @param {object|null} [options.sizer]    the review's measurement of the model
    * @returns {Promise<AiReviewPairsResult>}
    */
   async reviewPairs(pairs, options = {}) {
@@ -1451,10 +2029,25 @@ class EntityMatchAiService {
     const systemPrompt = options.systemPrompt || this.buildSystemPrompt(kind);
     const plan =
       options.plan || (await this._planBatchSize(kind, list, systemPrompt));
-    usage.batchSize = plan.size;
+    const sizer = options.sizer || null;
+    // The context window bounds this kind; a measurement may ask for less
+    // than that, never for more.
+    if (sizer) {
+      sizer.maxSize = plan.size;
+      sizer.batchSize = this._sizeFor(sizer, plan.size);
+    }
+    const size = sizer ? sizer.batchSize : plan.size;
+    usage.batchSize = size;
+    // A measured review says what it will actually spend; an unmeasured one
+    // says the flat estimate and calls it provisional.
+    const firstCap =
+      sizer && sizer.calibrated ? this._capFor(sizer, size) : plan.cap;
     this._log(
-      `${kind}: batch size ${plan.size} of at most ${this.batchSize()} (context limit ${plan.limit} tokens), ` +
-        `first batch ~${plan.promptTokens} prompt tokens, completion cap ${plan.cap}.`
+      `${kind}: batch size ${size} of at most ${this.batchSize()} (context limit ${plan.limit} tokens), ` +
+        `first batch ~${plan.promptTokens} prompt tokens, completion cap ${firstCap}` +
+        (!sizer || sizer.calibrated
+          ? '.'
+          : ' — provisional, the model has not been measured yet.')
     );
 
     const context = {
@@ -1463,14 +2056,44 @@ class EntityMatchAiService {
       service,
       verdicts,
       usage,
-      state: { requestNumber: 0 },
+      state: {
+        requestNumber: 0,
+        lastStreamMs: 0,
+        streamed: false,
+        warmingUp: false,
+        warmupReported: false,
+      },
       tracker: options.tracker || null,
+      sizer,
     };
-    for (const batch of chunk(list, plan.size)) {
+    // Taken off the front rather than chunked: the warm-up is small and every
+    // answer may change what the next request is worth asking for.
+    const queue = [...list];
+    while (queue.length > 0) {
+      if (this._stopped(context.tracker)) break;
+      const batch = queue.splice(0, this._nextBatchSize(context, plan.size));
       await this._judgeBatch(batch, context);
+      usage.batchSize = sizer ? sizer.batchSize || usage.batchSize : plan.size;
     }
 
     return { verdicts, model, usage };
+  }
+
+  /**
+   * How many pairs the next request asks about: the warm-up's handful while
+   * the model is unmeasured, otherwise what the measurement affords.
+   *
+   * @param {object} context
+   * @param {number} fallback  the plan's size, for a caller without a sizer
+   * @returns {number}
+   */
+  _nextBatchSize(context, fallback) {
+    const { sizer } = context;
+    if (!sizer) return Math.max(1, fallback);
+    if (!sizer.warmedUp) {
+      return Math.max(1, Math.min(WARMUP_PAIRS, sizer.maxSize));
+    }
+    return Math.max(1, sizer.batchSize || fallback);
   }
 
   /**
@@ -1822,6 +2445,15 @@ class EntityMatchAiService {
 
     const startedAt = Date.now();
     const tracker = this._reviewTracker(control);
+    // One measurement for the whole review: the model does not get faster
+    // between two kinds, and the warm-up is worth paying for once.
+    const sizer = this._sizer();
+    if (sizer.fromMemory) {
+      this._log(
+        `calibrated from a previous review: ${Math.round(sizer.tokensPerPair)} tokens per pair, ` +
+          `${Math.round(sizer.tokensPerSecond)} tokens/s, thinking ${sizer.thinking ? 'on' : 'off'}.`
+      );
+    }
     const requested = options.kind || 'all';
     const kinds =
       requested === 'all' ? [...entityNameMatcher.KIND_LIST] : [requested];
@@ -1835,7 +2467,14 @@ class EntityMatchAiService {
       message: `Scanning ${kinds.join(' and ')} for duplicate names…`,
     });
 
-    const scan = await duplicateMergeService.scan(options);
+    // Never `fresh`: the page has just scanned, and a review that scans the
+    // same archive again costs the user thirteen seconds for the same answer.
+    // The flag is dropped rather than passed on, so a route that forwards the
+    // page's own scan options cannot buy a second scan by accident.
+    const scan = await duplicateMergeService.scan({
+      ...options,
+      fresh: false,
+    });
     const configuredTagNames =
       typeof duplicateMergeService._configuredTagNames === 'function'
         ? duplicateMergeService._configuredTagNames()
@@ -2016,10 +2655,14 @@ class EntityMatchAiService {
       if (asked.length > 0 && !this._stopped(tracker)) {
         plan = await this._planBatchSize(kind, asked, systemPrompt);
         if (tracker) {
-          const planned = Math.ceil(asked.length / plan.size);
+          // Provisional while the model is unmeasured: the warm-up replaces
+          // both numbers with what this model actually costs.
+          const size = this._sizeFor(sizer, plan.size);
+          const planned = Math.ceil(asked.length / size);
           tracker.requestsPlanned += planned;
           tracker.pairsTotal += asked.length;
-          tracker.estimatedTokens += planned * (plan.promptTokens + plan.cap);
+          tracker.estimatedTokens +=
+            planned * (plan.promptTokens + this._capFor(sizer, size));
         }
       }
       plans.push({
@@ -2036,15 +2679,28 @@ class EntityMatchAiService {
     }
 
     if (tracker && tracker.requestsPlanned > 0 && !this._stopped(tracker)) {
+      // The plan as pass one knows it. On an unmeasured model both the
+      // denominator and the estimate are provisional: the warm-up is the
+      // first request, and its answer settles them.
+      const firstSize = plans.find((one) => one.plan)?.plan.size ?? 1;
+      if (!sizer.calibrated) sizer.warmupAnnounced = true;
       this._report(tracker, {
-        phase: REVIEW_PHASES.JUDGING,
+        phase: sizer.calibrated
+          ? REVIEW_PHASES.JUDGING
+          : REVIEW_PHASES.WARMING_UP,
         kind: null,
         requestsPlanned: tracker.requestsPlanned,
         pairsTotal: tracker.pairsTotal,
         estimatedTokens: tracker.estimatedTokens,
         spellingRules: tracker.spellingRules,
         excerpts: tracker.excerpts,
-        message: `Asking the model, request 1 of ${tracker.requestsPlanned}`,
+        batchSize: sizer.calibrated
+          ? this._sizeFor(sizer, firstSize)
+          : Math.max(1, Math.min(WARMUP_PAIRS, firstSize)),
+        calibrated: sizer.calibrated,
+        message: sizer.calibrated
+          ? `Asking the model, request 1 of ${tracker.requestsPlanned}`
+          : WARMUP_MESSAGE,
       });
     }
 
@@ -2079,6 +2735,7 @@ class EntityMatchAiService {
         plan,
         systemPrompt,
         tracker,
+        sizer,
       });
       foldUsage(review.usage);
       model = review.model || model;
@@ -2128,7 +2785,7 @@ class EntityMatchAiService {
           escalated += again.length;
           if (tracker) {
             tracker.requestsPlanned += Math.ceil(
-              again.length / secondPlan.size
+              again.length / this._sizeFor(sizer, secondPlan.size)
             );
             // The escalated pairs are asked a second time, so they are due a
             // second time: both ends of the bar grow, and what the page shows
@@ -2142,6 +2799,8 @@ class EntityMatchAiService {
               pairsTotal: tracker.pairsTotal,
               escalated: tracker.escalated,
               excerpts: tracker.excerpts,
+              batchSize: sizer.batchSize,
+              calibrated: sizer.calibrated,
               message: `Asking once more about ${again.length} unsure pairs, with excerpts…`,
             });
           }
@@ -2150,6 +2809,7 @@ class EntityMatchAiService {
             plan: secondPlan,
             systemPrompt,
             tracker,
+            sizer,
           });
           foldUsage(second.usage);
           for (const [key, verdict] of second.verdicts) {
@@ -2220,7 +2880,7 @@ class EntityMatchAiService {
     }
     this._log(
       `review finished: ${requests} request(s) (${retries} retry/retries, ${failedRequests} failed), ` +
-        `${tokens == null ? 'unknown' : tokens} token(s), ${judged} pair(s) judged, ` +
+        `${tokens == null ? 'unknown' : tokens} token(s), ${judged} pair(s) planned, ` +
         `${candidateCount} candidate(s), ${confirmed} group(s) confirmed` +
         (targeted
           ? `, ${groupsJudged} group(s) judged, ${groupsSkipped} skipped`
@@ -2301,6 +2961,13 @@ entityMatchAiService.REVIEW_PHASES = REVIEW_PHASES;
 entityMatchAiService.TOKENS_PER_PAIR = TOKENS_PER_PAIR;
 entityMatchAiService.TOKENS_OVERHEAD = TOKENS_OVERHEAD;
 entityMatchAiService.TOKENS_CONTEXT_MARGIN = TOKENS_CONTEXT_MARGIN;
+entityMatchAiService.WARMUP_PAIRS = WARMUP_PAIRS;
+entityMatchAiService.WARMUP_MIN_CAP = WARMUP_MIN_CAP;
+entityMatchAiService.CALIBRATION_WEIGHT = CALIBRATION_WEIGHT;
+entityMatchAiService.CAP_SAFETY_FACTOR = CAP_SAFETY_FACTOR;
+entityMatchAiService.MIN_COMPLETION_CAP = MIN_COMPLETION_CAP;
+entityMatchAiService.PROGRESS_INTERVAL_MS = PROGRESS_INTERVAL_MS;
+entityMatchAiService.WARMUP_MESSAGE = WARMUP_MESSAGE;
 entityMatchAiService.TRUNCATION_ERROR_CODE = TRUNCATION_ERROR_CODE;
 entityMatchAiService.SINGLE_PAIR_TRUNCATION_REASON =
   SINGLE_PAIR_TRUNCATION_REASON;

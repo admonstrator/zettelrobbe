@@ -36,6 +36,10 @@
  *     only after the last write
  * 18. Scan, merge, undo and dismiss write a log line each, with the names but
  *     never a document title
+ * 19. The scan cache: a second scan of the same options reads nothing, other
+ *     options and `fresh` do, and an old entry is dropped
+ * 20. A merge, an undo, a dismissal and the restore of one all drop it — and
+ *     so does a dismissal removed through the model, behind the service
  */
 
 'use strict';
@@ -103,6 +107,8 @@ async function main() {
   function useFake(seed) {
     const fake = createFakePaperless(seed);
     paperlessService.client = fake.client;
+    // A new archive is exactly what the scan cache must not answer for.
+    duplicateMergeService.invalidateScanCache();
     return fake;
   }
 
@@ -179,9 +185,12 @@ async function main() {
         'the kind that was not scanned stays null'
       );
 
-      await documentModel.addEntityMergeDismissals('tags', [
-        { idA: 1, idB: 2, nameA: 'Amazon', nameB: 'amazon' },
-      ]);
+      // Through the service, so the cached scan above goes with the row.
+      await duplicateMergeService.dismiss({
+        kind: 'tags',
+        ids: [1, 2],
+        names: { 1: 'Amazon', 2: 'amazon' },
+      });
       const hidden = await duplicateMergeService.scan({ kind: 'tags' });
       assert.strictEqual(hidden.groups.length, 0, 'the pair is gone');
       assert.strictEqual(hidden.dismissedPairs, 1);
@@ -195,7 +204,7 @@ async function main() {
 
       const rows = await documentModel.listEntityMergeDismissals('tags');
       for (const row of rows) {
-        await documentModel.removeEntityMergeDismissal(row.id);
+        await duplicateMergeService.restoreDismissal(row.id);
       }
     });
 
@@ -217,7 +226,8 @@ async function main() {
         },
       };
       const error = await expectRefusal(
-        () => duplicateMergeService.scan({ kind: 'tags' }),
+        // fresh, or the scan of the case above would answer this one.
+        () => duplicateMergeService.scan({ kind: 'tags', fresh: true }),
         502,
         'unreachable Paperless-ngx'
       );
@@ -928,6 +938,175 @@ async function main() {
       for (const row of rows) {
         await documentModel.removeEntityMergeDismissal(row.id);
       }
+    });
+
+    // ------------------------------------------------------- the scan cache
+
+    /**
+     * Two tags that make one group, and a counter of how often the archive
+     * was actually read. A scan that is served from the cache reads nothing.
+     */
+    function seedForCache() {
+      const fake = useFake({
+        tags: [
+          { id: 200, name: 'Reise' },
+          { id: 201, name: 'reise' },
+          { id: 202, name: 'Steuer' },
+        ],
+        correspondents: [{ id: 210, name: 'Bahn' }],
+        documents: [
+          { id: 500, tags: [200] },
+          { id: 501, tags: [201] },
+        ],
+      });
+      return {
+        fake,
+        reads: () => fake.calls.filter((call) => call.path === '/tags/').length,
+      };
+    }
+
+    await test('A second scan of the same options is served from the cache', async () => {
+      const { reads } = seedForCache();
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let first;
+      let second;
+      try {
+        first = await duplicateMergeService.scan({ kind: 'tags' });
+        const afterFirst = reads();
+        second = await duplicateMergeService.scan({ kind: 'tags' });
+        assert.strictEqual(
+          reads(),
+          afterFirst,
+          'the archive was not read a second time'
+        );
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.strictEqual(second.groups.length, first.groups.length);
+      assert.strictEqual(second.scannedAt, first.scannedAt, 'the same scan');
+      assert.strictEqual(
+        lines.filter((line) => /scan started/.test(line)).length,
+        1,
+        'only the first scan started anything'
+      );
+      assert.ok(
+        lines.some((line) =>
+          /\[DUPLICATES\] scan served from cache \(age \d+s\)\./.test(line)
+        ),
+        `no cache line:\n${lines.join('\n')}`
+      );
+    });
+
+    await test('Other options are another scan, and fresh is always one', async () => {
+      const { reads } = seedForCache();
+      await duplicateMergeService.scan({ kind: 'tags' });
+      const afterFirst = reads();
+
+      await duplicateMergeService.scan({ kind: 'tags', threshold: 0.75 });
+      assert.ok(reads() > afterFirst, 'another threshold is another scan');
+      const afterThreshold = reads();
+
+      await duplicateMergeService.scan({
+        kind: 'tags',
+        includeDismissed: true,
+      });
+      assert.ok(
+        reads() > afterThreshold,
+        'and so is asking for the dismissed pairs'
+      );
+      const afterDismissed = reads();
+
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.strictEqual(
+        reads(),
+        afterDismissed,
+        'the first set of options is still cached'
+      );
+
+      await duplicateMergeService.scan({ kind: 'tags', fresh: true });
+      assert.ok(
+        reads() > afterDismissed,
+        'fresh is what the page sends when the user presses Scan'
+      );
+      const afterFresh = reads();
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.strictEqual(reads(), afterFresh, 'and it refills the cache');
+    });
+
+    await test('A cached scan is forgotten when it grows too old', async () => {
+      const { reads } = seedForCache();
+      const previous = duplicateMergeService.scanCacheMs;
+      duplicateMergeService.scanCacheMs = 0;
+      try {
+        await duplicateMergeService.scan({ kind: 'tags' });
+        const afterFirst = reads();
+        await duplicateMergeService.scan({ kind: 'tags' });
+        assert.ok(reads() > afterFirst, 'nothing is cached for no time at all');
+      } finally {
+        duplicateMergeService.scanCacheMs = previous;
+      }
+    });
+
+    await test('A merge, an undo and a dismissal all drop the cached scans', async () => {
+      const { reads } = seedForCache();
+      await duplicateMergeService.scan({ kind: 'tags' });
+      let seen = reads();
+
+      const merged = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 200,
+        sourceIds: [201],
+      });
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(reads() > seen, 'a merge changes what a scan would find');
+      seen = reads();
+
+      await duplicateMergeService.undo(merged.mergeId);
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(reads() > seen, 'and so does taking it back');
+      seen = reads();
+
+      const stored = await duplicateMergeService.dismiss({
+        kind: 'tags',
+        ids: [200, 202],
+        names: { 200: 'Reise', 202: 'Steuer' },
+      });
+      assert.strictEqual(stored, 1);
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(reads() > seen, 'a dismissed pair hides a group');
+      seen = reads();
+
+      const rows = await documentModel.listEntityMergeDismissals('tags');
+      await duplicateMergeService.restoreDismissal(rows[0].id);
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(reads() > seen, 'and taking that back shows it again');
+
+      for (const row of await documentModel.listEntityMergeDismissals('tags')) {
+        await duplicateMergeService.restoreDismissal(row.id);
+      }
+    });
+
+    await test('A dismissal removed behind the service still drops the cache', async () => {
+      const { reads } = seedForCache();
+      // The route deletes the row through the model; the fingerprint of the
+      // cached scan is what notices.
+      await duplicateMergeService.dismiss({
+        kind: 'tags',
+        ids: [200, 201],
+        names: { 200: 'Reise', 201: 'reise' },
+      });
+      const hidden = await duplicateMergeService.scan({ kind: 'tags' });
+      assert.strictEqual(hidden.groups.length, 0);
+      const seen = reads();
+
+      const rows = await documentModel.listEntityMergeDismissals('tags');
+      await documentModel.removeEntityMergeDismissal(rows[0].id);
+      const back = await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(reads() > seen, 'the cached scan was not served');
+      assert.strictEqual(back.groups.length, 1, 'the group is back');
     });
   } finally {
     try {
