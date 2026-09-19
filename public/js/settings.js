@@ -2822,6 +2822,25 @@ function initializeRuntimeOverridePills() {
     { selector: '#activateTitle', envKey: 'ACTIVATE_TITLE' },
     { selector: '#activateCustomFields', envKey: 'ACTIVATE_CUSTOM_FIELDS' },
     { selector: '#customFieldsJson', envKey: 'CUSTOM_FIELDS' },
+    { selector: '#duplicatesAiReview', envKey: 'DUPLICATES_AI_REVIEW' },
+    { selector: '#duplicatesAiModel', envKey: 'DUPLICATES_AI_MODEL' },
+    {
+      selector: '#duplicatesAiReviewBatchSize',
+      envKey: 'DUPLICATES_AI_REVIEW_BATCH_SIZE',
+    },
+    {
+      selector: '#duplicatesAiCandidateFloor',
+      envKey: 'DUPLICATES_AI_CANDIDATE_FLOOR',
+    },
+    { selector: '#duplicatesAiExcerpts', envKey: 'DUPLICATES_AI_EXCERPTS' },
+    {
+      selector: '#duplicatesAiExcerptChars',
+      envKey: 'DUPLICATES_AI_EXCERPT_CHARS',
+    },
+    {
+      selector: '#duplicatesAiExcerptDocuments',
+      envKey: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+    },
     { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
     { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
     { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
