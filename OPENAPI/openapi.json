@@ -5166,6 +5166,22 @@
                     "description": "How long one model request should take (5-300 seconds, default 30). The judge measures the model on a small first request and then sizes every later one to fit. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
                     "example": 30
                   },
+                  "duplicatesGuardNewNames": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Reuse an existing tag or correspondent when document analysis proposes the same name in another spelling (yes/no). Default yes; the mapping is listed on the Duplicates page.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiSweepNames": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 1000,
+                    "description": "How many names the model sees per request when the semantic sweep looks at the whole list (50-1000, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 300
+                  },
                   "ocrAutoProcessEnabled": {
                     "type": "string",
                     "description": "Process queued OCR documents automatically (yes/no)",
@@ -7341,7 +7357,7 @@
     "/api/duplicates/merge": {
       "post": {
         "summary": "Merge tags or correspondents into one",
-        "description": "Moves the documents of every source onto the target and deletes the\nsources afterwards, one source after the other. A source is only\ndeleted once Paperless-ngx confirms that no document carries it any\nmore; a source that fails that check is reported and kept.\n\nThe answer carries `success: false` with status 200 when the merge was\nonly partial — the log entry exists either way and can be undone.\n",
+        "description": "Moves the documents of every source onto the target and deletes the\nsources afterwards, one source after the other. A source is only\ndeleted once Paperless-ngx confirms that no document carries it any\nmore; a source that fails that check is reported and kept.\n\n`targetName` renames the survivor before the documents move, so the\ngroup can end up under a name none of its members had. The old name is\nkept in the log entry (`targetRenamedFrom`) and an undo puts it back.\n\nThe answer carries `success: false` with status 200 when the merge was\nonly partial — the log entry exists either way and can be undone.\n",
         "tags": [
           "Duplicates",
           "API"
@@ -7387,13 +7403,76 @@
             }
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid request, or targetName longer than 128 characters"
           },
           "401": {
             "description": "Not authenticated"
           },
           "404": {
             "description": "Target or a source does not exist in Paperless-ngx"
+          },
+          "409": {
+            "description": "A document scan is running, or targetName is already taken"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/delete": {
+      "post": {
+        "summary": "Delete tags or correspondents that carry no document",
+        "description": "Removes objects the scan listed as unused. Every id is checked against\nPaperless-ngx first: an object that carries a document by now is\nrefused and kept, never deleted. What was deleted is written to the\nmerge log as one entry with `action: delete`, so the same undo\nre-creates the objects — with new ids, as any undo does.\n\nThe answer carries `success: false` with status 200 when at least one\nobject could not be deleted; the deleted ones are in `data.deleted`\neither way.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityDeleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Delete finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EntityDeleteResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind, or ids missing, empty, malformed or longer than 500"
+          },
+          "401": {
+            "description": "Not authenticated"
           },
           "409": {
             "description": "A document scan is running"
@@ -7726,6 +7805,97 @@
           },
           "502": {
             "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/mappings": {
+      "get": {
+        "summary": "Names document analysis proposed and the guard mapped onto an existing object",
+        "description": "Every time the creation guard recognised a proposed tag or\ncorrespondent as another spelling of one that exists, it recorded the\nmapping. The list is local, newest first, and kept short; it exists so\na wrong mapping can be noticed and the setting turned off.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mappings, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityNameMapping"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Forget the recorded name mappings",
+        "description": "Clears the local list. Nothing in Paperless-ngx changes: the names were\nmapped when the documents were analysed, and this only forgets the\nrecord of it.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The list is empty again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "removed": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
           }
         }
       }

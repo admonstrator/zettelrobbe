@@ -872,6 +872,132 @@
     gap: var(--zr-2);
   }
 
+  /* --- unused objects --------------------------------------------------- */
+  /* A drawer like the hidden pairs, but with a table and one dangerous
+     button. The pick column stays narrow on a wide screen so the names get
+     the width; the phone stack hands every cell its own line anyway. */
+  .dup-unused__summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .dup-unused__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .dup-unused__chevron {
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .dup-unused[open] .dup-unused__chevron {
+    transform: rotate(90deg);
+  }
+
+  .dup-unused__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-unused__hint {
+    margin: 0;
+  }
+
+  .dup-unused__alert:not(:empty) {
+    margin-bottom: var(--zr-1);
+  }
+
+  .dup-unused__table .dup-unused__pickcol {
+    width: 4rem;
+    text-align: center;
+  }
+
+  .dup-unused__name {
+    max-width: 320px;
+  }
+
+  /* Why an object was kept, next to the object rather than in a toast that
+     is gone before the row is read. Empty until a delete refuses one. */
+  .dup-unused__error:not(:empty) {
+    display: block;
+    margin-top: var(--zr-1);
+    color: var(--zr-danger);
+  }
+
+  .dup-unused__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--zr-2);
+  }
+
+  @media (max-width: 720px) {
+    .dup-unused__table .dup-unused__pickcol {
+      width: auto;
+      text-align: left;
+    }
+
+    .dup-unused__actions .zr-btn {
+      flex: 1 1 auto;
+      justify-content: center;
+    }
+  }
+
+  /* --- names the guard mapped ------------------------------------------- */
+  .dup-mappings__summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .dup-mappings__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .dup-mappings__chevron {
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .dup-mappings[open] .dup-mappings__chevron {
+    transform: rotate(90deg);
+  }
+
+  .dup-mappings__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-mappings__alert:not(:empty) {
+    margin-bottom: var(--zr-1);
+  }
+
+  .dup-mappings__pair {
+    max-width: 360px;
+  }
+
+  .dup-mappings__actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  /* --- log rows a delete or a rename wrote ------------------------------- */
+  /* The target cell carries two lines in both cases: what survived and the
+     name it had before, or the delete badge and what it removed. */
+  .dup-log__target,
+  .dup-log__deleted {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-1) var(--zr-2);
+    max-width: 320px;
+  }
+
+  .dup-log__renamed {
+    flex-basis: 100%;
+  }
+
   /* --- confirm dialog blocks -------------------------------------------- */
   /* The merge and undo dialogs are the kernel's confirmDialog filled with
      markup; these three give that markup the spacing a dialog body has no
@@ -890,6 +1016,19 @@
      it to work. Faint on purpose: an offer, not an instruction. */
   .dup-dialog__tip {
     margin-top: var(--zr-1);
+  }
+
+  /* The name of the survivor: a label over a full-width field, set off from
+     the list of names above it. */
+  .dup-dialog__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    margin-top: var(--zr-3);
+  }
+
+  .dup-dialog__field .zr-input {
+    width: 100%;
   }
 
   .dup-dialog__check {

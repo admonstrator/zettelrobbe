@@ -2854,6 +2854,14 @@ function initializeRuntimeOverridePills() {
       selector: '#duplicatesAiRequestSeconds',
       envKey: 'DUPLICATES_AI_REQUEST_SECONDS',
     },
+    {
+      selector: '#duplicatesGuardNewNames',
+      envKey: 'DUPLICATES_GUARD_NEW_NAMES',
+    },
+    {
+      selector: '#duplicatesAiSweepNames',
+      envKey: 'DUPLICATES_AI_SWEEP_NAMES',
+    },
     { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
     { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
     { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
