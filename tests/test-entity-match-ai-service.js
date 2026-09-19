@@ -46,6 +46,14 @@
  * 21. The log lines of a review carry its numbers and no document title
  * 22. reviewScan is refused with 409 when the review is switched off
  * 23. Document titles come from Paperless-ngx; an error only means no context
+ * 24. groupIds judges the groups it names and nothing else; every other group
+ *     still comes back, untouched
+ * 25. minConfidence judges only the groups that reach it
+ * 26. includeCandidates: false leaves the band out and reads no entity list
+ * 27. groupIds and minConfidence both have to hold; unknown ids are ignored,
+ *     an empty selection costs no request at all
+ * 28. The log names the targeting, in the start line and in the totals
+ * 29. Without any of the three options the counters say "not targeted"
  */
 
 'use strict';
@@ -883,6 +891,9 @@ async function main() {
         failedRequests: 0,
         retries: 0,
         batchSize: 3,
+        targeted: false,
+        groupsJudged: 1,
+        groupsSkipped: 0,
       });
       assert.strictEqual(result.threshold, 0.95, 'the scan result is kept');
       assert.strictEqual(result.paperlessUrl, 'https://paperless.example');
@@ -1076,6 +1087,329 @@ async function main() {
         [],
         'an unknown kind is refused quietly'
       );
+    });
+
+    // ------------------------------------------------------- the targeting
+
+    /**
+     * A ladder of four groups at 1, 0.98, 0.95 and 0.9 — the tiers of the
+     * matcher, so the confidences are exact rather than approximately right —
+     * plus one pair that only reaches the candidate band. This is the archive
+     * the user is talking about: everything sits between 0.9 and 1, and they
+     * want to ask about the top of it.
+     */
+    function seedLadder() {
+      const names = [
+        'Amazon',
+        'amazon',
+        'Mueller GmbH',
+        'Müller GmbH',
+        'Telekom',
+        'Telekom GmbH',
+        'Stadtwerke Muenchen',
+        'Muenchen Stadtwerke',
+        'Vodafone Kundenservice',
+        'Kundenservice Vodafone Nord',
+      ];
+      return useFake({
+        correspondents: names.map((name, index) => ({
+          id: index + 1,
+          name,
+        })),
+        documents: names.map((name, index) => ({
+          id: 200 + index,
+          title: `Letter ${index}`,
+          correspondent: index + 1,
+        })),
+      });
+    }
+
+    /** The four group ids of the ladder, strongest first. */
+    const LADDER = {
+      exact: 'correspondents:1-2',
+      umlaut: 'correspondents:3-4',
+      legalForm: 'correspondents:5-6',
+      tokenOrder: 'correspondents:7-8',
+      band: 'correspondents:9-10',
+    };
+
+    /** Says "same" to every group pair and "different" to the band pair. */
+    function answerLadder() {
+      return (prompt) =>
+        JSON.stringify(
+          idsInPrompt(prompt).map((id) => ({
+            id,
+            verdict: id === LADDER.band ? 'different' : 'same',
+            reason: 'from the fixture',
+          }))
+        );
+    }
+
+    /** Every id the model was shown, over all requests, sorted. */
+    const askedIn = (calls) =>
+      calls.flatMap((call) => idsInPrompt(call.prompt)).sort();
+
+    /** The group of `id` in a review result. */
+    const groupOf = (result, id) =>
+      result.groups.find((group) => group.id === id);
+
+    /** Asserts a group came back the way a scan produced it. */
+    function assertUntouched(result, id) {
+      const group = groupOf(result, id);
+      assert.ok(group, `${id} is still in the result`);
+      assert.strictEqual(group.source, 'scan', `${id} is a scan group`);
+      assert.strictEqual(group.aiVerdict, null, `${id} has no verdict`);
+      for (const member of group.members) {
+        assert.strictEqual(
+          member.aiVerdict,
+          null,
+          `${id}: no member carries a verdict`
+        );
+      }
+    }
+
+    await test('The ladder scores on the tiers the targeting tests assume', () => {
+      seedLadder();
+      const scores = [
+        ['Amazon', 'amazon', 1],
+        ['Mueller GmbH', 'Müller GmbH', 0.98],
+        ['Telekom', 'Telekom GmbH', 0.95],
+        ['Stadtwerke Muenchen', 'Muenchen Stadtwerke', 0.9],
+      ];
+      for (const [a, b, expected] of scores) {
+        assert.strictEqual(
+          matcher.scorePair(a, b, 'correspondents')?.score,
+          expected,
+          `${a} / ${b}`
+        );
+      }
+      const band = matcher.scorePair(
+        'Vodafone Kundenservice',
+        'Kundenservice Vodafone Nord',
+        'correspondents'
+      );
+      assert.ok(
+        band.score >= service.candidateFloor() && band.score < 0.85,
+        `the band pair scores ${band.score}`
+      );
+    });
+
+    await test('groupIds judges the named groups and leaves the rest alone', async () => {
+      seedLadder();
+      const { calls } = useProvider(answerLadder());
+
+      const result = await service.reviewScan({
+        kind: 'correspondents',
+        threshold: 0.85,
+        withTitles: false,
+        groupIds: [LADDER.exact, LADDER.legalForm],
+      });
+
+      assert.deepStrictEqual(
+        askedIn(calls),
+        [LADDER.exact, LADDER.legalForm, LADDER.band].sort(),
+        'the two named groups, and the band, which nobody switched off'
+      );
+      assert.strictEqual(
+        result.groups.length,
+        4,
+        'every scan group is still there'
+      );
+      assert.deepStrictEqual(groupOf(result, LADDER.exact).aiVerdict, {
+        verdict: 'same',
+        reason: 'from the fixture',
+      });
+      assert.deepStrictEqual(
+        groupOf(result, LADDER.legalForm).members.map(
+          (member) => member.aiVerdict?.verdict ?? null
+        ),
+        [null, 'same'],
+        'the target judges nothing, the member carries the verdict'
+      );
+      assertUntouched(result, LADDER.umlaut);
+      assertUntouched(result, LADDER.tokenOrder);
+
+      assert.strictEqual(result.aiReview.targeted, true);
+      assert.strictEqual(result.aiReview.groupsJudged, 2);
+      assert.strictEqual(result.aiReview.groupsSkipped, 2);
+      assert.strictEqual(result.aiReview.judged, 3, 'two groups and the band');
+      assert.strictEqual(result.aiReview.candidates, 1);
+    });
+
+    await test('minConfidence judges only the groups that reach it', async () => {
+      seedLadder();
+      const { calls } = useProvider(answerLadder());
+
+      const result = await service.reviewScan({
+        kind: 'correspondents',
+        threshold: 0.85,
+        withTitles: false,
+        minConfidence: 0.95,
+      });
+
+      assert.deepStrictEqual(
+        askedIn(calls),
+        [LADDER.exact, LADDER.umlaut, LADDER.legalForm, LADDER.band].sort(),
+        '0.95 is reached by three of the four groups'
+      );
+      assertUntouched(result, LADDER.tokenOrder);
+      assert.strictEqual(
+        groupOf(result, LADDER.legalForm).aiVerdict.verdict,
+        'same',
+        'the group sitting exactly on the bound is judged'
+      );
+      assert.strictEqual(result.aiReview.targeted, true);
+      assert.strictEqual(result.aiReview.groupsJudged, 3);
+      assert.strictEqual(result.aiReview.groupsSkipped, 1);
+    });
+
+    await test('includeCandidates: false leaves the band out and reads no entity list', async () => {
+      const fake = seedLadder();
+      const { calls } = useProvider(answerLadder());
+
+      const result = await service.reviewScan({
+        kind: 'correspondents',
+        threshold: 0.85,
+        withTitles: false,
+        includeCandidates: false,
+      });
+
+      assert.deepStrictEqual(
+        askedIn(calls),
+        [
+          LADDER.exact,
+          LADDER.umlaut,
+          LADDER.legalForm,
+          LADDER.tokenOrder,
+        ].sort(),
+        'the four groups, and no pair from the band'
+      );
+      assert.strictEqual(
+        calls.some((call) => call.prompt.includes(LADDER.band)),
+        false,
+        'the band pair never reaches the model'
+      );
+      assert.strictEqual(result.aiReview.candidates, 0);
+      assert.strictEqual(result.aiReview.targeted, true);
+      assert.strictEqual(result.aiReview.groupsJudged, 4);
+      assert.strictEqual(result.aiReview.groupsSkipped, 0);
+      assert.strictEqual(
+        result.groups.every((group) => group.source === 'scan'),
+        true,
+        'without a band there is nothing to build a candidate group from'
+      );
+      assert.strictEqual(
+        fake.calls.filter((call) => call.path === '/correspondents/').length,
+        1,
+        'only the scan reads the correspondents; the review needs no second list'
+      );
+    });
+
+    await test('groupIds and minConfidence both hold, unknown ids are ignored', async () => {
+      seedLadder();
+      const { calls } = useProvider(answerLadder());
+
+      const result = await service.reviewScan({
+        kind: 'correspondents',
+        threshold: 0.85,
+        withTitles: false,
+        includeCandidates: false,
+        groupIds: [
+          LADDER.tokenOrder,
+          LADDER.exact,
+          'tags:99-100',
+          'correspondents:404-405',
+        ],
+        minConfidence: 0.95,
+      });
+
+      assert.deepStrictEqual(
+        askedIn(calls),
+        [LADDER.exact],
+        'the named group below the confidence is left out with the rest'
+      );
+      assertUntouched(result, LADDER.umlaut);
+      assertUntouched(result, LADDER.legalForm);
+      assertUntouched(result, LADDER.tokenOrder);
+      assert.strictEqual(result.aiReview.groupsJudged, 1);
+      assert.strictEqual(result.aiReview.groupsSkipped, 3);
+
+      const empty = await service.reviewScan({
+        kind: 'correspondents',
+        threshold: 0.85,
+        withTitles: false,
+        includeCandidates: false,
+        groupIds: [],
+      });
+      assert.strictEqual(calls.length, 1, 'an empty selection asks nothing');
+      assert.strictEqual(empty.groups.length, 4, 'and still returns the scan');
+      for (const id of Object.values(LADDER)) {
+        if (id === LADDER.band) continue;
+        assertUntouched(empty, id);
+      }
+      assert.strictEqual(empty.aiReview.targeted, true);
+      assert.strictEqual(empty.aiReview.groupsJudged, 0);
+      assert.strictEqual(empty.aiReview.groupsSkipped, 4);
+      assert.strictEqual(empty.aiReview.requests, 0);
+    });
+
+    await test('The log names the targeting, in the start line and in the totals', async () => {
+      seedLadder();
+      useProvider(answerLadder());
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      try {
+        await service.reviewScan({
+          kind: 'correspondents',
+          threshold: 0.85,
+          withTitles: false,
+          includeCandidates: false,
+          groupIds: [LADDER.exact, LADDER.tokenOrder, 'correspondents:404-405'],
+          minConfidence: 0.95,
+        });
+      } finally {
+        console.log = realLog;
+      }
+
+      const review = lines.filter((line) => line.startsWith('[AI-REVIEW]'));
+      const has = (pattern) =>
+        assert.ok(
+          review.some((line) => pattern.test(line)),
+          `no [AI-REVIEW] line matches ${pattern}\n${review.join('\n')}`
+        );
+      has(
+        /correspondents: threshold 0\.85, judging 1 of 4 group\(s\) \(min confidence 0\.95, 3 ids\), band skipped, 1 pair\(s\) to judge\./
+      );
+      has(/1 of 3 group id\(s\) are not in this scan and were ignored\./);
+      has(/1 group\(s\) judged, 3 skipped, in \d+ms\./);
+    });
+
+    await test('Without any of the three options the counters say "not targeted"', async () => {
+      seedLadder();
+      const { calls } = useProvider(answerLadder());
+
+      const result = await service.reviewScan({
+        kind: 'correspondents',
+        threshold: 0.85,
+        withTitles: false,
+      });
+
+      assert.deepStrictEqual(
+        askedIn(calls),
+        [
+          LADDER.exact,
+          LADDER.umlaut,
+          LADDER.legalForm,
+          LADDER.tokenOrder,
+          LADDER.band,
+        ].sort(),
+        'everything the review ever asked about'
+      );
+      assert.strictEqual(result.aiReview.targeted, false);
+      assert.strictEqual(result.aiReview.groupsJudged, 4);
+      assert.strictEqual(result.aiReview.groupsSkipped, 0);
+      assert.strictEqual(result.aiReview.candidates, 1);
     });
   } finally {
     AIServiceFactory.getService = realGetService;
