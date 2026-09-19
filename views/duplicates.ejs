@@ -50,7 +50,16 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
 <% dupSensitivityOptions.forEach(function (option) { -%>
                                 <option value="<%= option.value %>"<%= Number(option.value) === dupDefaultThreshold ? ' selected' : '' %>><%= option.label %></option>
 <% }); -%>
+                                <option value="custom">Custom</option>
                             </select>
+                        </div>
+
+                        <!-- Only shown for the "Custom" preset; the scan and the
+                             review then send this number divided by 100. -->
+                        <div class="dup-controls__field dup-controls__custom hidden" id="dupThresholdCustomField">
+                            <label class="zr-label" for="dupThresholdCustom">Threshold %</label>
+                            <input class="zr-input" id="dupThresholdCustom" type="number"
+                                   min="50" max="100" step="1" value="95" inputmode="numeric">
                         </div>
 
                         <div class="dup-controls__field dup-controls__field--check">
@@ -105,6 +114,9 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                             Groups found
                         </span>
                         <span class="zr-stat__value" id="dupStatGroups">0</span>
+                        <!-- How the groups are spread over the confidence bands;
+                             filled by the page script after a scan or a review. -->
+                        <span class="zr-stat__delta dup-stat__buckets" id="dupStatBuckets"></span>
                     </div>
                     <div class="zr-stat">
                         <span class="zr-stat__label">
@@ -201,6 +213,33 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                      runs, a warning about failed requests, or its error. -->
                 <div class="dup-ai-notice" id="dupAiNotice"></div>
 <% } -%>
+                <!-- What to do with a long result list: put it in the order that
+                     helps, and tick everything above a confidence in one move.
+                     Hidden until a scan has produced groups; it re-orders and
+                     ticks what is already on the page and fetches nothing. -->
+                <div class="dup-results-bar hidden" id="dupResultsBar" role="group" aria-label="Sort and select results">
+                    <div class="dup-results-bar__sort">
+                        <label class="zr-label" for="dupSortSelect">Sort by</label>
+                        <select class="zr-select" id="dupSortSelect">
+                            <option value="confidence">Confidence</option>
+                            <option value="documents">Documents</option>
+                            <option value="name">Name</option>
+                            <option value="kind">Kind</option>
+                        </select>
+                    </div>
+                    <div class="dup-results-bar__min">
+                        <label class="zr-label" for="dupMinConfidence">Confidence</label>
+                        <div class="dup-results-bar__minrow">
+                            <input class="zr-input" id="dupMinConfidence" type="number"
+                                   min="50" max="100" step="1" value="95" inputmode="numeric"
+                                   aria-describedby="dupMinConfidenceCount">
+                            <span class="zr-sm zr-faint">%</span>
+                            <button class="zr-btn" id="dupSelectMinBtn" type="button">Select ≥</button>
+                            <span class="zr-sm zr-faint" id="dupMinConfidenceCount" aria-live="polite"></span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Selecting several groups: hidden until a card is ticked,
                      then sticky under the top bar while the cards scroll past.
                      One confirmation covers everything ticked here; the cards
@@ -216,6 +255,16 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
                             Merge selected
                         </button>
+<% if (dupAiReviewEnabled) { -%>
+                        <!-- The guided path: the model judges exactly the ticked
+                             groups, the verdicts are shown once, and what stays
+                             ticked in that dialog is merged. An addition to the
+                             button before it, never a replacement for it. -->
+                        <button class="zr-btn zr-btn--primary" id="dupReviewThenMergeBtn" type="button" disabled>
+                            <svg class="zr-icon zr-icon--sm" id="dupReviewThenMergeIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                            Ask the AI, then merge
+                        </button>
+<% } -%>
                     </div>
                 </div>
 
