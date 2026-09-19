@@ -546,6 +546,20 @@ module.exports = {
     process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
     10
   ),
+  // How the judge talks to the model. Thinking (the reasoning a model such
+  // as Qwen3 or DeepSeek-R1 writes before its answer) is off by default: it
+  // spends the whole answer budget before the first verdict and the judge
+  // gets evidence instead. The request seconds are the length one model
+  // request should take; the judge measures the model on a small first
+  // request and sizes every later one to fit.
+  duplicatesAiThinking: parseEnvBoolean(
+    process.env.DUPLICATES_AI_THINKING,
+    'no'
+  ),
+  duplicatesAiRequestSeconds: parseInt(
+    process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
+    10
+  ),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:

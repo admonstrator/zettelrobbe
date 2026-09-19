@@ -926,7 +926,7 @@
  *       properties:
  *         phase:
  *           type: string
- *           enum: [starting, scanning, evidence, judging, escalating, finishing]
+ *           enum: [starting, scanning, evidence, warming-up, judging, escalating, finishing]
  *         message:
  *           type: string
  *           description: one line for the page, e.g. "Asking the model, request 3 of 8"
@@ -975,6 +975,27 @@
  *           type: integer
  *         retries:
  *           type: integer
+ *         requestPairs:
+ *           type: integer
+ *           nullable: true
+ *           description: pairs in the request that is being answered right now; null between requests
+ *         requestAnswers:
+ *           type: integer
+ *           description: verdicts that have arrived so far in the current request, read off the streamed answer
+ *         requestTokens:
+ *           type: integer
+ *           nullable: true
+ *           description: completion tokens the current request has produced so far, streamed or estimated
+ *         thinking:
+ *           type: boolean
+ *           description: true while the model is writing reasoning rather than its answer
+ *         batchSize:
+ *           type: integer
+ *           nullable: true
+ *           description: pairs per request the judge is using now; changes once after the warm-up measured the model
+ *         calibrated:
+ *           type: boolean
+ *           description: true once the batch size and the answer cap come from a measurement of this model rather than from defaults
  *
  *     AiReviewJob:
  *       type: object

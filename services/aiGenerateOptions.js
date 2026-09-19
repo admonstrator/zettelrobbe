@@ -84,6 +84,54 @@ function abortSignal(options) {
 }
 
 /**
+ * Whether the caller wants the model to think before it answers.
+ *
+ * `true` and `false` are explicit wishes: the Duplicates judge sends `false`
+ * unless the operator switched thinking on (DUPLICATES_AI_THINKING), because
+ * a reasoning model spends the whole answer budget on its thoughts before
+ * the first verdict. `null` is "the caller said nothing": the provider keeps
+ * whatever it does today (Ollama's OLLAMA_THINK, the model's own default).
+ *
+ * What a provider does with `false` is its business: Ollama sends
+ * `think: false`, an OpenAI-compatible endpoint gets
+ * `chat_template_kwargs: { enable_thinking: false }` and, for a Qwen model,
+ * the soft switch the model family understands; OpenAI and Azure send
+ * nothing, as their APIs have no such switch on ordinary models.
+ *
+ * @param {{reasoning?: unknown}} [options]
+ * @returns {boolean|null}
+ */
+function reasoningEnabled(options) {
+  return typeof options?.reasoning === 'boolean' ? options.reasoning : null;
+}
+
+/**
+ * @typedef {object} GenerateTextProgress
+ * @property {string} text               the answer so far, reasoning stripped
+ * @property {boolean} thinking          the model is writing reasoning now
+ * @property {number|null} completionTokens  tokens produced so far: reported
+ *   by the provider when it streams usage, else estimated from the text
+ * @property {boolean} done              the last report of this request
+ */
+
+/**
+ * The progress callback a caller handed in, or null when it handed in none.
+ *
+ * With a callback the provider streams the answer and reports as it grows
+ * (see GenerateTextProgress); without one it sends the plain request it
+ * always sent. Either way `generateText` still resolves with the whole text,
+ * and a truncated or aborted request still throws — but with the text that
+ * arrived before the cut on `error.partialText`, so the caller can keep what
+ * is in it.
+ *
+ * @param {{onProgress?: unknown}} [options]
+ * @returns {((update: GenerateTextProgress) => void)|null}
+ */
+function progressHandler(options) {
+  return typeof options?.onProgress === 'function' ? options.onProgress : null;
+}
+
+/**
  * The token usage of an OpenAI-compatible completion, or null when the
  * provider did not report any. Kept separate from the return value of
  * `generateText` so its contract (a string) stays what it was; callers that
@@ -118,6 +166,8 @@ function readCompletionUsage(response) {
 }
 
 module.exports = {
+  reasoningEnabled,
+  progressHandler,
   abortSignal,
   hasNumber,
   hasSystemPrompt,
