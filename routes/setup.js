@@ -3884,6 +3884,8 @@ const ENV_EXPORT_GROUPS = [
       'DUPLICATES_AI_IDLE_STOP_SECONDS',
       'DUPLICATES_AI_THINKING',
       'DUPLICATES_AI_REQUEST_SECONDS',
+      'DUPLICATES_GUARD_NEW_NAMES',
+      'DUPLICATES_AI_SWEEP_NAMES',
     ],
   },
   {
@@ -6987,6 +6989,8 @@ router.get('/settings', async (req, res) => {
     DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
     DUPLICATES_AI_REQUEST_SECONDS:
       process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
+    DUPLICATES_GUARD_NEW_NAMES: process.env.DUPLICATES_GUARD_NEW_NAMES || 'yes',
+    DUPLICATES_AI_SWEEP_NAMES: process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
@@ -8505,6 +8509,17 @@ router.get('/health', async (req, res) => {
  *                 maximum: 300
  *                 description: How long one model request should take (5-300 seconds, default 30). The judge measures the model on a small first request and then sizes every later one to fit. Out-of-range values are clamped, a non-numeric value keeps the current setting.
  *                 example: 30
+ *               duplicatesGuardNewNames:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Reuse an existing tag or correspondent when document analysis proposes the same name in another spelling (yes/no). Default yes; the mapping is listed on the Duplicates page.
+ *                 example: "yes"
+ *               duplicatesAiSweepNames:
+ *                 type: integer
+ *                 minimum: 50
+ *                 maximum: 1000
+ *                 description: How many names the model sees per request when the semantic sweep looks at the whole list (50-1000, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 300
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)
@@ -8620,6 +8635,8 @@ router.post('/settings', express.json(), async (req, res) => {
       duplicatesAiIdleStopSeconds,
       duplicatesAiThinking,
       duplicatesAiRequestSeconds,
+      duplicatesGuardNewNames,
+      duplicatesAiSweepNames,
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
@@ -8717,6 +8734,9 @@ router.post('/settings', express.json(), async (req, res) => {
       DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
       DUPLICATES_AI_REQUEST_SECONDS:
         process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
+      DUPLICATES_GUARD_NEW_NAMES:
+        process.env.DUPLICATES_GUARD_NEW_NAMES || 'yes',
+      DUPLICATES_AI_SWEEP_NAMES: process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
@@ -9200,6 +9220,22 @@ router.post('/settings', express.json(), async (req, res) => {
         duplicatesAiRequestSeconds,
         currentConfig.DUPLICATES_AI_REQUEST_SECONDS,
         { min: 5, max: 300 }
+      );
+    }
+    // The last two belong to the archive rather than to one review: whether
+    // document analysis may map a proposed name onto an existing object, and
+    // how many names the semantic sweep shows the model per request.
+    if (duplicatesGuardNewNames !== undefined) {
+      updatedConfig.DUPLICATES_GUARD_NEW_NAMES = sanitizeDuplicatesSwitch(
+        duplicatesGuardNewNames,
+        currentConfig.DUPLICATES_GUARD_NEW_NAMES
+      );
+    }
+    if (duplicatesAiSweepNames !== undefined) {
+      updatedConfig.DUPLICATES_AI_SWEEP_NAMES = sanitizeDuplicatesNumber(
+        duplicatesAiSweepNames,
+        currentConfig.DUPLICATES_AI_SWEEP_NAMES,
+        { min: 50, max: 1000 }
       );
     }
 
@@ -10910,6 +10946,69 @@ function readDuplicatesKind(value) {
   return kind;
 }
 
+/** A name is a name, not a paragraph; Paperless-ngx stops well before this. */
+const MAX_ENTITY_NAME_LENGTH = 128;
+
+/** How many unused objects one delete request may name. */
+const MAX_UNUSED_DELETE_IDS = 500;
+
+/**
+ * Reads the optional new name for the surviving object off a merge body.
+ * Absent, null or blank means "keep the name it has"; anything that is not a
+ * string, or a name longer than the limit, is the route's own 400.
+ *
+ * @param {unknown} value
+ * @returns {string|null} the trimmed name, or null when none was asked for
+ */
+function readTargetName(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    const error = new Error('targetName must be a string');
+    error.status = 400;
+    throw error;
+  }
+  const name = value.trim();
+  if (name === '') return null;
+  if (name.length > MAX_ENTITY_NAME_LENGTH) {
+    const error = new Error(
+      `targetName must not be longer than ${MAX_ENTITY_NAME_LENGTH} characters`
+    );
+    error.status = 400;
+    throw error;
+  }
+  return name;
+}
+
+/**
+ * Reads the `ids` of an EntityDeleteRequest: a non-empty array of positive
+ * integers, capped so a malformed request cannot turn into a long walk over
+ * Paperless-ngx.
+ *
+ * @param {unknown} value
+ * @returns {number[]}
+ */
+function readDeleteIds(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    const error = new Error('ids must be a non-empty array of entity ids');
+    error.status = 400;
+    throw error;
+  }
+  if (value.length > MAX_UNUSED_DELETE_IDS) {
+    const error = new Error(
+      `ids must not name more than ${MAX_UNUSED_DELETE_IDS} objects`
+    );
+    error.status = 400;
+    throw error;
+  }
+  const ids = value.map((entry) => Number(entry));
+  if (!ids.every((id) => Number.isInteger(id) && id > 0)) {
+    const error = new Error('every entry of ids must be a positive integer');
+    error.status = 400;
+    throw error;
+  }
+  return ids;
+}
+
 /**
  * @swagger
  * /duplicates:
@@ -11159,6 +11258,16 @@ function parseAiReviewRequest(body) {
       return { status: 400, error: 'includeCandidates must be true or false' };
     }
     options.includeCandidates = source.includeCandidates;
+  }
+
+  // The semantic sweep costs extra requests, so it is off unless the page
+  // ticked it. A string is not an answer here: a "false" that reads as true
+  // would spend the user's tokens without being asked.
+  if (source.semanticSweep !== undefined && source.semanticSweep !== null) {
+    if (typeof source.semanticSweep !== 'boolean') {
+      return { status: 400, error: 'semanticSweep must be true or false' };
+    }
+    options.semanticSweep = source.semanticSweep;
   }
 
   return { options };
@@ -11792,6 +11901,10 @@ router.get('/api/duplicates/entities', isAuthenticated, async (req, res) => {
  *       deleted once Paperless-ngx confirms that no document carries it any
  *       more; a source that fails that check is reported and kept.
  *
+ *       `targetName` renames the survivor before the documents move, so the
+ *       group can end up under a name none of its members had. The old name is
+ *       kept in the log entry (`targetRenamedFrom`) and an undo puts it back.
+ *
  *       The answer carries `success: false` with status 200 when the merge was
  *       only partial — the log entry exists either way and can be undone.
  *     tags:
@@ -11821,23 +11934,28 @@ router.get('/api/duplicates/entities', isAuthenticated, async (req, res) => {
  *                 message:
  *                   type: string
  *       400:
- *         description: Invalid request
+ *         description: Invalid request, or targetName longer than 128 characters
  *       401:
  *         description: Not authenticated
  *       404:
  *         description: Target or a source does not exist in Paperless-ngx
  *       409:
- *         description: A document scan is running
+ *         description: A document scan is running, or targetName is already taken
  *       502:
  *         description: Paperless-ngx could not be reached
  */
 router.post('/api/duplicates/merge', isAuthenticated, async (req, res) => {
   try {
     const { kind, targetId, sourceIds, copyMatchingRule } = req.body || {};
+    // The survivor may be renamed in the same step. The page only sends the
+    // field when it differs from the current name, so a merge that says
+    // nothing about it keeps the name it found.
+    const targetName = readTargetName((req.body || {}).targetName);
     const data = await duplicateMergeService.merge({
       kind,
       targetId,
       sourceIds,
+      ...(targetName === null ? {} : { targetName }),
       copyMatchingRule:
         copyMatchingRule === true || String(copyMatchingRule) === 'true',
       performedBy: duplicatesPerformedBy(req),
@@ -11852,6 +11970,87 @@ router.post('/api/duplicates/merge', isAuthenticated, async (req, res) => {
     return res.json({ success: data.status !== 'partial', data, message });
   } catch (error) {
     return respondDuplicatesError(res, 'POST /api/duplicates/merge', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/delete:
+ *   post:
+ *     summary: Delete tags or correspondents that carry no document
+ *     description: |
+ *       Removes objects the scan listed as unused. Every id is checked against
+ *       Paperless-ngx first: an object that carries a document by now is
+ *       refused and kept, never deleted. What was deleted is written to the
+ *       merge log as one entry with `action: delete`, so the same undo
+ *       re-creates the objects — with new ids, as any undo does.
+ *
+ *       The answer carries `success: false` with status 200 when at least one
+ *       object could not be deleted; the deleted ones are in `data.deleted`
+ *       either way.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EntityDeleteRequest'
+ *     responses:
+ *       200:
+ *         description: Delete finished (completely or partially)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/EntityDeleteResult'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Unknown kind, or ids missing, empty, malformed or longer than 500
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A document scan is running
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.post('/api/duplicates/delete', isAuthenticated, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.kind === undefined || body.kind === null || body.kind === '') {
+      return res
+        .status(400)
+        .json({ success: false, error: 'kind is required' });
+    }
+    const kind = readDuplicatesKind(body.kind);
+    const ids = readDeleteIds(body.ids);
+
+    const data = await duplicateMergeService.deleteUnused({
+      kind,
+      ids,
+      performedBy: duplicatesPerformedBy(req),
+    });
+
+    const deleted = (data.deleted || []).length;
+    const failed = (data.failed || []).length;
+    const label = deleted === 1 ? 'object' : 'objects';
+    const message =
+      failed === 0
+        ? `${deleted} unused ${label} deleted.`
+        : `Only ${deleted} of ${deleted + failed} objects were deleted. The rest is listed with its reason.`;
+
+    return res.json({ success: failed === 0, data, message });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/delete', error);
   }
 });
 
@@ -12204,6 +12403,103 @@ router.post(
     }
   }
 );
+
+/**
+ * @swagger
+ * /api/duplicates/mappings:
+ *   get:
+ *     summary: Names document analysis proposed and the guard mapped onto an existing object
+ *     description: |
+ *       Every time the creation guard recognised a proposed tag or
+ *       correspondent as another spelling of one that exists, it recorded the
+ *       mapping. The list is local, newest first, and kept short; it exists so
+ *       a wrong mapping can be noticed and the setting turned off.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Mappings, newest first
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityNameMapping'
+ *       401:
+ *         description: Not authenticated
+ */
+router.get('/api/duplicates/mappings', isAuthenticated, async (req, res) => {
+  try {
+    const data = await documentModel.listEntityNameMappings();
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/mappings', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/mappings:
+ *   delete:
+ *     summary: Forget the recorded name mappings
+ *     description: |
+ *       Clears the local list. Nothing in Paperless-ngx changes: the names were
+ *       mapped when the documents were analysed, and this only forgets the
+ *       record of it.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The list is empty again
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     removed:
+ *                       type: integer
+ *                 message:
+ *                   type: string
+ *       401:
+ *         description: Not authenticated
+ */
+router.delete('/api/duplicates/mappings', isAuthenticated, async (req, res) => {
+  try {
+    const removed = await documentModel.clearEntityNameMappings();
+    return res.json({
+      success: true,
+      data: { removed },
+      message:
+        removed > 0
+          ? `${removed} mapping(s) forgotten.`
+          : 'There was nothing to forget.',
+    });
+  } catch (error) {
+    return respondDuplicatesError(
+      res,
+      'DELETE /api/duplicates/mappings',
+      error
+    );
+  }
+});
 
 /**
  * @swagger

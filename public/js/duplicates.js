@@ -152,6 +152,12 @@ const STATUS_BADGES = {
   undo_failed: { tone: 'zr-badge--danger', label: 'undo failed' },
 };
 
+/**
+ * What a log row records. A row without an action is a merge — every row
+ * written before the log knew about deletes is one.
+ */
+const LOG_ACTION_DELETE = 'delete';
+
 const htmlIcons = {
   tags: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>',
   correspondents:
@@ -169,6 +175,9 @@ const htmlIcons = {
   empty:
     '<svg class="zr-icon zr-icon--lg zr-empty__icon" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>',
   wand: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>',
+  trash:
+    '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>',
+  link: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-link"/></svg>',
 };
 
 /** One icon per verdict, so a chip reads as a verdict without its text. */
@@ -181,6 +190,9 @@ const htmlVerdictIcons = {
 };
 
 const LOG_PAGE_SIZE = 10;
+
+/** What Paperless-ngx and the merge route accept as a name. */
+const MAX_TARGET_NAME = 128;
 
 /** What every merge dialog promises, single group or batch. */
 const UNDO_NOTE =
@@ -214,7 +226,13 @@ const STORE_KEYS = {
   minConfidence: 'dup.minConfidence',
   sensitivity: 'dup.sensitivity',
   thresholdCustom: 'dup.thresholdCustom',
+  aiSweep: 'dup.aiSweep',
 };
+
+/** The empty state of the mapping list, which never depends on a scan. */
+const MAPPINGS_EMPTY =
+  'Nothing mapped yet. Document analysis records here when it used an ' +
+  'existing name instead of creating a near-duplicate.';
 
 /** How the results list can be ordered; the first one is the default. */
 const SORT_MODES = ['confidence', 'documents', 'name', 'kind'];
@@ -238,6 +256,7 @@ const el = {
   aiProposalBtn: document.getElementById('dupAiProposalBtn'),
   aiProposalIcon: document.getElementById('dupAiProposalIcon'),
   aiProposalStatus: document.getElementById('dupAiProposalStatus'),
+  aiSweep: document.getElementById('dupAiSweep'),
   aiNotice: document.getElementById('dupAiNotice'),
   aiProgress: document.getElementById('dupAiProgress'),
   aiProgressBar: document.getElementById('dupAiProgressBar'),
@@ -287,11 +306,22 @@ const el = {
   manualReload: document.getElementById('dupManualReloadBtn'),
   manualMerge: document.getElementById('dupManualMergeBtn'),
   manualResult: document.getElementById('dupManualResult'),
+  unused: document.getElementById('dupUnused'),
+  unusedSummary: document.getElementById('dupUnusedSummary'),
+  unusedAlert: document.getElementById('dupUnusedAlert'),
+  unusedBody: document.getElementById('dupUnusedBody'),
+  unusedSelectAll: document.getElementById('dupUnusedSelectAllBtn'),
+  unusedDelete: document.getElementById('dupUnusedDeleteBtn'),
   logMeta: document.getElementById('dupLogMeta'),
   logAlert: document.getElementById('dupLogAlert'),
   logBody: document.getElementById('dupLogBody'),
   logInfo: document.getElementById('dupLogInfo'),
   logMore: document.getElementById('dupLogMoreBtn'),
+  mappings: document.getElementById('dupMappings'),
+  mappingsSummary: document.getElementById('dupMappingsSummary'),
+  mappingsAlert: document.getElementById('dupMappingsAlert'),
+  mappingsBody: document.getElementById('dupMappingsBody'),
+  mappingsClear: document.getElementById('dupMappingsClearBtn'),
   dismissalsSummary: document.getElementById('dupDismissalsSummary'),
   dismissalsList: document.getElementById('dupDismissalsList'),
 };
@@ -311,6 +341,12 @@ let aiReviewing = false;
 let logOffset = 0;
 let logTotal = 0;
 let dismissalCount = 0;
+/** What the last scan called unused, as { kind, record } pairs. */
+let unusedEntries = [];
+/** True while a delete request is out; the section is inert meanwhile. */
+let deletingUnused = false;
+/** The mappings as the server sent them, so the links can be drawn again. */
+let mappingRecords = [];
 /** True while a batch merge walks its groups; the bar then belongs to it. */
 let merging = false;
 /** True from the click on "AI proposal" until its dialog is done with. */
@@ -902,7 +938,15 @@ function renderAiStats(review) {
   if (num(review.escalated) > 0) {
     parts.push(`${num(review.escalated)} escalated`);
   }
+  // Pairs no string matcher could have proposed. They are judged like any
+  // candidate, so they are already inside `judged`; this says where they
+  // came from.
+  if (num(review.sweepProposals) > 0) {
+    parts.push(`${num(review.sweepProposals)} from the sweep`);
+  }
   el.statAiCandidates.textContent = parts.join(' · ');
+  // `requests` is every request the review made, the sweep's own ones
+  // (`sweepRequests`) among them; the tile counts the whole bill.
   el.statAiRequests.textContent = String(num(review.requests));
   const tokens = Number(review.tokens);
   const costParts = [];
@@ -1195,6 +1239,10 @@ async function runScan() {
     paperlessUrl = data.paperlessUrl || '';
     renderStats(data);
     renderGroups(data.groups);
+    renderUnused(data);
+    // The scan is where the page learns the public Paperless-ngx URL, so the
+    // mapping rows drawn before it can become links now.
+    refreshMappingLinks();
     scanned = true;
   } catch (error) {
     el.results.innerHTML = htmlAlert(
@@ -1640,6 +1688,8 @@ function applyReviewResult(data) {
   if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
   renderStats(data);
   renderGroups(data.groups);
+  renderUnused(data);
+  refreshMappingLinks();
 }
 
 /** Asks the job to end after the request it is in. No dialog, no question. */
@@ -1821,6 +1871,7 @@ async function askForVerdicts(extra) {
       ),
       withTitles: Boolean(el.aiTitles && el.aiTitles.checked),
       withExcerpts: Boolean(el.aiExcerpts && el.aiExcerpts.checked),
+      semanticSweep: Boolean(el.aiSweep && el.aiSweep.checked),
       ...extra,
     }
   );
@@ -1945,7 +1996,29 @@ function htmlMergeDialog(kind, target, sources, offerCopy) {
   const htmlCopy = offerCopy
     ? `<label class="dup-dialog__check"><input type="checkbox" class="zr-check" id="dupCopyRule" checked><span>Copy the matching rule to ${esc(targetName)}</span></label>`
     : '';
-  return `<p>${esc(sentence)}</p><p>${esc(deleted)}</p><ul class="dup-dialog__list">${htmlNames}</ul><p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopy}`;
+  // The survivor may be renamed in the same step: a group of spellings often
+  // has no member that is the name the archive should end up with
+  // ("Amazon", "amazon" -> "Amazon EU S.a.r.l."). Prefilled with the name it
+  // has, so leaving it alone is the default.
+  const htmlName = `<label class="dup-dialog__field" for="dupTargetName"><span class="zr-label">Name of the survivor</span><input class="zr-input" type="text" id="dupTargetName" maxlength="${num(MAX_TARGET_NAME)}" value="${esc(targetName)}" autocomplete="off" spellcheck="false"></label>`;
+  return `<p>${esc(sentence)}</p><p>${esc(deleted)}</p><ul class="dup-dialog__list">${htmlNames}</ul>${htmlName}<p class="zr-sm dup-dialog__note">${esc(UNDO_NOTE)}</p>${htmlCopy}`;
+}
+
+/**
+ * The name the merge request should carry, or null when the field was left
+ * as it was. The rename is an option of the merge, not a second request, so
+ * "unchanged" has to mean "say nothing" — otherwise every merge would rename
+ * the target to the name it already has.
+ *
+ * @param {string} current  the target's name right now
+ * @param {string} typed    what the dialog's field holds
+ * @returns {string|null}
+ */
+function mergeTargetName(current, typed) {
+  const next = String(typed == null ? '' : typed).trim();
+  const now = String(current == null ? '' : current).trim();
+  if (next === '' || next === now) return null;
+  return next.slice(0, MAX_TARGET_NAME);
 }
 
 function htmlMergeSuccess(result) {
@@ -2046,6 +2119,8 @@ async function runMerge({
   // A batch already asked, once, for all of its groups; its answer only means
   // anything for a group that has a rule to copy in the first place.
   let copyMatchingRule = Boolean(batch && batch.copyMatchingRule && offerCopy);
+  // A batch keeps the names of its groups; only the single dialog offers one.
+  let renameTo = null;
   if (!batch) {
     // confirmDialog appends its <dialog> synchronously, so the checkbox exists
     // as soon as the promise is handed back — and it is gone again once the
@@ -2064,6 +2139,13 @@ async function runMerge({
         copyMatchingRule = checkbox.checked;
       });
     }
+    const nameField = document.getElementById('dupTargetName');
+    if (nameField) {
+      renameTo = mergeTargetName(targetName, nameField.value);
+      nameField.addEventListener('input', () => {
+        renameTo = mergeTargetName(targetName, nameField.value);
+      });
+    }
     if (!(await answer)) return null;
   }
 
@@ -2075,6 +2157,7 @@ async function runMerge({
       kind,
       targetId: num(target.id),
       sourceIds: sources.map((member) => num(member.id)),
+      ...(renameTo === null ? {} : { targetName: renameTo }),
       copyMatchingRule,
     });
     const data = payload.data || {};
@@ -3349,6 +3432,17 @@ function mergeByHand() {
     offerCopy:
       num(target.matchingAlgorithm) === 0 && sources.some(hasMatchingRule),
     busy: setManualBusy,
+    done: (data) => {
+      // The merge may have renamed the survivor. The picker keeps it, so the
+      // record and the field have to learn the new name — otherwise the next
+      // merge into it would send the old one and rename it back.
+      const name =
+        data.target && data.target.name != null ? String(data.target.name) : '';
+      if (!name) return;
+      const record = manualRecord(num(target.id));
+      if (record) record.name = name;
+      el.manualTarget.value = name;
+    },
     result: (markup, status) => {
       el.manualResult.innerHTML = markup;
       if (status !== 'done') return;
@@ -3483,7 +3577,406 @@ async function dismissGroup(card, state) {
   }
 }
 
+/* --- unused objects ------------------------------------------------------- */
+/* The other half of a tidy archive: objects that are not duplicates of
+   anything because they carry no document at all. The scan reports them, this
+   section lists them, and deleting them goes through the same log and the same
+   undo as a merge — the server checks every id against Paperless-ngx again
+   before it deletes, so an object that has meanwhile been used is refused. */
+
+/**
+ * The unused objects of a scan result as flat rows, tags before
+ * correspondents. A scan of one kind carries only that kind.
+ *
+ * @param {object} data  a DuplicateScanResult
+ * @returns {{kind: string, record: object}[]}
+ */
+function unusedFromScan(data) {
+  const unused = data && data.unused ? data.unused : null;
+  if (!unused) return [];
+  const rows = [];
+  ['tags', 'correspondents'].forEach((kind) => {
+    const list = Array.isArray(unused[kind]) ? unused[kind] : [];
+    list.forEach((record) => {
+      if (record && record.id != null) rows.push({ kind, record });
+    });
+  });
+  return rows;
+}
+
+/**
+ * What the confirm dialog asks before anything is deleted. It names the
+ * number, the kind and the way back, because nothing else on this page
+ * removes an object the user did not look at member by member.
+ *
+ * @param {{kind: string}[]} entries
+ * @returns {string}
+ */
+function unusedConfirmText(entries) {
+  const count = entries.length;
+  const kinds = new Set(entries.map((entry) => normalizeKind(entry.kind)));
+  const kind = [...kinds][0];
+  const label =
+    kinds.size === 1
+      ? plural(count, KIND_LABELS[kind].toLowerCase(), KIND_PLURALS[kind])
+      : plural(count, 'object', 'objects');
+  return `Delete ${count} unused ${label}? Undo re-creates them from the log, with new ids.`;
+}
+
+function htmlUnusedRows(entries) {
+  return entries
+    .map(({ kind, record }) => {
+      const safeKind = normalizeKind(kind);
+      const name = String(record.name == null ? '' : record.name);
+      return `<tr data-unused-kind="${esc(safeKind)}" data-unused-id="${num(record.id)}">
+        <td data-label="Delete" class="dup-unused__pickcol"><input type="checkbox" class="zr-check dup-unused__pick" aria-label="Select ${esc(name)}"></td>
+        <td data-label="Kind"><span class="zr-badge">${htmlIcons[safeKind]}${esc(KIND_LABELS[safeKind])}</span></td>
+        <td data-label="Name" class="dup-unused__name"><span class="zr-truncate" title="${esc(name)}">${esc(name)}</span><span class="zr-sm dup-unused__error"></span></td>
+        <td data-label="Matching rule">${htmlMatchingRule(record)}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function unusedRows() {
+  return el.unusedBody
+    ? [...el.unusedBody.querySelectorAll('tr[data-unused-id]')]
+    : [];
+}
+
+/** The rows the user ticked, as the entries the request is built from. */
+function unusedPicked() {
+  return unusedRows()
+    .filter((row) => {
+      const pick = row.querySelector('.dup-unused__pick');
+      return Boolean(pick && pick.checked);
+    })
+    .map((row) => ({
+      kind: normalizeKind(row.dataset.unusedKind),
+      id: num(row.dataset.unusedId),
+      row,
+    }));
+}
+
+function updateUnusedSummary() {
+  if (!el.unusedSummary) return;
+  el.unusedSummary.textContent = `Unused (${unusedRows().length})`;
+}
+
+function updateUnusedButton() {
+  if (!el.unusedDelete) return;
+  const picked = unusedPicked().length;
+  el.unusedDelete.disabled = deletingUnused || picked === 0;
+  if (el.unusedSelectAll) el.unusedSelectAll.disabled = deletingUnused;
+  const htmlPicked = picked > 0 ? ` (${num(picked)})` : '';
+  el.unusedDelete.innerHTML = deletingUnused
+    ? `${htmlIcons.spin}<span>Deleting…</span>`
+    : `${htmlIcons.trash}<span>Delete selected${htmlPicked}</span>`;
+}
+
+/**
+ * Draws the section for a scan result. A scan that found nothing unused still
+ * opens the section — "nothing unused" is an answer, and a section that stayed
+ * hidden would read as "not looked at".
+ */
+function renderUnused(data) {
+  if (!el.unused || !el.unusedBody) return;
+  unusedEntries = unusedFromScan(data);
+  el.unusedAlert.innerHTML = '';
+  el.unusedBody.innerHTML = unusedEntries.length
+    ? htmlUnusedRows(unusedEntries)
+    : '<tr><td colspan="4" class="zr-empty">Nothing unused.</td></tr>';
+  el.unused.classList.remove('hidden');
+  updateUnusedSummary();
+  updateUnusedButton();
+}
+
+function setUnusedBusy(busy) {
+  deletingUnused = busy;
+  unusedRows().forEach((row) => {
+    const pick = row.querySelector('.dup-unused__pick');
+    if (pick) pick.disabled = busy;
+  });
+  updateUnusedButton();
+}
+
+/** Finds a row by what the request named, or null when it is already gone. */
+function unusedRowOf(kind, id) {
+  return (
+    unusedRows().find(
+      (candidate) =>
+        normalizeKind(candidate.dataset.unusedKind) === normalizeKind(kind) &&
+        num(candidate.dataset.unusedId) === num(id)
+    ) || null
+  );
+}
+
+/** Puts the reason next to the object that was kept, not into a toast. */
+function markUnusedFailure(kind, id, message) {
+  const row = unusedRowOf(kind, id);
+  if (!row) return;
+  const note = row.querySelector('.dup-unused__error');
+  if (note) note.textContent = String(message || 'Could not be deleted');
+  const pick = row.querySelector('.dup-unused__pick');
+  if (pick) pick.checked = false;
+}
+
+async function deleteUnused() {
+  if (deletingUnused) return;
+  const picked = unusedPicked();
+  if (picked.length === 0) return;
+
+  const confirmed = await confirmDialog({
+    title: 'Delete unused objects',
+    body: unusedConfirmText(picked),
+    confirmLabel: 'Delete',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
+
+  el.unusedAlert.innerHTML = '';
+  unusedRows().forEach((row) => {
+    const note = row.querySelector('.dup-unused__error');
+    if (note) note.textContent = '';
+  });
+  setUnusedBusy(true);
+
+  // One request per kind: the endpoint deletes one kind at a time, and a
+  // mixed selection is the normal case after a scan over both.
+  const byKind = new Map();
+  picked.forEach((entry) => {
+    if (!byKind.has(entry.kind)) byKind.set(entry.kind, []);
+    byKind.get(entry.kind).push(entry.id);
+  });
+
+  let removed = 0;
+  let problems = 0;
+  try {
+    for (const [kind, ids] of byKind) {
+      const payload = await postJson('/api/duplicates/delete', { kind, ids });
+      const data = payload.data || {};
+      const failed = data.failed || [];
+      if (!payload.success && failed.length === 0) {
+        throw new Error(
+          payload.error || payload.message || 'The delete failed.'
+        );
+      }
+      (data.deleted || []).forEach((entry) => {
+        const row = unusedRowOf(kind, entry.id);
+        if (row) row.remove();
+        removed += 1;
+      });
+      failed.forEach((entry) => {
+        markUnusedFailure(kind, entry.id, entry.error);
+        problems += 1;
+      });
+    }
+    if (unusedRows().length === 0) {
+      el.unusedBody.innerHTML =
+        '<tr><td colspan="4" class="zr-empty">Nothing unused.</td></tr>';
+    }
+    toast(
+      problems === 0
+        ? `${removed} unused ${plural(removed, 'object', 'objects')} deleted`
+        : `${removed} deleted, ${problems} kept. The reason is next to each one.`,
+      { tone: problems === 0 ? 'ok' : 'danger' }
+    );
+  } catch (error) {
+    el.unusedAlert.innerHTML = htmlAlert(
+      'danger',
+      'The delete failed',
+      error.message
+    );
+    toast(error.message, { tone: 'danger' });
+  }
+  setUnusedBusy(false);
+  updateUnusedSummary();
+  // A delete is a log entry like a merge, so the table below must show it.
+  loadLog(true);
+}
+
+function initUnused() {
+  if (!el.unused || !el.unusedBody) return;
+  el.unusedBody.addEventListener('change', (event) => {
+    if (event.target.closest('.dup-unused__pick')) updateUnusedButton();
+  });
+  if (el.unusedSelectAll) {
+    el.unusedSelectAll.addEventListener('click', () => {
+      const picks = unusedRows()
+        .map((row) => row.querySelector('.dup-unused__pick'))
+        .filter(Boolean);
+      // One button for both directions: everything ticked means "untick".
+      const next = picks.some((pick) => !pick.checked);
+      picks.forEach((pick) => {
+        pick.checked = next;
+      });
+      updateUnusedButton();
+    });
+  }
+  if (el.unusedDelete) el.unusedDelete.addEventListener('click', deleteUnused);
+}
+
+/* --- names the guard mapped ----------------------------------------------- */
+/* Drift prevented where it starts. Every row is one moment where document
+   analysis proposed a name and an existing object was used instead; the link
+   leads to the document it happened on, so a wrong mapping can be checked
+   rather than believed. */
+
+/**
+ * The Paperless-ngx URL of a document, or '' when the page does not know the
+ * base URL yet (it learns it from a scan) or the mapping carries no document.
+ *
+ * @param {string} baseUrl
+ * @param {number|string|null} id
+ * @returns {string}
+ */
+function mappingDocumentLink(baseUrl, id) {
+  const base = String(baseUrl == null ? '' : baseUrl).replace(/\/+$/, '');
+  const documentId = num(id);
+  if (!base || documentId <= 0) return '';
+  return `${base}/documents/${documentId}/details`;
+}
+
+function htmlMappingDocument(item) {
+  const documentId = num(item.documentId);
+  if (documentId <= 0) return '<span class="zr-faint">–</span>';
+  const url = mappingDocumentLink(paperlessUrl, documentId);
+  if (!url) return `<span class="zr-mono">#${num(documentId)}</span>`;
+  return `<a class="zr-link zr-mono" href="${esc(url)}" target="_blank" rel="noopener">#${num(documentId)}</a>`;
+}
+
+function htmlMappingRows(list) {
+  return list
+    .map((item) => {
+      const kind = normalizeKind(item.kind);
+      const proposed = String(
+        item.proposedName == null ? '' : item.proposedName
+      );
+      const target = String(item.targetName == null ? '' : item.targetName);
+      const pair = `${proposed} → ${target}`;
+      const reason = String(item.reason == null ? '' : item.reason);
+      const label = REASON_LABELS[reason] || reason || 'unknown';
+      const date = window.zrDate.format(item.createdAt, { fallback: '–' });
+      const dateTitle = window.zrDate.formatDateTime(item.createdAt);
+      return `<tr data-mapping-id="${num(item.id)}">
+        <td data-label="Date" class="zr-sm zr-faint zr-table__date" title="${esc(dateTitle)}">${esc(date)}</td>
+        <td data-label="Kind"><span class="zr-badge">${htmlIcons[kind]}${esc(KIND_LABELS[kind])}</span></td>
+        <td data-label="Proposed → mapped to" class="dup-mappings__pair"><span class="zr-truncate" title="${esc(pair)}">${esc(pair)}</span></td>
+        <td data-label="Rule"><span class="zr-chip">${esc(label)}</span></td>
+        <td data-label="Document">${htmlMappingDocument(item)}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function renderMappings() {
+  if (!el.mappingsBody || !el.mappingsSummary) return;
+  el.mappingsSummary.textContent = `Names mapped while processing (${mappingRecords.length})`;
+  el.mappingsBody.innerHTML = mappingRecords.length
+    ? htmlMappingRows(mappingRecords)
+    : `<tr><td colspan="5" class="zr-empty">${esc(MAPPINGS_EMPTY)}</td></tr>`;
+  if (el.mappingsClear) {
+    el.mappingsClear.disabled = mappingRecords.length === 0;
+  }
+}
+
+/**
+ * A scan is the only thing that tells the page the public Paperless-ngx URL,
+ * so the document links of an already drawn list are drawn again once it
+ * arrives.
+ */
+function refreshMappingLinks() {
+  if (paperlessUrl && mappingRecords.length > 0) renderMappings();
+}
+
+async function loadMappings() {
+  if (!el.mappingsBody) return;
+  try {
+    const payload = await requestJson('/api/duplicates/mappings');
+    if (!payload.success) {
+      throw new Error(payload.error || 'The mappings could not be loaded.');
+    }
+    mappingRecords = payload.data || [];
+    el.mappingsAlert.innerHTML = '';
+    renderMappings();
+  } catch (error) {
+    mappingRecords = [];
+    renderMappings();
+    el.mappingsAlert.innerHTML = htmlAlert(
+      'danger',
+      'Mappings unavailable',
+      error.message
+    );
+  }
+}
+
+async function clearMappings() {
+  const confirmed = await confirmDialog({
+    title: 'Forget the mappings',
+    body: 'Clears the list only. Nothing in Paperless-ngx changes: the names were mapped when the documents were analysed.',
+    confirmLabel: 'Clear',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
+  try {
+    const payload = await requestJson('/api/duplicates/mappings', {
+      method: 'DELETE',
+    });
+    if (!payload.success) {
+      throw new Error(payload.error || 'The mappings could not be cleared.');
+    }
+    mappingRecords = [];
+    renderMappings();
+    toast(payload.message || 'The mappings were forgotten', { tone: 'ok' });
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+  }
+}
+
+function initMappings() {
+  if (!el.mappings) return;
+  if (el.mappingsClear) {
+    el.mappingsClear.addEventListener('click', clearMappings);
+  }
+  loadMappings();
+}
+
 /* --- the merge log -------------------------------------------------------- */
+
+/** True for a row that removed unused objects rather than merging any. */
+function isDeleteEntry(entry) {
+  return String(entry && entry.action) === LOG_ACTION_DELETE;
+}
+
+/** The names a row is about, in the order the log stored them. */
+function logSourceNames(entry) {
+  return (entry.sources || [])
+    .map((source) => String(source.name == null ? '' : source.name))
+    .join(', ');
+}
+
+/**
+ * The cell next to the kind. A merge names the survivor and, when the merge
+ * renamed it, the name it had before. A delete has no survivor: it says what
+ * it was and lists the objects it removed.
+ */
+function htmlLogTargetCell(entry) {
+  if (isDeleteEntry(entry)) {
+    const names = logSourceNames(entry);
+    const title = `Deleted: ${names}`;
+    return `<td data-label="Target" class="dup-log__deleted" title="${esc(title)}"><span class="zr-badge zr-badge--warn">${esc(LOG_ACTION_DELETE)}</span><span class="zr-truncate">${esc(title)}</span></td>`;
+  }
+  const name = String(entry.targetName == null ? '' : entry.targetName);
+  const before = String(
+    entry.targetRenamedFrom == null ? '' : entry.targetRenamedFrom
+  );
+  const htmlRenamed = before
+    ? `<span class="zr-sm zr-faint dup-log__renamed" title="${esc(before)}">renamed from ${esc(before)}</span>`
+    : '';
+  return `<td data-label="Target" class="dup-log__target" title="${esc(name)}"><span class="zr-truncate">${esc(name)}</span>${htmlRenamed}</td>`;
+}
 
 function htmlLogRows(entries) {
   return entries
@@ -3493,9 +3986,8 @@ function htmlLogRows(entries) {
         tone: '',
         label: String(entry.status || 'unknown'),
       };
-      const names = (entry.sources || [])
-        .map((source) => String(source.name == null ? '' : source.name))
-        .join(', ');
+      const deleteRow = isDeleteEntry(entry);
+      const names = logSourceNames(entry);
       const date = window.zrDate.format(entry.createdAt, { fallback: '–' });
       const dateTitle = window.zrDate.formatDateTime(entry.createdAt);
       // A failed undo stays retryable: the next attempt adopts what was
@@ -3508,12 +4000,23 @@ function htmlLogRows(entries) {
       const htmlUndo = undoable
         ? `<button type="button" class="zr-btn dup-undo-btn" data-id="${num(entry.id)}">${htmlIcons.undo} ${esc(undoLabel)}</button>`
         : '';
-      return `<tr data-log-id="${num(entry.id)}">
+      // A delete moved no document and merged nothing away; both cells say so
+      // rather than showing a zero that reads like a failed merge.
+      const htmlMerged = deleteRow
+        ? '<td data-label="Merged" class="dup-log__sources zr-faint">–</td>'
+        : `<td data-label="Merged" class="zr-truncate dup-log__sources" title="${esc(names)}">${esc(names)}</td>`;
+      const htmlDocuments = deleteRow
+        ? '<td data-label="Documents" class="zr-mono zr-faint">–</td>'
+        : `<td data-label="Documents" class="zr-mono">${num(entry.documentsMoved)}</td>`;
+      // An attribute fragment, not a value, so the row can be found by what
+      // it records without a second class.
+      const htmlAction = deleteRow ? ' data-log-action="delete"' : '';
+      return `<tr data-log-id="${num(entry.id)}"${htmlAction}>
         <td data-label="Date" class="zr-sm zr-faint zr-table__date" title="${esc(dateTitle)}">${esc(date)}</td>
         <td data-label="Kind"><span class="zr-badge">${htmlIcons[kind]}${esc(KIND_LABELS[kind])}</span></td>
-        <td data-label="Target" class="zr-truncate" title="${esc(String(entry.targetName == null ? '' : entry.targetName))}">${esc(String(entry.targetName == null ? '' : entry.targetName))}</td>
-        <td data-label="Merged" class="zr-truncate dup-log__sources" title="${esc(names)}">${esc(names)}</td>
-        <td data-label="Documents" class="zr-mono">${num(entry.documentsMoved)}</td>
+        ${htmlLogTargetCell(entry)}
+        ${htmlMerged}
+        ${htmlDocuments}
         <td data-label="Status"><span class="zr-badge ${esc(badge.tone)}">${esc(badge.label)}</span></td>
         <td data-label="" class="zr-table__actions">${htmlUndo}</td>
       </tr>`;
@@ -3574,13 +4077,15 @@ async function loadLog(reset) {
 async function undoMerge(id) {
   const entry = logEntries.get(num(id));
   if (!entry) return;
-  const names = (entry.sources || [])
-    .map((source) => String(source.name == null ? '' : source.name))
-    .join(', ');
+  const names = logSourceNames(entry);
   const target = String(entry.targetName == null ? '' : entry.targetName);
-  const sentence = `Re-creates ${names} in Paperless-ngx with new ids and moves the documents back. Documents that no longer carry ${target} are left alone.`;
+  // A delete row has no target and moved no document, so promising to move
+  // documents back would be a promise about nothing.
+  const sentence = isDeleteEntry(entry)
+    ? `Re-creates ${names} in Paperless-ngx with new ids. They carried no document when they were deleted, so nothing is moved.`
+    : `Re-creates ${names} in Paperless-ngx with new ids and moves the documents back. Documents that no longer carry ${target} are left alone.`;
   const confirmed = await confirmDialog({
-    title: 'Undo this merge',
+    title: isDeleteEntry(entry) ? 'Undo this delete' : 'Undo this merge',
     body: sentence,
     confirmLabel: 'Undo',
     cancelLabel: 'Cancel',
@@ -3721,10 +4226,21 @@ function init() {
     });
   }
 
+  if (el.aiSweep) {
+    // The sweep costs requests of its own, so it is off until it is asked
+    // for — and stays on for the next visit once it has been.
+    el.aiSweep.checked = storeRead(STORE_KEYS.aiSweep) === 'true';
+    el.aiSweep.addEventListener('change', () => {
+      storeWrite(STORE_KEYS.aiSweep, el.aiSweep.checked);
+    });
+  }
+
   initSensitivity();
   initResultsBar();
   initSelection();
   initManual();
+  initUnused();
+  initMappings();
   loadLog(true);
   loadDismissals();
   // A review the server is still working on gets its page back after a reload.
