@@ -160,6 +160,24 @@
     }
   }
 
+  /* Nothing arrives to move the fill while the model writes its reasoning, so
+     it breathes instead of standing still. Slower and calmer than the sliding
+     band of an unknown plan: this is waiting, not progress. */
+  .dup-progress__fill--thinking {
+    animation: dupProgressThink 2.4s ease-in-out infinite;
+  }
+
+  @keyframes dupProgressThink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.45;
+    }
+  }
+
   .dup-progress__text {
     display: grid;
     gap: var(--zr-1);
@@ -179,6 +197,15 @@
     min-height: 0;
   }
 
+  /* The note only has something to say once the warm-up measured the model.
+     A zero-width space holds its row open for as long as a review runs — a
+     min-height would reserve a little less than the filled line really takes
+     and the stats below would still move. The panel that has finished drops
+     the class and releases the row with the rest. */
+  .dup-progress--live .dup-progress__note:empty::before {
+    content: '\200b';
+  }
+
   .dup-progress__actions {
     display: flex;
     justify-content: flex-end;
@@ -186,6 +213,10 @@
 
   @media (prefers-reduced-motion: reduce) {
     .dup-progress__fill--indeterminate {
+      animation: none;
+    }
+
+    .dup-progress__fill--thinking {
       animation: none;
     }
   }

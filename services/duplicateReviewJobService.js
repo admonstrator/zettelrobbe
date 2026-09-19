@@ -61,6 +61,7 @@ const PHASES = Object.freeze({
   STARTING: 'starting',
   SCANNING: 'scanning',
   EVIDENCE: 'evidence',
+  WARMING_UP: 'warming-up',
   JUDGING: 'judging',
   ESCALATING: 'escalating',
   FINISHING: 'finishing',
@@ -90,6 +91,12 @@ const IDLE_CHECK_MS = 5 * 1000;
  * @property {number} spellingRules
  * @property {number} failedRequests
  * @property {number} retries
+ * @property {number|null} requestPairs   pairs in the request being answered
+ * @property {number} requestAnswers      verdicts streamed in so far in it
+ * @property {number|null} requestTokens  completion tokens it produced so far
+ * @property {boolean} thinking           the model is writing reasoning
+ * @property {number|null} batchSize      pairs per request in use
+ * @property {boolean} calibrated         sizes come from a measurement
  */
 
 /**
@@ -119,6 +126,12 @@ function freshProgress(tokenBudget) {
     spellingRules: 0,
     failedRequests: 0,
     retries: 0,
+    requestPairs: null,
+    requestAnswers: 0,
+    requestTokens: null,
+    thinking: false,
+    batchSize: null,
+    calibrated: false,
   };
 }
 
@@ -410,7 +423,10 @@ class DuplicateReviewJobService {
     const next = { ...before, ...patch };
     // A stop message stays on top of whatever the judge says next.
     if (job.status === JOB_STATUS.STOPPING) next.message = before.message;
-    if (next.phase === PHASES.JUDGING && job.judgingSinceMs === null) {
+    if (
+      (next.phase === PHASES.JUDGING || next.phase === PHASES.WARMING_UP) &&
+      job.judgingSinceMs === null
+    ) {
       job.judgingSinceMs = Date.now();
     }
     next.elapsedMs = this._elapsed(job);
@@ -419,20 +435,33 @@ class DuplicateReviewJobService {
     this._emit(job, EVENT_TYPES.PROGRESS);
   }
 
+  /**
+   * The time left, from the share of the work that is done since the model
+   * was first asked. Pairs are the unit when the plan knows them (the answers
+   * streamed in during the current request count), because the batch size
+   * may change after the warm-up and a request is then no fixed amount of
+   * work; requests are the fallback. Null until something is done.
+   */
   _eta(job, progress) {
-    const done = Number(progress.requestsDone);
-    const planned = Number(progress.requestsPlanned);
-    if (
-      !Number.isFinite(done) ||
-      done <= 0 ||
-      !Number.isFinite(planned) ||
-      planned <= done ||
-      job.judgingSinceMs === null
-    ) {
-      return null;
+    if (job.judgingSinceMs === null) return null;
+    const pairsTotal = Number(progress.pairsTotal);
+    const requestsPlanned = Number(progress.requestsPlanned);
+    let fraction = null;
+    if (Number.isFinite(pairsTotal) && pairsTotal > 0) {
+      const done =
+        (Number(progress.pairsJudged) || 0) +
+        (Number(progress.requestAnswers) || 0);
+      fraction = Math.min(1, done / pairsTotal);
+    } else if (Number.isFinite(requestsPlanned) && requestsPlanned > 0) {
+      fraction = Math.min(
+        1,
+        (Number(progress.requestsDone) || 0) / requestsPlanned
+      );
     }
-    const perRequest = (Date.now() - job.judgingSinceMs) / done;
-    return Math.round(perRequest * (planned - done));
+    if (fraction === null || fraction <= 0) return null;
+    if (fraction >= 1) return 0;
+    const elapsed = Date.now() - job.judgingSinceMs;
+    return Math.round((elapsed * (1 - fraction)) / fraction);
   }
 
   _elapsed(job) {

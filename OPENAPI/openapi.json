@@ -1263,6 +1263,7 @@
               "starting",
               "scanning",
               "evidence",
+              "warming-up",
               "judging",
               "escalating",
               "finishing"
@@ -1334,6 +1335,33 @@
           },
           "retries": {
             "type": "integer"
+          },
+          "requestPairs": {
+            "type": "integer",
+            "nullable": true,
+            "description": "pairs in the request that is being answered right now; null between requests"
+          },
+          "requestAnswers": {
+            "type": "integer",
+            "description": "verdicts that have arrived so far in the current request, read off the streamed answer"
+          },
+          "requestTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "completion tokens the current request has produced so far, streamed or estimated"
+          },
+          "thinking": {
+            "type": "boolean",
+            "description": "true while the model is writing reasoning rather than its answer"
+          },
+          "batchSize": {
+            "type": "integer",
+            "nullable": true,
+            "description": "pairs per request the judge is using now; changes once after the warm-up measured the model"
+          },
+          "calibrated": {
+            "type": "boolean",
+            "description": "true once the batch size and the answer cap come from a measurement of this model rather than from defaults"
           }
         }
       },
@@ -4966,6 +4994,22 @@
                     "maximum": 3600,
                     "description": "A running review that no page has been watching for this many seconds stops itself, so a closed tab cannot leave the model running (0-3600, default 60). 0 means never. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
                     "example": 60
+                  },
+                  "duplicatesAiThinking": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Let the judge reason before it answers (yes/no). Default no; a reasoning model otherwise spends the whole answer budget on its thoughts before the first verdict.",
+                    "example": "no"
+                  },
+                  "duplicatesAiRequestSeconds": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 300,
+                    "description": "How long one model request should take (5-300 seconds, default 30). The judge measures the model on a small first request and then sizes every later one to fit. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 30
                   },
                   "ocrAutoProcessEnabled": {
                     "type": "string",

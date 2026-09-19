@@ -91,6 +91,22 @@
  * 51. Without a control the review is what it always was, and a report never
  *     carries what the job derives
  * 52. All four providers hand a signal on and send nothing new without one
+ * 53. Thinking is off on every judge request unless the setting says so
+ * 54. The first request of an unmeasured review is a warm-up of four pairs
+ *     with its own cap, announced under its own phase
+ * 55. The sizing math: a fixed usage and duration give a batch size and a cap,
+ *     the request seconds scale them, the context window bounds them, and a
+ *     second measurement is smoothed against the first
+ * 56. The warm-up settles the plan, the estimate and `calibrated`
+ * 57. A measurement is reused by the next review of the same model, not
+ *     across the thinking switch, and resetCalibration drops it
+ * 58. A warm-up that does not fit even with the whole window ends the review
+ *     with a message naming the two switches that can fix it
+ * 59. The cut-off text of a truncated request is salvaged and counted
+ * 60. A streamed request reports thinking, then the answers as they arrive,
+ *     and clears itself in the report that counts it; an unwatched review
+ *     does not ask the provider to stream at all
+ * 61. A review reuses the scan the page just made
  */
 
 'use strict';
@@ -183,6 +199,7 @@ async function main() {
   const AIServiceFactory = require('../services/aiServiceFactory');
   const matcher = require('../services/entityNameMatcher');
   const service = require('../services/entityMatchAiService');
+  const duplicateMergeService = require('../services/duplicateMergeService');
 
   // The dashboard rebuild is fired detached after every write; it would talk
   // to the network and outlive the test process.
@@ -197,6 +214,9 @@ async function main() {
    */
   function useProvider(respond) {
     const calls = [];
+    // Every case starts from an unmeasured model; what a review learns is
+    // kept on the singleton and would otherwise reach the next one.
+    service.resetCalibration();
     const provider = {
       client: {},
       lastGenerateTextUsage: null,
@@ -224,6 +244,9 @@ async function main() {
   function useFake(seed) {
     const fake = createFakePaperless(seed);
     paperlessService.client = fake.client;
+    // A new archive is exactly what the scan cache must not answer for; in
+    // production a merge, an undo or a dismissal drops it the same way.
+    duplicateMergeService.invalidateScanCache();
     return fake;
   }
 
@@ -518,19 +541,22 @@ async function main() {
       const result = await service.reviewPairs(pairs, { kind: 'tags' });
       assert.deepStrictEqual(
         calls.map((call) => idsInPrompt(call.prompt).length),
-        [8, 4, 2, 2, 4, 2, 2],
-        'eight, then halves, then halves of those'
+        [8, 8, 4, 4, 2, 2, 4, 4, 2, 2],
+        'every size is asked twice: once, then once with twice the cap, and ' +
+          'only then halved. This provider truncates on the pair count, so ' +
+          'the raised cap never helps it; a real one that ran out of room ' +
+          'answers the second request and the halving never happens.'
       );
       assert.strictEqual(result.verdicts.size, 8, 'every pair has a verdict');
       assert.ok(
         [...result.verdicts.values()].every((v) => v.verdict === 'same'),
         'and it is the verdict the model gave, not "unsure"'
       );
-      assert.strictEqual(result.usage.requests, 7);
+      assert.strictEqual(result.usage.requests, 10);
       assert.strictEqual(
         result.usage.retries,
-        6,
-        'the six re-asks are retries, the first request is not'
+        9,
+        'every re-ask is a retry, the first request is not'
       );
       assert.strictEqual(
         result.usage.failedRequests,
@@ -548,8 +574,12 @@ async function main() {
         result.verdicts.get(pairs[0].key),
         verdict('unsure', service.SINGLE_PAIR_TRUNCATION_REASON)
       );
-      assert.strictEqual(result.usage.requests, 1, 'one pair is not split');
-      assert.strictEqual(result.usage.retries, 0);
+      assert.strictEqual(
+        result.usage.requests,
+        2,
+        'one pair is not split, but it is asked again with twice the cap'
+      );
+      assert.strictEqual(result.usage.retries, 1);
       assert.strictEqual(result.usage.failedRequests, 0);
     });
 
@@ -1154,12 +1184,16 @@ async function main() {
       has(
         /correspondents: batch size 3 of at most 25 \(context limit \d+ tokens\)/
       );
-      has(/first batch ~\d+ prompt tokens, completion cap 560\./);
       has(
-        /correspondents: request 1, 3 pair\(s\), ~\d+ prompt tokens, cap 560, \d+ms, 2 same \/ 1 different \/ 0 unsure\./
+        /first batch ~\d+ prompt tokens, completion cap 560 — provisional, the model has not been measured yet\./
+      );
+      // The one request of this review is the warm-up, so it carries the
+      // warm-up's own cap rather than the plan's estimate.
+      has(
+        /correspondents: request 1, 3 pair\(s\), ~\d+ prompt tokens, cap 1500, \d+ms, 2 same \/ 1 different \/ 0 unsure\./
       );
       has(
-        /review finished: 1 request\(s\) \(0 retry\/retries, 0 failed\), 100 token\(s\), 3 pair\(s\) judged, 3 candidate\(s\), 3 group\(s\) confirmed, in \d+ms\./
+        /review finished: 1 request\(s\) \(0 retry\/retries, 0 failed\), 100 token\(s\), 3 pair\(s\) planned, 3 candidate\(s\), 3 group\(s\) confirmed, in \d+ms\./
       );
       assert.ok(
         !lines.some((line) => /Amazon order|refund|contract change/.test(line)),
@@ -2402,8 +2436,17 @@ async function main() {
         },
         /** The reports of one phase, in order. */
         ofPhase: (phase) => patches.filter((patch) => patch.phase === phase),
-        /** The report of every answered request: the ones with no phase. */
-        requests: () => patches.filter((patch) => patch.phase === undefined),
+        /** The report of every answered request: the ones that count one. */
+        requests: () =>
+          patches.filter((patch) => patch.requestsDone !== undefined),
+        /** The reports from inside a request the provider streamed. */
+        streams: () =>
+          patches.filter(
+            (patch) =>
+              patch.requestsDone === undefined &&
+              patch.requestPairs !== undefined &&
+              patch.phase === undefined
+          ),
       };
     }
 
@@ -2415,6 +2458,27 @@ async function main() {
         return await fn();
       } finally {
         config.duplicatesAiReviewBatchSize = previous;
+      }
+    }
+
+    /**
+     * Runs `fn` with a model that has already been measured, so the review
+     * starts sized and spends no request on a warm-up.
+     */
+    async function withCalibration(
+      { tokensPerPair = 100, tokensPerSecond = 30, thinking = false },
+      fn
+    ) {
+      service.calibration.set('test-model', {
+        tokensPerPair,
+        tokensPerSecond,
+        thinking,
+        measuredAt: Date.now(),
+      });
+      try {
+        return await fn();
+      } finally {
+        service.resetCalibration();
       }
     }
 
@@ -2443,22 +2507,22 @@ async function main() {
       assert.strictEqual(calls.length, 3, 'three pairs, one per request');
       assert.deepStrictEqual(
         phasesAtFirstRequest,
-        ['scanning', 'evidence', 'evidence', 'judging'],
-        'the scan, both evidence reads and the whole plan happened first'
+        ['scanning', 'evidence', 'evidence', 'warming-up'],
+        'the scan, both evidence reads and the whole plan happened first, ' +
+          'and the first request is the warm-up'
       );
-      const judging = watch.ofPhase('judging');
-      assert.strictEqual(judging.length, 1, 'the plan is reported once');
-      assert.strictEqual(judging[0].requestsPlanned, 3);
-      assert.strictEqual(judging[0].pairsTotal, 3);
-      assert.strictEqual(judging[0].spellingRules, 1);
-      assert.strictEqual(
-        judging[0].message,
-        'Asking the model, request 1 of 3'
-      );
+      const planned = watch.ofPhase('warming-up');
+      assert.strictEqual(planned.length, 1, 'the plan is reported once');
+      assert.strictEqual(planned[0].requestsPlanned, 3);
+      assert.strictEqual(planned[0].pairsTotal, 3);
+      assert.strictEqual(planned[0].spellingRules, 1);
+      assert.strictEqual(planned[0].calibrated, false);
+      assert.strictEqual(planned[0].batchSize, 1, 'one pair per request here');
+      assert.strictEqual(planned[0].message, service.WARMUP_MESSAGE);
       assert.ok(
-        judging[0].estimatedTokens >=
+        planned[0].estimatedTokens >=
           3 * (service.TOKENS_PER_PAIR + service.TOKENS_OVERHEAD),
-        `the estimate covers the whole review, not one kind: ${judging[0].estimatedTokens}`
+        `the estimate covers the whole review, not one kind: ${planned[0].estimatedTokens}`
       );
 
       const answered = watch.requests();
@@ -2486,6 +2550,11 @@ async function main() {
       assert.deepStrictEqual(
         answered.map((patch) => patch.kind),
         ['correspondents', 'correspondents', 'correspondents']
+      );
+      assert.strictEqual(
+        answered[0].phase,
+        'judging',
+        'the warm-up answer is what moves the page on'
       );
       const last = watch.patches[watch.patches.length - 1];
       assert.strictEqual(last.phase, 'finishing');
@@ -2529,7 +2598,7 @@ async function main() {
       assert.strictEqual(phasesAtFirstRequest[0], 'scanning');
       assert.strictEqual(
         phasesAtFirstRequest[phasesAtFirstRequest.length - 1],
-        'judging'
+        'warming-up'
       );
       assert.ok(
         phasesAtFirstRequest.filter((phase) => phase === 'evidence').length >=
@@ -2541,14 +2610,14 @@ async function main() {
         ['tags', 'correspondents'],
         'and each report says which kind it is reading for'
       );
-      const judging = watch.ofPhase('judging');
-      assert.strictEqual(judging.length, 1);
+      const planned = watch.ofPhase('warming-up');
+      assert.strictEqual(planned.length, 1);
       assert.strictEqual(
-        judging[0].requestsPlanned,
+        planned[0].requestsPlanned,
         2,
         'the denominator counts both kinds'
       );
-      assert.strictEqual(judging[0].pairsTotal, 2);
+      assert.strictEqual(planned[0].pairsTotal, 2);
       assert.deepStrictEqual(
         watch.requests().map((patch) => patch.kind),
         ['tags', 'correspondents']
@@ -2563,40 +2632,97 @@ async function main() {
         callNumber === 1 ? truncationError() : answerFromTable()(prompt)
       );
 
-      await withBatchSize(3, () =>
-        service.reviewScan(BAND_REVIEW, watch.control)
+      // Measured already, so this is an ordinary request that doubles its
+      // cap; the warm-up asks for the whole window instead.
+      await withCalibration({}, () =>
+        withBatchSize(3, () => service.reviewScan(BAND_REVIEW, watch.control))
       );
 
       assert.deepStrictEqual(
         calls.map((call) => idsInPrompt(call.prompt).length),
-        [3, 2, 1],
-        'the cut-off batch of three is re-asked as two halves'
+        [3, 3],
+        'the cut-off batch of three is re-asked whole, with twice the cap'
+      );
+      assert.strictEqual(
+        calls[0].options.maxTokens,
+        Math.ceil(100 * 3 * service.CAP_SAFETY_FACTOR) + service.TOKENS_OVERHEAD
+      );
+      assert.strictEqual(
+        calls[1].options.maxTokens,
+        calls[0].options.maxTokens * 2,
+        'the cap doubled'
       );
       assert.strictEqual(watch.ofPhase('judging')[0].requestsPlanned, 1);
       const answered = watch.requests();
       assert.deepStrictEqual(
         answered.map((patch) => patch.requestsPlanned),
-        [3, 3, 3],
-        'the split added its two halves to the plan in its own report'
+        [2, 2],
+        'the raised retry was added to the plan in the report of its own request'
       );
       assert.deepStrictEqual(
         answered.map((patch) => patch.requestsDone),
-        [1, 2, 3],
+        [1, 2],
         'so the bar never goes backwards in per cent'
       );
       assert.deepStrictEqual(
         answered.map((patch) => patch.pairsJudged),
-        [0, 2, 3],
-        'the request that only split settled nothing itself'
+        [0, 3],
+        'the request that only raised the cap settled nothing itself'
       );
       assert.deepStrictEqual(
         answered.map((patch) => patch.retries),
-        [0, 1, 2]
+        [0, 1]
       );
       assert.deepStrictEqual(
         answered.map((patch) => patch.failedRequests),
-        [0, 0, 0],
+        [0, 0],
         'a truncation is not a failure'
+      );
+    });
+
+    await test('A raised cap that bought nothing halves the batch', async () => {
+      seedArchive();
+      const watch = useControl();
+      const lines = [];
+      const { calls } = useProvider((prompt, options, callNumber) =>
+        callNumber <= 2 ? truncationError() : answerFromTable()(prompt)
+      );
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      try {
+        // Already measured, so the first request is an ordinary one: the
+        // warm-up has a rule of its own when it cannot fit.
+        await withCalibration({}, () =>
+          withBatchSize(3, () => service.reviewScan(BAND_REVIEW, watch.control))
+        );
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.deepStrictEqual(
+        calls.map((call) => idsInPrompt(call.prompt).length),
+        [3, 3, 2, 1],
+        'once, once with twice the cap, and only then as two halves'
+      );
+      const answered = watch.requests();
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.requestsDone),
+        [1, 2, 3, 4]
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.requestsPlanned),
+        [2, 4, 4, 4],
+        'the raise adds one request to the plan, the halving adds its two halves'
+      );
+      assert.ok(
+        lines.some((line) => /raising the cap from \d+ to \d+/.test(line)),
+        `no raise line:\n${lines.join('\n')}`
+      );
+      assert.ok(
+        lines.some((line) =>
+          /a raised cap did not help, halving into 2 \+ 1/.test(line)
+        ),
+        `no halving line:\n${lines.join('\n')}`
       );
     });
 
@@ -3009,6 +3135,746 @@ async function main() {
         );
       } finally {
         stub.restore();
+      }
+    });
+
+    // ------------------------------------- measuring the model, and sizing
+
+    /**
+     * A provider that behaves the way a streaming one behaves: it reports
+     * while it writes, it may think first, it reports its usage, and it can
+     * be made to run out of room with the text it managed to write on the
+     * error.
+     */
+    function useStreamingProvider(options = {}) {
+      const {
+        completionTokens = 600,
+        thinkingTokens = 0,
+        answerChunks = 2,
+        truncateWhen = () => false,
+        partialText = null,
+        respond = null,
+      } = options;
+      const calls = [];
+      service.resetCalibration();
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText(prompt, requestOptions) {
+          const callNumber = calls.length + 1;
+          calls.push({ prompt, options: requestOptions });
+          const ids = idsInPrompt(prompt);
+          const verdicts = ids.map((id) => ({
+            id,
+            verdict: 'same',
+            reason: 'two spellings',
+          }));
+          const report = requestOptions?.onProgress;
+          if (report && thinkingTokens > 0) {
+            report({
+              text: '',
+              thinking: true,
+              completionTokens: thinkingTokens,
+              done: false,
+            });
+          }
+          // The answer as it grows: `answerChunks` reports, each one carrying
+          // the verdicts that have been written so far.
+          for (let step = 1; step <= answerChunks && report; step += 1) {
+            const written = Math.ceil((verdicts.length * step) / answerChunks);
+            report({
+              text: JSON.stringify(verdicts.slice(0, written)),
+              thinking: false,
+              completionTokens:
+                thinkingTokens +
+                Math.round(
+                  ((completionTokens - thinkingTokens) * step) / answerChunks
+                ),
+              done: step === answerChunks,
+            });
+          }
+          provider.lastGenerateTextUsage = {
+            promptTokens: 100,
+            completionTokens,
+            totalTokens: 100 + completionTokens,
+          };
+          if (truncateWhen(callNumber, ids.length)) {
+            const error = new Error('the answer hit a token limit');
+            error.code = 'ai_response_truncated';
+            if (partialText !== null) error.partialText = partialText(ids);
+            throw error;
+          }
+          return respond ? respond(prompt, ids) : JSON.stringify(verdicts);
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+      return { provider, calls };
+    }
+
+    /** Runs `fn` with a given DUPLICATES_AI_REQUEST_SECONDS. */
+    function withRequestSecondsSync(seconds, fn) {
+      const previous = config.duplicatesAiRequestSeconds;
+      config.duplicatesAiRequestSeconds = seconds;
+      try {
+        return fn();
+      } finally {
+        config.duplicatesAiRequestSeconds = previous;
+      }
+    }
+
+    /** Runs `fn` with the judge's thinking switch in a given position. */
+    async function withThinking(on, fn) {
+      const previous = config.duplicatesAiThinking;
+      config.duplicatesAiThinking = on;
+      try {
+        return await fn();
+      } finally {
+        config.duplicatesAiThinking = previous;
+      }
+    }
+
+    await test('Thinking is off on every request, and on when asked for', async () => {
+      const pairs = tagPairs(2);
+      const { calls } = useProvider(answerAll('same', 'two spellings'));
+      await service.reviewPairs(pairs, { kind: 'tags' });
+      // Without a sizer there is no review, and nothing to think about.
+      assert.strictEqual(calls[0].options.reasoning, false);
+
+      seedArchive();
+      const review = useProvider(answerFromTable());
+      await service.reviewScan(BAND_REVIEW);
+      assert.ok(review.calls.length > 0);
+      assert.ok(
+        review.calls.every((call) => call.options.reasoning === false),
+        'a judge does not think unless the operator asked it to'
+      );
+
+      seedArchive();
+      const thinking = useProvider(answerFromTable());
+      await withThinking(true, () => service.reviewScan(BAND_REVIEW));
+      assert.ok(
+        thinking.calls.every((call) => call.options.reasoning === true),
+        'and it does when DUPLICATES_AI_THINKING says so'
+      );
+    });
+
+    await test('The first request of an unmeasured review is a small warm-up', async () => {
+      useFake({
+        tags: Array.from({ length: 20 }, (_, index) => ({
+          id: index + 1,
+          name: index % 2 === 0 ? `Beleg ${index}` : `Belege ${index - 1}`,
+        })),
+        documents: [],
+      });
+      const { calls } = useStreamingProvider({ completionTokens: 600 });
+      const watch = useControl();
+
+      await service.reviewScan(
+        { kind: 'tags', threshold: 0.85, withTitles: false },
+        watch.control
+      );
+
+      assert.ok(calls.length >= 2, 'more pairs than one warm-up holds');
+      assert.strictEqual(
+        idsInPrompt(calls[0].prompt).length,
+        service.WARMUP_PAIRS,
+        'the first request asks about four pairs and no more'
+      );
+      assert.strictEqual(
+        calls[0].options.maxTokens,
+        Math.max(
+          Number(config.responseTokens),
+          service.TOKENS_PER_PAIR * service.WARMUP_PAIRS +
+            service.TOKENS_OVERHEAD,
+          service.WARMUP_MIN_CAP
+        ),
+        'with the warm-up cap, not the flat estimate'
+      );
+      const announced = watch.ofPhase('warming-up');
+      assert.strictEqual(announced.length, 1);
+      assert.strictEqual(announced[0].message, service.WARMUP_MESSAGE);
+      assert.strictEqual(announced[0].calibrated, false);
+      assert.strictEqual(announced[0].batchSize, service.WARMUP_PAIRS);
+    });
+
+    await test('A measured answer sizes the next request and its cap', () => {
+      service.resetCalibration();
+      const sizer = service._sizer();
+      sizer.maxSize = 25;
+      const changed = withRequestSecondsSync(30, () =>
+        service._measure(
+          { sizer },
+          {
+            pairs: 4,
+            completionTokens: 600,
+            elapsedMs: 20000,
+            truncated: false,
+            warmingUp: true,
+          }
+        )
+      );
+
+      assert.strictEqual(changed, true, 'the size changed with the answer');
+      assert.strictEqual(sizer.tokensPerPair, 150, '600 tokens over 4 pairs');
+      assert.strictEqual(sizer.tokensPerSecond, 30, '600 tokens in 20 seconds');
+      assert.strictEqual(sizer.calibrated, true);
+      assert.strictEqual(
+        withRequestSecondsSync(30, () => service._sizeFor(sizer, 25)),
+        6,
+        'floor(30 s × 30 tokens/s ÷ 150 tokens per pair)'
+      );
+      assert.strictEqual(
+        service._capFor(sizer, 6),
+        Math.ceil(150 * 6 * 1.5) + service.TOKENS_OVERHEAD,
+        'the cap carries half a verdict of headroom per pair'
+      );
+      assert.strictEqual(service._capFor(sizer, 6), 1550);
+      assert.deepStrictEqual(
+        {
+          ...service.calibration.get('test-model'),
+          measuredAt: null,
+        },
+        {
+          tokensPerPair: 150,
+          tokensPerSecond: 30,
+          largestCompletion: 600,
+          thinking: false,
+          measuredAt: null,
+        },
+        'and it is remembered for the next review'
+      );
+      service.resetCalibration();
+    });
+
+    await test('The operator decides how long a request may take', () => {
+      service.resetCalibration();
+      const sizer = service._sizer();
+      sizer.tokensPerPair = 150;
+      sizer.tokensPerSecond = 30;
+      assert.strictEqual(
+        withRequestSecondsSync(60, () => service._sizeFor(sizer, 25)),
+        12,
+        'twice the seconds, twice the pairs'
+      );
+      assert.strictEqual(
+        withRequestSecondsSync(1, () => service._sizeFor(sizer, 25)),
+        1,
+        'and never less than one pair, however impatient the setting'
+      );
+      assert.strictEqual(
+        withRequestSecondsSync(1, () => service.requestSeconds()),
+        5,
+        'a request shorter than five seconds is not worth the round trip'
+      );
+      assert.strictEqual(
+        withRequestSecondsSync(0, () => service.requestSeconds()),
+        30,
+        'and an unset value is the default'
+      );
+    });
+
+    await test('A second measurement is smoothed against the first', () => {
+      service.resetCalibration();
+      const sizer = service._sizer();
+      sizer.maxSize = 25;
+      const measure = (completionTokens, elapsedMs, pairs) =>
+        service._measure(
+          { sizer },
+          {
+            pairs,
+            completionTokens,
+            elapsedMs,
+            truncated: false,
+            warmingUp: false,
+          }
+        );
+      measure(600, 20000, 4);
+      assert.strictEqual(sizer.tokensPerPair, 150);
+      assert.strictEqual(sizer.tokensPerSecond, 30);
+      // Half the fresh number, half the one before it.
+      measure(500, 10000, 5);
+      assert.strictEqual(sizer.tokensPerPair, 125, '(150 + 100) / 2');
+      assert.strictEqual(sizer.tokensPerSecond, 40, '(30 + 50) / 2');
+      assert.strictEqual(sizer.measurements, 2);
+      service.resetCalibration();
+    });
+
+    await test('The context window bounds the measured size and cap', () => {
+      service.resetCalibration();
+      const sizer = service._sizer();
+      sizer.tokensPerPair = 150;
+      sizer.tokensPerSecond = 30;
+      assert.strictEqual(
+        withRequestSecondsSync(30, () => service._sizeFor(sizer, 3)),
+        3,
+        'the measurement affords six pairs, the window allows three'
+      );
+      const previous = process.env.TOKEN_LIMIT;
+      process.env.TOKEN_LIMIT = '4000';
+      try {
+        const budget = service._capForRequest(sizer, 6, 3000);
+        assert.strictEqual(
+          budget.bound,
+          4000 - 3000 - service.TOKENS_CONTEXT_MARGIN,
+          'prompt + cap + margin fit into the window'
+        );
+        assert.strictEqual(budget.cap, budget.bound);
+        assert.strictEqual(
+          budget.atBound,
+          true,
+          'so there is no more room to give this request'
+        );
+        const roomy = service._capForRequest(sizer, 6, 200);
+        assert.strictEqual(roomy.cap, service._capFor(sizer, 6));
+        assert.strictEqual(roomy.atBound, false);
+      } finally {
+        if (previous === undefined) delete process.env.TOKEN_LIMIT;
+        else process.env.TOKEN_LIMIT = previous;
+      }
+      service.resetCalibration();
+    });
+
+    await test('The warm-up settles the plan and the estimate', async () => {
+      useFake({
+        tags: Array.from({ length: 20 }, (_, index) => ({
+          id: index + 1,
+          name: index % 2 === 0 ? `Beleg ${index}` : `Belege ${index - 1}`,
+        })),
+        documents: [],
+      });
+      const { calls } = useStreamingProvider({ completionTokens: 600 });
+      const watch = useControl();
+
+      await service.reviewScan(
+        { kind: 'tags', threshold: 0.85, withTitles: false },
+        watch.control
+      );
+
+      const answered = watch.requests();
+      assert.ok(answered.length >= 2);
+      assert.strictEqual(
+        answered[0].calibrated,
+        true,
+        'the first answer is a measurement'
+      );
+      assert.strictEqual(answered[0].phase, 'judging');
+      assert.ok(
+        answered[0].batchSize >= 1,
+        'and it names the size of the requests that follow'
+      );
+      const left = answered[0].pairsTotal - service.WARMUP_PAIRS;
+      const second = idsInPrompt(calls[1].prompt).length;
+      assert.strictEqual(
+        second,
+        Math.min(answered[0].batchSize, left),
+        'which is the size the next request really has, or what is left'
+      );
+      assert.strictEqual(
+        calls[1].options.maxTokens,
+        Math.ceil(150 * second * service.CAP_SAFETY_FACTOR) +
+          service.TOKENS_OVERHEAD,
+        'with the cap the measurement asks for'
+      );
+      assert.strictEqual(
+        answered[0].requestsPlanned,
+        answered[0].requestsDone +
+          Math.ceil(
+            (answered[0].pairsTotal - service.WARMUP_PAIRS) /
+              answered[0].batchSize
+          ),
+        'the denominator is re-derived from what the model turned out to cost'
+      );
+      assert.ok(
+        answered[0].estimatedTokens > 0,
+        'and so is the estimate of what the rest will cost'
+      );
+    });
+
+    await test('A calibration is reused by the next review and skips the warm-up', async () => {
+      seedArchive();
+      const first = useStreamingProvider({ completionTokens: 600 });
+      await withBatchSize(2, () => service.reviewScan(BAND_REVIEW));
+      assert.strictEqual(
+        idsInPrompt(first.calls[0].prompt).length,
+        2,
+        'the warm-up is bounded by the batch size as well'
+      );
+      const measured = service.calibration.get('test-model');
+      assert.ok(measured, 'the review left a measurement behind');
+      assert.strictEqual(measured.thinking, false);
+
+      // A second review of the same model: no warm-up, sized from memory.
+      seedArchive();
+      const calls = [];
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: { completionTokens: 600, totalTokens: 700 },
+        async generateText(prompt) {
+          calls.push(prompt);
+          return JSON.stringify(
+            idsInPrompt(prompt).map((id) => ({
+              id,
+              verdict: 'same',
+              reason: 'two spellings',
+            }))
+          );
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      const watch = useControl();
+      try {
+        await withBatchSize(3, () =>
+          service.reviewScan(BAND_REVIEW, watch.control)
+        );
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.strictEqual(watch.ofPhase('warming-up').length, 0, 'no warm-up');
+      assert.strictEqual(watch.ofPhase('judging').length, 1);
+      assert.strictEqual(watch.ofPhase('judging')[0].calibrated, true);
+      assert.strictEqual(calls.length, 1, 'all three pairs in one request');
+      assert.ok(
+        lines.some((line) =>
+          /calibrated from a previous review: \d+ tokens per pair, \d+ tokens\/s, thinking off\./.test(
+            line
+          )
+        ),
+        `no calibration line:\n${lines.join('\n')}`
+      );
+      service.resetCalibration();
+    });
+
+    await test('A measurement taken with thinking on is not reused with it off', async () => {
+      service.resetCalibration();
+      await withThinking(true, async () => {
+        seedArchive();
+        useStreamingProvider({ completionTokens: 600 });
+        await withBatchSize(2, () => service.reviewScan(BAND_REVIEW));
+      });
+      const stored = service.calibration.get('test-model');
+      assert.strictEqual(stored.thinking, true);
+
+      // The same model, the other switch: the measurement says nothing.
+      seedArchive();
+      const { calls } = useStreamingProvider({ completionTokens: 600 });
+      const watch = useControl();
+      await withBatchSize(3, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+      assert.strictEqual(
+        watch.ofPhase('warming-up').length,
+        1,
+        'so the review measures again'
+      );
+      assert.strictEqual(
+        idsInPrompt(calls[0].prompt).length,
+        3,
+        'a warm-up, bounded by the batch size of this review'
+      );
+      assert.strictEqual(
+        service.calibration.get('test-model').thinking,
+        false,
+        'and what it measured replaces what was stored'
+      );
+      service.resetCalibration();
+    });
+
+    await test('resetCalibration makes the next review measure again', async () => {
+      seedArchive();
+      useStreamingProvider({ completionTokens: 600 });
+      await withBatchSize(2, () => service.reviewScan(BAND_REVIEW));
+      assert.strictEqual(service.calibration.size, 1);
+      service.resetCalibration();
+      assert.strictEqual(service.calibration.size, 0);
+
+      seedArchive();
+      useStreamingProvider({ completionTokens: 600 });
+      const watch = useControl();
+      await withBatchSize(3, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+      assert.strictEqual(watch.ofPhase('warming-up').length, 1);
+    });
+
+    await test('A warm-up that does not fit ends the review with something to do', async () => {
+      seedArchive();
+      const { calls } = useStreamingProvider({
+        completionTokens: 3200,
+        truncateWhen: () => true,
+        partialText: () => '[',
+      });
+
+      await assert.rejects(
+        () => withBatchSize(3, () => service.reviewScan(BAND_REVIEW)),
+        (error) => {
+          assert.strictEqual(error.status, 409);
+          assert.match(
+            error.message,
+            /do not fit the token limit even for 3 pair\(s\)/
+          );
+          assert.match(error.message, /DUPLICATES_AI_THINKING/);
+          assert.match(error.message, /TOKEN_LIMIT/);
+          return true;
+        }
+      );
+      assert.strictEqual(
+        calls.length,
+        2,
+        'once, once with the whole window, and then it says so'
+      );
+      assert.strictEqual(
+        calls[1].options.maxTokens > calls[0].options.maxTokens,
+        true,
+        'the second attempt had everything the window could give'
+      );
+      service.resetCalibration();
+    });
+
+    await test('The text a cut-off request wrote is salvaged and counted', async () => {
+      seedArchive();
+      const watch = useControl();
+      const { calls } = useStreamingProvider({
+        completionTokens: 900,
+        truncateWhen: (callNumber) => callNumber === 1,
+        // Two of the three verdicts arrived before the model ran out of room.
+        partialText: (ids) =>
+          '[' +
+          ids
+            .slice(0, 2)
+            .map((id) =>
+              JSON.stringify({ id, verdict: 'same', reason: 'two spellings' })
+            )
+            .join(',') +
+          `,{"id":"${ids[2]}","verd`,
+      });
+
+      const result = await withCalibration({}, () =>
+        withBatchSize(3, () => service.reviewScan(BAND_REVIEW, watch.control))
+      );
+
+      assert.deepStrictEqual(
+        calls.map((call) => idsInPrompt(call.prompt).length),
+        [3, 1],
+        'what was salvaged is not asked again; only the missing pair is'
+      );
+      const answered = watch.requests();
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.pairsJudged),
+        [2, 3],
+        'the two salvaged verdicts count as judged in their own report'
+      );
+      assert.strictEqual(result.aiReview.pairsNotJudged, 0);
+      assert.strictEqual(
+        result.aiReview.failedRequests,
+        0,
+        'a salvaged truncation is not a failure'
+      );
+      assert.strictEqual(result.aiReview.retries, 1);
+    });
+
+    await test('A streamed request reports thinking, answers, and clears itself', async () => {
+      seedArchive();
+      const previousInterval = service.progressIntervalMs;
+      service.progressIntervalMs = 0;
+      const watch = useControl();
+      const { calls } = useStreamingProvider({
+        completionTokens: 900,
+        thinkingTokens: 640,
+        answerChunks: 3,
+      });
+      try {
+        await withCalibration({}, () =>
+          withBatchSize(3, () => service.reviewScan(BAND_REVIEW, watch.control))
+        );
+      } finally {
+        service.progressIntervalMs = previousInterval;
+      }
+
+      assert.strictEqual(calls.length, 1, 'three pairs in one request');
+      assert.strictEqual(
+        typeof calls[0].options.onProgress,
+        'function',
+        'a watched review asks the provider to stream'
+      );
+      const streams = watch.streams();
+      assert.strictEqual(streams.length, 4, 'one thinking report, three more');
+      assert.deepStrictEqual(
+        streams.map((patch) => patch.thinking),
+        [true, false, false, false]
+      );
+      assert.strictEqual(
+        streams[0].message,
+        'The model is thinking… (640 tokens so far)'
+      );
+      assert.strictEqual(streams[0].requestTokens, 640);
+      assert.strictEqual(streams[0].requestAnswers, 0);
+      assert.deepStrictEqual(
+        streams.slice(1).map((patch) => patch.requestAnswers),
+        [1, 2, 3],
+        'the verdicts that have fully arrived, counted off the text'
+      );
+      assert.deepStrictEqual(
+        streams.map((patch) => patch.requestPairs),
+        [3, 3, 3, 3]
+      );
+      assert.strictEqual(
+        streams[3].message,
+        'Asking the model, request 1 of 1 · 3 of 3 answers'
+      );
+      assert.strictEqual(
+        streams[3].tokens,
+        900,
+        'the review total plus what this request has produced'
+      );
+
+      const answered = watch.requests();
+      assert.strictEqual(answered.length, 1);
+      assert.strictEqual(answered[0].requestPairs, null);
+      assert.strictEqual(answered[0].requestAnswers, 0);
+      assert.strictEqual(answered[0].requestTokens, null);
+      assert.strictEqual(answered[0].thinking, false);
+      assert.strictEqual(
+        answered[0].tokens,
+        1000,
+        'and the provider’s own number replaces the running one'
+      );
+    });
+
+    await test('An unwatched review does not ask the provider to stream', async () => {
+      seedArchive();
+      const { calls } = useStreamingProvider({ completionTokens: 600 });
+      await withBatchSize(3, () => service.reviewScan(BAND_REVIEW));
+      assert.ok(calls.length > 0);
+      assert.ok(
+        calls.every((call) => call.options.onProgress === undefined),
+        'with nobody to report to, the plain request says the same thing'
+      );
+      service.resetCalibration();
+    });
+
+    await test('A review reuses the scan the page just made', async () => {
+      const fake = seedArchive();
+      const scanCalls = () =>
+        fake.calls.filter((call) => call.path === '/correspondents/').length;
+
+      // What the page does when the user presses Scan.
+      await duplicateMergeService.scan({ ...BAND_REVIEW, fresh: true });
+      const afterPage = scanCalls();
+      assert.ok(afterPage > 0, 'the page read the correspondents');
+
+      useStreamingProvider({ completionTokens: 600 });
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      try {
+        await withBatchSize(3, () => service.reviewScan(BAND_REVIEW));
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.ok(
+        lines.some((line) => /scan served from cache \(age \d+s\)/.test(line)),
+        `the review scanned again:\n${lines.join('\n')}`
+      );
+      assert.strictEqual(
+        lines.some((line) => /scan started/.test(line)),
+        false,
+        'and said so instead of the start and finish lines'
+      );
+      service.resetCalibration();
+    });
+
+    await test('The cap never drops below the largest answer seen, so a small batch after a thinking one is not starved', async () => {
+      // A thinking model pays a fixed price per request: 737 tokens for four
+      // pairs is 184 per pair, and a one-pair request sized by pairs alone
+      // (184 × 1.5 + 200 = 476) is cut off by the same 600 tokens of thought.
+      service.resetCalibration();
+      const sizer = service._sizer();
+      const context = { sizer };
+      service._measure(context, {
+        completionTokens: 737,
+        elapsedMs: 3768,
+        pairs: 4,
+        warmingUp: true,
+      });
+      assert.strictEqual(sizer.largestCompletion, 737);
+      const floor = Math.ceil(737 * service.CAP_FLOOR_FACTOR);
+      assert.strictEqual(
+        service._capFor(sizer, 1),
+        floor,
+        'the floor wins for one pair'
+      );
+      assert.ok(
+        service._capFor(sizer, 20) > floor,
+        'a big batch is still sized by its pairs'
+      );
+      const remembered = service.calibration.get(sizer.model);
+      assert.strictEqual(
+        remembered.largestCompletion,
+        737,
+        'and the floor is remembered'
+      );
+      const next = service._sizer();
+      assert.strictEqual(
+        next.largestCompletion,
+        737,
+        'a later review starts with it'
+      );
+      service.resetCalibration();
+    });
+
+    await test('The three yes/no switches read the strings config.js hands over', async () => {
+      // parseEnvBoolean() normalises the environment to 'yes' / 'no'; a
+      // reader that asks Boolean() or === true takes 'no' for on, or never
+      // sees a 'yes'. The user's DUPLICATES_AI_THINKING=yes was ignored so.
+      const previous = {
+        review: config.duplicatesAiReview,
+        excerpts: config.duplicatesAiExcerpts,
+        thinking: config.duplicatesAiThinking,
+      };
+      try {
+        config.duplicatesAiReview = 'no';
+        assert.strictEqual(
+          service.isEnabled(),
+          false,
+          "'no' switches the review off"
+        );
+        config.duplicatesAiReview = 'yes';
+        assert.strictEqual(service.isEnabled(), true, "'yes' switches it on");
+        config.duplicatesAiReview = true;
+        assert.strictEqual(
+          service.isEnabled(),
+          true,
+          'a boolean from a test counts too'
+        );
+
+        config.duplicatesAiExcerpts = 'no';
+        assert.strictEqual(
+          service.excerptsEnabled(),
+          false,
+          "'no' switches the excerpts off"
+        );
+        config.duplicatesAiExcerpts = 'yes';
+        assert.strictEqual(service.excerptsEnabled(), true);
+
+        config.duplicatesAiThinking = 'yes';
+        assert.strictEqual(
+          service.thinkingEnabled(),
+          true,
+          "'yes' lets the judge think"
+        );
+        config.duplicatesAiThinking = 'no';
+        assert.strictEqual(service.thinkingEnabled(), false);
+        config.duplicatesAiThinking = false;
+        assert.strictEqual(service.thinkingEnabled(), false);
+      } finally {
+        config.duplicatesAiReview = previous.review;
+        config.duplicatesAiExcerpts = previous.excerpts;
+        config.duplicatesAiThinking = previous.thinking;
       }
     });
   } finally {
