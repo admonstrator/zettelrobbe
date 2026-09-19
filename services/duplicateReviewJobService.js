@@ -61,6 +61,7 @@ const PHASES = Object.freeze({
   STARTING: 'starting',
   SCANNING: 'scanning',
   EVIDENCE: 'evidence',
+  SWEEPING: 'sweeping',
   WARMING_UP: 'warming-up',
   JUDGING: 'judging',
   ESCALATING: 'escalating',

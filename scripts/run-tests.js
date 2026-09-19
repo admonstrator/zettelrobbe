@@ -138,6 +138,7 @@ const TESTS = {
   'entity-match-ai-service': 'test-entity-match-ai-service.js',
   'duplicate-review-job': 'test-duplicate-review-job.js',
   'ai-provider-streaming': 'test-ai-provider-streaming.js',
+  'entity-creation-guard': 'test-entity-creation-guard.js',
 };
 
 const AREAS = {
@@ -253,6 +254,7 @@ const AREAS = {
     'entity-match-ai-service',
     'duplicate-review-job',
     'ai-provider-streaming',
+    'entity-creation-guard',
   ],
 };
 

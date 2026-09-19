@@ -306,6 +306,164 @@ async function main() {
       );
       assert.deepStrictEqual(unknownKind, { historyRows: 0, originalRows: 0 });
     });
+    await test('Migration v12 adds the action and rename columns, the mappings and the calibration table', async () => {
+      const Database = require('better-sqlite3');
+      const db = new Database(path.join(tempRoot, 'data', 'documents.db'), {
+        readonly: true,
+      });
+      try {
+        const tables = db
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+          .all()
+          .map((row) => row.name);
+        assert.ok(tables.includes('entity_name_mappings'));
+        assert.ok(tables.includes('ai_calibration'));
+        const columns = db
+          .prepare('PRAGMA table_info(entity_merges)')
+          .all()
+          .map((row) => row.name);
+        assert.ok(columns.includes('action'));
+        assert.ok(columns.includes('target_renamed_from'));
+        assert.ok(db.pragma('user_version', { simple: true }) >= 12);
+      } finally {
+        db.close();
+      }
+    });
+
+    await test('A log row is a merge unless it says delete, and remembers a rename', async () => {
+      const mergeId = await documentModel.addEntityMerge({
+        kind: 'tags',
+        targetId: 12,
+        targetName: 'Invoices',
+        targetRenamedFrom: 'invoices',
+        sources: [],
+      });
+      const merge = await documentModel.getEntityMergeById(mergeId);
+      assert.strictEqual(merge.action, 'merge');
+      assert.strictEqual(merge.targetRenamedFrom, 'invoices');
+
+      const deleteId = await documentModel.addEntityMerge({
+        kind: 'correspondents',
+        targetId: 0,
+        targetName: '',
+        action: 'delete',
+        sources: [{ id: 5, name: 'Nobody', snapshot: { name: 'Nobody' } }],
+      });
+      const removal = await documentModel.getEntityMergeById(deleteId);
+      assert.strictEqual(removal.action, 'delete');
+      assert.strictEqual(removal.targetRenamedFrom, null);
+      assert.strictEqual(removal.sources[0].name, 'Nobody');
+
+      const odd = await documentModel.addEntityMerge({
+        kind: 'tags',
+        targetId: 1,
+        targetName: 'x',
+        action: 'something else',
+      });
+      assert.strictEqual(
+        (await documentModel.getEntityMergeById(odd)).action,
+        'merge',
+        'an unknown action is stored as a merge'
+      );
+    });
+
+    await test('Name mappings are listed newest first and pruned to the newest 200', async () => {
+      assert.strictEqual(await documentModel.clearEntityNameMappings(), 0);
+      for (let i = 1; i <= 205; i += 1) {
+        const id = await documentModel.addEntityNameMapping({
+          kind: i % 2 ? 'tags' : 'correspondents',
+          proposedName: `Rechnungen ${i}`,
+          targetId: 100 + i,
+          targetName: `Rechnung ${i}`,
+          reason: 'plural',
+          score: 0.92,
+          documentId: i,
+        });
+        assert.ok(Number.isInteger(id) && id > 0);
+      }
+      const rows = await documentModel.listEntityNameMappings();
+      assert.strictEqual(rows.length, 200, 'older rows are pruned');
+      assert.strictEqual(
+        rows[0].proposedName,
+        'Rechnungen 205',
+        'newest first'
+      );
+      assert.strictEqual(rows[199].proposedName, 'Rechnungen 6');
+      assert.deepStrictEqual(
+        {
+          kind: rows[0].kind,
+          targetId: rows[0].targetId,
+          targetName: rows[0].targetName,
+          reason: rows[0].reason,
+          score: rows[0].score,
+          documentId: rows[0].documentId,
+        },
+        {
+          kind: 'tags',
+          targetId: 305,
+          targetName: 'Rechnung 205',
+          reason: 'plural',
+          score: 0.92,
+          documentId: 205,
+        }
+      );
+      const few = await documentModel.listEntityNameMappings({ limit: 3 });
+      assert.strictEqual(few.length, 3);
+      const withoutDocument = await documentModel.addEntityNameMapping({
+        kind: 'tags',
+        proposedName: 'x',
+        targetId: 1,
+        targetName: 'X',
+        reason: 'exact-normalized',
+      });
+      assert.ok(withoutDocument > 0);
+      assert.strictEqual(
+        (await documentModel.listEntityNameMappings({ limit: 1 }))[0]
+          .documentId,
+        null
+      );
+      assert.strictEqual(await documentModel.clearEntityNameMappings(), 200);
+      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+    });
+
+    await test('The AI calibration is stored per model and thinking switch and replaced on save', async () => {
+      assert.strictEqual(
+        await documentModel.getAiCalibration('m', false),
+        null
+      );
+      assert.strictEqual(
+        await documentModel.saveAiCalibration({
+          model: 'm',
+          thinking: false,
+          tokensPerPair: 32.5,
+          tokensPerSecond: 59,
+          largestCompletion: 128,
+        }),
+        true
+      );
+      const saved = await documentModel.getAiCalibration('m', false);
+      assert.strictEqual(saved.tokensPerPair, 32.5);
+      assert.strictEqual(saved.tokensPerSecond, 59);
+      assert.strictEqual(saved.largestCompletion, 128);
+      assert.ok(
+        typeof saved.measuredAt === 'string' && saved.measuredAt !== ''
+      );
+      assert.strictEqual(
+        await documentModel.getAiCalibration('m', true),
+        null,
+        'thinking on is a separate measurement'
+      );
+      await documentModel.saveAiCalibration({
+        model: 'm',
+        thinking: false,
+        tokensPerPair: 40,
+        tokensPerSecond: 61.2,
+        largestCompletion: 737.4,
+      });
+      const replaced = await documentModel.getAiCalibration('m', false);
+      assert.strictEqual(replaced.tokensPerPair, 40);
+      assert.strictEqual(replaced.largestCompletion, 737, 'rounded to a token');
+    });
   } finally {
     try {
       documentModel.closeDatabase();

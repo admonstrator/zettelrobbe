@@ -3324,6 +3324,8 @@ async function buildUpdateData(analysis, doc) {
       config.restrictToExistingCorrespondents === 'yes' ? true : false,
     restrictToExistingDocumentTypes:
       config.restrictToExistingDocumentTypes === 'yes' ? true : false,
+    // For the creation guard's record of which document a mapping served.
+    documentId: doc?.id ?? null,
   };
 
   console.log(

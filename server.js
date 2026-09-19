@@ -855,6 +855,8 @@ async function buildUpdateData(analysis, doc) {
       config.restrictToExistingCorrespondents === 'yes',
     restrictToExistingDocumentTypes:
       config.restrictToExistingDocumentTypes === 'yes',
+    // For the creation guard's record of which document a mapping served.
+    documentId: doc?.id ?? null,
   };
 
   // Only process tags if tagging is activated

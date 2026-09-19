@@ -560,6 +560,22 @@ module.exports = {
     process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
     10
   ),
+  // Drift is prevented where it starts: when document analysis proposes a
+  // tag or correspondent whose name is a hard match of an existing one
+  // (case, umlauts, legal form, plural, word order), the existing one is
+  // used and the mapping is recorded for the Duplicates page. A typo-like
+  // match is only logged; the name is still created.
+  duplicatesGuardNewNames: parseEnvBoolean(
+    process.env.DUPLICATES_GUARD_NEW_NAMES,
+    'yes'
+  ),
+  // The semantic sweep shows the model the names of one kind, this many per
+  // request, and asks for groups the string matcher cannot see (synonyms,
+  // translations). Off unless the page asks for it.
+  duplicatesAiSweepNames: parseInt(
+    process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
+    10
+  ),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:

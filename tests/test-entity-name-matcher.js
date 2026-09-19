@@ -1253,5 +1253,72 @@ test('buildGroupsFromEdges ignores edges it has no entities for', () => {
   );
 });
 
+test('bestMatch() finds the existing entity a new name is a hard match of', () => {
+  const entities = [
+    entity(1, 'Rechnung', { documentCount: 12 }),
+    entity(2, 'Versicherung', { documentCount: 4 }),
+    entity(3, 'Müller GmbH', { documentCount: 2 }),
+    entity(4, 'Kontoauszug', { documentCount: 9 }),
+  ];
+  const plural = matcher.bestMatch('Rechnungen', entities, { kind: 'tags' });
+  assert.strictEqual(plural.entity.id, 1);
+  assert.strictEqual(plural.reason, 'plural');
+  assert.ok(plural.score >= 0.9);
+
+  const umlaut = matcher.bestMatch('mueller gmbh', entities, {
+    kind: 'correspondents',
+  });
+  assert.strictEqual(umlaut.entity.id, 3);
+  assert.ok(matcher.HARD_REASONS.includes(umlaut.reason), umlaut.reason);
+
+  const typo = matcher.bestMatch('Kontoumzug', entities, { kind: 'tags' });
+  assert.strictEqual(typo.entity.id, 4, 'the closest name is still reported');
+  assert.strictEqual(
+    matcher.HARD_REASONS.includes(typo.reason),
+    false,
+    'but a typo-like link is not a hard reason'
+  );
+
+  assert.strictEqual(
+    matcher.bestMatch('Kontoumzug', entities, { kind: 'tags', minScore: 0.95 }),
+    null,
+    'minScore filters'
+  );
+  assert.strictEqual(
+    matcher.bestMatch('Steuer', entities, { kind: 'tags' }),
+    null
+  );
+  assert.strictEqual(matcher.bestMatch('', entities, { kind: 'tags' }), null);
+  assert.strictEqual(matcher.bestMatch('x', [], { kind: 'tags' }), null);
+  assert.throws(
+    () => matcher.bestMatch('x', entities, { kind: 'document_types' }),
+    /Unknown entity kind/
+  );
+});
+
+test('bestMatch() prefers the entity with more documents among equal scores', () => {
+  const entities = [
+    entity(7, 'amazon', { documentCount: 2 }),
+    entity(8, 'AMAZON', { documentCount: 30 }),
+  ];
+  const best = matcher.bestMatch('Amazon', entities, { kind: 'tags' });
+  assert.strictEqual(best.entity.id, 8);
+  assert.strictEqual(best.reason, 'exact-normalized');
+});
+
+test('The hard reasons are the five tiers above prefix, and semantic is a known reason', () => {
+  assert.deepStrictEqual(
+    [...matcher.HARD_REASONS],
+    [
+      'exact-normalized',
+      'umlaut-variant',
+      'legal-form',
+      'plural',
+      'token-order',
+    ]
+  );
+  assert.strictEqual(matcher.MATCH_REASONS.SEMANTIC, 'semantic');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

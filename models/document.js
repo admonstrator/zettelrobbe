@@ -402,7 +402,56 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 12,
+    description:
+      'Duplicates round 9: merge log actions and renames, name mappings, AI calibration',
+    up: (database) => {
+      // A log row is a merge unless it says otherwise: deleting unused
+      // objects goes through the same log so it can be undone the same way.
+      database.exec(
+        "ALTER TABLE entity_merges ADD COLUMN action TEXT NOT NULL DEFAULT 'merge'"
+      );
+      // The target's name before a merge renamed it, so an undo can put it
+      // back; null when the merge did not rename.
+      database.exec(
+        'ALTER TABLE entity_merges ADD COLUMN target_renamed_from TEXT DEFAULT NULL'
+      );
+      // Every time document analysis proposed a name and the guard used an
+      // existing object instead. Kept short (the newest rows) and shown on
+      // the Duplicates page, so a wrong mapping can be noticed.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS entity_name_mappings (
+          id INTEGER PRIMARY KEY,
+          kind TEXT NOT NULL,
+          proposed_name TEXT NOT NULL,
+          target_id INTEGER NOT NULL,
+          target_name TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          score REAL NOT NULL DEFAULT 0,
+          document_id INTEGER DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      // What the AI judge measured about a model, so the first review after
+      // a restart is already sized.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ai_calibration (
+          model TEXT NOT NULL,
+          thinking INTEGER NOT NULL DEFAULT 0,
+          tokens_per_pair REAL DEFAULT NULL,
+          tokens_per_second REAL DEFAULT NULL,
+          largest_completion INTEGER NOT NULL DEFAULT 0,
+          measured_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (model, thinking)
+        )
+      `);
+    },
+  },
 ];
+
+/** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
+const ENTITY_NAME_MAPPINGS_KEEP = 200;
 
 function runMigrations(database) {
   const currentVersion = database.pragma('user_version', { simple: true });
@@ -477,6 +526,22 @@ function parseEntityMergeRow(row) {
     createdAt: row.created_at,
     undoneAt: row.undone_at,
     undoResult: parseJsonColumn(row.undo_result, null),
+    action: row.action || 'merge',
+    targetRenamedFrom: row.target_renamed_from ?? null,
+  };
+}
+
+function parseEntityNameMappingRow(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    proposedName: row.proposed_name,
+    targetId: row.target_id,
+    targetName: row.target_name,
+    reason: row.reason,
+    score: Number(row.score) || 0,
+    documentId: row.document_id ?? null,
+    createdAt: row.created_at,
   };
 }
 
@@ -1257,6 +1322,138 @@ module.exports = {
   },
 
   // Utility method to close the database connection
+  /**
+   * Records that document analysis proposed a name and the guard used an
+   * existing object instead. Keeps the newest ENTITY_NAME_MAPPINGS_KEEP rows.
+   *
+   * @returns {Promise<number|null>} the row id, null on a database error
+   */
+  async addEntityNameMapping({
+    kind,
+    proposedName,
+    targetId,
+    targetName,
+    reason,
+    score = 0,
+    documentId = null,
+  }) {
+    try {
+      const insert = db.prepare(`
+        INSERT INTO entity_name_mappings
+          (kind, proposed_name, target_id, target_name, reason, score, document_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const prune = db.prepare(`
+        DELETE FROM entity_name_mappings
+        WHERE id NOT IN (
+          SELECT id FROM entity_name_mappings ORDER BY id DESC LIMIT ?
+        )
+      `);
+      const run = db.transaction(() => {
+        const result = insert.run(
+          kind,
+          String(proposedName),
+          Number(targetId),
+          String(targetName),
+          String(reason),
+          Number(score) || 0,
+          documentId == null ? null : Number(documentId)
+        );
+        prune.run(ENTITY_NAME_MAPPINGS_KEEP);
+        return Number(result.lastInsertRowid);
+      });
+      return run();
+    } catch (error) {
+      console.error('[ERROR] recording entity name mapping:', error);
+      return null;
+    }
+  },
+
+  /** The newest mappings first, at most `limit` (default: everything kept). */
+  async listEntityNameMappings({ limit = ENTITY_NAME_MAPPINGS_KEEP } = {}) {
+    try {
+      return db
+        .prepare('SELECT * FROM entity_name_mappings ORDER BY id DESC LIMIT ?')
+        .all(Math.max(1, Number(limit) || ENTITY_NAME_MAPPINGS_KEEP))
+        .map(parseEntityNameMappingRow);
+    } catch (error) {
+      console.error('[ERROR] listing entity name mappings:', error);
+      return [];
+    }
+  },
+
+  /** Forgets every mapping. @returns {Promise<number>} rows removed */
+  async clearEntityNameMappings() {
+    try {
+      return db.prepare('DELETE FROM entity_name_mappings').run().changes;
+    } catch (error) {
+      console.error('[ERROR] clearing entity name mappings:', error);
+      return 0;
+    }
+  },
+
+  /**
+   * What the judge measured about a model, or null when nothing was saved.
+   *
+   * @param {string} model
+   * @param {boolean} thinking
+   * @returns {Promise<{tokensPerPair:number|null, tokensPerSecond:number|null, largestCompletion:number, measuredAt:string}|null>}
+   */
+  async getAiCalibration(model, thinking) {
+    try {
+      const row = db
+        .prepare(
+          'SELECT * FROM ai_calibration WHERE model = ? AND thinking = ?'
+        )
+        .get(String(model), thinking ? 1 : 0);
+      return row
+        ? {
+            tokensPerPair: row.tokens_per_pair ?? null,
+            tokensPerSecond: row.tokens_per_second ?? null,
+            largestCompletion: Number(row.largest_completion) || 0,
+            measuredAt: row.measured_at,
+          }
+        : null;
+    } catch (error) {
+      console.error('[ERROR] reading AI calibration:', error);
+      return null;
+    }
+  },
+
+  /** Stores or replaces the measurement of one model and thinking switch. */
+  async saveAiCalibration({
+    model,
+    thinking,
+    tokensPerPair = null,
+    tokensPerSecond = null,
+    largestCompletion = 0,
+  }) {
+    try {
+      db.prepare(
+        `
+        INSERT INTO ai_calibration
+          (model, thinking, tokens_per_pair, tokens_per_second, largest_completion, measured_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(model, thinking) DO UPDATE SET
+          tokens_per_pair = excluded.tokens_per_pair,
+          tokens_per_second = excluded.tokens_per_second,
+          largest_completion = excluded.largest_completion,
+          measured_at = CURRENT_TIMESTAMP
+      `
+      ).run(
+        String(model),
+        thinking ? 1 : 0,
+        tokensPerPair == null ? null : Number(tokensPerPair),
+        tokensPerSecond == null ? null : Number(tokensPerSecond),
+        Math.max(0, Math.round(Number(largestCompletion) || 0))
+      );
+      return true;
+    } catch (error) {
+      console.error('[ERROR] saving AI calibration:', error);
+      return false;
+    }
+  },
+
   closeDatabase() {
     return new Promise((resolve, reject) => {
       try {
@@ -1794,6 +1991,8 @@ module.exports = {
     copiedMatchingRule = false,
     status = 'done',
     performedBy = null,
+    action = 'merge',
+    targetRenamedFrom = null,
   }) {
     try {
       const result = db
@@ -1801,8 +2000,8 @@ module.exports = {
           `
         INSERT INTO entity_merges
           (kind, target_id, target_name, target_before, sources, documents_moved,
-           copied_matching_rule, status, performed_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           copied_matching_rule, status, performed_by, action, target_renamed_from)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
         )
         .run(
@@ -1814,7 +2013,9 @@ module.exports = {
           Number(documentsMoved) || 0,
           copiedMatchingRule ? 1 : 0,
           status,
-          performedBy
+          performedBy,
+          action === 'delete' ? 'delete' : 'merge',
+          targetRenamedFrom == null ? null : String(targetRenamedFrom)
         );
       return Number(result.lastInsertRowid);
     } catch (error) {
