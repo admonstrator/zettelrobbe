@@ -1,5 +1,6 @@
 const { writePromptToFile, toNameList } = require('./serviceUtils');
 const {
+  abortSignal,
   hasNumber,
   hasSystemPrompt,
   modelOverride,
@@ -925,6 +926,7 @@ class OllamaService {
    * @param {string} [options.systemPrompt] - Replaces the generic system prompt
    * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
    * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS (num_predict)
+   * @param {AbortSignal} [options.signal] - Cancels the request in flight
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
@@ -969,12 +971,16 @@ class OllamaService {
         generateTextBody.think = false;
       }
 
+      // axios takes the signal in the request config; without one the config
+      // is the headers it always was.
+      const requestConfig = { headers: this._buildRequestHeaders() };
+      const signal = abortSignal(options);
+      if (signal) requestConfig.signal = signal;
+
       const response = await this.client.post(
         `${this.apiUrl}/api/generate`,
         generateTextBody,
-        {
-          headers: this._buildRequestHeaders(),
-        }
+        requestConfig
       );
 
       if (!response.data || !response.data.response) {

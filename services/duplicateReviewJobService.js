@@ -23,6 +23,8 @@
  *   - `onProgress()`  takes a partial AiReviewProgress and merges it
  *   - `stop(reason)`  what the judge calls when its own token budget is spent
  *   - `tokenBudget`   the ceiling, null when there is none
+ *   - `stopReason()`  why the job is stopping, for the judge's own log line;
+ *                     null while it is not
  * A judge that stops early returns what it has, with `aiReview.stopped` set;
  * that partial result is kept on the job like a complete one.
  *
@@ -329,6 +331,10 @@ class DuplicateReviewJobService {
       stop: (reason) => {
         this.stop(job.id, reason);
       },
+      // Read, not passed: the judge asks for it when it writes the line that
+      // says why it stopped. The reason it returns in the result stays null;
+      // this job fills that in below.
+      stopReason: () => job.stopReason,
     };
     try {
       const data = await this._judge().reviewScan(job.options, control);

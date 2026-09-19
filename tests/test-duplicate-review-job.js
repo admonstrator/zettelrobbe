@@ -20,6 +20,8 @@
  *  7. the idle watch stops an unwatched job and leaves a watched one alone
  *  8. a subscriber of a finished job gets the final event at once
  *  9. the budget and the idle seconds come from the settings
+ * 10. the control tells the judge why it is stopping, so the judge can write
+ *     the one log line that says so
  */
 
 const assert = require('assert');
@@ -383,6 +385,44 @@ function gate() {
       config.duplicatesAiTokenBudget = budget;
       config.duplicatesAiIdleStopSeconds = idle;
     }
+  });
+
+  await test('the control tells the judge why it is stopping', async () => {
+    let control = null;
+    judge.reviewScan = async (options, given) => {
+      control = given;
+      assert.strictEqual(
+        given.stopReason(),
+        null,
+        'nothing is stopping while the review runs'
+      );
+      await new Promise((resolve) =>
+        given.signal.addEventListener('abort', resolve, { once: true })
+      );
+      return result({ stopped: true, pairsNotJudged: 7 });
+    };
+    const job = jobs.start({ kind: 'tags' });
+    await tick();
+    jobs.stop(job.id, 'idle');
+    assert.strictEqual(
+      control.stopReason(),
+      'idle',
+      'the judge can name the reason in its own log line'
+    );
+    const final = await jobs.wait(job.id);
+    assert.strictEqual(final.job.stopReason, 'idle');
+    assert.strictEqual(final.data.aiReview.stopReason, 'idle');
+
+    // The judge's own brake reaches the same reason through stop().
+    jobs.reset();
+    judge.reviewScan = async (options, given) => {
+      given.stop('token-budget');
+      assert.strictEqual(given.stopReason(), 'token-budget');
+      return result({ stopped: true, pairsNotJudged: 3 });
+    };
+    const second = jobs.start({ kind: 'tags' });
+    const stopped = await jobs.wait(second.id);
+    assert.strictEqual(stopped.job.stopReason, 'token-budget');
   });
 
   console.log = quiet;

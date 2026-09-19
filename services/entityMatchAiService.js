@@ -104,6 +104,30 @@
  * because they are what the operator is looking at; document titles never do,
  * because they are content.
  *
+ * ## Being watched, and being stopped
+ *
+ * `reviewScan(options, control)` takes the control object of
+ * services/duplicateReviewJobService.js as its optional second argument.
+ * Without it the review is what it always was; with it three things happen.
+ *
+ * It reports. The review is planned in full before the first request —
+ * entities, pairs, evidence and batch sizes for every kind — so the page's
+ * bar has a denominator (`requestsPlanned`, `pairsTotal`, `estimatedTokens`)
+ * from request one instead of a number that grows per kind. That is the whole
+ * reason the loop below runs twice: pass one plans, pass two judges.
+ *
+ * It stops. `control.signal` is looked at before every read, every request
+ * and the second round, and it is handed to the provider, so a stop lands on
+ * a request that is already in flight. A stopped review never throws: it
+ * returns what it reached, with `aiReview.stopped` and `pairsNotJudged`. The
+ * pairs nobody asked about get no verdict at all — "unsure" is the model's
+ * word and would be a lie here — so they cannot turn into a group.
+ *
+ * It counts. One running total of tokens for the whole review, folded from
+ * what the provider reports or, for a provider that reports nothing, from the
+ * measured prompt plus the estimated answer. When `control.tokenBudget` is
+ * reached the review stops itself through `control.stop('token-budget')`.
+ *
  * ## What it costs
  *
  * Per scan: the members of every group against their target, plus at most
@@ -260,6 +284,24 @@ const LOG_PREFIX = '[AI-REVIEW]';
 const RAW_ANSWER_LOG_LENGTH = 200;
 
 /**
+ * What a review reports about where it is. The same words as the PHASES of
+ * services/duplicateReviewJobService.js, repeated here rather than imported,
+ * because the judge must not depend on the job that happens to run it.
+ */
+const REVIEW_PHASES = Object.freeze({
+  SCANNING: 'scanning',
+  EVIDENCE: 'evidence',
+  JUDGING: 'judging',
+  ESCALATING: 'escalating',
+  FINISHING: 'finishing',
+});
+
+/** The only stop the judge asks for itself. */
+const STOP_REASON_TOKEN_BUDGET = 'token-budget';
+/** What a stop is called when nobody said which one it was. */
+const STOP_REASON_FALLBACK = 'user';
+
+/**
  * @typedef {object} AiVerdict
  * @property {'same'|'different'|'unsure'} verdict
  * @property {string} reason   one short sentence from the model, '' when none
@@ -328,6 +370,12 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  *                                    model was never asked about them
  * @property {number} escalated       unsure pairs that were asked a second
  *                                    time, with excerpts
+ * @property {boolean} stopped        true when the review ended before every
+ *                                    pair it planned was judged
+ * @property {string|null} stopReason always null here: the judge knows that
+ *                                    it stopped, the job knows why and fills
+ *                                    this in
+ * @property {number} pairsNotJudged  pairs that were due and never answered
  */
 
 /**
@@ -353,6 +401,23 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  *   with groupIds both have to hold
  * @property {boolean} [includeCandidates] default true; false leaves the band
  *   of near-misses below the threshold out of the review entirely
+ */
+
+/**
+ * The second argument of reviewScan(): what the job that runs the review
+ * hands the judge. Every field is optional; an empty object is a review that
+ * nobody watches and nothing stops.
+ *
+ * @typedef {object} AiReviewControl
+ * @property {AbortSignal} [signal]  aborted on any stop
+ * @property {(patch: object) => void} [onProgress]  takes a partial
+ *   AiReviewProgress (see schemas.js); the job merges it by replacement, so
+ *   every number in it is a total, never a delta
+ * @property {(reason: string) => void} [stop]  what the judge calls when its
+ *   own token budget is spent
+ * @property {number|null} [tokenBudget]  the most this review may spend
+ * @property {() => string|null} [stopReason]  why the job is stopping, for
+ *   the one log line that says so
  */
 
 /** What one kind is called in the prompt. */
@@ -949,6 +1014,232 @@ class EntityMatchAiService {
   }
 
   /**
+   * The review's own bookkeeping for the control object it was given, or null
+   * when it was given nothing worth keeping books for. A review without a
+   * tracker is the review this service ran before there was a job: it reports
+   * nothing, it measures nothing it does not already measure, and it never
+   * stops early.
+   *
+   * @param {AiReviewControl} [control]
+   * @returns {object|null}
+   */
+  _reviewTracker(control) {
+    const given = control && typeof control === 'object' ? control : {};
+    const budget = Number(given.tokenBudget);
+    const tokenBudget = Number.isFinite(budget) && budget > 0 ? budget : null;
+    const signal =
+      given.signal && typeof given.signal === 'object' ? given.signal : null;
+    const onProgress =
+      typeof given.onProgress === 'function' ? given.onProgress : null;
+    if (!signal && !onProgress && tokenBudget === null) return null;
+    return {
+      signal,
+      onProgress,
+      stop: typeof given.stop === 'function' ? given.stop : null,
+      readStopReason:
+        typeof given.stopReason === 'function' ? given.stopReason : null,
+      tokenBudget,
+      stopped: false,
+      budgetSpent: false,
+      kind: null,
+      requestsPlanned: 0,
+      requestsDone: 0,
+      pairsJudged: 0,
+      pairsTotal: 0,
+      estimatedTokens: 0,
+      tokens: null,
+      failedRequests: 0,
+      retries: 0,
+      excerpts: 0,
+      escalated: 0,
+      spellingRules: 0,
+    };
+  }
+
+  /**
+   * True once this review must not read, ask or escalate any more. Asked
+   * before every one of those, so a stop costs at most the request that is
+   * already in flight.
+   *
+   * @param {object|null} tracker
+   * @returns {boolean}
+   */
+  _stopped(tracker) {
+    if (!tracker) return false;
+    if (tracker.stopped) return true;
+    if (tracker.signal?.aborted === true) {
+      tracker.stopped = true;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * One progress report. The patch is partial and every number in it is a
+   * total; the job merges it by replacement. A listener that throws is the
+   * page's problem, not the review's.
+   *
+   * @param {object|null} tracker
+   * @param {object} patch  a partial AiReviewProgress
+   */
+  _report(tracker, patch) {
+    if (!tracker || !tracker.onProgress) return;
+    try {
+      tracker.onProgress(patch);
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} a progress listener threw: ${error?.message || error}`
+      );
+    }
+  }
+
+  /**
+   * How many distinct entities a set of pairs names; what the evidence
+   * messages count, because a read happens per entity, not per pair.
+   *
+   * @param {AiReviewPair[]} pairs
+   * @returns {number}
+   */
+  _entityCount(pairs) {
+    const ids = new Set();
+    for (const pair of pairs) {
+      for (const entity of [pair?.a, pair?.b]) {
+        const id = Number(entity?.id);
+        if (Number.isInteger(id)) ids.add(id);
+      }
+    }
+    return ids.size;
+  }
+
+  /**
+   * What one request cost, folded into the review's running total.
+   *
+   * The provider's own number is the truth when it reports one, and
+   * `usage.tokens` keeps carrying exactly that. A provider that reports
+   * nothing would leave the page's counter at null and the token budget
+   * blind, so the request is measured instead: the prompt as the batch was
+   * sized, the answer as the estimator reads it. That estimate steers the
+   * budget and the page; it does not enter `usage.tokens`, which stays the
+   * number the provider stands behind.
+   *
+   * @param {object} context
+   * @param {number} promptTokens  what the prompt of this request measured
+   * @param {string|null} answer
+   */
+  async _countRequestTokens(context, promptTokens, answer) {
+    const { service, usage, tracker } = context;
+    const reported = Number(service.lastGenerateTextUsage?.totalTokens);
+    if (Number.isFinite(reported)) {
+      usage.tokens = (usage.tokens || 0) + reported;
+      if (tracker) tracker.tokens = (tracker.tokens || 0) + reported;
+      return;
+    }
+    if (!tracker) return;
+    const measured = await calculateTokens(
+      String(answer ?? ''),
+      this.modelName() || undefined
+    );
+    tracker.tokens =
+      (tracker.tokens || 0) +
+      promptTokens +
+      (Number.isFinite(measured) ? measured : 0);
+  }
+
+  /**
+   * What an answered request adds to the progress: one request done, the
+   * pairs it settled, the running token total, and the line that names the
+   * request the page is now waiting for.
+   *
+   * `splits` is what a cut-off answer turned into. It is added to the plan in
+   * the same report, so the bar never falls back a few per cent because the
+   * denominator was one request short.
+   *
+   * @param {object} context
+   * @param {AiReviewPair[]} batch
+   * @param {number} [splits]
+   */
+  _afterRequest(context, batch, splits = 0) {
+    const { tracker, verdicts, kind } = context;
+    if (!tracker) return;
+    tracker.requestsDone += 1;
+    tracker.requestsPlanned += splits;
+    // The pairs this request settled: a split answers only what it salvaged,
+    // and its halves report their own, so nothing is counted twice.
+    tracker.pairsJudged += batch.filter((pair) =>
+      verdicts.has(pair.key)
+    ).length;
+    tracker.kind = kind;
+    this._report(tracker, {
+      kind,
+      requestsDone: tracker.requestsDone,
+      requestsPlanned: tracker.requestsPlanned,
+      pairsJudged: tracker.pairsJudged,
+      tokens: tracker.tokens,
+      failedRequests: tracker.failedRequests,
+      retries: tracker.retries,
+      message: this._requestMessage(tracker),
+    });
+    this._checkTokenBudget(tracker);
+  }
+
+  /** The line the page shows while it waits for the next answer. */
+  _requestMessage(tracker) {
+    const next = tracker.requestsDone + 1;
+    return next <= tracker.requestsPlanned
+      ? `Asking the model, request ${next} of ${tracker.requestsPlanned}`
+      : 'Waiting for the last answer…';
+  }
+
+  /**
+   * The judge's own brake: a review that has spent what the operator allowed
+   * stops itself. The job is told why, so the page says "token budget" rather
+   * than "somebody pressed stop".
+   *
+   * @param {object|null} tracker
+   */
+  _checkTokenBudget(tracker) {
+    if (!tracker || tracker.budgetSpent || tracker.tokenBudget === null) return;
+    if (
+      !Number.isFinite(tracker.tokens) ||
+      tracker.tokens < tracker.tokenBudget
+    ) {
+      return;
+    }
+    tracker.budgetSpent = true;
+    tracker.stopped = true;
+    this._log(
+      `token budget ${tracker.tokenBudget} reached after ${tracker.requestsDone} request(s) ` +
+        `(${tracker.tokens} tokens).`
+    );
+    if (!tracker.stop) return;
+    try {
+      tracker.stop(STOP_REASON_TOKEN_BUDGET);
+    } catch (error) {
+      // The job is gone; the review stops on its own flag either way.
+      console.warn(
+        `${LOG_PREFIX} the stop of the token budget was not accepted: ${error?.message || error}`
+      );
+    }
+  }
+
+  /**
+   * Why this review stopped, for the one line that says so. The job knows
+   * (the user, the idle watch, the budget); without one, the budget is the
+   * only reason the judge could have had itself.
+   *
+   * @param {object|null} tracker
+   * @returns {string|null}
+   */
+  _stopReason(tracker) {
+    if (!tracker) return null;
+    const given = tracker.readStopReason ? tracker.readStopReason() : null;
+    if (typeof given === 'string' && given !== '') return given;
+    return tracker.budgetSpent
+      ? STOP_REASON_TOKEN_BUDGET
+      : STOP_REASON_FALLBACK;
+  }
+
+  /**
    * One model request, and everything that can come back from it.
    *
    * Recursive on one path only: an answer that was cut off is salvaged and the
@@ -956,12 +1247,21 @@ class EntityMatchAiService {
    * smaller than the batch it came from, so the recursion ends at single
    * pairs.
    *
+   * Two things a stopped review needs from here: nothing is asked once the
+   * signal is aborted, and a request that dies on the signal while it is in
+   * flight is not a failure — its pairs simply stay unanswered.
+   *
    * @param {AiReviewPair[]} batch
-   * @param {object} context  kind, systemPrompt, service, verdicts, usage, state
+   * @param {object} context  kind, systemPrompt, service, verdicts, usage,
+   *   state, tracker
    * @param {{isRetry?: boolean}} [options]
    */
   async _judgeBatch(batch, context, { isRetry = false } = {}) {
-    const { kind, systemPrompt, service, verdicts, usage, state } = context;
+    const { kind, systemPrompt, service, verdicts, usage, state, tracker } =
+      context;
+    // Between two requests is where a stop costs nothing at all.
+    if (this._stopped(tracker)) return;
+
     const keys = new Set(batch.map((pair) => pair.key));
     const cap = this._completionCap(batch.length);
     const userPrompt = this.buildUserPrompt(kind, batch);
@@ -970,7 +1270,10 @@ class EntityMatchAiService {
     state.requestNumber += 1;
     const requestNumber = state.requestNumber;
     usage.requests += 1;
-    if (isRetry) usage.retries += 1;
+    if (isRetry) {
+      usage.retries += 1;
+      if (tracker) tracker.retries += 1;
+    }
 
     const startedAt = Date.now();
     const withExcerpts = batch.filter(
@@ -981,6 +1284,9 @@ class EntityMatchAiService {
     const evidence = withExcerpts > 0 ? `, ${withExcerpts} with excerpts` : '';
     const head = () =>
       `${kind}: request ${requestNumber}, ${batch.length} pair(s)${evidence}, ~${promptTokens} prompt tokens, cap ${cap}, ${Date.now() - startedAt}ms`;
+    // Every path that answered something reports it; `splits` says how many
+    // requests a cut-off answer added to the plan.
+    const report = (splits = 0) => this._afterRequest(context, batch, splits);
 
     let answer;
     let truncated = false;
@@ -993,9 +1299,20 @@ class EntityMatchAiService {
     // provider stays on the model it is configured with.
     const judgeModel = this.judgeModel();
     if (judgeModel !== '') requestOptions.model = judgeModel;
+    // With a signal the provider can be stopped mid-request; without one it
+    // sends exactly what it sent before.
+    if (tracker?.signal) requestOptions.signal = tracker.signal;
     try {
       answer = await service.generateText(userPrompt, requestOptions);
     } catch (error) {
+      if (this._stopped(tracker)) {
+        // A stop, not a failure: no failed request, no retry, and above all
+        // no "unsure" for pairs nobody answered.
+        this._log(
+          `${head()} — stopped while waiting for the answer, ${batch.length} pair(s) left unjudged.`
+        );
+        return;
+      }
       if (error?.code !== TRUNCATION_ERROR_CODE) {
         this._failRequest(
           head(),
@@ -1005,16 +1322,14 @@ class EntityMatchAiService {
           verdicts,
           usage
         );
-        return;
+        if (tracker) tracker.failedRequests += 1;
+        return report();
       }
       truncated = true;
       answer = this._partialAnswerOf(error);
     }
 
-    const spentTokens = Number(service.lastGenerateTextUsage?.totalTokens);
-    if (Number.isFinite(spentTokens)) {
-      usage.tokens = (usage.tokens || 0) + spentTokens;
-    }
+    await this._countRequestTokens(context, promptTokens, answer);
     const completionTokens = Number(
       service.lastGenerateTextUsage?.completionTokens
     );
@@ -1040,7 +1355,7 @@ class EntityMatchAiService {
       this._log(
         `${head()}${spent}, ${tally.same} same / ${tally.different} different / ${tally.unsure + missing} unsure.`
       );
-      return;
+      return report();
     }
 
     // Everything below is a cut-off answer: the provider said so, or the text
@@ -1063,14 +1378,15 @@ class EntityMatchAiService {
         verdicts,
         usage
       );
-      return;
+      if (tracker) tracker.failedRequests += 1;
+      return report();
     }
 
     if (missing.length === 0) {
       this._log(
         `${head()}${spent} — the answer was cut off, salvaged all ${salvaged.recorded} verdict(s).`
       );
-      return;
+      return report();
     }
 
     if (batch.length === 1) {
@@ -1078,7 +1394,7 @@ class EntityMatchAiService {
       this._log(
         `${head()} — the answer hit the token limit for a single pair, giving up on ${batch[0].key}.`
       );
-      return;
+      return report();
     }
 
     const halves = splitInHalves(missing).filter((half) => half.length > 0);
@@ -1087,6 +1403,7 @@ class EntityMatchAiService {
         ? `${head()}${spent} — the answer was cut off, salvaged ${salvaged.recorded}, re-asking ${missing.length} in ${halves.length} request(s).`
         : `${head()}${spent} — the answer hit the token limit, splitting into ${halves.map((half) => half.length).join(' + ')}.`
     );
+    report(halves.length);
     for (const half of halves) {
       await this._judgeBatch(half, context, { isRetry: true });
     }
@@ -1095,8 +1412,18 @@ class EntityMatchAiService {
   /**
    * Asks the model about every pair and returns one verdict per pair.
    *
+   * `plan`, `systemPrompt` and `tracker` are what reviewScan() hands in: it
+   * has sized the batches before the first request of the whole review, so
+   * this must not size them again, and the progress of a request belongs to
+   * the review, not to one round of it. A caller that brings none of them
+   * gets what it always got.
+   *
    * @param {AiReviewPair[]} pairs
-   * @param {{kind:'tags'|'correspondents'}} options
+   * @param {object} options
+   * @param {'tags'|'correspondents'} options.kind
+   * @param {{size:number, promptTokens:number, cap:number, limit:number}} [options.plan]
+   * @param {string} [options.systemPrompt]
+   * @param {object|null} [options.tracker]  the review's bookkeeping
    * @returns {Promise<AiReviewPairsResult>}
    */
   async reviewPairs(pairs, options = {}) {
@@ -1121,8 +1448,9 @@ class EntityMatchAiService {
     }
 
     const service = this._provider();
-    const systemPrompt = this.buildSystemPrompt(kind);
-    const plan = await this._planBatchSize(kind, list, systemPrompt);
+    const systemPrompt = options.systemPrompt || this.buildSystemPrompt(kind);
+    const plan =
+      options.plan || (await this._planBatchSize(kind, list, systemPrompt));
     usage.batchSize = plan.size;
     this._log(
       `${kind}: batch size ${plan.size} of at most ${this.batchSize()} (context limit ${plan.limit} tokens), ` +
@@ -1136,6 +1464,7 @@ class EntityMatchAiService {
       verdicts,
       usage,
       state: { requestNumber: 0 },
+      tracker: options.tracker || null,
     };
     for (const batch of chunk(list, plan.size)) {
       await this._judgeBatch(batch, context);
@@ -1467,12 +1796,21 @@ class EntityMatchAiService {
    * the group and on every member. The page therefore keeps rendering its
    * whole scan and only pays for the groups it asked about.
    *
+   * The work happens in two passes. Pass one reads the archive, builds the
+   * pairs, settles what a rule settles, gathers the evidence and sizes the
+   * batches — for every kind, before a single request leaves the house, so
+   * the page knows how many requests the whole review will take before the
+   * first one. Pass two judges, kind after kind, and reports every answer.
+   *
    * @param {AiReviewOptions} options
+   * @param {AiReviewControl} [control]  what the job that runs this review
+   *   hands in: a signal to stop on, a progress sink, a token budget. An
+   *   empty control is a review nobody watches.
    * @returns {Promise<object>} DuplicateAiReviewResult (see schemas.js): the
    *   scan result with `groups` judged and an `aiReview` of type
    *   {@link AiReviewSummary}
    */
-  async reviewScan(options = {}) {
+  async reviewScan(options = {}, control = {}) {
     if (!this.isEnabled()) {
       throw this._unavailable(
         'The AI review is switched off (DUPLICATES_AI_REVIEW)'
@@ -1483,10 +1821,21 @@ class EntityMatchAiService {
     const documentModel = require('../models/document');
 
     const startedAt = Date.now();
-    const scan = await duplicateMergeService.scan(options);
+    const tracker = this._reviewTracker(control);
     const requested = options.kind || 'all';
     const kinds =
       requested === 'all' ? [...entityNameMatcher.KIND_LIST] : [requested];
+
+    // A review that cannot ask anybody should not read an archive first.
+    this._provider();
+
+    this._report(tracker, {
+      phase: REVIEW_PHASES.SCANNING,
+      kind: null,
+      message: `Scanning ${kinds.join(' and ')} for duplicate names…`,
+    });
+
+    const scan = await duplicateMergeService.scan(options);
     const configuredTagNames =
       typeof duplicateMergeService._configuredTagNames === 'function'
         ? duplicateMergeService._configuredTagNames()
@@ -1540,6 +1889,7 @@ class EntityMatchAiService {
     let tokens = null;
     let spellingRules = 0;
     let escalated = 0;
+    let pairsNotJudged = 0;
     let model = this.modelName();
 
     /** Folds the usage of one round of requests into the totals above. */
@@ -1558,6 +1908,11 @@ class EntityMatchAiService {
       }
     };
 
+    // ---------------------------------------------------------- pass one
+    // Everything that decides what this review will cost, for every kind,
+    // before the first request: the pairs, the evidence, the batch sizes.
+    /** @type {object[]} */
+    const plans = [];
     for (const kind of kinds) {
       const groups = (scan.groups || []).filter((group) => group.kind === kind);
       const selected = this._selectGroups(groups, selectedIds, minConfidence);
@@ -1569,7 +1924,7 @@ class EntityMatchAiService {
       // makes a targeted review cheap: one scan, no second read per kind.
       let entities = [];
       let band = [];
-      if (includeCandidates) {
+      if (includeCandidates && !this._stopped(tracker)) {
         entities = await paperlessService.listEntities(kind);
 
         let dismissed = [];
@@ -1598,22 +1953,40 @@ class EntityMatchAiService {
       candidateCount += candidates.length;
       judged += pairs.length;
       spellingRules += settled.size;
+      if (tracker) tracker.spellingRules = spellingRules;
 
       // The evidence is gathered before the start line, so the line can say
       // what the model is about to see rather than what it was offered.
       let asked = pairs;
       let spellingOnly = 0;
       const fetchedBefore = excerptStore.entities.size;
-      if (pairs.length > 0 && withTitles) {
+      const gathering = pairs.length > 0 && !this._stopped(tracker);
+      if (gathering && withTitles) {
+        this._report(tracker, {
+          phase: REVIEW_PHASES.EVIDENCE,
+          kind,
+          message: `Reading titles and neighbours for ${this._entityCount(pairs)} entities…`,
+        });
         asked = await this._addTitles(kind, asked);
         asked = await this._addNeighbourhood(kind, asked, excerptStore);
       }
-      if (pairs.length > 0 && withExcerpts) {
+      if (gathering && withExcerpts) {
+        const spellingEntities = this._entityCount(
+          pairs.filter((pair) => SPELLING_ONLY_REASON_SET.has(pair.matchedBy))
+        );
+        if (spellingEntities > 0) {
+          this._report(tracker, {
+            phase: REVIEW_PHASES.EVIDENCE,
+            kind,
+            message: `Reading excerpts for ${spellingEntities} entities…`,
+          });
+        }
         const evidence = await this._addExcerpts(kind, asked, excerptStore);
         asked = evidence.pairs;
         spellingOnly = evidence.spellingOnly;
       }
       const fetchedHere = excerptStore.entities.size - fetchedBefore;
+      if (tracker) tracker.excerpts = excerptStore.entities.size;
 
       this._log(
         [
@@ -1637,15 +2010,76 @@ class EntityMatchAiService {
           `model ${model || 'unknown'}`,
         ].join(', ') + '.'
       );
-      if (pairs.length === 0) {
-        // A group whose members a rule settled still carries its verdicts.
+
+      const systemPrompt = this.buildSystemPrompt(kind);
+      let plan = null;
+      if (asked.length > 0 && !this._stopped(tracker)) {
+        plan = await this._planBatchSize(kind, asked, systemPrompt);
+        if (tracker) {
+          const planned = Math.ceil(asked.length / plan.size);
+          tracker.requestsPlanned += planned;
+          tracker.pairsTotal += asked.length;
+          tracker.estimatedTokens += planned * (plan.promptTokens + plan.cap);
+        }
+      }
+      plans.push({
+        kind,
+        groups,
+        entities,
+        candidates,
+        candidateEdges,
+        settled,
+        asked,
+        plan,
+        systemPrompt,
+      });
+    }
+
+    if (tracker && tracker.requestsPlanned > 0 && !this._stopped(tracker)) {
+      this._report(tracker, {
+        phase: REVIEW_PHASES.JUDGING,
+        kind: null,
+        requestsPlanned: tracker.requestsPlanned,
+        pairsTotal: tracker.pairsTotal,
+        estimatedTokens: tracker.estimatedTokens,
+        spellingRules: tracker.spellingRules,
+        excerpts: tracker.excerpts,
+        message: `Asking the model, request 1 of ${tracker.requestsPlanned}`,
+      });
+    }
+
+    // ---------------------------------------------------------- pass two
+    for (const planned of plans) {
+      const {
+        kind,
+        groups,
+        entities,
+        candidates,
+        candidateEdges,
+        settled,
+        asked,
+        plan,
+        systemPrompt,
+      } = planned;
+
+      if (!plan || this._stopped(tracker)) {
+        // Nothing to ask about, or the review stopped before this kind. A
+        // group whose members a rule settled still carries its verdicts; the
+        // pairs nobody asked about get none, so they cannot become a group.
         scanGroups.push(
           ...groups.map((group) => this._withVerdicts(group, settled))
         );
+        pairsNotJudged += asked.length;
         continue;
       }
+      if (tracker) tracker.kind = kind;
 
-      const review = await this.reviewPairs(asked, { kind });
+      const review = await this.reviewPairs(asked, {
+        kind,
+        plan,
+        systemPrompt,
+        tracker,
+      });
       foldUsage(review.usage);
       model = review.model || model;
 
@@ -1653,15 +2087,17 @@ class EntityMatchAiService {
       // for is asked again, this time with the documents. That is the cheap
       // half of the evidence budget — it is spent only where the first answer
       // says the names alone were not enough.
-      const unsureWithoutExcerpts = withExcerpts
-        ? asked.filter(
-            (pair) =>
-              review.verdicts.get(pair.key)?.verdict === AI_VERDICTS.UNSURE &&
-              (pair.a?.sampleExcerpts || []).length === 0 &&
-              (pair.b?.sampleExcerpts || []).length === 0
-          )
-        : [];
+      const unsureWithoutExcerpts =
+        withExcerpts && !this._stopped(tracker)
+          ? asked.filter(
+              (pair) =>
+                review.verdicts.get(pair.key)?.verdict === AI_VERDICTS.UNSURE &&
+                (pair.a?.sampleExcerpts || []).length === 0 &&
+                (pair.b?.sampleExcerpts || []).length === 0
+            )
+          : [];
       if (unsureWithoutExcerpts.length > 0) {
+        const beforeEscalation = excerptStore.entities.size;
         const evidence = await this._addExcerpts(
           kind,
           unsureWithoutExcerpts,
@@ -1678,12 +2114,44 @@ class EntityMatchAiService {
         );
         this._log(
           `${kind}: escalated ${again.length} of ${unsureWithoutExcerpts.length} unsure pair(s) with excerpts, ` +
-            `${excerptStore.entities.size - fetchedBefore - fetchedHere} entity/entities fetched.`
+            `${excerptStore.entities.size - beforeEscalation} entity/entities fetched.`
         );
-        if (again.length > 0) {
-          const second = await this.reviewPairs(again, { kind });
-          foldUsage(second.usage);
+        if (tracker) tracker.excerpts = excerptStore.entities.size;
+        if (again.length > 0 && !this._stopped(tracker)) {
+          // The second round is requests the plan did not know about, so the
+          // page is told about them before they are made.
+          const secondPlan = await this._planBatchSize(
+            kind,
+            again,
+            systemPrompt
+          );
           escalated += again.length;
+          if (tracker) {
+            tracker.requestsPlanned += Math.ceil(
+              again.length / secondPlan.size
+            );
+            // The escalated pairs are asked a second time, so they are due a
+            // second time: both ends of the bar grow, and what the page shows
+            // as judged never overtakes what it shows as planned.
+            tracker.pairsTotal += again.length;
+            tracker.escalated = escalated;
+            this._report(tracker, {
+              phase: REVIEW_PHASES.ESCALATING,
+              kind,
+              requestsPlanned: tracker.requestsPlanned,
+              pairsTotal: tracker.pairsTotal,
+              escalated: tracker.escalated,
+              excerpts: tracker.excerpts,
+              message: `Asking once more about ${again.length} unsure pairs, with excerpts…`,
+            });
+          }
+          const second = await this.reviewPairs(again, {
+            kind,
+            plan: secondPlan,
+            systemPrompt,
+            tracker,
+          });
+          foldUsage(second.usage);
           for (const [key, verdict] of second.verdicts) {
             review.verdicts.set(key, verdict);
           }
@@ -1693,6 +2161,7 @@ class EntityMatchAiService {
       // The rule's verdicts and the model's answers are one map from here on;
       // a group aggregates them without knowing which is which.
       const verdicts = new Map([...settled, ...review.verdicts]);
+      pairsNotJudged += asked.filter((pair) => !verdicts.has(pair.key)).length;
       scanGroups.push(
         ...groups.map((group) => this._withVerdicts(group, verdicts))
       );
@@ -1726,6 +2195,12 @@ class EntityMatchAiService {
       }
     }
 
+    this._report(tracker, {
+      phase: REVIEW_PHASES.FINISHING,
+      kind: null,
+      message: 'Building the groups…',
+    });
+
     candidateGroups.sort(
       (x, y) =>
         y.confidence - x.confidence || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)
@@ -1735,6 +2210,14 @@ class EntityMatchAiService {
     const confirmed = groups.filter(
       (group) => group.aiVerdict?.verdict === AI_VERDICTS.SAME
     ).length;
+    const stopped = this._stopped(tracker);
+    if (stopped) {
+      this._log(
+        `review stopped (${this._stopReason(tracker)}): ` +
+          `${tracker.requestsDone} of ${tracker.requestsPlanned} request(s) made, ` +
+          `${pairsNotJudged} pair(s) not judged, ${tracker.tokens ?? 0} token(s).`
+      );
+    }
     this._log(
       `review finished: ${requests} request(s) (${retries} retry/retries, ${failedRequests} failed), ` +
         `${tokens == null ? 'unknown' : tokens} token(s), ${judged} pair(s) judged, ` +
@@ -1764,6 +2247,11 @@ class EntityMatchAiService {
         excerpts: excerptStore.entities.size,
         spellingRules,
         escalated,
+        // Always present, so the page never has to guess: a review that ran
+        // through says so with false, null and 0.
+        stopped,
+        stopReason: null,
+        pairsNotJudged,
       },
     };
   }
@@ -1809,6 +2297,7 @@ entityMatchAiService.CONFIDENCE_LEVELS = CONFIDENCE_LEVELS;
 entityMatchAiService.SPELLING_ONLY_REASONS = SPELLING_ONLY_REASONS;
 entityMatchAiService.SETTLED_REASON_BASES = SETTLED_REASON_BASES;
 entityMatchAiService.CANDIDATE_LIMIT = CANDIDATE_LIMIT;
+entityMatchAiService.REVIEW_PHASES = REVIEW_PHASES;
 entityMatchAiService.TOKENS_PER_PAIR = TOKENS_PER_PAIR;
 entityMatchAiService.TOKENS_OVERHEAD = TOKENS_OVERHEAD;
 entityMatchAiService.TOKENS_CONTEXT_MARGIN = TOKENS_CONTEXT_MARGIN;
