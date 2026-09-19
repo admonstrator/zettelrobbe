@@ -872,6 +872,15 @@
  *                 batchSize:
  *                   type: integer
  *                   description: pairs per request actually used after sizing by the token budget
+ *                 targeted:
+ *                   type: boolean
+ *                   description: true when groupIds, minConfidence or includeCandidates narrowed the review
+ *                 groupsJudged:
+ *                   type: integer
+ *                   description: scan groups the model was asked about
+ *                 groupsSkipped:
+ *                   type: integer
+ *                   description: scan groups returned without a verdict because the targeting left them out
  *
  *     EntityMergeDismissRequest:
  *       type: object
