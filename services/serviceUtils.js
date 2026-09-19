@@ -785,11 +785,18 @@ function validateCustomFieldValue(fieldName, rawValue, dataType) {
  * scan loop records it as the failure reason, and rewording should not
  * silently reclassify the failure.
  *
+ * Ollama has no choices array; generateText() hands in a response shaped like
+ * one so that a cut-off answer reads the same whichever provider produced it.
+ *
  * @param {Object} response - chat.completions response
  * @param {string} provider - name for the message, e.g. "OpenAI"
  * @param {string} remedy - sentence naming the limit the operator can raise
+ * @param {Object} [extra] - what the caller salvaged from the cut-off answer
+ * @param {string} [extra.partialText] - the text that did arrive, reasoning
+ *   stripped; put on the error as `partialText` so a caller can keep it
+ *   instead of paying for the whole answer again
  */
-function assertCompletionNotTruncated(response, provider, remedy) {
+function assertCompletionNotTruncated(response, provider, remedy, extra) {
   if (response?.choices?.[0]?.finish_reason !== 'length') {
     return;
   }
@@ -801,6 +808,9 @@ function assertCompletionNotTruncated(response, provider, remedy) {
     `${provider} stopped generating${spent} because the answer hit a token limit. ${remedy}`
   );
   error.code = 'ai_response_truncated';
+  if (typeof extra?.partialText === 'string') {
+    error.partialText = extra.partialText;
+  }
   throw error;
 }
 
@@ -950,6 +960,26 @@ function extractChatMessageContent(
   return '';
 }
 
+/**
+ * The character-based token estimate, on a length rather than on a string.
+ *
+ * A stream never holds the whole answer: it counts the characters that went
+ * past, reasoning included, and asks for a number of tokens for them. That is
+ * the same ÷4 approximation estimateTokensForNonOpenAI() applies to a string,
+ * so a streamed count and a counted string do not disagree.
+ *
+ * @param {string|number} textOrLength - the text, or how many characters of it
+ * @returns {number} estimated tokens, never negative
+ */
+function estimateTokenCount(textOrLength) {
+  const length =
+    typeof textOrLength === 'number' && Number.isFinite(textOrLength)
+      ? Math.max(0, Math.floor(textOrLength))
+      : String(textOrLength ?? '').length;
+
+  return Math.ceil(length / 4);
+}
+
 module.exports = {
   calculateTokens,
   calculateTotalPromptTokens,
@@ -968,4 +998,5 @@ module.exports = {
   extractChatMessageContent,
   isTimeoutError,
   buildTimeoutErrorMessage,
+  estimateTokenCount,
 };
