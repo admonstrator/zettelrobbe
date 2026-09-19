@@ -3877,6 +3877,8 @@ const ENV_EXPORT_GROUPS = [
       'DUPLICATES_AI_EXCERPTS',
       'DUPLICATES_AI_EXCERPT_CHARS',
       'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+      'DUPLICATES_AI_TOKEN_BUDGET',
+      'DUPLICATES_AI_IDLE_STOP_SECONDS',
     ],
   },
   {
@@ -6973,6 +6975,10 @@ router.get('/settings', async (req, res) => {
       process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
     DUPLICATES_AI_EXCERPT_DOCUMENTS:
       process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+    DUPLICATES_AI_TOKEN_BUDGET:
+      process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+    DUPLICATES_AI_IDLE_STOP_SECONDS:
+      process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
@@ -8468,6 +8474,18 @@ router.get('/health', async (req, res) => {
  *                 maximum: 5
  *                 description: Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.
  *                 example: 2
+ *               duplicatesAiTokenBudget:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 10000000
+ *                 description: The most one AI review may spend across all its requests, prompt and completion (0-10000000, default 200000). When it is reached the review stops itself and keeps the verdicts it has; 0 means no limit. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 200000
+ *               duplicatesAiIdleStopSeconds:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 3600
+ *                 description: A running review that no page has been watching for this many seconds stops itself, so a closed tab cannot leave the model running (0-3600, default 60). 0 means never. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 60
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)
@@ -8579,6 +8597,8 @@ router.post('/settings', express.json(), async (req, res) => {
       duplicatesAiExcerpts,
       duplicatesAiExcerptChars,
       duplicatesAiExcerptDocuments,
+      duplicatesAiTokenBudget,
+      duplicatesAiIdleStopSeconds,
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
@@ -8669,6 +8689,10 @@ router.post('/settings', express.json(), async (req, res) => {
         process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
       DUPLICATES_AI_EXCERPT_DOCUMENTS:
         process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+      DUPLICATES_AI_TOKEN_BUDGET:
+        process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+      DUPLICATES_AI_IDLE_STOP_SECONDS:
+        process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
@@ -9119,6 +9143,23 @@ router.post('/settings', express.json(), async (req, res) => {
         duplicatesAiExcerptDocuments,
         currentConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS,
         { min: 1, max: 5 }
+      );
+    }
+    // The two brakes of a running review. Zero is a meaningful value for both
+    // (no token limit, never stop an unwatched review), so the ranges start
+    // there instead of at one.
+    if (duplicatesAiTokenBudget !== undefined) {
+      updatedConfig.DUPLICATES_AI_TOKEN_BUDGET = sanitizeDuplicatesNumber(
+        duplicatesAiTokenBudget,
+        currentConfig.DUPLICATES_AI_TOKEN_BUDGET,
+        { min: 0, max: 10000000 }
+      );
+    }
+    if (duplicatesAiIdleStopSeconds !== undefined) {
+      updatedConfig.DUPLICATES_AI_IDLE_STOP_SECONDS = sanitizeDuplicatesNumber(
+        duplicatesAiIdleStopSeconds,
+        currentConfig.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        { min: 0, max: 3600 }
       );
     }
 

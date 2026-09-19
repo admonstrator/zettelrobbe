@@ -826,6 +826,16 @@ const quickstartKeyStored =
                                     <input type="number" id="duplicatesAiExcerptDocuments" name="duplicatesAiExcerptDocuments" min="1" max="5" step="1" value="<%= config.DUPLICATES_AI_EXCERPT_DOCUMENTS || 2 %>" class="zr-input">
                                     <p class="zr-field__hint">How many documents of each tag or correspondent are sampled for those excerpts (1-5) · Default: 2 · Restart required</p>
                                 </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiTokenBudget" class="zr-field__name">Token budget per review</label>
+                                    <input type="number" id="duplicatesAiTokenBudget" name="duplicatesAiTokenBudget" min="0" max="10000000" step="1000" value="<%= config.DUPLICATES_AI_TOKEN_BUDGET || 200000 %>" class="zr-input">
+                                    <p class="zr-field__hint">The most one review may spend across all its requests; when it is reached the review stops and keeps the verdicts it has, and 0 means no limit (0-10000000) · Default: 200000 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiIdleStopSeconds" class="zr-field__name">Stop an unwatched review after (seconds)</label>
+                                    <input type="number" id="duplicatesAiIdleStopSeconds" name="duplicatesAiIdleStopSeconds" min="0" max="3600" step="1" value="<%= config.DUPLICATES_AI_IDLE_STOP_SECONDS || 60 %>" class="zr-input">
+                                    <p class="zr-field__hint">A review nobody has been watching for this long stops itself, so a closed tab cannot leave the model running, and 0 means never (0-3600) · Default: 60 · Restart required</p>
+                                </div>
                                 </div>
                             </section>
                         </div>

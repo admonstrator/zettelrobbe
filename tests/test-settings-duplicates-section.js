@@ -5,10 +5,10 @@
  *
  * Every DUPLICATES_* variable used to be reachable only by editing the
  * container environment, which is exactly the kind of setting the settings
- * page exists for. The section makes the seven of them editable, so this test
+ * page exists for. The section makes the nine of them editable, so this test
  * holds the whole path together: the rendered fields, the nav entry that
- * reaches them, the POST that stores them, and the .env export that lists
- * them.
+ * reaches them, the POST that stores them, the "Managed by ENV" marking that
+ * greys them out, and the .env export that lists them.
  *
  * Two behaviours are deliberate and therefore pinned here. A number outside
  * its range is clamped rather than rejected — the ranges are guard rails, not
@@ -16,12 +16,20 @@
  * at all (or a cleared field) keeps what is configured now, so a typo cannot
  * silently reset a setting to its default.
  *
+ * The two brakes of a running review — the token budget and the idle stop —
+ * are the only fields of the section whose range starts at zero, because zero
+ * is a meaningful value for both (no token limit, never stop an unwatched
+ * review) rather than an unset one. A clamp that treated them like the others
+ * would quietly turn "no limit" into the smallest allowed limit.
+ *
  * The page is rendered through the real router, so a field that stops being
  * emitted, a renamed body key or a group missing from the export all fail
  * here rather than in production.
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const { mountRouter } = require('./helpers/mount-router');
 
 const API_KEY = 'test-api-key';
@@ -78,6 +86,8 @@ const START_ENV = {
   DUPLICATES_AI_EXCERPTS: 'no',
   DUPLICATES_AI_EXCERPT_CHARS: '120',
   DUPLICATES_AI_EXCERPT_DOCUMENTS: '4',
+  DUPLICATES_AI_TOKEN_BUDGET: '120000',
+  DUPLICATES_AI_IDLE_STOP_SECONDS: '90',
 };
 
 const ENV_KEYS = Object.keys(START_ENV);
@@ -99,6 +109,11 @@ const FIELDS = [
   {
     input: 'duplicatesAiExcerptDocuments',
     envKey: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+  },
+  { input: 'duplicatesAiTokenBudget', envKey: 'DUPLICATES_AI_TOKEN_BUDGET' },
+  {
+    input: 'duplicatesAiIdleStopSeconds',
+    envKey: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
   },
 ];
 
@@ -262,13 +277,86 @@ function sliceBetween(source, from, to) {
 
       assert.strictEqual(
         countOccurrences(section, 'class="zr-field__hint"'),
-        7,
-        'each of the seven fields says what it does and what its default is'
+        9,
+        'each of the nine fields says what it does and what its default is'
       );
     });
 
-    // ── 2. Saving stores all seven ──────────────────────────────────────────
-    await test('POST /settings persists all seven values', async () => {
+    await test('the two brakes render as number fields with a range that starts at zero', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+
+      const budget = sliceBetween(
+        section,
+        'id="duplicatesAiTokenBudget"',
+        '</div>'
+      );
+      assert.ok(
+        budget.includes('min="0"') &&
+          budget.includes('max="10000000"') &&
+          budget.includes('step="1000"'),
+        'the token budget spans 0 to 10000000 and steps in thousands'
+      );
+      assert.ok(
+        budget.includes('value="120000"'),
+        'the token budget shows the configured DUPLICATES_AI_TOKEN_BUDGET'
+      );
+      assert.ok(
+        /0 means no limit/.test(budget) && /Default: 200000/.test(budget),
+        'its hint says what zero means and what the default is'
+      );
+
+      const idle = sliceBetween(
+        section,
+        'id="duplicatesAiIdleStopSeconds"',
+        '</div>'
+      );
+      assert.ok(
+        idle.includes('min="0"') &&
+          idle.includes('max="3600"') &&
+          idle.includes('step="1"'),
+        'the idle stop spans 0 to 3600 seconds'
+      );
+      assert.ok(
+        idle.includes('value="90"'),
+        'the idle stop shows the configured DUPLICATES_AI_IDLE_STOP_SECONDS'
+      );
+      assert.ok(
+        /0 means never/.test(idle) && /Default: 60/.test(idle),
+        'its hint says what zero means and what the default is'
+      );
+
+      // The brakes belong to the section, and they close it — the AI review
+      // settings above them describe what one request looks like, these two
+      // describe when the whole run has to stop.
+      assert.ok(
+        section.indexOf('id="duplicatesAiExcerptDocuments"') <
+          section.indexOf('id="duplicatesAiTokenBudget"') &&
+          section.indexOf('id="duplicatesAiTokenBudget"') <
+            section.indexOf('id="duplicatesAiIdleStopSeconds"'),
+        'the budget and the idle stop close the section, in that order'
+      );
+    });
+
+    await test('every field of the section is marked when it is managed by the environment', async () => {
+      const markedFields = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'js', 'settings.js'),
+        'utf8'
+      );
+
+      FIELDS.forEach(({ input, envKey }) => {
+        const entry = new RegExp(
+          `selector:\\s*'#${input}',\\s*envKey:\\s*'${envKey}'`
+        );
+        assert.ok(
+          entry.test(markedFields),
+          `${input} must be paired with ${envKey} in settings.js, or an operator-set value is never greyed out`
+        );
+      });
+    });
+
+    // ── 2. Saving stores all nine ───────────────────────────────────────────
+    await test('POST /settings persists all nine values', async () => {
       const response = await postSettings({
         duplicatesAiReview: 'yes',
         duplicatesAiModel: '  gpt-judge  ',
@@ -277,6 +365,8 @@ function sliceBetween(source, from, to) {
         duplicatesAiExcerpts: 'yes',
         duplicatesAiExcerptChars: '250',
         duplicatesAiExcerptDocuments: '3',
+        duplicatesAiTokenBudget: '75000',
+        duplicatesAiIdleStopSeconds: '30',
       });
       assert.strictEqual(response.status, 200, await response.text());
 
@@ -288,6 +378,8 @@ function sliceBetween(source, from, to) {
         DUPLICATES_AI_EXCERPTS: 'yes',
         DUPLICATES_AI_EXCERPT_CHARS: '250',
         DUPLICATES_AI_EXCERPT_DOCUMENTS: '3',
+        DUPLICATES_AI_TOKEN_BUDGET: '75000',
+        DUPLICATES_AI_IDLE_STOP_SECONDS: '30',
       };
       Object.entries(expected).forEach(([key, value]) => {
         assert.strictEqual(
@@ -324,6 +416,8 @@ function sliceBetween(source, from, to) {
         duplicatesAiCandidateFloor: '0.1',
         duplicatesAiExcerptChars: '5',
         duplicatesAiExcerptDocuments: '9',
+        duplicatesAiTokenBudget: '99999999',
+        duplicatesAiIdleStopSeconds: '-5',
       });
       assert.strictEqual(response.status, 200, await response.text());
 
@@ -333,6 +427,48 @@ function sliceBetween(source, from, to) {
       assert.strictEqual(saved.DUPLICATES_AI_CANDIDATE_FLOOR, '0.5');
       assert.strictEqual(saved.DUPLICATES_AI_EXCERPT_CHARS, '50');
       assert.strictEqual(saved.DUPLICATES_AI_EXCERPT_DOCUMENTS, '5');
+      assert.strictEqual(
+        saved.DUPLICATES_AI_TOKEN_BUDGET,
+        '10000000',
+        'a budget above the ceiling is capped, not rejected'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        '0',
+        'a negative idle stop lands on zero, which means "never"'
+      );
+    });
+
+    await test('zero is kept for both brakes, because it is a value and not an unset field', async () => {
+      const response = await postSettings({
+        duplicatesAiTokenBudget: '0',
+        duplicatesAiIdleStopSeconds: '0',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const saved = lastSaved();
+      assert.strictEqual(
+        saved.DUPLICATES_AI_TOKEN_BUDGET,
+        '0',
+        '0 means no token limit and must survive the round trip'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        '0',
+        '0 means an unwatched review is never stopped'
+      );
+    });
+
+    await test('a fractional budget is rounded rather than stored as a fraction', async () => {
+      const response = await postSettings({
+        duplicatesAiTokenBudget: '1500.7',
+        duplicatesAiIdleStopSeconds: '45.2',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const saved = lastSaved();
+      assert.strictEqual(saved.DUPLICATES_AI_TOKEN_BUDGET, '1501');
+      assert.strictEqual(saved.DUPLICATES_AI_IDLE_STOP_SECONDS, '45');
     });
 
     await test('a value that is not a number keeps the previous one', async () => {
@@ -342,6 +478,8 @@ function sliceBetween(source, from, to) {
         duplicatesAiCandidateFloor: 'high',
         duplicatesAiExcerptChars: '',
         duplicatesAiExcerptDocuments: 'lots',
+        duplicatesAiTokenBudget: '',
+        duplicatesAiIdleStopSeconds: 'forever',
       });
       assert.strictEqual(response.status, 200, await response.text());
 
@@ -359,10 +497,20 @@ function sliceBetween(source, from, to) {
         'a cleared field must not reset the setting to its default'
       );
       assert.strictEqual(saved.DUPLICATES_AI_EXCERPT_DOCUMENTS, '5');
+      assert.strictEqual(
+        saved.DUPLICATES_AI_TOKEN_BUDGET,
+        '1501',
+        'a cleared budget keeps what the last save stored, not the default'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        '45',
+        'an unparsable idle stop keeps what the last save stored'
+      );
     });
 
     // ── 4. The .env export lists them ───────────────────────────────────────
-    await test('the .env export carries a Duplicates group with all seven keys', async () => {
+    await test('the .env export carries a Duplicates group with all nine keys', async () => {
       const response = await fetch(harness.base + '/api/settings/env-file', {
         headers: { 'x-api-key': API_KEY },
       });
@@ -378,6 +526,16 @@ function sliceBetween(source, from, to) {
           `${key} must be part of the exported configuration`
         );
       });
+
+      // The export is read top to bottom by a human pasting it into a compose
+      // file, so the two brakes follow the settings they brake.
+      assert.ok(
+        env.indexOf('DUPLICATES_AI_EXCERPT_DOCUMENTS=') <
+          env.indexOf('DUPLICATES_AI_TOKEN_BUDGET=') &&
+          env.indexOf('DUPLICATES_AI_TOKEN_BUDGET=') <
+            env.indexOf('DUPLICATES_AI_IDLE_STOP_SECONDS='),
+        'the group lists the budget and the idle stop after the round-6 keys, in that order'
+      );
     });
   } finally {
     await harness.close();
