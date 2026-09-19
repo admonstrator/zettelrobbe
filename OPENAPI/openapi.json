@@ -1228,12 +1228,192 @@
                   "spellingRules": {
                     "type": "integer",
                     "description": "pairs settled by the matcher's hard tiers (exact, umlaut, legal form) without asking the model"
+                  },
+                  "stopped": {
+                    "type": "boolean",
+                    "description": "true when the review ended before every pair was judged; the verdicts it did reach are in the groups"
+                  },
+                  "stopReason": {
+                    "type": "string",
+                    "nullable": true,
+                    "enum": [
+                      "user",
+                      "token-budget",
+                      "idle"
+                    ],
+                    "description": "why a stopped review ended; null when it ran through"
+                  },
+                  "pairsNotJudged": {
+                    "type": "integer",
+                    "description": "pairs that were due but never reached the model because the review stopped"
                   }
                 }
               }
             }
           }
         ]
+      },
+      "AiReviewProgress": {
+        "type": "object",
+        "description": "Where a running review is. Every field is present; a count that is not known yet is null.",
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "scanning",
+              "evidence",
+              "judging",
+              "escalating",
+              "finishing"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "one line for the page, e.g. \"Asking the model, request 3 of 8\""
+          },
+          "kind": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "tags",
+              "correspondents"
+            ],
+            "description": "the kind being worked on, null between kinds"
+          },
+          "requestsDone": {
+            "type": "integer"
+          },
+          "requestsPlanned": {
+            "type": "integer",
+            "nullable": true,
+            "description": "requests the plan expects for the whole review; grows when a cut-off answer is re-asked in halves"
+          },
+          "pairsJudged": {
+            "type": "integer"
+          },
+          "pairsTotal": {
+            "type": "integer",
+            "nullable": true,
+            "description": "pairs the review will ask about across all kinds"
+          },
+          "tokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "tokens spent so far, prompt and completion"
+          },
+          "tokenBudget": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the configured ceiling for this review; null when there is none"
+          },
+          "estimatedTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "what the plan expects the whole review to cost, known once the batches are sized"
+          },
+          "elapsedMs": {
+            "type": "integer"
+          },
+          "etaMs": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the remaining time the request rate so far suggests; null before the first request answered"
+          },
+          "excerpts": {
+            "type": "integer"
+          },
+          "escalated": {
+            "type": "integer"
+          },
+          "spellingRules": {
+            "type": "integer"
+          },
+          "failedRequests": {
+            "type": "integer"
+          },
+          "retries": {
+            "type": "integer"
+          }
+        }
+      },
+      "AiReviewJob": {
+        "type": "object",
+        "description": "One AI review running on the server, or the last one that finished. There is at most one at a time.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "stopping",
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "options": {
+            "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stopReason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "user",
+              "token-budget",
+              "idle"
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/AiReviewProgress"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "the message of a failed review"
+          },
+          "hasResult": {
+            "type": "boolean",
+            "description": "true when the job carries a DuplicateAiReviewResult (done, or stopped with partial verdicts)"
+          }
+        }
+      },
+      "AiReviewJobEvent": {
+        "type": "object",
+        "description": "One server-sent event of a review job. The stream ends after done, stopped or failed.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "progress",
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "job": {
+            "$ref": "#/components/schemas/AiReviewJob"
+          },
+          "data": {
+            "description": "the DuplicateAiReviewResult on done and on stopped (partial); absent otherwise",
+            "$ref": "#/components/schemas/DuplicateAiReviewResult"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        }
       },
       "EntityMergeDismissRequest": {
         "type": "object",
