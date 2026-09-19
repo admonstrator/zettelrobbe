@@ -10,6 +10,7 @@ const {
 const {
   hasNumber,
   hasSystemPrompt,
+  modelOverride,
   readCompletionUsage,
 } = require('./aiGenerateOptions');
 const axios = require('axios');
@@ -534,7 +535,9 @@ class AzureOpenAIService {
         throw new Error('AzureOpenAI client not initialized - missing API key');
       }
 
-      const model = process.env.AZURE_DEPLOYMENT_NAME;
+      // Azure addresses a deployment rather than a model, so an override
+      // names the deployment to send this one request to.
+      const model = modelOverride(options) || process.env.AZURE_DEPLOYMENT_NAME;
       const messages = [];
       if (hasSystemPrompt(options)) {
         messages.push({ role: 'system', content: options.systemPrompt });

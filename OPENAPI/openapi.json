@@ -1085,6 +1085,29 @@
           "reason": {
             "type": "string",
             "description": "one short sentence from the model"
+          },
+          "basis": {
+            "type": "string",
+            "nullable": true,
+            "description": "the rule the model applied; one of case-or-spacing, umlaut, legal-form, plural, abbreviation, translation, synonym, typo, different-thing, different-topic, insufficient-evidence, or null when the model gave none"
+          },
+          "confidence": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "high",
+              "low"
+            ],
+            "description": "how sure the model is; the AI proposal pre-ticks only same with high"
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "model",
+              "spelling-rule"
+            ],
+            "description": "spelling-rule when the matcher's hard tier settled the pair and the model was not asked"
           }
         }
       },
@@ -1129,6 +1152,11 @@
             "type": "boolean",
             "default": true,
             "description": "false skips the band of near-misses below the threshold, so only scan groups are judged"
+          },
+          "withExcerpts": {
+            "type": "boolean",
+            "default": true,
+            "description": "give the model short content excerpts of a couple of documents per entity for pairs the matcher linked by spelling alone"
           }
         }
       },
@@ -1188,6 +1216,18 @@
                   "groupsSkipped": {
                     "type": "integer",
                     "description": "scan groups returned without a verdict because the targeting left them out"
+                  },
+                  "excerpts": {
+                    "type": "integer",
+                    "description": "entities whose document excerpts were fetched as evidence"
+                  },
+                  "escalated": {
+                    "type": "integer",
+                    "description": "pairs the model called unsure that were asked once more with excerpts"
+                  },
+                  "spellingRules": {
+                    "type": "integer",
+                    "description": "pairs settled by the matcher's hard tiers (exact, umlaut, legal form) without asking the model"
                   }
                 }
               }
@@ -4682,6 +4722,57 @@
                     "description": "Disable automatic document processing",
                     "example": false
                   },
+                  "duplicatesAiReview": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Offer the AI review on the Duplicates page (yes/no). Default yes. Scanning and merging work without it.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiModel": {
+                    "type": "string",
+                    "description": "Model of the configured provider used only for judging duplicates. Empty means the provider's configured model.",
+                    "example": ""
+                  },
+                  "duplicatesAiReviewBatchSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Name pairs per model request (1-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 25
+                  },
+                  "duplicatesAiCandidateFloor": {
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 0.95,
+                    "description": "Lowest matcher score a pair needs to be shown to the model (0.50-0.95, default 0.6). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 0.6
+                  },
+                  "duplicatesAiExcerpts": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Send document excerpts for pairs the matcher linked by spelling alone (yes/no). Default yes.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiExcerptChars": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 500,
+                    "description": "Excerpt length in characters (50-500, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 300
+                  },
+                  "duplicatesAiExcerptDocuments": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 2
+                  },
                   "ocrAutoProcessEnabled": {
                     "type": "string",
                     "description": "Process queued OCR documents automatically (yes/no)",
@@ -6418,7 +6509,7 @@
     "/api/duplicates/ai-review": {
       "post": {
         "summary": "Let the configured AI provider judge what the scan found",
-        "description": "Runs the same scan as `/api/duplicates/scan`, shows the configured AI\nprovider every pair of the groups plus a wider band of near-misses,\nand returns the scan result with the model's verdict attached to each\ngroup and member. Groups the model confirmed below the sensitivity\narrive as extra groups with `source: ai-candidate`.\n\nRead-only and never automatic: it runs when the user asks for it,\nnothing is merged, and a verdict is information the user decides on.\n`withTitles` lets the model see a few recent document titles per\nentry as context; leave it out and it is on.\n\nThe review can be targeted, which is what makes it cheap on a large\narchive: `groupIds` names the scan groups to judge, `minConfidence`\njudges only groups scoring at least that much, and\n`includeCandidates: false` leaves the band of near-misses out\nentirely. Together they narrow the question, not the answer — every\ngroup of the scan still comes back, the ones nobody asked about with\n`aiVerdict: null` on the group and its members. A group id this scan\ndoes not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`\nand `aiReview.groupsSkipped` report what the targeting did.\n",
+        "description": "Runs the same scan as `/api/duplicates/scan`, shows the configured AI\nprovider every pair of the groups plus a wider band of near-misses,\nand returns the scan result with the model's verdict attached to each\ngroup and member. Groups the model confirmed below the sensitivity\narrive as extra groups with `source: ai-candidate`.\n\nRead-only and never automatic: it runs when the user asks for it,\nnothing is merged, and a verdict is information the user decides on.\n\nTwo options say how much the model gets to see. `withTitles` gives it\na few recent document titles per entry and the entries it is usually\nfiled with; `withExcerpts` adds the beginning of a couple of documents\nper entry, but only for the pairs the matcher linked by spelling alone\n(\"Kontoauszug\" / \"Kontoumzug\"), which is where names and titles are\nnot enough. Both default to on; `withExcerpts` is capped by\nDUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS and\nDUPLICATES_AI_EXCERPT_DOCUMENTS. `aiReview.excerpts` reports how many\nentries were read.\n\nThe review can be targeted, which is what makes it cheap on a large\narchive: `groupIds` names the scan groups to judge, `minConfidence`\njudges only groups scoring at least that much, and\n`includeCandidates: false` leaves the band of near-misses out\nentirely. Together they narrow the question, not the answer — every\ngroup of the scan still comes back, the ones nobody asked about with\n`aiVerdict: null` on the group and its members. A group id this scan\ndoes not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`\nand `aiReview.groupsSkipped` report what the targeting did.\n",
         "tags": [
           "Duplicates",
           "API"

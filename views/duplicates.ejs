@@ -77,17 +77,33 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                         </div>
 <% if (dupAiReviewEnabled) { -%>
                         <!-- Second row: the model judges what the scan found.
-                             Disabled until a scan has produced something. -->
+                             "Ask the AI" is disabled until a scan has produced
+                             something; "AI proposal" scans by itself, so it is
+                             usable from the first paint. -->
                         <div class="dup-ai-controls">
                             <button class="zr-btn" id="dupAiReviewBtn" type="button" disabled>
                                 <svg class="zr-icon zr-icon--sm" id="dupAiReviewIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
                                 Ask the AI
                             </button>
+                            <button class="zr-btn zr-btn--primary" id="dupAiProposalBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" id="dupAiProposalIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                                AI proposal
+                            </button>
                             <label class="zr-row">
                                 <input type="checkbox" class="zr-check" id="dupAiTitles" checked>
-                                Use document titles as context
+                                Use document titles and neighbours as context
+                            </label>
+                            <label class="zr-row">
+                                <input type="checkbox" class="zr-check" id="dupAiExcerpts" checked>
+                                Use document excerpts for spelling-only pairs
                             </label>
                             <span class="zr-sm zr-faint dup-ai-hint" id="dupAiHint">Most useful at Strict sensitivity: the near-misses below the threshold are what the model gets to judge.</span>
+                        </div>
+                        <!-- What the one-click path does, and what it is doing
+                             right now. The status stays empty until it runs. -->
+                        <div class="dup-ai-proposal">
+                            <span class="zr-sm zr-faint" id="dupAiProposalHint">Scans, lets the model judge every group and near-miss, and proposes what to merge. You deselect, nothing merges by itself.</span>
+                            <span class="zr-sm dup-ai-proposal__status hidden" id="dupAiProposalStatus" aria-live="polite"></span>
                         </div>
 <% } -%>
                     </div>

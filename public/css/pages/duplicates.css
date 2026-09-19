@@ -84,6 +84,22 @@
     min-width: 0;
   }
 
+  /* The one-click path speaks in the line under the buttons: what it does
+     while it is idle, what it is doing while it runs. A line of its own,
+     because the row above it is already four controls wide. */
+  .dup-ai-proposal {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-2) var(--zr-3);
+    width: 100%;
+  }
+
+  .dup-ai-proposal__status {
+    color: var(--zr-brand-text);
+    font-weight: 600;
+  }
+
   .dup-stats {
     margin-top: var(--zr-3);
   }
@@ -308,10 +324,10 @@
   /* --- the review dialog ------------------------------------------------ */
   /* What the model said about each ticked group, in one table. The reason is
      the only cell that can be long, so it is the one that gets the room. */
-  /* Five columns need more room than the 600px of the framework's wide dialog,
+  /* Six columns need more room than the 600px of the framework's wide dialog,
      or the group column breaks every name over three lines. */
   .dup-review-dialog {
-    width: min(820px, calc(100vw - 32px));
+    width: min(900px, calc(100vw - 32px));
   }
 
   .dup-review-table {
@@ -347,6 +363,33 @@
     margin-top: var(--zr-2);
     color: var(--zr-text);
     font-weight: 600;
+  }
+
+  /* --- the AI proposal -------------------------------------------------- */
+  /* The same table as the guided dialog, one column wider (the basis) and with
+     every group of a scan in it rather than a handful. It therefore takes the
+     room it can get; the rule above it sets the narrower width first. */
+  .dup-proposal-dialog {
+    width: min(960px, calc(100vw - 32px));
+  }
+
+  /* Rows can be two lines high — a reason is a whole sentence — and a tick
+     floating in the middle of one reads as belonging to neither line. */
+  .dup-proposal-pick {
+    vertical-align: top;
+    padding-top: 11px;
+  }
+
+  .dup-proposal__legend {
+    margin-bottom: var(--zr-2);
+  }
+
+  /* The two shortcuts above the table; they tick and untick, nothing else. */
+  .dup-proposal__quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+    margin-bottom: var(--zr-2);
   }
 
   @media (max-width: 720px) {
@@ -534,6 +577,30 @@
     background: var(--zr-surface-sunken);
   }
 
+  /* A pair a spelling rule settled: as sure as this page gets, so it wears the
+     tone of a "same" — but it says who decided, because no model saw it. */
+  .dup-verdict--rule {
+    color: var(--zr-ok);
+  }
+
+  .dup-verdict.dup-verdict--rule {
+    background: var(--zr-ok-soft);
+  }
+
+  /* How sure the model is, as a suffix of the verdict rather than a chip of
+     its own: "AI: same · high" is one statement. */
+  .dup-verdict__confidence {
+    margin-left: 4px;
+    font-weight: 400;
+    opacity: 0.8;
+  }
+
+  /* The rule the model says it applied. Two words at most, and never broken
+     over two lines in a table cell. */
+  .dup-basis {
+    white-space: nowrap;
+  }
+
   /* A group the model called apart stays mergeable and dismissable — only the
      table it argues about steps back, never the buttons. */
   .dup-group[data-ai-verdict='different'] .zr-table-wrap {
@@ -542,6 +609,7 @@
 
   .dup-member__verdict {
     display: block;
+    white-space: nowrap;
   }
 
   /* The band below the sensitivity the user chose: everything under this line
@@ -565,7 +633,29 @@
   /* --- the member table ------------------------------------------------- */
   /* Keep / Merge are single controls, Documents and Match are short numbers:
      giving them a fixed share leaves the rest of the row to the name and the
-     matching rule, which are the two cells that actually need it. */
+     matching rule, which are the two cells that actually need it.
+
+     table-layout: fixed is what makes those widths hold. With the automatic
+     layout every card measures its own content, so a card of short tags puts
+     its "Matching rule" column 200px left of the card below it and the page
+     reads as if the columns moved between cards. Fixed takes the widths from
+     the first row, which is the same set on every card; the name is then the
+     only column that varies, and it truncates rather than growing. */
+  .dup-members {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  /* The rest of the row after the fixed columns goes to the name; a long one
+     is cut off with an ellipsis and keeps its full text in the title. */
+  .dup-members__name {
+    overflow: hidden;
+  }
+
+  .dup-members__rule {
+    width: 24%;
+  }
+
   .dup-members__pick {
     width: 52px;
     text-align: center;
@@ -575,8 +665,9 @@
     width: 96px;
   }
 
+  /* Wide enough for "92%" over "AI: same · high" on one line each. */
   .dup-members__score {
-    width: 84px;
+    width: 132px;
   }
 
   .dup-member__name {
@@ -610,7 +701,8 @@
        would cut the name off mid-word. */
     .dup-members__pick,
     .dup-members__num,
-    .dup-members__score {
+    .dup-members__score,
+    .dup-members__rule {
       width: auto;
       text-align: left;
     }

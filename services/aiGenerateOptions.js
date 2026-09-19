@@ -39,6 +39,23 @@ function hasSystemPrompt(options) {
 }
 
 /**
+ * The model a caller asked for, or null when it named none.
+ *
+ * Only one caller does: the Duplicates review may run on a different model
+ * than the document analysis (DUPLICATES_AI_MODEL), and it says so per call
+ * instead of reconfiguring the provider. For Azure the name is the deployment
+ * name, which is what that API calls a model.
+ *
+ * @param {{model?: unknown}} [options]
+ * @returns {string|null}
+ */
+function modelOverride(options) {
+  return typeof options?.model === 'string' && options.model.trim() !== ''
+    ? options.model.trim()
+    : null;
+}
+
+/**
  * The token usage of an OpenAI-compatible completion, or null when the
  * provider did not report any. Kept separate from the return value of
  * `generateText` so its contract (a string) stays what it was; callers that
@@ -72,4 +89,9 @@ function readCompletionUsage(response) {
   };
 }
 
-module.exports = { hasNumber, hasSystemPrompt, readCompletionUsage };
+module.exports = {
+  hasNumber,
+  hasSystemPrompt,
+  modelOverride,
+  readCompletionUsage,
+};

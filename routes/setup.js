@@ -3868,6 +3868,18 @@ const ENV_EXPORT_GROUPS = [
     ],
   },
   {
+    title: 'Duplicates',
+    keys: [
+      'DUPLICATES_AI_REVIEW',
+      'DUPLICATES_AI_MODEL',
+      'DUPLICATES_AI_REVIEW_BATCH_SIZE',
+      'DUPLICATES_AI_CANDIDATE_FLOOR',
+      'DUPLICATES_AI_EXCERPTS',
+      'DUPLICATES_AI_EXCERPT_CHARS',
+      'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+    ],
+  },
+  {
     title: 'External API',
     keys: [
       'EXTERNAL_API_ENABLED',
@@ -6948,6 +6960,19 @@ router.get('/settings', async (req, res) => {
     CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',
     DISABLE_AUTOMATIC_PROCESSING:
       process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
+    // Duplicates page. The defaults repeat config/config.js so the fields are
+    // never blank on a fresh instance that has none of these set.
+    DUPLICATES_AI_REVIEW: process.env.DUPLICATES_AI_REVIEW || 'yes',
+    DUPLICATES_AI_MODEL: process.env.DUPLICATES_AI_MODEL || '',
+    DUPLICATES_AI_REVIEW_BATCH_SIZE:
+      process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
+    DUPLICATES_AI_CANDIDATE_FLOOR:
+      process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6',
+    DUPLICATES_AI_EXCERPTS: process.env.DUPLICATES_AI_EXCERPTS || 'yes',
+    DUPLICATES_AI_EXCERPT_CHARS:
+      process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
+    DUPLICATES_AI_EXCERPT_DOCUMENTS:
+      process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
@@ -8405,6 +8430,44 @@ router.get('/health', async (req, res) => {
  *                 type: boolean
  *                 description: Disable automatic document processing
  *                 example: false
+ *               duplicatesAiReview:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Offer the AI review on the Duplicates page (yes/no). Default yes. Scanning and merging work without it.
+ *                 example: "yes"
+ *               duplicatesAiModel:
+ *                 type: string
+ *                 description: Model of the configured provider used only for judging duplicates. Empty means the provider's configured model.
+ *                 example: ""
+ *               duplicatesAiReviewBatchSize:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 100
+ *                 description: Name pairs per model request (1-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 25
+ *               duplicatesAiCandidateFloor:
+ *                 type: number
+ *                 minimum: 0.5
+ *                 maximum: 0.95
+ *                 description: Lowest matcher score a pair needs to be shown to the model (0.50-0.95, default 0.6). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 0.6
+ *               duplicatesAiExcerpts:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Send document excerpts for pairs the matcher linked by spelling alone (yes/no). Default yes.
+ *                 example: "yes"
+ *               duplicatesAiExcerptChars:
+ *                 type: integer
+ *                 minimum: 50
+ *                 maximum: 500
+ *                 description: Excerpt length in characters (50-500, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 300
+ *               duplicatesAiExcerptDocuments:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 5
+ *                 description: Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 2
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)
@@ -8509,6 +8572,13 @@ router.post('/settings', express.json(), async (req, res) => {
       activateCustomFields,
       customFields, // Added parameter
       disableAutomaticProcessing,
+      duplicatesAiReview,
+      duplicatesAiModel,
+      duplicatesAiReviewBatchSize,
+      duplicatesAiCandidateFloor,
+      duplicatesAiExcerpts,
+      duplicatesAiExcerptChars,
+      duplicatesAiExcerptDocuments,
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
@@ -8586,6 +8656,19 @@ router.post('/settings', express.json(), async (req, res) => {
       CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}', // Added default
       DISABLE_AUTOMATIC_PROCESSING:
         process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
+      // Duplicates page — same defaults as config/config.js, so a submitted
+      // value that fails its range check falls back to what is configured now.
+      DUPLICATES_AI_REVIEW: process.env.DUPLICATES_AI_REVIEW || 'yes',
+      DUPLICATES_AI_MODEL: process.env.DUPLICATES_AI_MODEL || '',
+      DUPLICATES_AI_REVIEW_BATCH_SIZE:
+        process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
+      DUPLICATES_AI_CANDIDATE_FLOOR:
+        process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6',
+      DUPLICATES_AI_EXCERPTS: process.env.DUPLICATES_AI_EXCERPTS || 'yes',
+      DUPLICATES_AI_EXCERPT_CHARS:
+        process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
+      DUPLICATES_AI_EXCERPT_DOCUMENTS:
+        process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
@@ -8965,6 +9048,79 @@ router.post('/settings', express.json(), async (req, res) => {
     if (useExistingData) updatedConfig.USE_EXISTING_DATA = useExistingData;
     if (disableAutomaticProcessing)
       updatedConfig.DISABLE_AUTOMATIC_PROCESSING = disableAutomaticProcessing;
+
+    // Duplicates page. The switches arrive as the hidden yes/no inputs the
+    // settings-switch partial writes, the numbers as strings from the number
+    // fields. Out-of-range numbers are clamped rather than rejected — the
+    // ranges are guard rails, not a reason to throw the whole form away — but
+    // a value that is not a number at all keeps what is configured now, so a
+    // cleared field cannot silently reset the setting to its default.
+    const sanitizeDuplicatesSwitch = (rawValue, fallbackValue) => {
+      const normalizedValue = String(rawValue ?? '')
+        .trim()
+        .toLowerCase();
+      if (['yes', 'on', 'true', '1'].includes(normalizedValue)) return 'yes';
+      if (['no', 'off', 'false', '0'].includes(normalizedValue)) return 'no';
+      return String(fallbackValue);
+    };
+
+    const sanitizeDuplicatesNumber = (rawValue, fallbackValue, range) => {
+      const normalizedValue = String(rawValue ?? '').trim();
+      const parsed = Number.parseFloat(normalizedValue);
+      if (!normalizedValue || !Number.isFinite(parsed)) {
+        return String(fallbackValue);
+      }
+      const clamped = Math.min(Math.max(parsed, range.min), range.max);
+      return range.decimals
+        ? String(Number(clamped.toFixed(range.decimals)))
+        : String(Math.round(clamped));
+    };
+
+    if (duplicatesAiReview !== undefined) {
+      updatedConfig.DUPLICATES_AI_REVIEW = sanitizeDuplicatesSwitch(
+        duplicatesAiReview,
+        currentConfig.DUPLICATES_AI_REVIEW
+      );
+    }
+    if (typeof duplicatesAiModel === 'string') {
+      // Empty is meaningful here: it hands the judge back to the provider's
+      // configured model.
+      updatedConfig.DUPLICATES_AI_MODEL = duplicatesAiModel.trim();
+    }
+    if (duplicatesAiReviewBatchSize !== undefined) {
+      updatedConfig.DUPLICATES_AI_REVIEW_BATCH_SIZE = sanitizeDuplicatesNumber(
+        duplicatesAiReviewBatchSize,
+        currentConfig.DUPLICATES_AI_REVIEW_BATCH_SIZE,
+        { min: 1, max: 100 }
+      );
+    }
+    if (duplicatesAiCandidateFloor !== undefined) {
+      updatedConfig.DUPLICATES_AI_CANDIDATE_FLOOR = sanitizeDuplicatesNumber(
+        duplicatesAiCandidateFloor,
+        currentConfig.DUPLICATES_AI_CANDIDATE_FLOOR,
+        { min: 0.5, max: 0.95, decimals: 2 }
+      );
+    }
+    if (duplicatesAiExcerpts !== undefined) {
+      updatedConfig.DUPLICATES_AI_EXCERPTS = sanitizeDuplicatesSwitch(
+        duplicatesAiExcerpts,
+        currentConfig.DUPLICATES_AI_EXCERPTS
+      );
+    }
+    if (duplicatesAiExcerptChars !== undefined) {
+      updatedConfig.DUPLICATES_AI_EXCERPT_CHARS = sanitizeDuplicatesNumber(
+        duplicatesAiExcerptChars,
+        currentConfig.DUPLICATES_AI_EXCERPT_CHARS,
+        { min: 50, max: 500 }
+      );
+    }
+    if (duplicatesAiExcerptDocuments !== undefined) {
+      updatedConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS = sanitizeDuplicatesNumber(
+        duplicatesAiExcerptDocuments,
+        currentConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS,
+        { min: 1, max: 5 }
+      );
+    }
 
     // Update custom fields
     if (processedCustomFields.length > 0 || customFields) {
@@ -10827,8 +10983,16 @@ const MAX_AI_REVIEW_GROUP_IDS = 500;
  *
  *       Read-only and never automatic: it runs when the user asks for it,
  *       nothing is merged, and a verdict is information the user decides on.
- *       `withTitles` lets the model see a few recent document titles per
- *       entry as context; leave it out and it is on.
+ *
+ *       Two options say how much the model gets to see. `withTitles` gives it
+ *       a few recent document titles per entry and the entries it is usually
+ *       filed with; `withExcerpts` adds the beginning of a couple of documents
+ *       per entry, but only for the pairs the matcher linked by spelling alone
+ *       ("Kontoauszug" / "Kontoumzug"), which is where names and titles are
+ *       not enough. Both default to on; `withExcerpts` is capped by
+ *       DUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS and
+ *       DUPLICATES_AI_EXCERPT_DOCUMENTS. `aiReview.excerpts` reports how many
+ *       entries were read.
  *
  *       The review can be targeted, which is what makes it cheap on a large
  *       archive: `groupIds` names the scan groups to judge, `minConfidence`
@@ -10913,11 +11077,24 @@ router.post('/api/duplicates/ai-review', isAuthenticated, async (req, res) => {
         ? true
         : body.withTitles === true ||
           String(body.withTitles).toLowerCase() === 'true';
+    // Same rule for the excerpts, which are the expensive half of the
+    // evidence: on unless the request or the instance says otherwise.
+    const withExcerpts =
+      body.withExcerpts === undefined || body.withExcerpts === null
+        ? true
+        : body.withExcerpts === true ||
+          String(body.withExcerpts).toLowerCase() === 'true';
 
     // The three targeting options. Each one is left out of the call when the
     // request says nothing about it, so an untargeted review asks for exactly
     // what it asked for before.
-    const reviewOptions = { kind, threshold, includeDismissed, withTitles };
+    const reviewOptions = {
+      kind,
+      threshold,
+      includeDismissed,
+      withTitles,
+      withExcerpts,
+    };
 
     if (body.groupIds !== undefined && body.groupIds !== null) {
       const groupIds = body.groupIds;

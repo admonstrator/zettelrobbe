@@ -10,6 +10,7 @@ const {
 const {
   hasNumber,
   hasSystemPrompt,
+  modelOverride,
   readCompletionUsage,
 } = require('./aiGenerateOptions');
 const OpenAI = require('openai');
@@ -594,7 +595,10 @@ class OpenAIService {
         throw new Error('OpenAI client not initialized - missing API key');
       }
 
-      const model = process.env.OPENAI_MODEL || config.openai.model;
+      const model =
+        modelOverride(options) ||
+        process.env.OPENAI_MODEL ||
+        config.openai.model;
       const messages = [];
       if (hasSystemPrompt(options)) {
         messages.push({ role: 'system', content: options.systemPrompt });

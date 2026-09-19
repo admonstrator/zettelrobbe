@@ -807,6 +807,20 @@
  *         reason:
  *           type: string
  *           description: one short sentence from the model
+ *         basis:
+ *           type: string
+ *           nullable: true
+ *           description: the rule the model applied; one of case-or-spacing, umlaut, legal-form, plural, abbreviation, translation, synonym, typo, different-thing, different-topic, insufficient-evidence, or null when the model gave none
+ *         confidence:
+ *           type: string
+ *           nullable: true
+ *           enum: [high, low]
+ *           description: how sure the model is; the AI proposal pre-ticks only same with high
+ *         source:
+ *           type: string
+ *           nullable: true
+ *           enum: [model, spelling-rule]
+ *           description: spelling-rule when the matcher's hard tier settled the pair and the model was not asked
  *
  *     DuplicateAiReviewRequest:
  *       type: object
@@ -838,6 +852,10 @@
  *           type: boolean
  *           default: true
  *           description: false skips the band of near-misses below the threshold, so only scan groups are judged
+ *         withExcerpts:
+ *           type: boolean
+ *           default: true
+ *           description: give the model short content excerpts of a couple of documents per entity for pairs the matcher linked by spelling alone
  *
  *     DuplicateAiReviewResult:
  *       allOf:
@@ -881,6 +899,15 @@
  *                 groupsSkipped:
  *                   type: integer
  *                   description: scan groups returned without a verdict because the targeting left them out
+ *                 excerpts:
+ *                   type: integer
+ *                   description: entities whose document excerpts were fetched as evidence
+ *                 escalated:
+ *                   type: integer
+ *                   description: pairs the model called unsure that were asked once more with excerpts
+ *                 spellingRules:
+ *                   type: integer
+ *                   description: pairs settled by the matcher's hard tiers (exact, umlaut, legal form) without asking the model
  *
  *     EntityMergeDismissRequest:
  *       type: object
