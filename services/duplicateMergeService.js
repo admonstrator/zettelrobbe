@@ -20,6 +20,19 @@
  * the Paperless-ngx path segment, so document types can follow later without
  * a second implementation.
  *
+ * ## The scan cache
+ *
+ * A scan of a real archive reads every tag and every correspondent and scores
+ * them against each other; on the user's instance that is 1359 tags and 13
+ * seconds. Three of those inside a minute — the page's scan, the AI
+ * proposal's, the review job's — are two scans too many, so `scan()` keeps
+ * its last result per set of options for SCAN_CACHE_MS and answers the next
+ * identical request from it. Only a merge, an undo or a dismissal changes
+ * what a scan would see: each of them empties the cache, and a dismissal
+ * taken back through the route is caught by a fingerprint of the stored
+ * pairs. `scan({ fresh: true })` — what the page's Scan button sends — skips
+ * the cache entirely.
+ *
  * ## What it says while it works
  *
  * Every step writes one line to the app log with the prefix [DUPLICATES], the
@@ -54,6 +67,19 @@ const LOG_PREFIX = '[DUPLICATES]';
  * must not be answered from them.
  */
 const DASHBOARD_REFRESH_DEBOUNCE_MS = 2000;
+
+/**
+ * How long a scan result answers the next identical request.
+ *
+ * Asking the model about a scan used to cost three scans of the same archive
+ * inside a minute: the one the page ran, the one the AI proposal ran and the
+ * one the review job ran, 13 seconds and 1359 tags each time. Nothing can
+ * have changed in between — a merge, an undo or a dismissal is the only thing
+ * that changes what a scan sees, and each of those drops the cache. The page
+ * asks for a fresh scan anyway (`fresh: true`), so the button still means
+ * "look again"; everything that runs off the back of that scan reuses it.
+ */
+const SCAN_CACHE_MS = 60 * 1000;
 
 /**
  * A refusal the route can map onto an HTTP status. Everything the user can
@@ -153,6 +179,25 @@ class DuplicateMergeService {
     this._dashboardRefreshTimer = null;
     /** Overridable so a test does not have to wait two seconds. */
     this.dashboardRefreshDebounceMs = DASHBOARD_REFRESH_DEBOUNCE_MS;
+    /**
+     * The last scan per set of options: key -> { result, at }. Small by
+     * construction — three kinds times a handful of thresholds — and emptied
+     * by every write, so it never holds more than a minute of scans.
+     *
+     * @type {Map<string, {result: object, at: number}>}
+     */
+    this._scanCache = new Map();
+    /** Overridable so a test does not have to wait a minute. */
+    this.scanCacheMs = SCAN_CACHE_MS;
+  }
+
+  /**
+   * Forgets every cached scan. Called by everything that changes what a scan
+   * would see — a merge, an undo, a dismissal and the restore of one — and by
+   * the tests between two archives.
+   */
+  invalidateScanCache() {
+    this._scanCache.clear();
   }
 
   /** One line in the app log, at info level, like [RECONCILIATION] writes. */
@@ -171,6 +216,7 @@ class DuplicateMergeService {
    */
   _afterWrite(what) {
     paperlessService.clearEntityCaches();
+    this.invalidateScanCache();
 
     if (this._dashboardRefreshTimer) {
       clearTimeout(this._dashboardRefreshTimer);
@@ -261,18 +307,56 @@ class DuplicateMergeService {
   }
 
   /**
+   * What the dismissed pairs looked like when a scan was cached: how many
+   * there are per kind and the highest id among them.
+   *
+   * The service invalidates the cache itself on every write it makes, but a
+   * dismissal can also be taken back through the route, which talks to the
+   * model directly. The ids are an autoincrement column, so a row that was
+   * added or removed since changes the count or the maximum, and a scan built
+   * without it is not served. One local SELECT per kind, against a scan of
+   * the whole archive.
+   *
+   * @param {string[]} kinds
+   * @param {boolean} includeDismissed  when true the rows do not matter
+   * @returns {Promise<string>}
+   */
+  async _dismissalFingerprint(kinds, includeDismissed) {
+    if (includeDismissed) return 'included';
+    const parts = [];
+    for (const one of kinds) {
+      const rows = await documentModel.listEntityMergeDismissals(one);
+      let highest = 0;
+      for (const row of rows) {
+        highest = Math.max(highest, Number(row.id) || 0);
+      }
+      parts.push(`${one}:${rows.length}:${highest}`);
+    }
+    return parts.join('|');
+  }
+
+  /**
    * Finds groups of tags or correspondents that look like duplicates.
+   *
+   * A result is kept for `scanCacheMs` and answers the next request with the
+   * same three options, because nothing but a merge, an undo or a dismissal
+   * can change what a scan sees: every one of those empties the cache, and a
+   * dismissal taken back behind this service's back is caught by the
+   * fingerprint above. `fresh: true` is what the page's own Scan button
+   * sends: it skips the cache and refills it.
    *
    * @param {object} [options]
    * @param {'tags'|'correspondents'|'all'} [options.kind]
    * @param {number} [options.threshold]
    * @param {boolean} [options.includeDismissed] show pairs marked "not a duplicate" again
+   * @param {boolean} [options.fresh] scan the archive again, whatever is cached
    * @returns {Promise<object>} DuplicateScanResult
    */
   async scan({
     kind = KIND_ALL,
     threshold = DEFAULT_THRESHOLD,
     includeDismissed = false,
+    fresh = false,
   } = {}) {
     const kinds = kind === KIND_ALL ? [...KIND_LIST] : [kind];
     for (const one of kinds) {
@@ -283,6 +367,23 @@ class DuplicateMergeService {
     const effectiveThreshold = Number.isFinite(Number(threshold))
       ? Number(threshold)
       : DEFAULT_THRESHOLD;
+
+    const cacheKey = `${kind}|${effectiveThreshold}|${includeDismissed ? 1 : 0}`;
+    if (fresh !== true) {
+      const cached = this._scanCache.get(cacheKey);
+      const age = cached ? Date.now() - cached.at : Infinity;
+      if (
+        cached &&
+        age < (Number(this.scanCacheMs) || 0) &&
+        cached.dismissals ===
+          (await this._dismissalFingerprint(kinds, includeDismissed))
+      ) {
+        this._log(`scan served from cache (age ${Math.round(age / 1000)}s).`);
+        // A shallow copy, so a caller that adds a field of its own — the AI
+        // review adds `aiReview` — does not write it into the cache.
+        return { ...cached.result };
+      }
+    }
 
     const startedAt = Date.now();
     this._log(
@@ -331,12 +432,17 @@ class DuplicateMergeService {
       dismissedPairs,
       paperlessUrl: await this._publicBaseUrl(),
     };
+    this._scanCache.set(cacheKey, {
+      result,
+      at: Date.now(),
+      dismissals: await this._dismissalFingerprint(kinds, includeDismissed),
+    });
     this._log(
       `scan finished: ${kinds.map((one) => `${totals[one]} ${one}`).join(', ')}, ` +
         `${groups.length} group(s), ${dismissedPairs} dismissed pair(s) hidden, ` +
         `in ${Date.now() - startedAt}ms.`
     );
-    return result;
+    return { ...result };
   }
 
   /**
@@ -918,11 +1024,35 @@ class DuplicateMergeService {
       }
     }
     const stored = await documentModel.addEntityMergeDismissals(kind, pairs);
+    // A dismissed pair is a pair the next scan hides, so what is cached is
+    // out of date the moment this row exists.
+    this.invalidateScanCache();
     this._log(
       `dismissed: ${kind}, ${stored} new pair(s) stored from ${unique.length} entries ` +
         `(${pairs.length} pair(s) in the request).`
     );
     return stored;
+  }
+
+  /**
+   * Takes back one "not a duplicate": the pair may show up in a scan again.
+   *
+   * The route may also call documentModel.removeEntityMergeDismissal()
+   * directly; this wrapper exists because the cached scans have to go with
+   * the row, and only this service knows about them.
+   *
+   * @param {number} dismissalId  the id of the stored pair
+   * @returns {Promise<boolean>} true when a row was removed
+   */
+  async restoreDismissal(dismissalId) {
+    const removed = await documentModel.removeEntityMergeDismissal(
+      Number(dismissalId)
+    );
+    if (removed) {
+      this.invalidateScanCache();
+      this._log(`dismissal ${Number(dismissalId)} restored.`);
+    }
+    return Boolean(removed);
   }
 
   /**
@@ -974,5 +1104,6 @@ duplicateMergeService.MergeValidationError = MergeValidationError;
 duplicateMergeService.KIND_ALL = KIND_ALL;
 duplicateMergeService.DASHBOARD_REFRESH_DEBOUNCE_MS =
   DASHBOARD_REFRESH_DEBOUNCE_MS;
+duplicateMergeService.SCAN_CACHE_MS = SCAN_CACHE_MS;
 
 module.exports = duplicateMergeService;
