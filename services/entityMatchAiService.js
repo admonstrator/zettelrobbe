@@ -23,10 +23,39 @@
  * prompt states the job, the rules and the output contract; the user prompt
  * carries the kind and the batch as JSON, one pair per line:
  *
- *   {"id":"tags:12-48","a":{"name":"Rechnung","documents":31},"b":{...}}
+ *   {"id":"tags:12-48","matched_by":"fuzzy","score":0.91,
+ *    "a":{"name":"Kontoauszug","documents":31,"titles":[...],
+ *         "filed_with":["Sparkasse"],"rule":{...},"excerpts":["..."]},"b":{...}}
  *
- * `titles` per entity is added when the caller asked for context; they are
- * the most recent document titles filed under that name.
+ * ## Evidence, and what it costs
+ *
+ * The user ran into "Kontoauszug" next to "Kontoumzug": one letter apart, two
+ * different things, and a model that sees two names and three titles says
+ * "same". So a pair now carries how the matcher linked it, and the evidence
+ * is graded by how much the link is worth:
+ *
+ * - `matched_by` and `score` on every pair. "fuzzy", "prefix" and
+ *   "token-order" mean nothing but spelling links the two names; the system
+ *   prompt tells the model to treat those as different unless the evidence
+ *   says otherwise.
+ * - `titles` and `filed_with` per entity for every judged pair (`withTitles`):
+ *   the recent document titles, and who the entity is usually filed with —
+ *   the correspondents of a tag's documents, the tags of a correspondent's.
+ * - `excerpts` only for the spelling-only pairs (`withExcerpts`,
+ *   DUPLICATES_AI_EXCERPTS): the first DUPLICATES_AI_EXCERPT_CHARS characters
+ *   of DUPLICATES_AI_EXCERPT_DOCUMENTS recent documents. One read per entity
+ *   per review, and never for a pair a strong tier produced.
+ * - a pair the model still calls "unsure" and that had no excerpts is asked
+ *   once more, with them (`aiReview.escalated`).
+ *
+ * The other half of the budget is not spending it at all: a member pair the
+ * matcher settled by a rule — same but for case, umlauts or a legal form —
+ * never reaches the provider. It gets `source: 'spelling-rule'` and counts in
+ * `aiReview.spellingRules`, not in `judged`.
+ *
+ * The judge may run on its own model (DUPLICATES_AI_MODEL): a review is a
+ * different job from writing a title, and a few hundred pairs are a different
+ * bill.
  *
  * ## The token limit, which is what a real archive runs into
  *
@@ -53,7 +82,11 @@
  *
  * ## What comes back
  *
- * A JSON array of `{ id, verdict, reason }`. Everything else is treated as a
+ * A JSON array of `{ id, verdict, basis, confidence, reason }`, where `basis`
+ * is the rule the model says it applied and `confidence` is how sure it is
+ * (the page's AI proposal pre-ticks only "same" with "high"). An unknown
+ * basis or confidence becomes null rather than an argument.
+ * Everything else is treated as a
  * damaged answer rather than as an instruction: a code fence is stripped, the
  * text from the first `[` to the last `]` is parsed, an id that was not in
  * the batch is dropped, an unknown verdict becomes "unsure", a reason is cut
@@ -140,6 +173,78 @@ const CANDIDATE_LIMIT = 400;
 const TITLE_LIMIT = 3;
 /** Title reads in flight; the archive is somebody's server, not a benchmark. */
 const TITLE_CONCURRENCY = 4;
+/** Excerpt reads in flight; one read per entity, so the same budget as above. */
+const EXCERPT_CONCURRENCY = 4;
+/** Documents one neighbourhood read looks at. */
+const NEIGHBOUR_DOCUMENTS = 30;
+/** Neighbour names per entity handed to the model, most frequent first. */
+const NEIGHBOUR_LIMIT = 3;
+
+/**
+ * The matcher reasons that say nothing but "these two strings look alike".
+ * A pair linked by one of them is the case the user ran into — "Kontoauszug"
+ * next to "Kontoumzug" — and the only case worth paying for document
+ * excerpts: the strong tiers (exact, umlaut, legal form, plural) already
+ * carry a reason a person can check by reading the two names.
+ */
+const SPELLING_ONLY_REASONS = Object.freeze([
+  entityNameMatcher.MATCH_REASONS.FUZZY,
+  entityNameMatcher.MATCH_REASONS.PREFIX,
+  entityNameMatcher.MATCH_REASONS.TOKEN_ORDER,
+]);
+const SPELLING_ONLY_REASON_SET = new Set(SPELLING_ONLY_REASONS);
+
+/** Where a verdict came from. */
+const VERDICT_SOURCES = Object.freeze({
+  MODEL: 'model',
+  SPELLING_RULE: 'spelling-rule',
+});
+
+/**
+ * The matcher tiers a rule settles on its own, and the basis each one stands
+ * for. "Amazon" / "amazon", "Müller" / "Mueller" and "Telekom" / "Telekom
+ * GmbH" are the same thing by a rule anybody can check; asking a model about
+ * them buys nothing and costs a request per pair. These pairs never reach the
+ * provider — they get their verdict here, marked as what it is.
+ */
+const SETTLED_REASON_BASES = Object.freeze({
+  [entityNameMatcher.MATCH_REASONS.EXACT]: 'case-or-spacing',
+  [entityNameMatcher.MATCH_REASONS.UMLAUT]: 'umlaut',
+  [entityNameMatcher.MATCH_REASONS.LEGAL_FORM]: 'legal-form',
+});
+
+/**
+ * The rule the model says it applied. A closed list, because the page renders
+ * it and the AI proposal decides on it; anything else becomes null.
+ */
+const VERDICT_BASES = Object.freeze([
+  'case-or-spacing',
+  'umlaut',
+  'legal-form',
+  'plural',
+  'abbreviation',
+  'translation',
+  'synonym',
+  'typo',
+  'different-thing',
+  'different-topic',
+  'insufficient-evidence',
+]);
+const VERDICT_BASIS_SET = new Set(VERDICT_BASES);
+
+/** How sure the model says it is. The proposal pre-ticks "same" + "high". */
+const CONFIDENCE_LEVELS = Object.freeze(['high', 'low']);
+const CONFIDENCE_SET = new Set(CONFIDENCE_LEVELS);
+
+/** Paperless-ngx `matching_algorithm` values, as words for the prompt. */
+const MATCHING_ALGORITHM_WORDS = Object.freeze({
+  1: 'any',
+  2: 'all',
+  3: 'literal',
+  4: 'regex',
+  5: 'fuzzy',
+  6: 'auto',
+});
 
 /** Said about a pair the model left out of an otherwise sound answer. */
 const NO_ANSWER_REASON = 'no answer from the model';
@@ -158,6 +263,11 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  * @typedef {object} AiVerdict
  * @property {'same'|'different'|'unsure'} verdict
  * @property {string} reason   one short sentence from the model, '' when none
+ * @property {string|null} basis  a VERDICT_BASES value, null when the model
+ *   named none or named something else (an older model, another provider)
+ * @property {'high'|'low'|null} confidence  how sure the model says it is
+ * @property {'model'|'spelling-rule'} source  who decided: the provider, or a
+ *   matcher tier a rule settles without asking anybody
  */
 
 /**
@@ -165,7 +275,14 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  * @property {number} id
  * @property {string} name
  * @property {number} [documentCount]
- * @property {string[]} [sampleTitles]  a few recent document titles for context
+ * @property {number} [matchingAlgorithm]  Paperless-ngx matching rule, 0 = none
+ * @property {string} [match]              the rule's expression
+ * @property {string[]} [sampleTitles]     a few recent document titles for context
+ * @property {string[]} [neighbourNames]   who this entity is usually filed with:
+ *   the most frequent correspondents of a tag, the most frequent tags of a
+ *   correspondent
+ * @property {string[]} [sampleExcerpts]   the beginning of a few documents,
+ *   only fetched for pairs the matcher linked by spelling alone
  */
 
 /**
@@ -173,6 +290,8 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  * @property {string} key     pairKey() of the two ids
  * @property {AiReviewEntity} a
  * @property {AiReviewEntity} b
+ * @property {string|null} [matchedBy]  the MATCH_REASONS value of the edge
+ * @property {number} [score]           the matcher score of the edge
  */
 
 /**
@@ -203,6 +322,12 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  * @property {number} groupsJudged    scan groups whose members were judged
  * @property {number} groupsSkipped   scan groups the targeting left out; they
  *                                    are still in `groups`, without a verdict
+ * @property {number} excerpts        entities that carried document excerpts
+ *                                    into a prompt
+ * @property {number} spellingRules   pairs a matcher rule settled, so the
+ *                                    model was never asked about them
+ * @property {number} escalated       unsure pairs that were asked a second
+ *                                    time, with excerpts
  */
 
 /**
@@ -218,6 +343,9 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  * @property {number} [threshold]
  * @property {boolean} [includeDismissed]
  * @property {boolean} [withTitles]   fetch a few document titles per entity as context
+ * @property {boolean} [withExcerpts] default true; fetch the beginning of a few
+ *   documents per entity for the pairs the matcher linked by spelling alone.
+ *   DUPLICATES_AI_EXCERPTS switches the same evidence off instance-wide.
  * @property {string[]} [groupIds]    judge only these scan groups, by the id
  *   findDuplicateGroups() gave them; every other group comes back unchanged.
  *   An id this scan does not know is ignored.
@@ -244,9 +372,27 @@ const KIND_WORDS = Object.freeze({
 });
 
 /**
+ * The confidence of a set of verdicts that agree: "low" as soon as one of
+ * them is low, "high" when at least one says so and none says low, null when
+ * none of them named a confidence at all.
+ *
+ * @param {AiVerdict[]} deciding
+ * @returns {'high'|'low'|null}
+ */
+function combineConfidence(deciding) {
+  const named = deciding
+    .map((verdict) => verdict.confidence)
+    .filter((value) => CONFIDENCE_SET.has(value));
+  if (named.length === 0) return null;
+  return named.includes('low') ? 'low' : 'high';
+}
+
+/**
  * Reduces the verdicts of a group's members (each judged against the target)
  * to one verdict for the group: any "different" wins, otherwise all "same"
- * is "same", otherwise "unsure". The reason is the first one that decided it.
+ * is "same", otherwise "unsure". Reason and basis come from the first member
+ * that decided it; the confidence is the weakest of the deciding members, so
+ * one "low" among them makes the group low.
  *
  * @param {Array<AiVerdict|null|undefined>} verdicts
  * @returns {AiVerdict}
@@ -254,23 +400,53 @@ const KIND_WORDS = Object.freeze({
 function aggregateVerdict(verdicts) {
   const list = (Array.isArray(verdicts) ? verdicts : []).filter(Boolean);
   if (list.length === 0) {
-    return { verdict: AI_VERDICTS.UNSURE, reason: '' };
+    return {
+      verdict: AI_VERDICTS.UNSURE,
+      reason: '',
+      basis: null,
+      confidence: null,
+      source: VERDICT_SOURCES.MODEL,
+    };
   }
-  const different = list.find((v) => v.verdict === AI_VERDICTS.DIFFERENT);
-  if (different) {
-    return { verdict: AI_VERDICTS.DIFFERENT, reason: different.reason || '' };
+  const decide = (verdict) => {
+    const deciding = list.filter((entry) => entry.verdict === verdict);
+    return {
+      verdict,
+      reason: deciding[0]?.reason || '',
+      basis: deciding[0]?.basis ?? null,
+      confidence: combineConfidence(deciding),
+      source: deciding[0]?.source || VERDICT_SOURCES.MODEL,
+    };
+  };
+  if (list.some((v) => v.verdict === AI_VERDICTS.DIFFERENT)) {
+    return decide(AI_VERDICTS.DIFFERENT);
   }
   if (list.every((v) => v.verdict === AI_VERDICTS.SAME)) {
-    return { verdict: AI_VERDICTS.SAME, reason: list[0].reason || '' };
+    return decide(AI_VERDICTS.SAME);
   }
-  const unsure = list.find((v) => v.verdict === AI_VERDICTS.UNSURE);
-  return { verdict: AI_VERDICTS.UNSURE, reason: unsure?.reason || '' };
+  return decide(AI_VERDICTS.UNSURE);
 }
 
 /** Cuts a model's reason down to something a table cell can hold. */
 function toReason(value) {
   if (value == null) return '';
   return String(value).trim().slice(0, REASON_MAX_LENGTH);
+}
+
+/** The model's basis, or null when it named none or named something else. */
+function toBasis(value) {
+  const basis = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return VERDICT_BASIS_SET.has(basis) ? basis : null;
+}
+
+/** The model's confidence, or null when it named none or something else. */
+function toConfidence(value) {
+  const confidence = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return CONFIDENCE_SET.has(confidence) ? confidence : null;
 }
 
 /** Splits a list into two halves, the first one the larger of the two. */
@@ -413,12 +589,33 @@ class EntityMatchAiService {
   }
 
   /**
-   * The model name of the active provider, as the user configured it. Only
-   * for the report on the page — nothing is decided by it.
+   * The model the judge runs on when the operator picked one for it
+   * (DUPLICATES_AI_MODEL), or '' when it runs on the provider's configured
+   * model. A judge is a different job from writing a title: a small local
+   * model may be enough for one and not for the other, and an operator who
+   * pays per token may want the cheaper model for a few hundred pairs.
+   *
+   * @returns {string}
+   */
+  judgeModel() {
+    const runtimeConfig = require('../config/config');
+    return String(
+      runtimeConfig.duplicatesAiModel || process.env.DUPLICATES_AI_MODEL || ''
+    ).trim();
+  }
+
+  /**
+   * The model name this review reports and measures its prompts against: the
+   * judge's own model when one is configured, otherwise the model of the
+   * active provider, as the user configured it.
    *
    * @returns {string|null}
    */
   modelName() {
+    const override = this.judgeModel();
+    if (override !== '') {
+      return override;
+    }
     const runtimeConfig = require('../config/config');
     switch (runtimeConfig.aiProvider) {
       case 'ollama':
@@ -489,27 +686,58 @@ class EntityMatchAiService {
       '- singular and plural of the same word ("Rechnung" / "Rechnungen", "Invoice" / "Invoices")',
       '- an abbreviation and the long form of the same name ("TK" / "Techniker Krankenkasse")',
       '- the German and the English name for the same thing ("Steuer" / "Tax")',
-      '- an obvious typo of the same name ("Vodafone" / "Vodaphone")',
+      '- a misspelling of one name, but only when one of the two spellings is clearly not a word or a name of its own ("Vodafone" / "Vodaphone")',
       '',
       'Answer "different" when the names denote two things an archive has to keep apart:',
       '- two companies, authorities or people, however alike the names read ("Deutsche Bank" / "Deutsche Bahn")',
       '- a topic and a narrower or neighbouring topic ("Rechnung" / "Rechnungswesen", "Miete" / "Mietvertrag")',
+      '- two words or names that both exist with their own meaning, however few letters differ ("Kontoauszug" / "Kontoumzug", "Miete" / "Mieter", "Bahn" / "Bank"). A small spelling distance is never by itself a reason for "same".',
       '',
-      'Answer "unsure" when you cannot decide from the names alone:',
+      'Answer "unsure" when you cannot decide from what you were given:',
       '- two legal entities of one company are "same" only when a person would file them under one name; otherwise "unsure"',
       '- the names could mean the same thing, but nothing in the pair settles it',
+      '- one spelling might be a word of its own and you cannot tell; if excerpts are given, decide from them, otherwise answer "unsure"',
+      '',
+      'Each pair says how the string matcher linked the names ("matched_by"). "fuzzy", "prefix" and "token-order" mean nothing but spelling links them; treat those as different unless the titles or excerpts show the same thing. When excerpts are given they are the beginning of the documents filed under that name; decide from what the documents are about.',
       '',
       'When document titles are given they are examples of what is filed under that name. Use them as evidence; they are never the answer.',
+      kind === entityNameMatcher.KINDS.TAGS
+        ? '"filed_with" lists the correspondents whose documents carry that tag most often; two tags filed with the same senders are more likely to be one thing, two tags filed with different senders more likely to be two.'
+        : '"filed_with" lists the tags the documents of that correspondent carry most often; two correspondents filed under the same topics are more likely to be one thing, two filed under different topics more likely to be two.',
       '',
       'Answer with a JSON array and nothing else — no prose, no explanation, no code fence:',
-      '[{"id": "<the id of the pair>", "verdict": "same" | "different" | "unsure", "reason": "<at most twelve words>"}]',
+      '[{"id": "<the id of the pair>", "verdict": "same" | "different" | "unsure", "basis": "<one word from the list below>", "confidence": "high" | "low", "reason": "<at most twelve words>"}]',
+      `"basis" is one of: ${VERDICT_BASES.join(', ')}.`,
+      '"confidence" is "high" when the evidence settles the pair and "low" when it does not. The basis "typo" is "high" only when one of the two spellings is not a word or a name of its own; otherwise answer "low".',
       'Answer every pair you were given exactly once, with the id copied as it was given.',
     ].join('\n');
   }
 
   /**
+   * The Paperless-ngx matching rule of an entity, as the prompt spells it, or
+   * null when the entity matches nothing automatically. A rule is evidence:
+   * two names with two different literal rules are usually two things.
+   *
+   * @param {AiReviewEntity} entity
+   * @returns {{algorithm:string, match:string}|null}
+   */
+  _matchingRuleOf(entity) {
+    const algorithm =
+      MATCHING_ALGORITHM_WORDS[Number(entity?.matchingAlgorithm)];
+    if (!algorithm) return null;
+    const match = String(entity?.match ?? '').trim();
+    return match === '' ? { algorithm } : { algorithm, match };
+  }
+
+  /**
    * The batch itself: the kind, then one JSON object per pair. One line per
    * pair keeps it compact and still readable in a log.
+   *
+   * Every pair says how the matcher linked the two names (`matched_by`) and
+   * how strongly (`score`), because that is what tells the model whether it
+   * is looking at a reason or at a spelling coincidence. Each entity carries
+   * its document count, its matching rule, and the titles and excerpts the
+   * review fetched for it.
    *
    * @param {'tags'|'correspondents'} kind
    * @param {AiReviewPair[]} pairs
@@ -517,24 +745,33 @@ class EntityMatchAiService {
    */
   buildUserPrompt(kind, pairs) {
     const words = KIND_WORDS[kind] || KIND_WORDS.tags;
+    const texts = (values) =>
+      (values || []).map((value) => String(value ?? '').trim()).filter(Boolean);
     const describe = (entity) => {
       const described = {
         name: String(entity?.name ?? ''),
         documents: Number(entity?.documentCount) || 0,
       };
-      const titles = (entity?.sampleTitles || [])
-        .map((title) => String(title ?? '').trim())
-        .filter(Boolean);
+      const titles = texts(entity?.sampleTitles);
       if (titles.length > 0) described.titles = titles;
+      const neighbours = texts(entity?.neighbourNames);
+      if (neighbours.length > 0) described.filed_with = neighbours;
+      const rule = this._matchingRuleOf(entity);
+      if (rule) described.rule = rule;
+      const excerpts = texts(entity?.sampleExcerpts);
+      if (excerpts.length > 0) described.excerpts = excerpts;
       return described;
     };
-    const lines = pairs.map((pair) =>
-      JSON.stringify({
-        id: pair.key,
-        a: describe(pair.a),
-        b: describe(pair.b),
-      })
-    );
+    const lines = pairs.map((pair) => {
+      const line = { id: pair.key };
+      if (pair.matchedBy) line.matched_by = String(pair.matchedBy);
+      if (Number.isFinite(Number(pair.score))) {
+        line.score = Number(Number(pair.score).toFixed(2));
+      }
+      line.a = describe(pair.a);
+      line.b = describe(pair.b);
+      return JSON.stringify(line);
+    });
     return [
       `Kind: ${words.plural}`,
       `Pairs: ${pairs.length}`,
@@ -660,11 +897,20 @@ class EntityMatchAiService {
         verdicts.set(id, {
           verdict: AI_VERDICTS.UNSURE,
           reason: UNKNOWN_VERDICT_REASON,
+          basis: null,
+          confidence: null,
+          source: VERDICT_SOURCES.MODEL,
         });
         tally.unsure += 1;
         continue;
       }
-      verdicts.set(id, { verdict, reason: toReason(item?.reason) });
+      verdicts.set(id, {
+        verdict,
+        reason: toReason(item?.reason),
+        basis: toBasis(item?.basis),
+        confidence: toConfidence(item?.confidence),
+        source: VERDICT_SOURCES.MODEL,
+      });
       tally[verdict] += 1;
     }
     return tally;
@@ -693,6 +939,9 @@ class EntityMatchAiService {
       verdicts.set(key, {
         verdict: AI_VERDICTS.UNSURE,
         reason: toReason(reason) || 'the request failed',
+        basis: null,
+        confidence: null,
+        source: VERDICT_SOURCES.MODEL,
       });
       filled += 1;
     }
@@ -724,17 +973,28 @@ class EntityMatchAiService {
     if (isRetry) usage.retries += 1;
 
     const startedAt = Date.now();
+    const withExcerpts = batch.filter(
+      (pair) =>
+        (pair.a?.sampleExcerpts || []).length > 0 ||
+        (pair.b?.sampleExcerpts || []).length > 0
+    ).length;
+    const evidence = withExcerpts > 0 ? `, ${withExcerpts} with excerpts` : '';
     const head = () =>
-      `${kind}: request ${requestNumber}, ${batch.length} pair(s), ~${promptTokens} prompt tokens, cap ${cap}, ${Date.now() - startedAt}ms`;
+      `${kind}: request ${requestNumber}, ${batch.length} pair(s)${evidence}, ~${promptTokens} prompt tokens, cap ${cap}, ${Date.now() - startedAt}ms`;
 
     let answer;
     let truncated = false;
+    const requestOptions = {
+      systemPrompt,
+      temperature: 0,
+      maxTokens: cap,
+    };
+    // Only when the operator picked a model for the judge; without it the
+    // provider stays on the model it is configured with.
+    const judgeModel = this.judgeModel();
+    if (judgeModel !== '') requestOptions.model = judgeModel;
     try {
-      answer = await service.generateText(userPrompt, {
-        systemPrompt,
-        temperature: 0,
-        maxTokens: cap,
-      });
+      answer = await service.generateText(userPrompt, requestOptions);
     } catch (error) {
       if (error?.code !== TRUNCATION_ERROR_CODE) {
         this._failRequest(
@@ -893,15 +1153,21 @@ class EntityMatchAiService {
    * no pairs, but its members' pairs still count as "inside one group", so a
    * group the user did not select cannot come back as a candidate either.
    *
+   * A member pair the matcher settled by a rule — same name but for case,
+   * umlauts or a legal form — is not a question for a model: it comes back in
+   * `settled`, with the verdict a rule gives it, and never leaves the house.
+   *
    * @param {'tags'|'correspondents'} kind
    * @param {object[]} groups        every scan group of this kind
    * @param {object[]} candidates    the band below the threshold, possibly empty
    * @param {Set<string>|null} [judgedGroupIds]  null judges every group
-   * @returns {{pairs: AiReviewPair[], candidates: AiReviewPair[], candidateEdges: Map<string, {score:number, reason:string}>}}
+   * @returns {{pairs: AiReviewPair[], candidates: AiReviewPair[], candidateEdges: Map<string, {score:number, reason:string}>, settled: Map<string, AiVerdict>}}
    */
   _pairsForKind(kind, groups, candidates, judgedGroupIds = null) {
     /** @type {AiReviewPair[]} */
     const pairs = [];
+    /** @type {Map<string, AiVerdict>} */
+    const settled = new Map();
     const insideOneGroup = new Set();
 
     for (const group of groups) {
@@ -919,10 +1185,26 @@ class EntityMatchAiService {
       if (judgedGroupIds && !judgedGroupIds.has(group.id)) continue;
       for (const member of group.members) {
         if (member.id === target.id) continue;
+        const key = entityNameMatcher.pairKey(kind, target.id, member.id);
+        const basis = SETTLED_REASON_BASES[member.reason];
+        if (basis) {
+          settled.set(key, {
+            verdict: AI_VERDICTS.SAME,
+            reason: `settled by the spelling rule ${member.reason}`,
+            basis,
+            confidence: 'high',
+            source: VERDICT_SOURCES.SPELLING_RULE,
+          });
+          continue;
+        }
+        // The edge of a group pair is the member's own score against the
+        // target; the target itself carries 1 and no reason.
         pairs.push({
-          key: entityNameMatcher.pairKey(kind, target.id, member.id),
+          key,
           a: target,
           b: member,
+          matchedBy: member.reason ?? null,
+          score: member.scoreToTarget,
         });
       }
     }
@@ -937,6 +1219,8 @@ class EntityMatchAiService {
         key: candidate.key,
         a: candidate.a,
         b: candidate.b,
+        matchedBy: candidate.reason ?? null,
+        score: candidate.score,
       });
       candidateEdges.set(candidate.key, {
         score: candidate.score,
@@ -948,7 +1232,67 @@ class EntityMatchAiService {
       pairs: [...pairs, ...candidatePairs],
       candidates: candidatePairs,
       candidateEdges,
+      settled,
     };
+  }
+
+  /**
+   * Adds the neighbourhood of every entity the pairs name: who a tag is
+   * usually filed with, what a correspondent is usually filed under. One
+   * request per entity, cached in the review, and the cheapest evidence there
+   * is — a tag whose documents come from banks is not the tag whose documents
+   * come from a removal company.
+   *
+   * Switched by the same option as the titles: both are the context a person
+   * would look at before deciding, and the page offers them as one choice.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {AiReviewPair[]} pairs
+   * @param {{neighbours: Map<string, string[]>}} store  the review's memory
+   * @returns {Promise<AiReviewPair[]>}
+   */
+  async _addNeighbourhood(kind, pairs, store) {
+    const paperlessService = require('./paperlessService');
+    if (typeof paperlessService.getEntityNeighbourhood !== 'function') {
+      return pairs;
+    }
+    const ids = [
+      ...new Set(pairs.flatMap((pair) => [pair.a.id, pair.b.id])),
+    ].filter((id) => Number.isInteger(Number(id)));
+    const unread = ids.filter((id) => !store.neighbours.has(`${kind}:${id}`));
+    const fetched = await mapWithConcurrency(
+      unread,
+      TITLE_CONCURRENCY,
+      async (id) => {
+        try {
+          return await paperlessService.getEntityNeighbourhood(kind, id, {
+            documents: NEIGHBOUR_DOCUMENTS,
+            limit: NEIGHBOUR_LIMIT,
+          });
+        } catch {
+          // Context is a nicety; a review must not fail over it.
+          return [];
+        }
+      }
+    );
+    unread.forEach((id, index) => {
+      store.neighbours.set(
+        `${kind}:${id}`,
+        Array.isArray(fetched[index]) ? fetched[index] : []
+      );
+    });
+
+    const withNeighbours = (entity) => {
+      const list = store.neighbours.get(`${kind}:${Number(entity.id)}`);
+      return list && list.length > 0
+        ? { ...entity, neighbourNames: list }
+        : entity;
+    };
+    return pairs.map((pair) => ({
+      ...pair,
+      a: withNeighbours(pair.a),
+      b: withNeighbours(pair.b),
+    }));
   }
 
   /**
@@ -998,6 +1342,84 @@ class EntityMatchAiService {
       a: withTitles(pair.a),
       b: withTitles(pair.b),
     }));
+  }
+
+  /**
+   * Adds document excerpts to the entities of the pairs the matcher linked by
+   * spelling alone — and to no others. This is the evidence that separates
+   * "Kontoauszug" from "Kontoumzug", and it is the expensive kind: one read
+   * and a few hundred characters of prompt per entity.
+   *
+   * Three things keep the cost where it belongs:
+   * - a pair whose `matched_by` is a strong tier never triggers a read;
+   * - every entity is read once per review, whatever number of pairs names it
+   *   (`cache`, keyed by kind and id, is the review's memory);
+   * - the read itself is bounded by DUPLICATES_AI_EXCERPT_DOCUMENTS and
+   *   DUPLICATES_AI_EXCERPT_CHARS, on the API side and again in the client.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {AiReviewPair[]} pairs
+   * @param {{cache: Map<string, string[]>, entities: Set<string>}} store
+   *   `cache` holds the excerpts already read, `entities` collects the ones
+   *   that actually carried evidence into a prompt (what `aiReview.excerpts`
+   *   reports).
+   * @param {{force?: boolean}} [options] `force` takes every pair as worth the
+   *   evidence, whatever linked it; that is what the escalation of an unsure
+   *   verdict asks for.
+   * @returns {Promise<{pairs: AiReviewPair[], spellingOnly: number}>}
+   */
+  async _addExcerpts(kind, pairs, store, { force = false } = {}) {
+    const paperlessService = require('./paperlessService');
+    const spellingOnly = force
+      ? pairs
+      : pairs.filter((pair) => SPELLING_ONLY_REASON_SET.has(pair.matchedBy));
+    if (
+      spellingOnly.length === 0 ||
+      typeof paperlessService.getRecentDocumentExcerptsByEntity !== 'function'
+    ) {
+      return { pairs, spellingOnly: spellingOnly.length };
+    }
+
+    const ids = [
+      ...new Set(spellingOnly.flatMap((pair) => [pair.a.id, pair.b.id])),
+    ].filter((id) => Number.isInteger(Number(id)));
+    const unread = ids.filter((id) => !store.cache.has(`${kind}:${id}`));
+    const fetched = await mapWithConcurrency(
+      unread,
+      EXCERPT_CONCURRENCY,
+      async (id) => {
+        try {
+          return await paperlessService.getRecentDocumentExcerptsByEntity(
+            kind,
+            id,
+            { limit: this.excerptDocuments(), chars: this.excerptChars() }
+          );
+        } catch {
+          // Evidence is a nicety; a review must not fail over it.
+          return [];
+        }
+      }
+    );
+    unread.forEach((id, index) => {
+      const list = Array.isArray(fetched[index]) ? fetched[index] : [];
+      store.cache.set(`${kind}:${id}`, list);
+    });
+
+    const keys = new Set(spellingOnly.map((pair) => pair.key));
+    const withExcerpts = (entity) => {
+      const list = store.cache.get(`${kind}:${Number(entity.id)}`);
+      if (!list || list.length === 0) return entity;
+      store.entities.add(`${kind}:${Number(entity.id)}`);
+      return { ...entity, sampleExcerpts: list };
+    };
+    return {
+      pairs: pairs.map((pair) =>
+        keys.has(pair.key)
+          ? { ...pair, a: withExcerpts(pair.a), b: withExcerpts(pair.b) }
+          : pair
+      ),
+      spellingOnly: spellingOnly.length,
+    };
   }
 
   /**
@@ -1084,6 +1506,17 @@ class EntityMatchAiService {
     const targeted =
       selectedIds !== null || minConfidence !== null || !includeCandidates;
 
+    // The evidence. Titles are context for every pair; excerpts are evidence
+    // for the spelling-only ones and are read once per entity per review.
+    const withTitles = options.withTitles !== false;
+    const withExcerpts =
+      options.withExcerpts !== false && this.excerptsEnabled();
+    const excerptStore = {
+      cache: new Map(),
+      entities: new Set(),
+      neighbours: new Map(),
+    };
+
     if (selectedIds) {
       const known = new Set((scan.groups || []).map((group) => group.id));
       const unknown = [...selectedIds].filter((id) => !known.has(id)).length;
@@ -1105,7 +1538,25 @@ class EntityMatchAiService {
     let retries = 0;
     let batchSize = null;
     let tokens = null;
+    let spellingRules = 0;
+    let escalated = 0;
     let model = this.modelName();
+
+    /** Folds the usage of one round of requests into the totals above. */
+    const foldUsage = (usage) => {
+      requests += usage.requests;
+      failedRequests += usage.failedRequests;
+      retries += usage.retries;
+      // Two kinds can end up with two sizes; the smaller one is what the
+      // review actually had to work with.
+      batchSize =
+        batchSize == null
+          ? usage.batchSize
+          : Math.min(batchSize, usage.batchSize);
+      if (usage.tokens != null) {
+        tokens = (tokens || 0) + usage.tokens;
+      }
+    };
 
     for (const kind of kinds) {
       const groups = (scan.groups || []).filter((group) => group.kind === kind);
@@ -1138,7 +1589,7 @@ class EntityMatchAiService {
         });
       }
 
-      const { pairs, candidates, candidateEdges } = this._pairsForKind(
+      const { pairs, candidates, candidateEdges, settled } = this._pairsForKind(
         kind,
         groups,
         band,
@@ -1146,50 +1597,99 @@ class EntityMatchAiService {
       );
       candidateCount += candidates.length;
       judged += pairs.length;
+      spellingRules += settled.size;
+
+      // The evidence is gathered before the start line, so the line can say
+      // what the model is about to see rather than what it was offered.
+      let asked = pairs;
+      let spellingOnly = 0;
+      const fetchedBefore = excerptStore.entities.size;
+      if (pairs.length > 0 && withTitles) {
+        asked = await this._addTitles(kind, asked);
+        asked = await this._addNeighbourhood(kind, asked, excerptStore);
+      }
+      if (pairs.length > 0 && withExcerpts) {
+        const evidence = await this._addExcerpts(kind, asked, excerptStore);
+        asked = evidence.pairs;
+        spellingOnly = evidence.spellingOnly;
+      }
+      const fetchedHere = excerptStore.entities.size - fetchedBefore;
+
       this._log(
-        `${kind}: threshold ${scan.threshold}, ` +
-          (targeted
+        [
+          `${kind}: threshold ${scan.threshold}`,
+          targeted
             ? `judging ${selected.length} of ${groups.length} group(s)` +
-              `${this._targetingNote(selectedIds, minConfidence)}, `
-            : `${groups.length} scan group(s), `) +
-          (includeCandidates
-            ? `${candidates.length} candidate(s) in the band, `
-            : 'band skipped, ') +
-          `${pairs.length} pair(s) to judge.`
+              this._targetingNote(selectedIds, minConfidence)
+            : `${groups.length} scan group(s)`,
+          includeCandidates
+            ? `${candidates.length} candidate(s) in the band`
+            : 'band skipped',
+          ...(settled.size > 0
+            ? [`${settled.size} pair(s) settled by a spelling rule`]
+            : []),
+          `${pairs.length} pair(s) to judge`,
+          `titles ${withTitles ? 'on' : 'off'}`,
+          withExcerpts
+            ? `excerpts on for ${spellingOnly} spelling-only pair(s), ` +
+              `${fetchedHere} entity/entities fetched`
+            : 'excerpts off',
+          `model ${model || 'unknown'}`,
+        ].join(', ') + '.'
       );
       if (pairs.length === 0) {
+        // A group whose members a rule settled still carries its verdicts.
         scanGroups.push(
-          ...groups.map((group) => this._withVerdicts(group, new Map()))
+          ...groups.map((group) => this._withVerdicts(group, settled))
         );
         continue;
       }
 
-      const asked =
-        options.withTitles === false
-          ? pairs
-          : await this._addTitles(kind, pairs);
       const review = await this.reviewPairs(asked, { kind });
-      requests += review.usage.requests;
-      failedRequests += review.usage.failedRequests;
-      retries += review.usage.retries;
-      // Two kinds can end up with two sizes; the smaller one is what the
-      // review actually had to work with.
-      batchSize =
-        batchSize == null
-          ? review.usage.batchSize
-          : Math.min(batchSize, review.usage.batchSize);
-      if (review.usage.tokens != null) {
-        tokens = (tokens || 0) + review.usage.tokens;
-      }
+      foldUsage(review.usage);
       model = review.model || model;
 
+      // Second round: a pair the model could not decide and had no excerpts
+      // for is asked again, this time with the documents. That is the cheap
+      // half of the evidence budget — it is spent only where the first answer
+      // says the names alone were not enough.
+      const unsureWithoutExcerpts = withExcerpts
+        ? asked.filter(
+            (pair) =>
+              review.verdicts.get(pair.key)?.verdict === AI_VERDICTS.UNSURE &&
+              (pair.a?.sampleExcerpts || []).length === 0 &&
+              (pair.b?.sampleExcerpts || []).length === 0
+          )
+        : [];
+      if (unsureWithoutExcerpts.length > 0) {
+        const evidence = await this._addExcerpts(
+          kind,
+          unsureWithoutExcerpts,
+          excerptStore,
+          { force: true }
+        );
+        this._log(
+          `${kind}: escalated ${unsureWithoutExcerpts.length} unsure pair(s) with excerpts, ` +
+            `${excerptStore.entities.size - fetchedBefore - fetchedHere} entity/entities fetched.`
+        );
+        const second = await this.reviewPairs(evidence.pairs, { kind });
+        foldUsage(second.usage);
+        escalated += unsureWithoutExcerpts.length;
+        for (const [key, verdict] of second.verdicts) {
+          review.verdicts.set(key, verdict);
+        }
+      }
+
+      // The rule's verdicts and the model's answers are one map from here on;
+      // a group aggregates them without knowing which is which.
+      const verdicts = new Map([...settled, ...review.verdicts]);
       scanGroups.push(
-        ...groups.map((group) => this._withVerdicts(group, review.verdicts))
+        ...groups.map((group) => this._withVerdicts(group, verdicts))
       );
 
       const accepted = [];
       for (const candidate of candidates) {
-        const verdict = review.verdicts.get(candidate.key);
+        const verdict = verdicts.get(candidate.key);
         if (verdict?.verdict !== AI_VERDICTS.SAME) continue;
         const edge = candidateEdges.get(candidate.key);
         accepted.push({
@@ -1210,11 +1710,7 @@ class EntityMatchAiService {
         );
         candidateGroups.push(
           ...built.map((group) =>
-            this._withVerdicts(
-              group,
-              review.verdicts,
-              GROUP_SOURCES.AI_CANDIDATE
-            )
+            this._withVerdicts(group, verdicts, GROUP_SOURCES.AI_CANDIDATE)
           )
         );
       }
@@ -1255,6 +1751,9 @@ class EntityMatchAiService {
         targeted,
         groupsJudged,
         groupsSkipped,
+        excerpts: excerptStore.entities.size,
+        spellingRules,
+        escalated,
       },
     };
   }
@@ -1294,6 +1793,11 @@ const entityMatchAiService = new EntityMatchAiService();
 entityMatchAiService.AI_VERDICTS = AI_VERDICTS;
 entityMatchAiService.AI_VERDICT_LIST = AI_VERDICT_LIST;
 entityMatchAiService.GROUP_SOURCES = GROUP_SOURCES;
+entityMatchAiService.VERDICT_SOURCES = VERDICT_SOURCES;
+entityMatchAiService.VERDICT_BASES = VERDICT_BASES;
+entityMatchAiService.CONFIDENCE_LEVELS = CONFIDENCE_LEVELS;
+entityMatchAiService.SPELLING_ONLY_REASONS = SPELLING_ONLY_REASONS;
+entityMatchAiService.SETTLED_REASON_BASES = SETTLED_REASON_BASES;
 entityMatchAiService.CANDIDATE_LIMIT = CANDIDATE_LIMIT;
 entityMatchAiService.TOKENS_PER_PAIR = TOKENS_PER_PAIR;
 entityMatchAiService.TOKENS_OVERHEAD = TOKENS_OVERHEAD;
@@ -1310,6 +1814,19 @@ entityMatchAiService.batchSize = () => {
 entityMatchAiService.candidateFloor = () => {
   const floor = Number(config.duplicatesAiCandidateFloor);
   return Number.isFinite(floor) && floor > 0 && floor < 1 ? floor : 0.6;
+};
+/** Whether document excerpts may be read as evidence at all. */
+entityMatchAiService.excerptsEnabled = () =>
+  Boolean(config.duplicatesAiExcerpts);
+/** Characters per excerpt, the bound the prompt is sized by. */
+entityMatchAiService.excerptChars = () => {
+  const chars = Number(config.duplicatesAiExcerptChars);
+  return Number.isInteger(chars) && chars > 0 ? chars : 300;
+};
+/** Documents per entity one excerpt read looks at. */
+entityMatchAiService.excerptDocuments = () => {
+  const documents = Number(config.duplicatesAiExcerptDocuments);
+  return Number.isInteger(documents) && documents > 0 ? documents : 2;
 };
 
 module.exports = entityMatchAiService;

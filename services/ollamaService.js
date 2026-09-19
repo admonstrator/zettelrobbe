@@ -1,5 +1,9 @@
 const { writePromptToFile, toNameList } = require('./serviceUtils');
-const { hasNumber, hasSystemPrompt } = require('./aiGenerateOptions');
+const {
+  hasNumber,
+  hasSystemPrompt,
+  modelOverride,
+} = require('./aiGenerateOptions');
 const axios = require('axios');
 const config = require('../config/config');
 const fs = require('fs').promises;
@@ -942,7 +946,7 @@ class OllamaService {
 
       // Call Ollama API without enforcing a specific response format
       const generateTextBody = {
-        model: this.model,
+        model: modelOverride(options) || this.model,
         prompt: prompt,
         system: systemPrompt,
         stream: false,
