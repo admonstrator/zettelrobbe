@@ -48,6 +48,8 @@ const REASON_LABELS = {
   'token-order': 'Word order',
   prefix: 'Prefix',
   fuzzy: 'Similar spelling',
+  // A pair the AI's semantic sweep proposed; the string matcher saw nothing.
+  semantic: 'Semantic (AI)',
 };
 
 /**
