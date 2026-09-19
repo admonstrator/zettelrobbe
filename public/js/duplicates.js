@@ -237,6 +237,13 @@ const el = {
   aiProposalIcon: document.getElementById('dupAiProposalIcon'),
   aiProposalStatus: document.getElementById('dupAiProposalStatus'),
   aiNotice: document.getElementById('dupAiNotice'),
+  aiProgress: document.getElementById('dupAiProgress'),
+  aiProgressBar: document.getElementById('dupAiProgressBar'),
+  aiProgressFill: document.getElementById('dupAiProgressFill'),
+  aiProgressMessage: document.getElementById('dupAiProgressMessage'),
+  aiProgressCounts: document.getElementById('dupAiProgressCounts'),
+  aiProgressEta: document.getElementById('dupAiProgressEta'),
+  aiStopBtn: document.getElementById('dupAiStopBtn'),
   stats: document.getElementById('dupStats'),
   statTags: document.getElementById('dupStatTags'),
   statCorrespondents: document.getElementById('dupStatCorrespondents'),
@@ -305,6 +312,12 @@ let dismissalCount = 0;
 let merging = false;
 /** True from the click on "AI proposal" until its dialog is done with. */
 let proposing = false;
+/** The review job this page is following, or null when none is. */
+let reviewJobId = null;
+/** The last job the panel drew, plus when it arrived, so elapsed can tick. */
+let progressJob = null;
+let progressAt = 0;
+let progressTimer = null;
 
 /* --- small helpers -------------------------------------------------------- */
 
@@ -1152,6 +1165,9 @@ async function runScan() {
   // the cards it belonged to.
   scanned = false;
   clearAiNotice();
+  // The panel belongs to the review it reported on; a new scan is a new
+  // question and starts without it.
+  hideProgressPanel();
   setScanning(true);
   showSkeletons();
   try {
@@ -1256,6 +1272,434 @@ function aiReviewOffered() {
   return Boolean(el.aiReviewBtn || el.reviewThenMergeBtn);
 }
 
+/* --- the progress panel --------------------------------------------------- */
+/* A review is many model requests in a row. Left to a spinner it would be a
+   bill nobody sees, so the server runs it as a job and this panel says where
+   it is, what it has spent and how long it still needs — with the one button
+   that ends it. All three AI paths share the panel, and a reloaded page
+   attaches to a review that is still going. */
+
+/** How often the fallback asks a job whose event stream broke. */
+const REVIEW_POLL_MS = 2000;
+
+/** The two job states that mean "still going". */
+const REVIEW_LIVE_STATES = ['running', 'stopping'];
+
+/** Token counts the way a bill reads: "980", "12.4k", "1.2M". */
+function formatTokens(value) {
+  const count = Number(value);
+  if (!Number.isFinite(count) || count <= 0) return '0';
+  if (count < 1000) return String(Math.round(count));
+  const million = count >= 1000000;
+  const scaled = count / (million ? 1000000 : 1000);
+  const shown =
+    scaled < 100 ? Math.round(scaled * 10) / 10 : Math.round(scaled);
+  return `${shown}${million ? 'M' : 'k'}`;
+}
+
+/**
+ * What is left of a review, the way a person reads a wait. An estimate the
+ * job does not have yet is no text at all — the caller says "estimating…"
+ * where that is the honest answer.
+ */
+function formatEta(ms) {
+  if (ms === null || ms === undefined || ms === '') return '';
+  const left = Number(ms);
+  if (!Number.isFinite(left) || left < 0) return '';
+  // Under five seconds a number would be noise; it is about to be over.
+  if (left < 5000) return 'almost done';
+  if (left < 60000) return `about ${Math.round(left / 1000)} s left`;
+  return `about ${Math.max(1, Math.round(left / 60000))} min left`;
+}
+
+/** How long this has been running: "0:07", "1:24", "1:02:03". */
+function formatElapsed(ms) {
+  const total = Math.max(0, Number(ms) || 0) / 1000;
+  const seconds = Math.floor(total % 60);
+  const minutes = Math.floor((total / 60) % 60);
+  const hours = Math.floor(total / 3600);
+  const pad = (value) => String(value).padStart(2, '0');
+  return hours > 0
+    ? `${hours}:${pad(minutes)}:${pad(seconds)}`
+    : `${minutes}:${pad(seconds)}`;
+}
+
+/** How far a review is, 0 to 100, or null while the plan is not known. */
+function progressPercent(progress) {
+  const state = progress || {};
+  const planned = Number(state.requestsPlanned);
+  if (!Number.isFinite(planned) || planned <= 0) return null;
+  const done = Number(state.requestsDone);
+  const share = (Number.isFinite(done) ? done : 0) / planned;
+  return Math.max(0, Math.min(100, Math.round(share * 100)));
+}
+
+/** The one sentence a review that ended early leaves above the results. */
+function stopNotice(job) {
+  const state = (job && job.progress) || {};
+  const done = Number(state.requestsDone) || 0;
+  // A count the job does not have yet is null, and Number(null) is 0 — which
+  // would read as "of 0 requests". NaN is the honest answer here.
+  const planned =
+    state.requestsPlanned == null ? NaN : Number(state.requestsPlanned);
+  const pairs = state.pairsTotal == null ? NaN : Number(state.pairsTotal);
+  const judged = Number(state.pairsJudged) || 0;
+  const missing = Number.isFinite(pairs) ? Math.max(0, pairs - judged) : null;
+  const tail =
+    missing === null
+      ? '.'
+      : `: ${missing} ${plural(missing, 'pair was', 'pairs were')} not judged.`;
+  const requests = plural(
+    Number.isFinite(planned) ? planned : done,
+    'request',
+    'requests'
+  );
+  const reason = job ? job.stopReason : null;
+  if (reason === 'token-budget') {
+    const budget = formatTokens(state.tokenBudget);
+    return `Stopped at the token budget of ${budget} after ${done} ${requests}${tail}`;
+  }
+  if (reason === 'idle') {
+    return `Stopped because nobody was watching${tail}`;
+  }
+  const of = Number.isFinite(planned) ? ` of ${planned}` : '';
+  return `Stopped after ${done}${of} ${requests}${tail}`;
+}
+
+/** "Request 3 of 8 · 40 of 96 pairs · 12.4k of 200k tokens". */
+function progressCountsText(progress) {
+  const state = progress || {};
+  const parts = [];
+  const done = Number(state.requestsDone) || 0;
+  const planned = Number(state.requestsPlanned);
+  if (Number.isFinite(planned) && planned > 0) {
+    parts.push(`Request ${Math.min(done, planned)} of ${planned}`);
+  } else if (done > 0) {
+    parts.push(`Request ${done}`);
+  }
+  const judged = Number(state.pairsJudged) || 0;
+  const pairs = Number(state.pairsTotal);
+  if (Number.isFinite(pairs) && pairs > 0) {
+    parts.push(`${judged} of ${pairs} pairs`);
+  } else if (judged > 0) {
+    parts.push(`${judged} ${plural(judged, 'pair', 'pairs')}`);
+  }
+  const budget = Number(state.tokenBudget);
+  const spent = formatTokens(state.tokens);
+  let cost =
+    Number.isFinite(budget) && budget > 0
+      ? `${spent} of ${formatTokens(budget)} tokens`
+      : `${spent} tokens`;
+  // Before the first answer the only honest number is the plan's own guess.
+  const estimate = Number(state.estimatedTokens);
+  if (done === 0 && Number.isFinite(estimate) && estimate > 0) {
+    cost += `, estimated ${formatTokens(estimate)}`;
+  }
+  parts.push(cost);
+  return parts.join(' · ');
+}
+
+/** "about 40 s left · 1:24 elapsed"; only the elapsed part is always there. */
+function progressTimeText(progress, elapsedMs) {
+  const state = progress || {};
+  const parts = [];
+  const eta = formatEta(state.etaMs);
+  if (eta) {
+    parts.push(eta);
+  } else if (state.phase === 'judging') {
+    // The rate of the first request is what an estimate is made of.
+    parts.push('estimating…');
+  }
+  parts.push(`${formatElapsed(elapsedMs)} elapsed`);
+  return parts.join(' · ');
+}
+
+/** The single line the panel keeps after a review ended. */
+function progressOutcomeText(event) {
+  const job = (event && event.job) || {};
+  const state = job.progress || {};
+  const elapsed = formatElapsed(state.elapsedMs);
+  const done = Number(state.requestsDone) || 0;
+  const planned =
+    state.requestsPlanned == null ? NaN : Number(state.requestsPlanned);
+  const judged = Number(state.pairsJudged) || 0;
+  const pairs = state.pairsTotal == null ? NaN : Number(state.pairsTotal);
+  const tokens = `${formatTokens(state.tokens)} tokens`;
+  if (event && event.type === 'failed') return `Failed after ${elapsed}`;
+  if (event && event.type === 'stopped') {
+    const requests = Number.isFinite(planned)
+      ? `${done} of ${planned} requests`
+      : `${done} ${plural(done, 'request', 'requests')}`;
+    const judgedPart = Number.isFinite(pairs)
+      ? `${judged} of ${pairs} pairs judged`
+      : `${judged} ${plural(judged, 'pair', 'pairs')} judged`;
+    return `Stopped after ${requests} · ${judgedPart} · ${tokens}`;
+  }
+  return `Done in ${elapsed} · ${done} ${plural(done, 'request', 'requests')} · ${judged} ${plural(judged, 'pair', 'pairs')} · ${tokens}`;
+}
+
+function setStopLabel(text) {
+  if (!el.aiStopBtn) return;
+  const label = el.aiStopBtn.querySelector('.dup-progress__stop-label');
+  if (label) label.textContent = text;
+}
+
+function showProgressPanel() {
+  if (!el.aiProgress) return;
+  el.aiProgress.classList.remove('hidden');
+  if (el.aiStopBtn) {
+    el.aiStopBtn.classList.remove('hidden');
+    el.aiStopBtn.disabled = false;
+    setStopLabel('Stop');
+  }
+}
+
+/** Takes the panel off the page; the next scan or review starts it over. */
+function hideProgressPanel() {
+  stopProgressTicker();
+  progressJob = null;
+  if (!el.aiProgress) return;
+  el.aiProgress.classList.add('hidden');
+  if (el.aiProgressMessage) el.aiProgressMessage.textContent = '';
+  if (el.aiProgressCounts) el.aiProgressCounts.textContent = '';
+  if (el.aiProgressEta) el.aiProgressEta.textContent = '';
+  if (el.aiProgressFill) {
+    el.aiProgressFill.classList.remove('dup-progress__fill--indeterminate');
+    el.aiProgressFill.style.width = '0%';
+  }
+}
+
+function startProgressTicker() {
+  if (progressTimer !== null) return;
+  progressTimer = window.setInterval(drawProgressTime, 1000);
+}
+
+function stopProgressTicker() {
+  if (progressTimer === null) return;
+  window.clearInterval(progressTimer);
+  progressTimer = null;
+}
+
+/** The elapsed time between two events, so the line does not stand still. */
+function drawProgressTime() {
+  if (!el.aiProgressEta || !progressJob) return;
+  const state = progressJob.progress || {};
+  const base = Number(state.elapsedMs) || 0;
+  const live = progressJob.finishedAt ? base : base + (Date.now() - progressAt);
+  el.aiProgressEta.textContent = progressTimeText(state, live);
+}
+
+/** One `progress` event on the panel. */
+function renderProgress(job) {
+  if (!el.aiProgress || !job) return;
+  progressJob = job;
+  progressAt = Date.now();
+  const state = job.progress || {};
+  const percent = progressPercent(state);
+  if (el.aiProgressFill) {
+    const unknown = percent === null;
+    el.aiProgressFill.classList.toggle(
+      'dup-progress__fill--indeterminate',
+      unknown
+    );
+    // An inline width would beat the class, so the sliding band gets none.
+    el.aiProgressFill.style.width = unknown ? '' : `${percent}%`;
+  }
+  if (el.aiProgressBar) {
+    if (percent === null) {
+      el.aiProgressBar.removeAttribute('aria-valuenow');
+    } else {
+      el.aiProgressBar.setAttribute('aria-valuenow', String(percent));
+    }
+  }
+  if (el.aiProgressMessage) {
+    el.aiProgressMessage.textContent = state.message || '';
+  }
+  if (el.aiProgressCounts) {
+    el.aiProgressCounts.textContent = progressCountsText(state);
+  }
+  drawProgressTime();
+  startProgressTicker();
+}
+
+/** The last thing the panel says; it stays until the next scan or review. */
+function renderProgressOutcome(event) {
+  if (!el.aiProgress) return;
+  const job = (event && event.job) || null;
+  progressJob = job;
+  progressAt = Date.now();
+  stopProgressTicker();
+  if (el.aiStopBtn) {
+    el.aiStopBtn.disabled = true;
+    el.aiStopBtn.classList.add('hidden');
+  }
+  const percent = progressPercent(job ? job.progress : null);
+  if (el.aiProgressFill) {
+    el.aiProgressFill.classList.remove('dup-progress__fill--indeterminate');
+    el.aiProgressFill.style.width =
+      event.type === 'done' ? '100%' : `${percent === null ? 0 : percent}%`;
+  }
+  if (el.aiProgressMessage) {
+    el.aiProgressMessage.textContent = progressOutcomeText(event);
+  }
+  if (el.aiProgressCounts) el.aiProgressCounts.textContent = '';
+  if (el.aiProgressEta) el.aiProgressEta.textContent = '';
+}
+
+/** What the answer of a review does to the page, wherever it came from. */
+function applyReviewResult(data) {
+  if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
+  renderStats(data);
+  renderGroups(data.groups);
+}
+
+/** Asks the job to end after the request it is in. No dialog, no question. */
+async function stopReview() {
+  if (!el.aiStopBtn || !reviewJobId) return;
+  el.aiStopBtn.disabled = true;
+  setStopLabel('Stopping…');
+  const id = reviewJobId;
+  try {
+    const payload = await postJson(
+      `/api/duplicates/ai-review/jobs/${encodeURIComponent(id)}/stop`,
+      {}
+    );
+    // The job words its own stop; the panel only repeats it.
+    if (payload.data && payload.data.job) renderProgress(payload.data.job);
+  } catch (error) {
+    // The request failed, so nothing was stopped: the button goes back to
+    // being a button and the stream still decides how this ends.
+    if (el.aiStopBtn && reviewJobId === id) {
+      el.aiStopBtn.disabled = false;
+      setStopLabel('Stop');
+    }
+    toast(error.message, { tone: 'danger' });
+  }
+}
+
+/**
+ * Follows a review job to its end and puts what it says on the page.
+ *
+ * The event stream is the normal way. A proxy that breaks it drops the page
+ * onto polling the job instead, because a review that ran must still come
+ * home — and a poll counts as watching, so the job does not stop itself.
+ *
+ * @param {object} job  the AiReviewJob to follow
+ * @returns {Promise<{aiReview: object, stopped: boolean}>}
+ */
+function followReviewJob(job) {
+  return new Promise((resolve, reject) => {
+    reviewJobId = job.id;
+    const base = `/api/duplicates/ai-review/jobs/${encodeURIComponent(job.id)}`;
+    showProgressPanel();
+    renderProgress(job);
+
+    let settled = false;
+    let source = null;
+    let poll = null;
+
+    const closeSource = () => {
+      if (!source) return;
+      try {
+        source.close();
+      } catch {
+        // Already gone; nothing to close.
+      }
+      source = null;
+    };
+
+    const stopPolling = () => {
+      if (poll === null) return;
+      window.clearInterval(poll);
+      poll = null;
+    };
+
+    const settle = (finish, value) => {
+      if (settled) return;
+      settled = true;
+      closeSource();
+      stopPolling();
+      reviewJobId = null;
+      finish(value);
+    };
+
+    const handle = (event) => {
+      if (settled || !event) return;
+      if (event.type === 'progress') {
+        renderProgress(event.job);
+        return;
+      }
+      renderProgressOutcome(event);
+      if (event.type === 'failed') {
+        settle(reject, new Error(event.error || 'The AI review failed.'));
+        return;
+      }
+      // done and stopped both carry a result; a stopped one is the verdicts
+      // the review did reach, and they belong on the cards.
+      const data = event.data || null;
+      if (data) applyReviewResult(data);
+      const stopped = event.type === 'stopped';
+      if (stopped && el.aiNotice) {
+        el.aiNotice.innerHTML = htmlAlert(
+          'warn',
+          'The AI review stopped early',
+          stopNotice(event.job)
+        );
+      }
+      settle(resolve, { aiReview: (data && data.aiReview) || {}, stopped });
+    };
+
+    const pollOnce = async () => {
+      if (settled) return;
+      try {
+        const payload = await requestJson(base);
+        const current = payload.data ? payload.data.job : null;
+        if (!current) throw new Error('The AI review job is gone.');
+        if (REVIEW_LIVE_STATES.includes(current.status)) {
+          renderProgress(current);
+          return;
+        }
+        handle({
+          type: current.status === 'failed' ? 'failed' : current.status,
+          job: current,
+          data: payload.data ? payload.data.result : null,
+          error: current.error,
+        });
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+
+    const startPolling = () => {
+      if (settled || poll !== null) return;
+      poll = window.setInterval(pollOnce, REVIEW_POLL_MS);
+    };
+
+    if (typeof window.EventSource === 'function') {
+      source = new EventSource(`${base}/events`);
+      source.onmessage = (message) => {
+        let event;
+        try {
+          event = JSON.parse(message.data);
+        } catch {
+          // A line this page cannot read is a line it ignores.
+          return;
+        }
+        handle(event);
+      };
+      source.onerror = () => {
+        if (settled) return;
+        // Some proxies close a stream they do not understand. The review is
+        // still running on the server, so ask it directly from now on.
+        closeSource();
+        startPolling();
+      };
+    } else {
+      startPolling();
+    }
+  });
+}
+
 /**
  * One question to the model, and its answer put on the page. Both ways into a
  * review end here — the whole result list and the groups the user ticked —
@@ -1263,35 +1707,81 @@ function aiReviewOffered() {
  * the same in both cases. The page is only touched when an answer arrives; a
  * throw leaves the cards exactly as they were and the caller words it.
  *
+ * The review runs as a job on the server and this follows it, so a long one
+ * shows where it is and can be stopped.
+ *
  * @param {object} extra  fields on top of the ones both callers send; the
  *   guided path narrows the question with `groupIds` and `includeCandidates`
- * @returns {Promise<object>} the `aiReview` block of the answer
+ * @returns {Promise<{aiReview: object, stopped: boolean}>} what the review
+ *   has to say about itself, and whether it ended before it was through
  */
 async function askForVerdicts(extra) {
-  const { status, payload } = await postForReview('/api/duplicates/ai-review', {
-    kind: selectedKind(),
-    threshold: currentThreshold(),
-    includeDismissed: Boolean(
-      el.includeDismissed && el.includeDismissed.checked
-    ),
-    withTitles: Boolean(el.aiTitles && el.aiTitles.checked),
-    withExcerpts: Boolean(el.aiExcerpts && el.aiExcerpts.checked),
-    ...extra,
-  });
-  if (status === 409) {
-    throw new Error('AI review is switched off (DUPLICATES_AI_REVIEW)');
-  }
-  if (!payload) {
-    throw new Error(`The server answered ${status} without a body.`);
-  }
-  if (!payload.success) {
+  hideProgressPanel();
+  const { status, payload } = await postForReview(
+    '/api/duplicates/ai-review/jobs',
+    {
+      kind: selectedKind(),
+      threshold: currentThreshold(),
+      includeDismissed: Boolean(
+        el.includeDismissed && el.includeDismissed.checked
+      ),
+      withTitles: Boolean(el.aiTitles && el.aiTitles.checked),
+      withExcerpts: Boolean(el.aiExcerpts && el.aiExcerpts.checked),
+      ...extra,
+    }
+  );
+  const job = payload && payload.data ? payload.data.job : null;
+  // A 409 that names a job is not a failure: another tab or an earlier click
+  // started this very review, so this one watches it instead of asking twice.
+  if (status !== 202 && !(status === 409 && job)) {
+    if (!payload) {
+      throw new Error(`The server answered ${status} without a body.`);
+    }
     throw new Error(payload.error || 'The AI review failed.');
   }
-  const data = payload.data || {};
-  if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
-  renderStats(data);
-  renderGroups(data.groups);
-  return data.aiReview || {};
+  if (!job) {
+    throw new Error('The server started a review without naming it.');
+  }
+  return followReviewJob(job);
+}
+
+/**
+ * On load: a review that is still running somewhere gets its page back. A
+ * finished one is left alone — a reload is not a request to see the last
+ * answer again.
+ */
+async function reattachReview() {
+  if (!el.aiProgress) return;
+  let job;
+  try {
+    const payload = await requestJson('/api/duplicates/ai-review/jobs/current');
+    job = payload.data ? payload.data.job : null;
+  } catch {
+    // Nothing to attach to is the normal case; a page that cannot ask simply
+    // behaves as if no review were running.
+    return;
+  }
+  if (!job || !REVIEW_LIVE_STATES.includes(job.status)) return;
+  setAiReviewing(true);
+  try {
+    const { aiReview, stopped } = await followReviewJob(job);
+    // The answer is on the page now, so the toolbar and the selection belong
+    // to it exactly as they would after a review started here.
+    if (groups.size > 0) scanned = true;
+    if (!stopped && el.aiNotice) {
+      el.aiNotice.innerHTML = htmlFailedRequests(aiReview);
+    }
+  } catch (error) {
+    if (el.aiNotice) {
+      el.aiNotice.innerHTML = htmlAlert(
+        'danger',
+        'The AI review failed',
+        error.message
+      );
+    }
+  } finally {
+    setAiReviewing(false);
+  }
 }
 
 /** What a review has to admit about itself, or '' when it went through. */
@@ -1318,8 +1808,11 @@ async function runAiReview() {
     );
   }
   try {
-    const review = await askForVerdicts({});
-    if (el.aiNotice) el.aiNotice.innerHTML = htmlFailedRequests(review);
+    const { aiReview, stopped } = await askForVerdicts({});
+    // A review that stopped early has already said so where this would speak.
+    if (!stopped && el.aiNotice) {
+      el.aiNotice.innerHTML = htmlFailedRequests(aiReview);
+    }
   } catch (error) {
     if (el.aiNotice) {
       el.aiNotice.innerHTML = htmlAlert(
@@ -2088,7 +2581,7 @@ async function reviewThenMerge() {
   if (el.aiNotice) el.aiNotice.innerHTML = '';
   let asked = false;
   try {
-    const review = await askForVerdicts({
+    const { aiReview, stopped } = await askForVerdicts({
       groupIds: ids,
       includeCandidates: false,
     });
@@ -2096,8 +2589,12 @@ async function reviewThenMerge() {
     restorePicks(picks);
     const wanted = new Set(ids);
     selectGroups((state) => wanted.has(String(state.group.id)));
-    if (el.aiNotice) el.aiNotice.innerHTML = htmlFailedRequests(review);
-    asked = true;
+    if (!stopped && el.aiNotice) {
+      el.aiNotice.innerHTML = htmlFailedRequests(aiReview);
+    }
+    // A review that did not get through every group is not an answer to
+    // merge from; its partial verdicts sit on the cards and wait.
+    asked = !stopped;
   } catch (error) {
     // Exactly where a full review reports: above the results, and no dialog.
     if (el.aiNotice) {
@@ -2302,13 +2799,18 @@ async function runAiProposal() {
       `Asking the AI about ${pairs} ${plural(pairs, 'pair', 'pairs')} and near-misses…`
     );
     setAiReviewing(true);
-    let review;
+    let outcome;
     try {
-      review = await askForVerdicts({ includeCandidates: true });
+      outcome = await askForVerdicts({ includeCandidates: true });
     } finally {
       setAiReviewing(false);
     }
-    if (el.aiNotice) el.aiNotice.innerHTML = htmlFailedRequests(review);
+    // Stopped means the model did not see everything, so there is nothing to
+    // propose; the notice above the results says what happened.
+    if (outcome.stopped) return;
+    if (el.aiNotice) {
+      el.aiNotice.innerHTML = htmlFailedRequests(outcome.aiReview);
+    }
     setProposalStatus('');
     const entries = proposalEntries();
     if (entries.length === 0) {
@@ -3105,6 +3607,7 @@ function init() {
   if (el.aiProposalBtn) {
     el.aiProposalBtn.addEventListener('click', runAiProposal);
   }
+  if (el.aiStopBtn) el.aiStopBtn.addEventListener('click', stopReview);
   if (el.logMore) el.logMore.addEventListener('click', () => loadLog(false));
 
   if (el.logBody) {
@@ -3128,6 +3631,8 @@ function init() {
   initManual();
   loadLog(true);
   loadDismissals();
+  // A review the server is still working on gets its page back after a reload.
+  reattachReview();
 }
 
 if (document.readyState === 'loading') {

@@ -26,6 +26,9 @@
  * 11. the one-click "AI proposal": what it sends, what it pre-ticks, how its
  *    rows are ordered, the basis and confidence both dialogs show, the
  *    evidence counters of the stats tile, and the aligned member tables
+ * 12. the review as a job the page watches: the progress panel, the five
+ *    pure helpers that word its numbers, the event stream with its polling
+ *    fallback, and the re-attach after a reload
  */
 
 'use strict';
@@ -534,12 +537,16 @@ test('duplicates.css is a single @layer pages block', () => {
   );
 });
 
+/** The steps of a @keyframes block, which are not selectors at all. */
+const KEYFRAME_STEPS = /^(from|to|\d+(\.\d+)?%)$/;
+
 test('Every rule in duplicates.css is owned by a dup- class', () => {
   // Framework classes may appear as descendants; what a page file may not do is
   // start a selector with one, because layer pages would then beat the
   // framework everywhere on every page that loads this file.
   const offenders = selectorsOf(CSS).filter(
-    (selector) => !selector.startsWith('.dup-')
+    (selector) =>
+      !selector.startsWith('.dup-') && !KEYFRAME_STEPS.test(selector)
   );
   assert.deepStrictEqual(
     offenders,
@@ -1123,9 +1130,9 @@ test('The guided flow asks about the selection only, and never merges on its own
     );
   });
   assert.strictEqual(
-    (SCRIPT.match(/'\/api\/duplicates\/ai-review'/g) || []).length,
+    (SCRIPT.match(/'\/api\/duplicates\/ai-review\/jobs'/g) || []).length,
     1,
-    'both review paths go through the one request'
+    'both review paths start the one job'
   );
 });
 
@@ -1385,9 +1392,9 @@ test('The proposal scans, asks about everything and sends both evidence flags', 
     'the excerpts checkbox does not reach the request'
   );
   assert.strictEqual(
-    (SCRIPT.match(/'\/api\/duplicates\/ai-review'/g) || []).length,
+    (SCRIPT.match(/'\/api\/duplicates\/ai-review\/jobs'/g) || []).length,
     1,
-    'all three review paths go through the one request'
+    'all three review paths start the one job'
   );
   // The page without a model is untouched: "Merge selected" asks nobody.
   const plain = functionBody('mergeSelected');
@@ -1749,6 +1756,307 @@ test('The stylesheet carries the proposal classes', () => {
   assert.ok(
     width('.dup-proposal-dialog') >= width('.dup-review-dialog'),
     'the proposal has one column more than the guided dialog, not one less'
+  );
+});
+
+/* ── 12. the review as a watchable job ────────────────────────────────────── */
+/* A review is many model requests in a row, so the server runs it as a job and
+   the page watches it: a bar, what it costs, how long it still needs, and a
+   Stop button. What is checked here is that the panel exists only where the
+   review is offered, that the five pure helpers word the numbers the way the
+   page promises, and that the script really streams (with a fallback) instead
+   of waiting for one long POST. */
+
+test('The progress panel is rendered only where the review is offered', () => {
+  const offered = renderSync(
+    'duplicates.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  [
+    'dupAiProgress',
+    'dupAiProgressBar',
+    'dupAiProgressFill',
+    'dupAiProgressMessage',
+    'dupAiProgressCounts',
+    'dupAiProgressEta',
+    'dupAiStopBtn',
+  ].forEach((id) => {
+    assert.ok(
+      offered.includes(`id="${id}"`),
+      `#${id} is missing although the review is offered`
+    );
+    assert.ok(
+      !page.includes(`id="${id}"`),
+      `#${id} must not exist without the review`
+    );
+  });
+  // Hidden until a review runs, and a live region so a screen reader hears it.
+  assert.match(
+    offered,
+    /class="dup-progress hidden" id="dupAiProgress" role="status" aria-live="polite"/,
+    'the panel is not a hidden live region'
+  );
+  assert.match(
+    offered,
+    /class="zr-btn zr-btn--ghost" id="dupAiStopBtn"/,
+    'Stop is the quiet button of the row, not a primary action'
+  );
+  assert.match(
+    offered,
+    /id="dupAiStopBtn"[\s\S]{0,200}icons\.svg#i-x/,
+    'the Stop button has no i-x icon'
+  );
+  assert.match(
+    offered,
+    /<span class="dup-progress__stop-label">Stop<\/span>/,
+    'the label is not addressable, so "Stopping…" cannot replace it'
+  );
+});
+
+test('formatTokens reads a bill: 980, 12.4k, 1.2M', () => {
+  const { formatTokens } = helpers(['formatTokens']);
+  assert.strictEqual(formatTokens(0), '0');
+  assert.strictEqual(formatTokens(null), '0');
+  assert.strictEqual(formatTokens('nonsense'), '0');
+  assert.strictEqual(formatTokens(980), '980');
+  assert.strictEqual(formatTokens(999), '999');
+  assert.strictEqual(formatTokens(1000), '1k');
+  assert.strictEqual(formatTokens(12400), '12.4k');
+  assert.strictEqual(formatTokens(31200), '31.2k');
+  // Three digits of thousands drop the decimal; "200.0k" reads like precision
+  // nobody has.
+  assert.strictEqual(formatTokens(200000), '200k');
+  assert.strictEqual(formatTokens(1200000), '1.2M');
+});
+
+test('formatEta says how long, and nothing when it does not know', () => {
+  const { formatEta } = helpers(['formatEta']);
+  assert.strictEqual(formatEta(null), '', 'no estimate is no sentence');
+  assert.strictEqual(formatEta(undefined), '');
+  assert.strictEqual(formatEta(-5), '');
+  assert.strictEqual(formatEta(3000), 'almost done');
+  assert.strictEqual(formatEta(40000), 'about 40 s left');
+  assert.strictEqual(formatEta(59400), 'about 59 s left');
+  assert.strictEqual(formatEta(180000), 'about 3 min left');
+  assert.strictEqual(formatEta(60000), 'about 1 min left');
+});
+
+test('formatElapsed counts up the way a clock does', () => {
+  const { formatElapsed } = helpers(['formatElapsed']);
+  assert.strictEqual(formatElapsed(0), '0:00');
+  assert.strictEqual(formatElapsed(7000), '0:07');
+  assert.strictEqual(formatElapsed(84000), '1:24');
+  assert.strictEqual(formatElapsed(3723000), '1:02:03');
+  assert.strictEqual(formatElapsed(-10), '0:00');
+  assert.strictEqual(formatElapsed(null), '0:00');
+});
+
+test('progressPercent is null while the plan is unknown', () => {
+  const { progressPercent } = helpers(['progressPercent']);
+  assert.strictEqual(
+    progressPercent({ requestsDone: 0, requestsPlanned: null }),
+    null,
+    'an unknown plan must show the indeterminate bar, not 0 %'
+  );
+  assert.strictEqual(progressPercent({}), null);
+  assert.strictEqual(progressPercent(null), null);
+  assert.strictEqual(
+    progressPercent({ requestsDone: 0, requestsPlanned: 8 }),
+    0
+  );
+  assert.strictEqual(
+    progressPercent({ requestsDone: 3, requestsPlanned: 8 }),
+    38
+  );
+  assert.strictEqual(
+    progressPercent({ requestsDone: 8, requestsPlanned: 8 }),
+    100
+  );
+  assert.strictEqual(
+    progressPercent({ requestsDone: 12, requestsPlanned: 8 }),
+    100,
+    'a re-asked batch must not push the bar past its track'
+  );
+});
+
+test('stopNotice says why a review ended and what it did not judge', () => {
+  const { stopNotice } = helpers([
+    'num',
+    'plural',
+    'formatTokens',
+    'stopNotice',
+  ]);
+  const progress = (extra) =>
+    Object.assign(
+      {
+        requestsDone: 3,
+        requestsPlanned: 8,
+        pairsJudged: 40,
+        pairsTotal: 96,
+        tokenBudget: null,
+      },
+      extra
+    );
+  assert.strictEqual(
+    stopNotice({ stopReason: 'user', progress: progress() }),
+    'Stopped after 3 of 8 requests: 56 pairs were not judged.'
+  );
+  assert.strictEqual(
+    stopNotice({
+      stopReason: 'token-budget',
+      progress: progress({ requestsDone: 5, tokenBudget: 200000 }),
+    }),
+    'Stopped at the token budget of 200k after 5 requests: 56 pairs were not judged.'
+  );
+  assert.strictEqual(
+    stopNotice({ stopReason: 'idle', progress: progress() }),
+    'Stopped because nobody was watching: 56 pairs were not judged.'
+  );
+  // Nothing left over is still a sentence, and so is a plan nobody made.
+  assert.strictEqual(
+    stopNotice({
+      stopReason: 'user',
+      progress: progress({ pairsJudged: 96 }),
+    }),
+    'Stopped after 3 of 8 requests: 0 pairs were not judged.'
+  );
+  assert.strictEqual(
+    stopNotice({
+      stopReason: 'user',
+      progress: progress({ requestsPlanned: null, pairsTotal: null }),
+    }),
+    'Stopped after 3 requests.'
+  );
+  assert.strictEqual(
+    stopNotice({
+      stopReason: 'user',
+      progress: progress({ pairsJudged: 95 }),
+    }),
+    'Stopped after 3 of 8 requests: 1 pair was not judged.'
+  );
+});
+
+test('The page follows the review through the job routes and an event stream', () => {
+  const follow = functionBody('followReviewJob');
+  assert.ok(
+    follow.includes('new EventSource('),
+    'the review is watched, not waited for'
+  );
+  assert.ok(
+    follow.includes('`${base}/events`'),
+    'the stream is the events route of the job'
+  );
+  ['progress', 'failed', 'stopped'].forEach((type) => {
+    assert.ok(
+      follow.includes(`'${type}'`),
+      `the page does not handle the ${type} event`
+    );
+  });
+  // The three AI paths all end in askForVerdicts, which starts the job.
+  const ask = functionBody('askForVerdicts');
+  assert.ok(
+    ask.includes("'/api/duplicates/ai-review/jobs'"),
+    'the review is not started as a job'
+  );
+  assert.match(
+    ask,
+    /status === 409 && job/,
+    'a running review must be attached to, not reported as a failure'
+  );
+  assert.ok(
+    ask.includes('followReviewJob(job)'),
+    'the started job is not followed'
+  );
+  // Stop is one request and no dialog; the verdicts already reached are kept.
+  const stop = functionBody('stopReview');
+  assert.match(stop, /\/stop`/, 'the Stop button does not call the stop route');
+  assert.ok(
+    !/confirmDialog/.test(stop),
+    'stopping must not ask a question — the user already decided'
+  );
+  assert.ok(
+    stop.includes("setStopLabel('Stopping…')"),
+    'the button does not say what it is doing'
+  );
+});
+
+test('A broken stream falls back to polling, and a reload re-attaches', () => {
+  const follow = functionBody('followReviewJob');
+  assert.ok(
+    follow.includes('source.onerror'),
+    'a stream that dies is not noticed'
+  );
+  assert.ok(
+    follow.includes('startPolling()'),
+    'there is no fallback for a proxy that closes the stream'
+  );
+  assert.match(
+    SCRIPT,
+    /const REVIEW_POLL_MS = 2000;/,
+    'the fallback asks at another interval than the one promised'
+  );
+  assert.ok(
+    follow.includes('window.setInterval(pollOnce, REVIEW_POLL_MS)'),
+    'the fallback does not poll the job'
+  );
+  // The reload path: ask what is running, follow it, and leave a finished
+  // review alone.
+  const reattach = functionBody('reattachReview');
+  assert.ok(
+    reattach.includes("'/api/duplicates/ai-review/jobs/current'"),
+    'the page does not ask whether a review is running'
+  );
+  assert.ok(
+    reattach.includes('REVIEW_LIVE_STATES.includes(job.status)'),
+    'a finished job must not be replayed on every reload'
+  );
+  assert.ok(
+    reattach.includes('followReviewJob(job)'),
+    'the running review is not followed after a reload'
+  );
+  assert.match(
+    SCRIPT,
+    /const REVIEW_LIVE_STATES = \['running', 'stopping'\];/,
+    'the two live states are not the ones the job service reports'
+  );
+  assert.match(
+    functionBody('init'),
+    /reattachReview\(\)/,
+    'nothing re-attaches when the page loads'
+  );
+});
+
+test('The stylesheet carries the progress panel and stops its animation', () => {
+  [
+    '.dup-progress',
+    '.dup-progress__bar',
+    '.dup-progress__fill',
+    '.dup-progress__fill--indeterminate',
+    '.dup-progress__text',
+    '.dup-progress__actions',
+  ].forEach((selector) => {
+    assert.ok(
+      selectorsOf(CSS).includes(selector),
+      `${selector} has no rule of its own`
+    );
+  });
+  // The bar moves; nothing else does.
+  assert.match(
+    CSS,
+    /\.dup-progress__fill \{[^}]*transition: width 200ms/,
+    'the fill does not ease into its new width'
+  );
+  assert.match(
+    CSS,
+    /@media \(prefers-reduced-motion: reduce\) \{\s*\.dup-progress__fill--indeterminate \{\s*animation: none;/,
+    'the sliding band keeps sliding for someone who asked it not to'
+  );
+  // An empty line still takes its row, so the stats below do not jump while
+  // the numbers come in.
+  assert.match(
+    CSS,
+    /\.dup-progress__text > span \{[^}]*min-height:/,
+    'the text lines collapse when they are empty'
   );
 });
 
