@@ -23,6 +23,9 @@
  * 10. the results toolbar (sorting, "Select ≥"), the custom threshold and the
  *    guided "ask, review, merge" flow — including that every one of them
  *    works on an instance without the AI review
+ * 11. the one-click "AI proposal": what it sends, what it pre-ticks, how its
+ *    rows are ordered, the basis and confidence both dialogs show, the
+ *    evidence counters of the stats tile, and the aligned member tables
  */
 
 'use strict';
@@ -326,7 +329,7 @@ test('The AI review is rendered only when the route offers it', () => {
   });
   assert.ok(offered.includes('Ask the AI'), 'the button is not labelled');
   assert.ok(
-    offered.includes('Use document titles as context'),
+    offered.includes('Use document titles and neighbours as context'),
     'the titles checkbox has no label'
   );
   assert.match(
@@ -895,13 +898,13 @@ test('The batch dialog asks once, with one copy-rule checkbox', () => {
   // merge, the batch and the guided review.
   assert.strictEqual(
     (SCRIPT.match(/esc\(UNDO_NOTE\)/g) || []).length,
-    3,
+    4,
     'every merge dialog must promise the same undo'
   );
   assert.strictEqual(
     (SCRIPT.match(/confirmDialog\(\{/g) || []).length,
-    4,
-    'one dialog for a group, one for a batch, one for the review, one for undo'
+    5,
+    'one dialog for a group, one for a batch, one for the review, one for the proposal, one for undo'
   );
 });
 
@@ -1138,11 +1141,12 @@ test('The review dialog shows verdicts and merges what stays ticked', () => {
     /const reason = verdict \? shortReason\(verdict\.reason\) : '';/,
     'the model’s sentence is not cut to length'
   );
-  // Pre-ticked for "same" only; a verdict is information, never a veto.
+  // Pre-ticked for a settled "same" only; a verdict is information, never a
+  // veto, and a "same" the model is unsure about is not settled.
   assert.match(
     row,
-    /value === 'same' \? ' checked' : ''/,
-    'the ticks must follow the group verdict'
+    /isSureSame\(verdict\) \? ' checked' : ''/,
+    'the ticks must follow the pre-tick rule of both dialogs'
   );
   assert.match(
     SCRIPT,
@@ -1219,6 +1223,532 @@ test('The stylesheet carries the toolbar and review classes', () => {
     CSS,
     /\.dup-results-bar__sort,\n\s+\.dup-results-bar__min \{\n\s+width: 100%;/,
     'the toolbar does not wrap at phone width'
+  );
+});
+
+/* ── 11. the AI proposal ──────────────────────────────────────────────────── */
+/* One click does the scan, the review of everything and the proposal; the user
+   only thins it out. What is checked here is that it is an addition — the
+   ids are rendered only where the review is offered, the request is the one
+   "Ask the AI" sends, and nothing of the earlier paths asks a model. */
+
+/** The whole source of a top-level function, so a test can run it itself. */
+function functionSource(name) {
+  const start = SCRIPT.indexOf(`function ${name}(`);
+  assert.notStrictEqual(start, -1, `${name}() is gone from the page script`);
+  const open = SCRIPT.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < SCRIPT.length; i += 1) {
+    if (SCRIPT[i] === '{') depth += 1;
+    if (SCRIPT[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return SCRIPT.slice(start, i + 1);
+    }
+  }
+  throw new Error(`${name}() is not balanced`);
+}
+
+/**
+ * The named helpers of the page script, evaluated out of their module. Only
+ * pure functions can be taken this way, which is why the two rules the
+ * proposal turns on — what is pre-ticked, and in which order — are written as
+ * pure functions in the first place.
+ */
+function helpers(names) {
+  const source = names.map(functionSource).join('\n');
+  return new Function(`${source}\nreturn { ${names.join(', ')} };`)();
+}
+
+test('The AI proposal is rendered only when the review is offered', () => {
+  const offered = renderSync(
+    'duplicates.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  [
+    'dupAiProposalBtn',
+    'dupAiProposalIcon',
+    'dupAiProposalHint',
+    'dupAiProposalStatus',
+    'dupAiExcerpts',
+  ].forEach((id) => {
+    assert.ok(
+      offered.includes(`id="${id}"`),
+      `#${id} is missing although the review is offered`
+    );
+  });
+  assert.match(
+    offered,
+    /class="zr-btn zr-btn--primary" id="dupAiProposalBtn"/,
+    'the proposal is the primary action of the AI row'
+  );
+  // It scans by itself, so unlike "Ask the AI" it is usable from the first
+  // paint — a disabled attribute here would wait for a scan that never runs.
+  assert.ok(
+    !/id="dupAiProposalBtn"[^>]*disabled/.test(offered),
+    'the proposal button must not wait for a scan'
+  );
+  assert.match(
+    offered,
+    /id="dupAiProposalIcon"[\s\S]{0,120}icons\.svg#i-wand/,
+    'the proposal button has no i-wand icon'
+  );
+  assert.ok(offered.includes('AI proposal'), 'the button is not labelled');
+  assert.ok(
+    offered.includes(
+      'Scans, lets the model judge every group and near-miss, and proposes what to merge. You deselect, nothing merges by itself.'
+    ),
+    'the hint under the AI row is missing'
+  );
+  assert.ok(
+    offered.includes('Use document excerpts for spelling-only pairs'),
+    'the excerpts checkbox has no label'
+  );
+  assert.match(
+    offered,
+    /id="dupAiExcerpts"[^>]*checked/,
+    'the excerpts are evidence unless the user says otherwise'
+  );
+  // The status line says what the flow is doing; it starts out empty and
+  // hidden through the framework's !important class.
+  assert.match(
+    offered,
+    /class="zr-sm dup-ai-proposal__status hidden" id="dupAiProposalStatus"/,
+    'the status line must come up hidden'
+  );
+  assert.match(
+    offered,
+    /id="dupAiProposalStatus"[^>]*aria-live="polite"/,
+    'the status line is not announced'
+  );
+
+  // The default: none of it is rendered, and the page is whole without it.
+  const plain = renderSync('duplicates.ejs', LOCALS);
+  [
+    'dupAiProposalBtn',
+    'dupAiProposalHint',
+    'dupAiProposalStatus',
+    'dupAiExcerpts',
+    'AI proposal',
+    'Use document excerpts for spelling-only pairs',
+  ].forEach((needle) => {
+    assert.ok(
+      !plain.includes(needle),
+      `"${needle}" must not be rendered without aiReviewEnabled`
+    );
+  });
+  ['dupScanBtn', 'dupMergeSelectedBtn', 'dupResultsBar'].forEach((id) => {
+    assert.ok(
+      plain.includes(`id="${id}"`),
+      `#${id} must not depend on the AI review`
+    );
+  });
+});
+
+test('The proposal scans, asks about everything and sends both evidence flags', () => {
+  const body = functionBody('runAiProposal');
+  // It reuses the scan of the button beside it rather than a request of its own.
+  assert.match(body, /await runScan\(\)/, 'the proposal does not scan first');
+  assert.match(
+    body,
+    /if \(!scanned\) return;/,
+    'a failed scan must stop the proposal rather than ask about nothing'
+  );
+  assert.match(
+    body,
+    /askForVerdicts\(\{ includeCandidates: true \}\)/,
+    'the proposal must judge the near-misses as well'
+  );
+  assert.ok(
+    !body.includes('groupIds'),
+    'the proposal asks about everything; narrowing it is the guided path'
+  );
+  ['Scanning…', 'Asking the AI about'].forEach((line) => {
+    assert.ok(body.includes(line), `the status line never says "${line}"`);
+  });
+  // No request of its own: the scan, the review and the merges are it.
+  ['fetch(', 'postJson(', 'requestJson('].forEach((call) => {
+    assert.ok(
+      !body.includes(call),
+      `the proposal must not send ${call} itself — three known requests, no more`
+    );
+  });
+  // Both evidence flags reach every review, from both paths into one request.
+  const ask = functionBody('askForVerdicts');
+  assert.match(
+    ask,
+    /withTitles: Boolean\(el\.aiTitles && el\.aiTitles\.checked\)/,
+    'the titles checkbox no longer reaches the request'
+  );
+  assert.match(
+    ask,
+    /withExcerpts: Boolean\(el\.aiExcerpts && el\.aiExcerpts\.checked\)/,
+    'the excerpts checkbox does not reach the request'
+  );
+  assert.strictEqual(
+    (SCRIPT.match(/'\/api\/duplicates\/ai-review'/g) || []).length,
+    1,
+    'all three review paths go through the one request'
+  );
+  // The page without a model is untouched: "Merge selected" asks nobody.
+  const plain = functionBody('mergeSelected');
+  ['ai-review', 'askForVerdicts', 'aiVerdict', 'runAiProposal'].forEach(
+    (needle) => {
+      assert.ok(
+        !plain.includes(needle),
+        `"Merge selected" must work without the review (${needle})`
+      );
+    }
+  );
+});
+
+test('Only a settled "same" comes up ticked, in both dialogs', () => {
+  const { isSureSame } = helpers(['isSureSame']);
+  // What the model is sure about, and what a spelling rule settled without it.
+  assert.strictEqual(
+    isSureSame({ verdict: 'same', confidence: 'high', source: 'model' }),
+    true
+  );
+  assert.strictEqual(
+    isSureSame({
+      verdict: 'same',
+      confidence: 'high',
+      source: 'spelling-rule',
+    }),
+    true
+  );
+  // Everything else waits for the user, including a "same" without a
+  // confidence — which is what an older answer and a failed request look like.
+  [
+    { verdict: 'same', confidence: 'low' },
+    { verdict: 'same', confidence: null },
+    { verdict: 'same' },
+    { verdict: 'unsure', confidence: 'high' },
+    { verdict: 'different', confidence: 'high' },
+    null,
+    undefined,
+  ].forEach((verdict) => {
+    assert.strictEqual(
+      isSureSame(verdict),
+      false,
+      `${JSON.stringify(verdict)} must not come up ticked`
+    );
+  });
+  // Both dialogs are the same renderer, so both follow the same rule.
+  assert.match(
+    functionBody('htmlReviewRow'),
+    /isSureSame\(verdict\)/,
+    'the row renderer no longer uses the pre-tick rule'
+  );
+  assert.strictEqual(
+    (SCRIPT.match(/htmlReviewRow\(entry, '/g) || []).length,
+    2,
+    'the guided dialog and the proposal must share the row renderer'
+  );
+});
+
+test('The proposal rows are sorted by verdict, the settled ones first', () => {
+  const { compareProposalEntries } = helpers([
+    'num',
+    'proposalRank',
+    'compareProposalEntries',
+  ]);
+  const entry = (id, verdict, confidence, score) => ({
+    state: {
+      group: {
+        id,
+        confidence: score,
+        aiVerdict: verdict ? { verdict, confidence } : null,
+      },
+    },
+  });
+  const rows = [
+    entry('f', 'different', 'high', 0.99),
+    entry('d', 'unsure', null, 0.97),
+    entry('g', null, null, 1),
+    entry('b', 'same', 'high', 0.9),
+    entry('c', 'same', 'low', 0.95),
+    entry('a', 'same', 'high', 0.96),
+    entry('e', 'unsure', 'low', 0.88),
+  ];
+  assert.deepStrictEqual(
+    [...rows].sort(compareProposalEntries).map((row) => row.state.group.id),
+    ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+    'same/high, then same, then unsure, then different, then the unjudged'
+  );
+  // The dialog sorts a copy: the order of the cards on the page is the user's.
+  assert.match(
+    functionBody('confirmProposal'),
+    /\[\.\.\.entries\]\.sort\(compareProposalEntries\)/,
+    'the proposal must sort a copy of the entries'
+  );
+});
+
+test('The page labels every basis the contract lists', () => {
+  const schemas = read('schemas.js');
+  const block = /AiVerdict:[\s\S]*?basis:([\s\S]*?)confidence:/.exec(schemas);
+  assert.ok(block, 'AiVerdict.basis is gone from schemas.js');
+  const description = block[1].replace(/\n\s*\*/g, ' ');
+  const listed = /one of ([^;]*?), or null/.exec(description);
+  assert.ok(listed, 'the basis description no longer lists its values');
+  const values = listed[1]
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  assert.ok(values.length >= 10, `only ${values.length} basis values parsed`);
+
+  const map = /const AI_BASIS_LABELS = \{([\s\S]*?)\n\};/.exec(SCRIPT);
+  assert.ok(map, 'the page has no basis label map');
+  const labelled = [...map[1].matchAll(/^\s*'?([a-z-]+)'?:\s*'([^']+)'/gm)].map(
+    (match) => ({ value: match[1], label: match[2] })
+  );
+  values.forEach((value) => {
+    assert.ok(
+      labelled.some((entry) => entry.value === value),
+      `the page has no label for the basis "${value}"`
+    );
+  });
+  // The wording of two of them, because they are the ones that read wrong when
+  // taken straight from the wire value.
+  assert.ok(
+    labelled.some(
+      (entry) =>
+        entry.value === 'case-or-spacing' && entry.label === 'Case/spacing'
+    ),
+    'case-or-spacing is not worded for a badge'
+  );
+  assert.ok(
+    labelled.some(
+      (entry) =>
+        entry.value === 'insufficient-evidence' &&
+        entry.label === 'Not enough evidence'
+    ),
+    'insufficient-evidence is not worded for a badge'
+  );
+  // It is a badge in both dialogs and a title on the cards; no new column.
+  assert.match(
+    functionBody('htmlBasisBadge'),
+    /class="zr-badge dup-basis"/,
+    'the basis is not rendered as a badge'
+  );
+  assert.match(
+    functionBody('verdictTitle'),
+    /basisLabel\(verdict\)/,
+    'the card chip does not carry the basis in its title'
+  );
+});
+
+test('A verdict a spelling rule settled says so instead of quoting a model', () => {
+  assert.ok(
+    SCRIPT.includes("const AI_SOURCE_RULE = 'spelling-rule'"),
+    'the page does not know the spelling-rule verdict source'
+  );
+  assert.ok(
+    SCRIPT.includes("const AI_RULE_LABEL = 'Spelling rule'"),
+    'the chip of a settled pair is not labelled'
+  );
+  const chip = functionBody('htmlVerdictChip');
+  assert.match(
+    chip,
+    /isRuleVerdict\(verdict\)/,
+    'the chip does not tell a spelling rule from a model'
+  );
+  assert.match(
+    chip,
+    /htmlVerdictIcons\.same/,
+    'a settled pair must wear the tick of a "same"'
+  );
+  assert.match(
+    chip,
+    /title="\$\{esc\(shortReason\(verdict\.reason\)\)\}"/,
+    'the rule chip must carry the reason as its title'
+  );
+  // The tone exists in both the script and the stylesheet.
+  assert.ok(
+    SCRIPT.includes('dup-verdict--rule'),
+    'the rule verdict has no tone class'
+  );
+  ['.dup-verdict--rule', '.dup-verdict__confidence', '.dup-basis'].forEach(
+    (selector) => {
+      assert.ok(
+        selectorsOf(CSS).includes(selector),
+        `${selector} has no rule of its own`
+      );
+    }
+  );
+  // The confidence is a suffix of the verdict, not a column and not a chip.
+  assert.match(
+    functionBody('htmlConfidenceSuffix'),
+    /class="dup-verdict__confidence"/,
+    'the confidence is not rendered as a suffix'
+  );
+  assert.match(
+    functionBody('confidenceLabel'),
+    /AI_CONFIDENCE_LABELS\[value\] \|\| ''/,
+    'an answer without a confidence must render none'
+  );
+});
+
+test('The proposal dialog names its parts and merges through the batch runner', () => {
+  ['dupProposalTickSame', 'dupProposalUntickAll', 'dupProposalSummary'].forEach(
+    (id) => {
+      assert.ok(
+        SCRIPT.includes(`id="${id}"`),
+        `the proposal dialog has no #${id}`
+      );
+    }
+  );
+  ['Tick all same', 'Untick all', 'Merge ticked'].forEach((label) => {
+    assert.ok(SCRIPT.includes(label), `the dialog has no "${label}"`);
+  });
+  assert.ok(
+    SCRIPT.includes(
+      'Pre-ticked: settled by a spelling rule, or the model is sure.'
+    ),
+    'the legend that explains the ticks is gone'
+  );
+  assert.ok(
+    SCRIPT.includes("The AI's proposal: "),
+    'the dialog title does not say whose proposal it is'
+  );
+  // The foot line counts what a confirmation would do, including the deletions.
+  assert.match(
+    functionBody('pickedSummaryText'),
+    /will be deleted/,
+    'the foot line does not say how many objects would be deleted'
+  );
+  const body = functionBody('confirmProposal');
+  assert.match(
+    body,
+    /dialog\.classList\.add\(/,
+    'the proposal needs the wide dialog'
+  );
+  assert.ok(
+    body.includes("'dup-proposal-dialog'"),
+    'the dialog is not marked as the proposal'
+  );
+  // Round 4 does the merging, unchanged, and the bar shows it: the selection
+  // is set to exactly what was ticked before the batch starts.
+  assert.match(
+    body,
+    /clearSelection\(\);\n\s+selectGroups\(\(state\) => wanted\.has\(String\(state\.group\.id\)\)\);\n\s+await runBatch\(ticked, copyMatchingRule\(\)\);/,
+    'the proposal must hand its ticked groups to the batch runner'
+  );
+  // Cancelling merges nothing and leaves nothing ticked.
+  assert.match(
+    body,
+    /if \(!\(await answer\)\) \{\n\s+\/\/[\s\S]{0,120}clearSelection\(\);\n\s+return;/,
+    'cancelling the proposal must leave the page unticked'
+  );
+  // A group that cannot be merged is not proposed in the first place.
+  assert.match(
+    functionBody('proposalEntries'),
+    /if \(selectBlockReason\(card, state\) !== ''\) return;/,
+    'the proposal must skip what the page would refuse to merge'
+  );
+});
+
+test('The judged tile counts the evidence the review used', () => {
+  const body = functionBody('renderAiStats');
+  [
+    ['excerpts', 'excerpts'],
+    ['spellingRules', 'by spelling rule'],
+    ['escalated', 'escalated'],
+  ].forEach(([field, wording]) => {
+    assert.ok(
+      body.includes(`review.${field}`),
+      `the tile ignores aiReview.${field}`
+    );
+    assert.ok(body.includes(wording), `the sub line never says "${wording}"`);
+    assert.ok(
+      new RegExp(`num\\(review\\.${field}\\) > 0`).test(body),
+      `aiReview.${field} must only show up when there is something to show`
+    );
+  });
+  // A plain scan puts the tiles away again; the numbers of the last review say
+  // nothing about a new scan.
+  assert.match(
+    body,
+    /if \(!review\) \{[\s\S]{0,200}classList\.add\('hidden'\)/,
+    'a scan without a review must hide the tiles'
+  );
+});
+
+test('The member tables line up across cards whatever the names are', () => {
+  // With the automatic layout every card measures its own content, so a card
+  // of short tags puts its columns somewhere else than the card below it.
+  assert.match(
+    CSS,
+    /\.dup-members \{\n\s+table-layout: fixed;\n\s+width: 100%;\n\s+\}/,
+    'the member table does not fix its layout'
+  );
+  ['.dup-members__name', '.dup-members__rule'].forEach((selector) => {
+    assert.ok(
+      selectorsOf(CSS).includes(selector),
+      `${selector} has no rule of its own, so its column has no width`
+    );
+  });
+  assert.match(
+    CSS,
+    /\.dup-members__rule \{\n\s+width: \d+%;/,
+    'the matching-rule column has no share of the row'
+  );
+  // Every column the widths apply to carries its class in the markup, header
+  // and cell alike, and the stacked rows keep their labels.
+  ['dup-members__name', 'dup-members__rule'].forEach((cls) => {
+    assert.ok(
+      new RegExp(`<th class="${cls}">`).test(SCRIPT),
+      `the header cell of .${cls} is missing`
+    );
+    assert.ok(
+      new RegExp(`<td data-label="[^"]+" class="${cls}">`).test(SCRIPT),
+      `the body cell of .${cls} is missing`
+    );
+  });
+  ['Name', 'Matching rule'].forEach((label) => {
+    assert.ok(
+      SCRIPT.includes(`data-label="${label}"`),
+      `the member table lost data-label="${label}"`
+    );
+  });
+  // Stacked on a phone the fixed widths would cut every name off mid-word.
+  assert.match(
+    CSS,
+    /\.dup-members__score,\n\s+\.dup-members__rule \{\n\s+width: auto;/,
+    'the rule column keeps its desktop width on a phone'
+  );
+});
+
+test('The stylesheet carries the proposal classes', () => {
+  [
+    '.dup-proposal-dialog',
+    '.dup-proposal-pick',
+    '.dup-proposal__legend',
+    '.dup-proposal__quick',
+    '.dup-ai-proposal',
+    '.dup-ai-proposal__status',
+  ].forEach((selector) => {
+    assert.ok(
+      selectorsOf(CSS).includes(selector),
+      `${selector} has no rule of its own`
+    );
+  });
+  // The proposal's tick cell carries both classes: the column of the shared
+  // table, and its own hook.
+  assert.ok(
+    SCRIPT.includes("'dup-review__pick dup-proposal-pick'"),
+    'the proposal rows do not mark their tick column'
+  );
+  // Wider than the guided dialog, which is already wider than the framework's.
+  const width = (selector) => {
+    const rule = new RegExp(`\\${selector} \\{[^}]*width: min\\((\\d+)px`).exec(
+      CSS
+    );
+    assert.ok(rule, `${selector} has no width`);
+    return Number(rule[1]);
+  };
+  assert.ok(
+    width('.dup-proposal-dialog') >= width('.dup-review-dialog'),
+    'the proposal has one column more than the guided dialog, not one less'
   );
 });
 
