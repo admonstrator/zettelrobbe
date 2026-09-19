@@ -3337,6 +3337,7 @@ async function main() {
         {
           tokensPerPair: 150,
           tokensPerSecond: 30,
+          largestCompletion: 600,
           thinking: false,
           measuredAt: null,
         },
@@ -3785,6 +3786,96 @@ async function main() {
         'and said so instead of the start and finish lines'
       );
       service.resetCalibration();
+    });
+
+    await test('The cap never drops below the largest answer seen, so a small batch after a thinking one is not starved', async () => {
+      // A thinking model pays a fixed price per request: 737 tokens for four
+      // pairs is 184 per pair, and a one-pair request sized by pairs alone
+      // (184 × 1.5 + 200 = 476) is cut off by the same 600 tokens of thought.
+      service.resetCalibration();
+      const sizer = service._sizer();
+      const context = { sizer };
+      service._measure(context, {
+        completionTokens: 737,
+        elapsedMs: 3768,
+        pairs: 4,
+        warmingUp: true,
+      });
+      assert.strictEqual(sizer.largestCompletion, 737);
+      const floor = Math.ceil(737 * service.CAP_FLOOR_FACTOR);
+      assert.strictEqual(
+        service._capFor(sizer, 1),
+        floor,
+        'the floor wins for one pair'
+      );
+      assert.ok(
+        service._capFor(sizer, 20) > floor,
+        'a big batch is still sized by its pairs'
+      );
+      const remembered = service.calibration.get(sizer.model);
+      assert.strictEqual(
+        remembered.largestCompletion,
+        737,
+        'and the floor is remembered'
+      );
+      const next = service._sizer();
+      assert.strictEqual(
+        next.largestCompletion,
+        737,
+        'a later review starts with it'
+      );
+      service.resetCalibration();
+    });
+
+    await test('The three yes/no switches read the strings config.js hands over', async () => {
+      // parseEnvBoolean() normalises the environment to 'yes' / 'no'; a
+      // reader that asks Boolean() or === true takes 'no' for on, or never
+      // sees a 'yes'. The user's DUPLICATES_AI_THINKING=yes was ignored so.
+      const previous = {
+        review: config.duplicatesAiReview,
+        excerpts: config.duplicatesAiExcerpts,
+        thinking: config.duplicatesAiThinking,
+      };
+      try {
+        config.duplicatesAiReview = 'no';
+        assert.strictEqual(
+          service.isEnabled(),
+          false,
+          "'no' switches the review off"
+        );
+        config.duplicatesAiReview = 'yes';
+        assert.strictEqual(service.isEnabled(), true, "'yes' switches it on");
+        config.duplicatesAiReview = true;
+        assert.strictEqual(
+          service.isEnabled(),
+          true,
+          'a boolean from a test counts too'
+        );
+
+        config.duplicatesAiExcerpts = 'no';
+        assert.strictEqual(
+          service.excerptsEnabled(),
+          false,
+          "'no' switches the excerpts off"
+        );
+        config.duplicatesAiExcerpts = 'yes';
+        assert.strictEqual(service.excerptsEnabled(), true);
+
+        config.duplicatesAiThinking = 'yes';
+        assert.strictEqual(
+          service.thinkingEnabled(),
+          true,
+          "'yes' lets the judge think"
+        );
+        config.duplicatesAiThinking = 'no';
+        assert.strictEqual(service.thinkingEnabled(), false);
+        config.duplicatesAiThinking = false;
+        assert.strictEqual(service.thinkingEnabled(), false);
+      } finally {
+        config.duplicatesAiReview = previous.review;
+        config.duplicatesAiExcerpts = previous.excerpts;
+        config.duplicatesAiThinking = previous.thinking;
+      }
     });
   } finally {
     AIServiceFactory.getService = realGetService;

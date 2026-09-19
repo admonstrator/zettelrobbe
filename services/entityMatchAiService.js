@@ -200,6 +200,20 @@ const AI_VERDICTS = Object.freeze({
 });
 const AI_VERDICT_LIST = Object.freeze(Object.values(AI_VERDICTS));
 
+/**
+ * A yes/no setting as config/config.js hands it over: parseEnvBoolean()
+ * normalises the environment to the strings 'yes' and 'no', while a test may
+ * set the field to a boolean. Both spellings of "on" count; everything else,
+ * 'no' above all, is off. `Boolean('no')` is true, which is exactly the trap
+ * this exists to avoid.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function switchedOn(value) {
+  return value === true || String(value).trim().toLowerCase() === 'yes';
+}
+
 /** Where a group in an AI review result came from. */
 const GROUP_SOURCES = Object.freeze({
   SCAN: 'scan',
@@ -241,6 +255,14 @@ const DEFAULT_REQUEST_SECONDS = 30;
  * half a verdict short costs a whole extra request.
  */
 const CAP_SAFETY_FACTOR = 1.5;
+/**
+ * The cap never drops below the largest answer the model has produced in
+ * this review, plus a quarter. A model that thinks pays a fixed price per
+ * request, however few pairs it is asked about, so a cap sized by pairs
+ * alone starves a small batch after a big one; a cap costs nothing unless
+ * the model uses it, so the floor is free.
+ */
+const CAP_FLOOR_FACTOR = 1.25;
 /** The least a request is ever given to answer in, whatever was measured. */
 const MIN_COMPLETION_CAP = 256;
 /**
@@ -757,7 +779,7 @@ class EntityMatchAiService {
   isEnabled() {
     const runtimeConfig = require('../config/config');
     return (
-      Boolean(runtimeConfig.duplicatesAiReview) &&
+      switchedOn(runtimeConfig.duplicatesAiReview) &&
       Boolean(runtimeConfig.aiProvider)
     );
   }
@@ -978,7 +1000,7 @@ class EntityMatchAiService {
    */
   thinkingEnabled() {
     const runtimeConfig = require('../config/config');
-    return runtimeConfig.duplicatesAiThinking === true;
+    return switchedOn(runtimeConfig.duplicatesAiThinking);
   }
 
   /**
@@ -1030,6 +1052,8 @@ class EntityMatchAiService {
       thinking,
       tokensPerPair: usable ? usable.tokensPerPair : null,
       tokensPerSecond: usable ? usable.tokensPerSecond : null,
+      /** The largest completion one request produced, the floor of the cap. */
+      largestCompletion: usable ? usable.largestCompletion || 0 : 0,
       /** True once size and cap come from a measurement rather than defaults. */
       calibrated: Boolean(usable),
       /** True when that measurement came from an earlier review. */
@@ -1094,10 +1118,11 @@ class EntityMatchAiService {
     if (!sizer || sizer.tokensPerPair == null) {
       return this._completionCap(pairCount);
     }
-    return (
+    const byPairs =
       Math.ceil(sizer.tokensPerPair * pairCount * CAP_SAFETY_FACTOR) +
-      TOKENS_OVERHEAD
-    );
+      TOKENS_OVERHEAD;
+    const floor = Math.ceil((sizer.largestCompletion || 0) * CAP_FLOOR_FACTOR);
+    return Math.max(byPairs, floor);
   }
 
   /**
@@ -1158,6 +1183,7 @@ class EntityMatchAiService {
     const pairs = Math.max(1, Number(measurement.pairs) || 1);
 
     sizer.tokensPerSecond = blend(sizer.tokensPerSecond, tokens / seconds);
+    sizer.largestCompletion = Math.max(sizer.largestCompletion || 0, tokens);
     if (!measurement.truncated) {
       sizer.tokensPerPair = blend(sizer.tokensPerPair, tokens / pairs);
     }
@@ -1168,6 +1194,7 @@ class EntityMatchAiService {
     this.calibration.set(sizer.model, {
       tokensPerPair: sizer.tokensPerPair,
       tokensPerSecond: sizer.tokensPerSecond,
+      largestCompletion: sizer.largestCompletion,
       thinking: sizer.thinking,
       measuredAt: Date.now(),
     });
@@ -2965,6 +2992,7 @@ entityMatchAiService.WARMUP_PAIRS = WARMUP_PAIRS;
 entityMatchAiService.WARMUP_MIN_CAP = WARMUP_MIN_CAP;
 entityMatchAiService.CALIBRATION_WEIGHT = CALIBRATION_WEIGHT;
 entityMatchAiService.CAP_SAFETY_FACTOR = CAP_SAFETY_FACTOR;
+entityMatchAiService.CAP_FLOOR_FACTOR = CAP_FLOOR_FACTOR;
 entityMatchAiService.MIN_COMPLETION_CAP = MIN_COMPLETION_CAP;
 entityMatchAiService.PROGRESS_INTERVAL_MS = PROGRESS_INTERVAL_MS;
 entityMatchAiService.WARMUP_MESSAGE = WARMUP_MESSAGE;
@@ -2983,7 +3011,7 @@ entityMatchAiService.candidateFloor = () => {
 };
 /** Whether document excerpts may be read as evidence at all. */
 entityMatchAiService.excerptsEnabled = () =>
-  Boolean(config.duplicatesAiExcerpts);
+  switchedOn(config.duplicatesAiExcerpts);
 /** Characters per excerpt, the bound the prompt is sized by. */
 entityMatchAiService.excerptChars = () => {
   const chars = Number(config.duplicatesAiExcerptChars);

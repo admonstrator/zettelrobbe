@@ -147,6 +147,9 @@ const RELEASES = [
       'New: The AI review on the Duplicates page runs as a job you can watch and stop: a progress bar with the phase, requests and pairs done, tokens spent against the budget and the time left, a Stop button that keeps the verdicts already reached, and a page that re-attaches to a running review after a reload',
       'New: Two brakes for the AI review, both on the settings page: a token budget per review that stops it on its own (DUPLICATES_AI_TOKEN_BUDGET, default 200000, 0 = no limit) and an idle stop that ends a review nobody has been watching (DUPLICATES_AI_IDLE_STOP_SECONDS, default 60, 0 = never)',
       'Improvement: The judge plans every request before the first one, so the bar has a denominator and the estimate is known up front; the log says why a review stopped and what it cost',
+      'Improvement: The AI judge measures your model on a small first request and then asks about as many pairs per request as fit into a chosen number of seconds (DUPLICATES_AI_REQUEST_SECONDS, default 30), remembers the measurement per model, and raises its answer limit before it halves a batch; a cut-off answer keeps the verdicts already in it',
+      'New: The judge asks the model not to think unless you say so (DUPLICATES_AI_THINKING, default off): reasoning models spent the whole answer budget on their thoughts before the first verdict',
+      'Improvement: The AI review streams the answers, so the progress bar moves inside a request, says when the model is thinking and how many answers have arrived; a review of a fresh scan no longer scans again',
     ],
   },
 ];
