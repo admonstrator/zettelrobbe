@@ -7,6 +7,9 @@ const {
   stripTrailingSlashes,
   createRedirectGuard,
 } = require('./serviceUtils');
+// Pure module, no side effects and no requires of its own: safe to load here
+// even though half the app loads this service.
+const entityNameMatcher = require('./entityNameMatcher');
 
 /** Timeout for the connectivity probe so a hanging host cannot stall a scan. */
 const CONNECTION_PROBE_TIMEOUT_MS = 10000;
@@ -26,6 +29,44 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
  * rather than rejecting, so asking for more than a server allows is safe.
  */
 const TAG_PAGE_SIZE = 1000;
+
+/**
+ * How long the creation guard's list of existing objects stays usable.
+ *
+ * The guard runs for every tag and every correspondent document analysis
+ * proposes, which on a busy scan is a few hundred questions a minute. Reading
+ * the archive for each of them would cost more than the drift it prevents, so
+ * the list is read once per kind and minute; an object created in between is
+ * added to it directly, so a name proposed twice in a row still maps onto the
+ * object the first proposal created.
+ */
+const GUARD_ENTITY_TTL_MS = 60 * 1000;
+
+/**
+ * Entity pages listEntities asks for at the same time.
+ *
+ * An instance with 1359 tags is 14 pages, and reading them one after the
+ * other spent most of the scan waiting for a round trip it could have made
+ * already. Three at a time is a compromise with the Paperless-ngx side: the
+ * gain over sequential is most of what parallelism can give here, without
+ * turning a scan into a small load test.
+ */
+const ENTITY_PAGE_CONCURRENCY = 3;
+
+/** A settings value that means "on"; everything else is off. */
+function switchedOn(value) {
+  return value === true || String(value).trim().toLowerCase() === 'yes';
+}
+
+/** The singular noun a log line uses for a kind. */
+function entityNoun(kind) {
+  return kind === 'correspondents' ? 'correspondent' : 'tag';
+}
+
+/** How the app log spells a document id the guard acted for. */
+function forDocument(documentId) {
+  return documentId == null ? 'for no document' : `for document ${documentId}`;
+}
 
 /** How much of a Paperless-ngx error body may reach a log line. */
 const ERROR_BODY_LOG_LIMIT = 500;
@@ -131,6 +172,13 @@ class PaperlessService {
     // Dynamic cache lifetime from config (default: 5 minutes)
     // Lazy load to avoid circular dependency
     this._cacheTTL = null;
+    /**
+     * What the creation guard compares a proposed name against, per kind:
+     * kind -> { records: EntityRecord[], at: number }.
+     *
+     * @type {Map<string, {records: object[], at: number}>}
+     */
+    this._guardEntityCache = new Map();
   }
 
   get CACHE_LIFETIME() {
@@ -724,9 +772,22 @@ class PaperlessService {
           // Search for existing tag first
           let tag = await this.findExistingTag(tagName);
 
+          // The creation guard runs before the restriction is applied: a name
+          // that is only another spelling of an existing tag *is* an existing
+          // tag, so it is mapped rather than dropped.
+          if (!tag) {
+            const mapped = await this._mapProposedName(
+              'tags',
+              tagName,
+              options
+            );
+            if (mapped) tag = mapped;
+          }
+
           // If no existing tag found and restrictions are not enabled, create new one
           if (!tag && !restrictToExistingTags) {
             tag = await this.createTagSafely(tagName);
+            this._rememberGuardEntity('tags', tag);
           } else if (!tag && restrictToExistingTags) {
             console.log(
               `[DEBUG] Tag "${tagName}" does not exist and restrictions are enabled, skipping`
@@ -2107,6 +2168,18 @@ class PaperlessService {
         return existingCorrespondent;
       }
 
+      // The creation guard runs before the restriction is applied: a name
+      // that is only another spelling of an existing correspondent *is* an
+      // existing correspondent, so it is mapped rather than dropped.
+      const mapped = await this._mapProposedName(
+        'correspondents',
+        name,
+        options
+      );
+      if (mapped) {
+        return { id: mapped.id, name: mapped.name };
+      }
+
       // If we're restricting to existing correspondents and none was found, return null
       if (restrictToExistingCorrespondents) {
         console.log(
@@ -2123,6 +2196,7 @@ class PaperlessService {
         console.log(
           `[DEBUG] Created new correspondent "${name}" with ID ${createResponse.data.id}`
         );
+        this._rememberGuardEntity('correspondents', createResponse.data);
         return createResponse.data;
       } catch (createError) {
         if (
@@ -2699,6 +2773,161 @@ class PaperlessService {
     return record;
   }
 
+  // ── The creation guard ────────────────────────────────────────────────────
+  // Document analysis proposes names, not ids: it asks for the tag
+  // "Rechnungen" although "Rechnung" is what the archive calls it, and before
+  // this guard existed that proposal became the 1360th tag. The matcher
+  // decides what happens: its hard tiers (case, umlauts, legal form, plural,
+  // word order) are the same word in another spelling and are mapped onto the
+  // existing object; prefix and fuzzy are only logged, because "Kontoauszug"
+  // and "Kontoumzug" are two things. Every mapping is recorded so the
+  // Duplicates page can show what the guard decided.
+
+  /**
+   * The list the guard scores a proposed name against, at most one read per
+   * kind and minute.
+   *
+   * Tags come out of the tag cache, which is already every tag of the
+   * instance and which processTags has ensured anyway — the guard only
+   * converts it. Correspondents have no such cache and are listed.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @returns {Promise<object[]>} EntityRecord objects
+   */
+  async _guardEntities(kind) {
+    this._assertEntityKind(kind);
+    const cached = this._guardEntityCache.get(kind);
+    if (cached && Date.now() - cached.at < GUARD_ENTITY_TTL_MS) {
+      return cached.records;
+    }
+    const records =
+      kind === 'tags'
+        ? await this._guardEntitiesFromTagCache()
+        : await this.listEntities(kind);
+    this._guardEntityCache.set(kind, { records, at: Date.now() });
+    return records;
+  }
+
+  /**
+   * The tag cache as EntityRecords, converted once rather than per tag.
+   *
+   * An inbox tag is not a candidate: Paperless-ngx uses it to mark what has
+   * not been looked at yet, so mapping a proposal onto it would send a
+   * document that was just analyzed back to the inbox. The name is created
+   * instead, which is what happened before the guard existed.
+   */
+  async _guardEntitiesFromTagCache() {
+    await this.ensureTagCache();
+    return [...this.tagCache.values()]
+      .filter((raw) => !raw?.is_inbox_tag)
+      .map((raw) => this._toEntityRecord('tags', raw));
+  }
+
+  /**
+   * Adds a freshly created object to the guard's list, so the next proposal
+   * of the same name maps onto it instead of asking for the list again.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} raw  the object as Paperless-ngx returned it
+   */
+  _rememberGuardEntity(kind, raw) {
+    const cached = this._guardEntityCache.get(kind);
+    if (!cached || raw?.id == null) return;
+    const record = this._toEntityRecord(kind, raw);
+    if (!Number.isInteger(record.id)) return;
+    const index = cached.records.findIndex((entry) => entry.id === record.id);
+    if (index >= 0) {
+      cached.records[index] = record;
+    } else {
+      cached.records.push(record);
+    }
+  }
+
+  /** Forgets the guard's lists; a merge or a delete makes them wrong. */
+  _invalidateGuardEntities(kind = null) {
+    if (kind == null) {
+      this._guardEntityCache.clear();
+    } else {
+      this._guardEntityCache.delete(kind);
+    }
+  }
+
+  /**
+   * The existing object a proposed name should be used for, or null when the
+   * name has to be created.
+   *
+   * Never throws: the guard is an improvement on what document analysis does,
+   * not a precondition for it, so a list that cannot be read or a mapping
+   * that cannot be recorded leaves the old behaviour in place.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {string} proposedName
+   * @param {{documentId?: number|null}} [options]
+   * @returns {Promise<object|null>} the matched EntityRecord, or null
+   */
+  async _mapProposedName(kind, proposedName, options = {}) {
+    const runtimeConfig = require('../config/config');
+    if (!switchedOn(runtimeConfig.duplicatesGuardNewNames)) {
+      return null;
+    }
+    const name = String(proposedName ?? '').trim();
+    if (name === '') return null;
+
+    let match;
+    try {
+      const entities = await this._guardEntities(kind);
+      match = entityNameMatcher.bestMatch(name, entities, {
+        kind,
+        // Below the prefix tier there is nothing worth even a hint.
+        minScore: entityNameMatcher.TIER_SCORES.PREFIX,
+      });
+    } catch (error) {
+      console.warn(
+        `[DUPLICATES] the creation guard could not read the ${kind}: ${
+          error?.message || error
+        }`
+      );
+      return null;
+    }
+    if (!match) return null;
+
+    const noun = entityNoun(kind);
+    const score = Number(match.score).toFixed(2);
+    if (!entityNameMatcher.HARD_REASONS.includes(match.reason)) {
+      console.log(
+        `[DUPLICATES] created ${noun} "${name}" although "${match.entity.name}" ` +
+          `is close (${match.reason}, ${score}); not mapped.`
+      );
+      return null;
+    }
+
+    const documentId =
+      options?.documentId == null ? null : Number(options.documentId);
+    try {
+      const documentModel = require('../models/document');
+      await documentModel.addEntityNameMapping({
+        kind,
+        proposedName: name,
+        targetId: Number(match.entity.id),
+        targetName: match.entity.name,
+        reason: match.reason,
+        score: Number(match.score) || 0,
+        documentId,
+      });
+    } catch (error) {
+      console.warn(
+        `[DUPLICATES] the mapping of ${noun} "${name}" was not recorded: ${
+          error?.message || error
+        }`
+      );
+    }
+    console.log(
+      `[DUPLICATES] mapped ${noun} "${name}" to existing "${match.entity.name}" ` +
+        `(${match.reason}, ${score}) ${forDocument(documentId)}.`
+    );
+    return match.entity;
+  }
+
   /**
    * Every tag or correspondent of an instance, as EntityRecord objects.
    *
@@ -2710,15 +2939,12 @@ class PaperlessService {
     this._assertEntityKind(kind);
     const client = this._requireClient(`listing ${kind}`);
 
-    const records = [];
-    let page = 1;
-    let hasNextPage = true;
-
-    while (hasNextPage) {
+    /** One page, validated. Never follows the absolute `next` URL: it may
+     * carry the public reverse-proxy host rather than the one the token was
+     * issued for. */
+    const readPage = async (page) => {
       let response;
       try {
-        // Never follow the absolute `next` URL: it may carry the public
-        // reverse-proxy host rather than the one the token was issued for.
         response = await client.get(`/${kind}/`, {
           params: {
             page,
@@ -2733,22 +2959,68 @@ class PaperlessService {
         );
         throw error;
       }
-
       const results = response?.data?.results;
       if (!Array.isArray(results)) {
         throw new Error(
           `Unexpected answer while listing ${kind} on page ${page}`
         );
       }
-      for (const raw of results) {
+      return {
+        results,
+        count: Number(response.data.count),
+        hasNext: response.data.next != null,
+      };
+    };
+
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+    const first = await readPage(1);
+    const records = first.results.map((raw) => this._toEntityRecord(kind, raw));
+
+    // The first page says how many objects there are, so the rest can be
+    // asked for at once instead of one after the other. The page size is
+    // taken from what the first page actually held: Paperless-ngx clamps
+    // page_size to its own maximum, and an assumed page size that is too
+    // large would stop the read short.
+    const pageSize = first.results.length || this.ENTITY_PAGE_SIZE;
+    const lastPage =
+      Number.isFinite(first.count) && first.count > 0
+        ? Math.ceil(first.count / pageSize)
+        : 1;
+
+    const pages = [];
+    for (let page = 2; page <= lastPage; page += 1) {
+      pages.push(page);
+    }
+
+    let tailHasNext = first.hasNext;
+    for (let i = 0; i < pages.length; i += ENTITY_PAGE_CONCURRENCY) {
+      const batch = pages.slice(i, i + ENTITY_PAGE_CONCURRENCY);
+      // Promise.all keeps the answers in the order the pages were asked for,
+      // so the records stay in the instance's own ordering.
+      const answers = await Promise.all(batch.map(readPage));
+      for (const answer of answers) {
+        for (const raw of answer.results) {
+          records.push(this._toEntityRecord(kind, raw));
+        }
+      }
+      tailHasNext = answers[answers.length - 1].hasNext;
+      if (i + ENTITY_PAGE_CONCURRENCY < pages.length) {
+        await pause();
+      }
+    }
+
+    // An archive that grew between the first page and the last one reports a
+    // `next` the count did not predict. Rare, and sequential is fine for it.
+    let page = Math.max(lastPage, 1) + 1;
+    while (tailHasNext) {
+      await pause();
+      const answer = await readPage(page);
+      for (const raw of answer.results) {
         records.push(this._toEntityRecord(kind, raw));
       }
-
-      hasNextPage = response.data.next != null;
+      tailHasNext = answer.hasNext;
       page += 1;
-      if (hasNextPage) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
     }
 
     return records;
@@ -3057,6 +3329,8 @@ class PaperlessService {
     this.clearTagCache();
     this.correspondentNameCache.clear();
     this.lastCorrespondentRefresh = 0;
+    // The creation guard must not offer an object a merge has just deleted.
+    this._invalidateGuardEntities();
   }
 
   /**

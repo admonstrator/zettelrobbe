@@ -40,6 +40,18 @@
  *     options and `fresh` do, and an old entry is dropped
  * 20. A merge, an undo, a dismissal and the restore of one all drop it — and
  *     so does a dismissal removed through the model, behind the service
+ * 21. A scan lists the objects without documents, and never the inbox tag, a
+ *     tag the settings name, or one the token may not change
+ * 22. A merge renames the target before anything moves, logs it, and the undo
+ *     puts the name and the local records back
+ * 23. The survivor may take the spelling of a source it swallows; a name that
+ *     belongs to anything else refuses the merge with nothing moved; an empty
+ *     or unchanged name is no rename at all
+ * 24. An undo leaves a name the user has changed since the merge alone
+ * 25. deleteUnused refuses what it must not delete, deletes the rest, and
+ *     writes one log row an undo re-creates the objects from
+ * 26. A running document scan refuses a delete; a locked target refuses a rename
+ * 27. listEntities reads its pages three at a time and keeps them in order
  */
 
 'use strict';
@@ -1107,6 +1119,581 @@ async function main() {
       const back = await duplicateMergeService.scan({ kind: 'tags' });
       assert.ok(reads() > seen, 'the cached scan was not served');
       assert.strictEqual(back.groups.length, 1, 'the group is back');
+    });
+
+    // ------------------------------------------------- objects without a use
+
+    await test('A scan lists the objects that carry no document, and what it never lists', async () => {
+      useFake({
+        tags: [
+          { id: 301, name: 'Used' },
+          { id: 302, name: 'Unused B' },
+          { id: 303, name: 'Unused A' },
+          { id: 304, name: 'Inbox', is_inbox_tag: true },
+          { id: 305, name: 'do-not-touch' },
+          { id: 306, name: 'ai-processed' },
+          { id: 307, name: 'Locked', user_can_change: false },
+        ],
+        correspondents: [
+          { id: 310, name: 'Bahn' },
+          { id: 311, name: 'Stadtwerke' },
+        ],
+        documents: [{ id: 3001, tags: [301], correspondent: 311 }],
+      });
+
+      const result = await duplicateMergeService.scan({ kind: 'all' });
+      assert.deepStrictEqual(
+        result.unused.tags.map((entity) => entity.name),
+        ['Unused A', 'Unused B'],
+        'sorted by name; the inbox tag, the configured tags, the used one ' +
+          'and the one the token may not change are all left out'
+      );
+      assert.deepStrictEqual(
+        result.unused.tags.map((entity) => entity.id),
+        [303, 302]
+      );
+      assert.deepStrictEqual(
+        result.unused.correspondents.map((entity) => entity.name),
+        ['Bahn']
+      );
+      assert.strictEqual(
+        result.unused.tags[0].documentCount,
+        0,
+        'they arrive as EntityRecords, with everything the page needs'
+      );
+
+      const single = await duplicateMergeService.scan({
+        kind: 'correspondents',
+      });
+      assert.deepStrictEqual(
+        single.unused.tags,
+        [],
+        'the kind that was not scanned has no unused objects either'
+      );
+      assert.deepStrictEqual(
+        single.unused.correspondents.map((entity) => entity.name),
+        ['Bahn']
+      );
+
+      const cached = await duplicateMergeService.scan({
+        kind: 'correspondents',
+      });
+      assert.deepStrictEqual(
+        cached.unused,
+        single.unused,
+        'and the list is part of the cached result'
+      );
+    });
+
+    // ------------------------------------------ a new name for the survivor
+
+    await test('A merge may rename the target, before anything moves', async () => {
+      const fake = useFake({
+        correspondents: [
+          { id: 5, name: 'amazon' },
+          { id: 6, name: 'Amazon EU' },
+        ],
+        documents: [
+          { id: 2001, correspondent: 6 },
+          { id: 2002, correspondent: 5 },
+        ],
+      });
+      await documentModel.addToHistory(2001, [], 'Order', 'Amazon EU');
+      await documentModel.addToHistory(2002, [], 'Other order', 'amazon');
+
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let result;
+      try {
+        result = await duplicateMergeService.merge({
+          kind: 'correspondents',
+          targetId: 5,
+          sourceIds: [6],
+          targetName: '  Amazon  ',
+          performedBy: 'tester',
+        });
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.strictEqual(result.status, 'done');
+      assert.deepStrictEqual(result.target, { id: 5, name: 'Amazon' });
+      assert.strictEqual(fake.correspondent(5).name, 'Amazon');
+      assert.strictEqual(fake.document(2001).correspondent, 5);
+
+      const entry = await documentModel.getEntityMergeById(result.mergeId);
+      assert.strictEqual(entry.targetName, 'Amazon');
+      assert.strictEqual(entry.targetRenamedFrom, 'amazon');
+      assert.strictEqual(entry.action, 'merge');
+
+      assert.strictEqual(
+        (await documentModel.getHistoryByDocumentId(2001)).correspondent,
+        'Amazon',
+        'the moved document follows the new name'
+      );
+      assert.strictEqual(
+        (await documentModel.getHistoryByDocumentId(2002)).correspondent,
+        'Amazon',
+        'and so does a document the target already had'
+      );
+      assert.ok(
+        lines.some(
+          (line) =>
+            line ===
+            '[DUPLICATES] renamed correspondent 5 "amazon" to "Amazon" before the merge.'
+        ),
+        `no rename line:\n${lines.filter((l) => l.startsWith('[DUPLICATES]')).join('\n')}`
+      );
+
+      // And the undo puts the name back with the documents.
+      const undo = await duplicateMergeService.undo(result.mergeId);
+      assert.strictEqual(undo.status, 'undone');
+      assert.strictEqual(fake.correspondent(5).name, 'amazon');
+      const restoredId = undo.sources[0].restoredId;
+      assert.strictEqual(fake.correspondent(restoredId).name, 'Amazon EU');
+      assert.strictEqual(
+        (await documentModel.getHistoryByDocumentId(2001)).correspondent,
+        'Amazon EU'
+      );
+      assert.strictEqual(
+        (await documentModel.getHistoryByDocumentId(2002)).correspondent,
+        'amazon',
+        'the local name is back where the object kept its documents'
+      );
+    });
+
+    await test('The survivor may take the spelling of a source it swallows', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 1, name: 'invoices' },
+          { id: 2, name: 'Invoices' },
+        ],
+        documents: [
+          { id: 4401, tags: [1] },
+          { id: 4402, tags: [2] },
+        ],
+      });
+
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let merged;
+      try {
+        merged = await duplicateMergeService.merge({
+          kind: 'tags',
+          targetId: 1,
+          sourceIds: [2],
+          targetName: 'Invoices',
+        });
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.strictEqual(merged.status, 'done');
+      assert.deepStrictEqual(merged.target, { id: 1, name: 'Invoices' });
+      assert.strictEqual(fake.tag(1).name, 'Invoices');
+      assert.strictEqual(fake.tag(2), undefined);
+      assert.deepStrictEqual(fake.document(4402).tags, [1]);
+      assert.ok(
+        lines.some(
+          (line) =>
+            line ===
+            '[DUPLICATES] renamed tag 1 "invoices" to "Invoices" after the merge.'
+        ),
+        `the rename waited for the name:\n${lines.filter((l) => l.startsWith('[DUPLICATES]')).join('\n')}`
+      );
+
+      const entry = await documentModel.getEntityMergeById(merged.mergeId);
+      assert.strictEqual(entry.targetName, 'Invoices');
+      assert.strictEqual(entry.targetRenamedFrom, 'invoices');
+
+      // And the undo frees the name again before it re-creates the source.
+      const undo = await duplicateMergeService.undo(merged.mergeId);
+      assert.strictEqual(undo.status, 'undone');
+      assert.strictEqual(fake.tag(1).name, 'invoices');
+      assert.strictEqual(
+        fake.tag(undo.sources[0].restoredId).name,
+        'Invoices',
+        'the source is back under its own spelling'
+      );
+    });
+
+    await test('A name that is already taken refuses the merge and moves nothing', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 12, name: 'Invoices' },
+          { id: 48, name: 'invoices' },
+          { id: 13, name: 'Taken' },
+        ],
+        documents: [{ id: 4001, tags: [48] }],
+      });
+
+      const error = await expectRefusal(
+        () =>
+          duplicateMergeService.merge({
+            kind: 'tags',
+            targetId: 12,
+            sourceIds: [48],
+            targetName: 'Taken',
+          }),
+        409,
+        'a name that exists'
+      );
+      assert.ok(/already taken/.test(error.message));
+      assert.strictEqual(fake.tag(12).name, 'Invoices', 'the target kept it');
+      assert.ok(fake.tag(48), 'the source is still there');
+      assert.deepStrictEqual(
+        fake.document(4001).tags,
+        [48],
+        'not one document moved'
+      );
+      const log = await documentModel.getEntityMerges({ limit: 1 });
+      assert.notStrictEqual(
+        log.rows[0]?.targetId,
+        12,
+        'and nothing was written to the log'
+      );
+    });
+
+    await test('An empty or unchanged name is no rename at all', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 20, name: 'Reise' },
+          { id: 21, name: 'reise' },
+          { id: 22, name: 'Steuer' },
+          { id: 23, name: 'steuer' },
+        ],
+        documents: [
+          { id: 4101, tags: [21] },
+          { id: 4102, tags: [23] },
+        ],
+      });
+
+      const empty = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 20,
+        sourceIds: [21],
+        targetName: '   ',
+      });
+      assert.strictEqual(empty.target.name, 'Reise');
+      assert.strictEqual(
+        (await documentModel.getEntityMergeById(empty.mergeId))
+          .targetRenamedFrom,
+        null
+      );
+
+      const same = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 22,
+        sourceIds: [23],
+        targetName: 'Steuer',
+      });
+      assert.strictEqual(same.target.name, 'Steuer');
+      assert.strictEqual(
+        (await documentModel.getEntityMergeById(same.mergeId))
+          .targetRenamedFrom,
+        null
+      );
+      assert.strictEqual(
+        fake.calls.filter(
+          (call) => call.method === 'patch' && call.body?.name != null
+        ).length,
+        0,
+        'no rename request went out'
+      );
+    });
+
+    await test('An undo leaves a name the user has changed since alone', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 30, name: 'holiday' },
+          { id: 31, name: 'Holidays' },
+        ],
+        documents: [{ id: 4201, tags: [31] }],
+      });
+
+      const merged = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 30,
+        sourceIds: [31],
+        targetName: 'Holiday',
+      });
+      assert.strictEqual(fake.tag(30).name, 'Holiday');
+
+      // The user renames it again through Paperless-ngx itself.
+      fake.tag(30).name = 'Urlaub';
+
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      try {
+        await duplicateMergeService.undo(merged.mergeId);
+      } finally {
+        console.log = realLog;
+      }
+      assert.strictEqual(fake.tag(30).name, 'Urlaub', 'their name survives');
+      assert.ok(
+        lines.some((line) =>
+          /undo tag 30: it is called "Urlaub" and no longer "Holiday"/.test(
+            line
+          )
+        ),
+        `no explanation:\n${lines.filter((l) => l.startsWith('[DUPLICATES]')).join('\n')}`
+      );
+    });
+
+    // ------------------------------------------------- deleting what is unused
+
+    let deleteLogId = null;
+    await test('deleteUnused refuses what it must not delete and deletes the rest', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 401, name: 'Used' },
+          { id: 402, name: 'Inbox', is_inbox_tag: true },
+          { id: 403, name: 'do-not-touch' },
+          { id: 404, name: 'Locked', user_can_change: false },
+          {
+            id: 405,
+            name: 'Orphan A',
+            color: '#112233',
+            match: 'orphan',
+            matching_algorithm: 1,
+          },
+          { id: 406, name: 'Orphan B' },
+        ],
+        documents: [{ id: 4301, tags: [401] }],
+      });
+
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let result;
+      try {
+        result = await duplicateMergeService.deleteUnused({
+          kind: 'tags',
+          ids: [401, 402, 403, 404, 405, 406, 999],
+          performedBy: 'tester',
+        });
+      } finally {
+        console.log = realLog;
+      }
+      deleteLogId = result.logId;
+
+      assert.strictEqual(result.kind, 'tags');
+      assert.deepStrictEqual(result.deleted, [
+        { id: 405, name: 'Orphan A' },
+        { id: 406, name: 'Orphan B' },
+      ]);
+      assert.deepStrictEqual(
+        result.failed.map((entry) => [entry.id, entry.error]),
+        [
+          [401, '1 document(s) carry it by now'],
+          [402, 'It is an inbox tag'],
+          [403, 'The settings refer to this tag'],
+          [404, 'The API token may not change it'],
+          [999, 'It does not exist in Paperless-ngx any more'],
+        ],
+        'every refusal says why'
+      );
+      assert.deepStrictEqual(
+        fake.tagNames().sort(),
+        ['Inbox', 'Locked', 'Used', 'do-not-touch'],
+        'only the two orphans are gone'
+      );
+
+      const entry = await documentModel.getEntityMergeById(result.logId);
+      assert.strictEqual(entry.action, 'delete');
+      assert.strictEqual(entry.targetId, 0);
+      assert.strictEqual(entry.targetName, '');
+      assert.strictEqual(entry.documentsMoved, 0);
+      assert.strictEqual(entry.status, 'partial', 'some ids were refused');
+      assert.strictEqual(entry.performedBy, 'tester');
+      assert.strictEqual(entry.sources.length, 2);
+      assert.deepStrictEqual(entry.sources[0].documentIds, []);
+      assert.strictEqual(entry.sources[0].deleted, true);
+      assert.deepStrictEqual(
+        {
+          name: entry.sources[0].snapshot.name,
+          color: entry.sources[0].snapshot.color,
+          match: entry.sources[0].snapshot.match,
+          matching_algorithm: entry.sources[0].snapshot.matching_algorithm,
+          is_inbox_tag: entry.sources[0].snapshot.is_inbox_tag,
+        },
+        {
+          name: 'Orphan A',
+          color: '#112233',
+          match: 'orphan',
+          matching_algorithm: 1,
+          is_inbox_tag: false,
+        },
+        'the snapshot is what an undo re-creates from'
+      );
+
+      assert.ok(
+        lines.some(
+          (line) =>
+            line === '[DUPLICATES] deleted 2 unused tag(s): Orphan A, Orphan B.'
+        ),
+        `no delete line:\n${lines.filter((l) => l.startsWith('[DUPLICATES]')).join('\n')}`
+      );
+
+      // The undo of exactly this call, on the same store: one object is
+      // created again, the other is adopted because its name exists again.
+      await paperlessService.createEntity('tags', { name: 'Orphan B' });
+      const undo = await duplicateMergeService.undo(result.logId, {
+        performedBy: 'tester',
+      });
+      assert.strictEqual(undo.status, 'undone');
+      assert.strictEqual(undo.sources.length, 2);
+      const orphanA = undo.sources.find((one) => one.name === 'Orphan A');
+      const orphanB = undo.sources.find((one) => one.name === 'Orphan B');
+      assert.strictEqual(orphanA.adoptedExisting, false);
+      assert.strictEqual(orphanA.documentsRestored, 0);
+      assert.strictEqual(orphanA.documentsSkipped, 0);
+      assert.strictEqual(orphanB.adoptedExisting, true);
+      assert.strictEqual(
+        fake.tag(orphanA.restoredId).match,
+        'orphan',
+        'the matching rule came back with it'
+      );
+      assert.strictEqual(fake.tag(orphanA.restoredId).color, '#112233');
+      assert.strictEqual(
+        (await documentModel.getEntityMergeById(result.logId)).status,
+        'undone'
+      );
+    });
+
+    await test('A running document scan refuses a delete, and a locked target refuses a rename', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 420, name: 'Orphan', user_can_change: true },
+          { id: 421, name: 'Locked', user_can_change: false },
+          { id: 422, name: 'locked' },
+        ],
+      });
+
+      global.__paperlessAiScanControl = { running: true };
+      try {
+        await expectRefusal(
+          () =>
+            duplicateMergeService.deleteUnused({ kind: 'tags', ids: [420] }),
+          409,
+          'a delete during a document scan'
+        );
+      } finally {
+        global.__paperlessAiScanControl = { running: false };
+      }
+      assert.ok(fake.tag(420), 'nothing was deleted');
+
+      const error = await expectRefusal(
+        () =>
+          duplicateMergeService.merge({
+            kind: 'tags',
+            targetId: 421,
+            sourceIds: [422],
+            targetName: 'Unlocked',
+          }),
+        403,
+        'a rename the token may not make'
+      );
+      assert.ok(/may not rename/.test(error.message));
+      assert.strictEqual(fake.tag(421).name, 'Locked');
+      assert.ok(fake.tag(422), 'and the source is untouched');
+    });
+
+    await test('An undone delete cannot be undone twice, and a bad request is refused', async () => {
+      await expectRefusal(
+        () => duplicateMergeService.undo(deleteLogId),
+        409,
+        'second undo of a delete'
+      );
+      await expectRefusal(
+        () => duplicateMergeService.deleteUnused({ kind: 'nope', ids: [1] }),
+        400,
+        'unknown kind'
+      );
+      await expectRefusal(
+        () => duplicateMergeService.deleteUnused({ kind: 'tags', ids: [] }),
+        400,
+        'no ids'
+      );
+      await expectRefusal(
+        () => duplicateMergeService.deleteUnused({ kind: 'tags', ids: [0] }),
+        400,
+        'not an id'
+      );
+    });
+
+    await test('A delete of nothing writes no log row, and a delete drops the cached scans', async () => {
+      const { fake, reads } = seedForCache();
+      await duplicateMergeService.scan({ kind: 'tags' });
+      const seen = reads();
+
+      const refused = await duplicateMergeService.deleteUnused({
+        kind: 'tags',
+        ids: [200],
+      });
+      assert.deepStrictEqual(refused.deleted, []);
+      assert.strictEqual(refused.logId, null, 'nothing to undo, no row');
+
+      const removed = await duplicateMergeService.deleteUnused({
+        kind: 'tags',
+        ids: [202],
+      });
+      assert.deepStrictEqual(removed.deleted, [{ id: 202, name: 'Steuer' }]);
+      assert.strictEqual(removed.failed.length, 0);
+      assert.strictEqual(
+        (await documentModel.getEntityMergeById(removed.logId)).status,
+        'done'
+      );
+      assert.strictEqual(fake.tag(202), undefined);
+
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(reads() > seen, 'a delete changes what a scan would find');
+    });
+
+    // ------------------------------------------------ reading pages in parallel
+
+    await test('listEntities reads its pages in parallel and keeps them in order', async () => {
+      const many = [];
+      for (let id = 1; id <= 450; id += 1) {
+        many.push({ id, name: `Tag ${String(id).padStart(3, '0')}` });
+      }
+      const fake = createFakePaperless({ tags: many, requestDelayMs: 20 });
+      paperlessService.client = fake.client;
+      duplicateMergeService.invalidateScanCache();
+
+      const startedAt = Date.now();
+      const entities = await paperlessService.listEntities('tags');
+      const elapsed = Date.now() - startedAt;
+
+      assert.strictEqual(entities.length, 450);
+      assert.strictEqual(entities[0].name, 'Tag 001');
+      assert.strictEqual(
+        entities[100].name,
+        'Tag 101',
+        'page 2 follows page 1'
+      );
+      assert.strictEqual(entities[449].name, 'Tag 450', 'and page 5 is last');
+
+      const pages = fake.calls
+        .filter((call) => call.path === '/tags/')
+        .map((call) => call.params.page)
+        .sort((a, b) => a - b);
+      assert.deepStrictEqual(pages, [1, 2, 3, 4, 5], 'every page once');
+      assert.strictEqual(
+        fake.state.maxInFlight,
+        3,
+        'three pages were in flight at the same time'
+      );
+
+      // Sequential would be five delays and four pauses of 100ms; this reads
+      // the first page, then three at once, pauses once, then the last.
+      assert.ok(
+        elapsed < 300,
+        `parallel pages should beat the ~500ms a sequential read costs, took ${elapsed}ms`
+      );
     });
   } finally {
     try {
