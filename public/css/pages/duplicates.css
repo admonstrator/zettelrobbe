@@ -609,6 +609,7 @@
 
   .dup-member__verdict {
     display: block;
+    white-space: nowrap;
   }
 
   /* The band below the sensitivity the user chose: everything under this line
@@ -664,8 +665,9 @@
     width: 96px;
   }
 
+  /* Wide enough for "92%" over "AI: same · high" on one line each. */
   .dup-members__score {
-    width: 84px;
+    width: 132px;
   }
 
   .dup-member__name {

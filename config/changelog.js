@@ -139,6 +139,11 @@ const RELEASES = [
       'Improvement: The Duplicates feature writes readable log lines for scans, merges, undos and every model request; the dashboard refreshes once per burst of merges instead of once per merge',
       'New: Duplicates page sorts groups by confidence, documents, name or kind, selects every group at or above a chosen percentage in one move, and shows how the groups spread over the confidence bands',
       'New: "Ask the AI, then merge" reviews exactly the selected groups, shows the verdicts and reasons in one dialog with the confirmed ones pre-ticked, and merges what stays ticked; a custom scan threshold joins the three presets',
+      'New: "AI proposal" on the Duplicates page scans, lets the model judge every group and near-miss, and opens one overview with only the sure matches pre-ticked; you deselect, nothing merges by itself',
+      'Improvement: The AI judge no longer takes a small spelling distance as proof of a typo. Pairs settled by a spelling rule (case, umlauts, legal form) are pre-ticked without asking the model; for pairs linked by spelling alone it reads short excerpts of a couple of documents per entry, every judged entry brings its matching rule and the names it is usually filed with, unsure pairs are asked once more with excerpts, and every verdict names its basis and how sure the model is (DUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS, DUPLICATES_AI_EXCERPT_DOCUMENTS)',
+      'New: DUPLICATES_AI_MODEL lets the judge run on a stronger model of the configured provider while document analysis keeps its own',
+      'Fix: The member tables of the group cards line up across cards; long names truncate instead of shifting the columns',
+      'New: A "Duplicates" section on the settings page holds every setting of the feature: AI review on or off, the judge model, pairs per request, the candidate floor, excerpts and their length and count',
     ],
   },
 ];
