@@ -3880,6 +3880,8 @@ const ENV_EXPORT_GROUPS = [
       'DUPLICATES_AI_EXCERPT_DOCUMENTS',
       'DUPLICATES_AI_TOKEN_BUDGET',
       'DUPLICATES_AI_IDLE_STOP_SECONDS',
+      'DUPLICATES_AI_THINKING',
+      'DUPLICATES_AI_REQUEST_SECONDS',
     ],
   },
   {
@@ -6980,6 +6982,9 @@ router.get('/settings', async (req, res) => {
       process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
     DUPLICATES_AI_IDLE_STOP_SECONDS:
       process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
+    DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
+    DUPLICATES_AI_REQUEST_SECONDS:
+      process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
@@ -8487,6 +8492,17 @@ router.get('/health', async (req, res) => {
  *                 maximum: 3600
  *                 description: A running review that no page has been watching for this many seconds stops itself, so a closed tab cannot leave the model running (0-3600, default 60). 0 means never. Out-of-range values are clamped, a non-numeric value keeps the current setting.
  *                 example: 60
+ *               duplicatesAiThinking:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Let the judge reason before it answers (yes/no). Default no; a reasoning model otherwise spends the whole answer budget on its thoughts before the first verdict.
+ *                 example: "no"
+ *               duplicatesAiRequestSeconds:
+ *                 type: integer
+ *                 minimum: 5
+ *                 maximum: 300
+ *                 description: How long one model request should take (5-300 seconds, default 30). The judge measures the model on a small first request and then sizes every later one to fit. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 30
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)
@@ -8600,6 +8616,8 @@ router.post('/settings', express.json(), async (req, res) => {
       duplicatesAiExcerptDocuments,
       duplicatesAiTokenBudget,
       duplicatesAiIdleStopSeconds,
+      duplicatesAiThinking,
+      duplicatesAiRequestSeconds,
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
@@ -8694,6 +8712,9 @@ router.post('/settings', express.json(), async (req, res) => {
         process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
       DUPLICATES_AI_IDLE_STOP_SECONDS:
         process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
+      DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
+      DUPLICATES_AI_REQUEST_SECONDS:
+        process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
@@ -9161,6 +9182,22 @@ router.post('/settings', express.json(), async (req, res) => {
         duplicatesAiIdleStopSeconds,
         currentConfig.DUPLICATES_AI_IDLE_STOP_SECONDS,
         { min: 0, max: 3600 }
+      );
+    }
+    // How the judge talks to the model: whether it may think before it
+    // answers, and how long one request should take. The seconds are what the
+    // judge sizes its batches against after it measured the model.
+    if (duplicatesAiThinking !== undefined) {
+      updatedConfig.DUPLICATES_AI_THINKING = sanitizeDuplicatesSwitch(
+        duplicatesAiThinking,
+        currentConfig.DUPLICATES_AI_THINKING
+      );
+    }
+    if (duplicatesAiRequestSeconds !== undefined) {
+      updatedConfig.DUPLICATES_AI_REQUEST_SECONDS = sanitizeDuplicatesNumber(
+        duplicatesAiRequestSeconds,
+        currentConfig.DUPLICATES_AI_REQUEST_SECONDS,
+        { min: 5, max: 300 }
       );
     }
 
@@ -10997,6 +11034,9 @@ router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
       kind,
       threshold,
       includeDismissed,
+      // The page only asks for a scan when the user pressed the button, so
+      // what it wants is the archive as it is now, not a cached answer.
+      fresh: true,
     });
     return res.json({ success: true, data });
   } catch (error) {

@@ -117,6 +117,11 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                             <div class="dup-progress__text">
                                 <span class="zr-sm" id="dupAiProgressMessage"></span>
                                 <span class="zr-sm zr-faint zr-mono" id="dupAiProgressCounts"></span>
+                                <!-- How the judge sizes its requests: the
+                                     measured batch size, and whether it is
+                                     still a guess or comes from the model's
+                                     own answers. -->
+                                <span class="zr-sm zr-faint dup-progress__note" id="dupAiProgressNote"></span>
                                 <span class="zr-sm zr-faint" id="dupAiProgressEta"></span>
                             </div>
                             <div class="dup-progress__actions">

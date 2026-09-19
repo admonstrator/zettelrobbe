@@ -242,6 +242,7 @@ const el = {
   aiProgressFill: document.getElementById('dupAiProgressFill'),
   aiProgressMessage: document.getElementById('dupAiProgressMessage'),
   aiProgressCounts: document.getElementById('dupAiProgressCounts'),
+  aiProgressNote: document.getElementById('dupAiProgressNote'),
   aiProgressEta: document.getElementById('dupAiProgressEta'),
   aiStopBtn: document.getElementById('dupAiStopBtn'),
   stats: document.getElementById('dupStats'),
@@ -902,10 +903,17 @@ function renderAiStats(review) {
   el.statAiCandidates.textContent = parts.join(' · ');
   el.statAiRequests.textContent = String(num(review.requests));
   const tokens = Number(review.tokens);
-  el.statAiTokens.textContent =
-    review.tokens != null && Number.isFinite(tokens)
-      ? `${tokens} ${plural(tokens, 'token', 'tokens')}`
-      : '';
+  const costParts = [];
+  if (review.tokens != null && Number.isFinite(tokens)) {
+    costParts.push(`${tokens} ${plural(tokens, 'token', 'tokens')}`);
+  }
+  // How many pairs one request carried explains the request count better than
+  // the count does on its own; after a warm-up it is a measured number.
+  const size = Number(review.batchSize);
+  if (review.batchSize != null && Number.isFinite(size) && size > 0) {
+    costParts.push(`${size} ${plural(size, 'pair', 'pairs')} per request`);
+  }
+  el.statAiTokens.textContent = costParts.join(' · ');
   // The model name belongs on the request count, not in a tile of its own.
   el.statAiRequestsTile.title = String(
     review.model == null ? '' : review.model
@@ -1324,9 +1332,24 @@ function formatElapsed(ms) {
     : `${minutes}:${pad(seconds)}`;
 }
 
-/** How far a review is, 0 to 100, or null while the plan is not known. */
+/**
+ * How far a review is, 0 to 100, or null while nothing is known yet.
+ *
+ * Pairs are the unit whenever the plan knows how many there are, because the
+ * answers that stream in during a request count as well — a bar that only
+ * moves between requests stands still for the whole minute one of them takes.
+ * Requests are the fallback for the stretch before the pairs are counted, and
+ * before that there is no honest share at all.
+ */
 function progressPercent(progress) {
   const state = progress || {};
+  const pairs = Number(state.pairsTotal);
+  if (Number.isFinite(pairs) && pairs > 0) {
+    const judged = Number(state.pairsJudged) || 0;
+    const answers = Number(state.requestAnswers) || 0;
+    const share = (judged + answers) / pairs;
+    return Math.max(0, Math.min(100, Math.round(share * 100)));
+  }
   const planned = Number(state.requestsPlanned);
   if (!Number.isFinite(planned) || planned <= 0) return null;
   const done = Number(state.requestsDone);
@@ -1366,7 +1389,7 @@ function stopNotice(job) {
   return `Stopped after ${done}${of} ${requests}${tail}`;
 }
 
-/** "Request 3 of 8 · 40 of 96 pairs · 12.4k of 200k tokens". */
+/** "Request 2 of 9 · 7 of 10 answers · 34 of 82 pairs · 12.4k of 200k tokens". */
 function progressCountsText(progress) {
   const state = progress || {};
   const parts = [];
@@ -1376,6 +1399,15 @@ function progressCountsText(progress) {
     parts.push(`Request ${Math.min(done, planned)} of ${planned}`);
   } else if (done > 0) {
     parts.push(`Request ${done}`);
+  }
+  // Inside a request: what the streamed answer has said so far. Between two
+  // requests there is nothing to count, and the part is left out entirely.
+  const requestPairs = Number(state.requestPairs);
+  if (Number.isFinite(requestPairs) && requestPairs > 0) {
+    const answers = Number(state.requestAnswers) || 0;
+    parts.push(
+      `${Math.max(0, Math.min(answers, requestPairs))} of ${requestPairs} answers`
+    );
   }
   const judged = Number(state.pairsJudged) || 0;
   const pairs = Number(state.pairsTotal);
@@ -1399,19 +1431,49 @@ function progressCountsText(progress) {
   return parts.join(' · ');
 }
 
-/** "about 40 s left · 1:24 elapsed"; only the elapsed part is always there. */
+/**
+ * "about 40 s left · 1:24 elapsed"; only the elapsed part is always there.
+ *
+ * Two stretches of a review have nothing to estimate from and say so instead
+ * of showing a clock that does not move: the warm-up, whose single small
+ * request exists to be measured, and a model that is writing its reasoning,
+ * where no answer arrives until it is done thinking. An estimate the job did
+ * make is shown next to either of them.
+ */
 function progressTimeText(progress, elapsedMs) {
   const state = progress || {};
   const parts = [];
-  const eta = formatEta(state.etaMs);
+  const warmingUp = state.phase === 'warming-up';
+  const eta = warmingUp ? '' : formatEta(state.etaMs);
+  if (warmingUp) {
+    parts.push('measuring the model');
+  } else if (state.thinking) {
+    parts.push('the model is thinking');
+  }
   if (eta) {
     parts.push(eta);
-  } else if (state.phase === 'judging') {
+  } else if (!warmingUp && !state.thinking && state.phase === 'judging') {
     // The rate of the first request is what an estimate is made of.
     parts.push('estimating…');
   }
   parts.push(`${formatElapsed(elapsedMs)} elapsed`);
   return parts.join(' · ');
+}
+
+/**
+ * The one line under the counts that says how the judge is sizing its
+ * requests, and whether that size is a guess or a measurement.
+ *
+ * @param {object|null} progress  an AiReviewProgress
+ * @returns {string} empty while the batch size is not known
+ */
+function progressNoteText(progress) {
+  const state = progress || {};
+  const size = Number(state.batchSize);
+  if (!Number.isFinite(size) || size <= 0) return '';
+  return state.calibrated
+    ? `${size} ${plural(size, 'pair', 'pairs')} per request, sized from the model's answers`
+    : `${size} ${plural(size, 'pair', 'pairs')} per request while the model is measured`;
 }
 
 /** The single line the panel keeps after a review ended. */
@@ -1425,6 +1487,13 @@ function progressOutcomeText(event) {
   const judged = Number(state.pairsJudged) || 0;
   const pairs = state.pairsTotal == null ? NaN : Number(state.pairsTotal);
   const tokens = `${formatTokens(state.tokens)} tokens`;
+  // What the measurement settled on belongs in the sentence the panel keeps:
+  // it is the one number that explains how long the whole thing took.
+  const size = Number(state.batchSize);
+  const batch =
+    Number.isFinite(size) && size > 0
+      ? ` · ${size} ${plural(size, 'pair', 'pairs')} per request`
+      : '';
   if (event && event.type === 'failed') return `Failed after ${elapsed}`;
   if (event && event.type === 'stopped') {
     const requests = Number.isFinite(planned)
@@ -1433,9 +1502,9 @@ function progressOutcomeText(event) {
     const judgedPart = Number.isFinite(pairs)
       ? `${judged} of ${pairs} pairs judged`
       : `${judged} ${plural(judged, 'pair', 'pairs')} judged`;
-    return `Stopped after ${requests} · ${judgedPart} · ${tokens}`;
+    return `Stopped after ${requests} · ${judgedPart} · ${tokens}${batch}`;
   }
-  return `Done in ${elapsed} · ${done} ${plural(done, 'request', 'requests')} · ${judged} ${plural(judged, 'pair', 'pairs')} · ${tokens}`;
+  return `Done in ${elapsed} · ${done} ${plural(done, 'request', 'requests')} · ${judged} ${plural(judged, 'pair', 'pairs')} · ${tokens}${batch}`;
 }
 
 function setStopLabel(text) {
@@ -1447,6 +1516,9 @@ function setStopLabel(text) {
 function showProgressPanel() {
   if (!el.aiProgress) return;
   el.aiProgress.classList.remove('hidden');
+  // While a review runs the note line holds its row open even before the
+  // warm-up filled it, so the tiles below do not jump when it appears.
+  el.aiProgress.classList.add('dup-progress--live');
   if (el.aiStopBtn) {
     el.aiStopBtn.classList.remove('hidden');
     el.aiStopBtn.disabled = false;
@@ -1460,11 +1532,14 @@ function hideProgressPanel() {
   progressJob = null;
   if (!el.aiProgress) return;
   el.aiProgress.classList.add('hidden');
+  el.aiProgress.classList.remove('dup-progress--live');
   if (el.aiProgressMessage) el.aiProgressMessage.textContent = '';
   if (el.aiProgressCounts) el.aiProgressCounts.textContent = '';
+  if (el.aiProgressNote) el.aiProgressNote.textContent = '';
   if (el.aiProgressEta) el.aiProgressEta.textContent = '';
   if (el.aiProgressFill) {
     el.aiProgressFill.classList.remove('dup-progress__fill--indeterminate');
+    el.aiProgressFill.classList.remove('dup-progress__fill--thinking');
     el.aiProgressFill.style.width = '0%';
   }
 }
@@ -1502,6 +1577,12 @@ function renderProgress(job) {
       'dup-progress__fill--indeterminate',
       unknown
     );
+    // Reasoning takes as long as it takes and moves nothing; the fill
+    // breathes so the panel does not look frozen while it happens.
+    el.aiProgressFill.classList.toggle(
+      'dup-progress__fill--thinking',
+      Boolean(state.thinking)
+    );
     // An inline width would beat the class, so the sliding band gets none.
     el.aiProgressFill.style.width = unknown ? '' : `${percent}%`;
   }
@@ -1518,6 +1599,9 @@ function renderProgress(job) {
   if (el.aiProgressCounts) {
     el.aiProgressCounts.textContent = progressCountsText(state);
   }
+  if (el.aiProgressNote) {
+    el.aiProgressNote.textContent = progressNoteText(state);
+  }
   drawProgressTime();
   startProgressTicker();
 }
@@ -1533,9 +1617,11 @@ function renderProgressOutcome(event) {
     el.aiStopBtn.disabled = true;
     el.aiStopBtn.classList.add('hidden');
   }
+  el.aiProgress.classList.remove('dup-progress--live');
   const percent = progressPercent(job ? job.progress : null);
   if (el.aiProgressFill) {
     el.aiProgressFill.classList.remove('dup-progress__fill--indeterminate');
+    el.aiProgressFill.classList.remove('dup-progress__fill--thinking');
     el.aiProgressFill.style.width =
       event.type === 'done' ? '100%' : `${percent === null ? 0 : percent}%`;
   }
@@ -1543,6 +1629,7 @@ function renderProgressOutcome(event) {
     el.aiProgressMessage.textContent = progressOutcomeText(event);
   }
   if (el.aiProgressCounts) el.aiProgressCounts.textContent = '';
+  if (el.aiProgressNote) el.aiProgressNote.textContent = '';
   if (el.aiProgressEta) el.aiProgressEta.textContent = '';
 }
 
@@ -1778,15 +1865,25 @@ async function reattachReview() {
     }
   } catch (error) {
     if (el.aiNotice) {
-      el.aiNotice.innerHTML = htmlAlert(
-        'danger',
-        'The AI review failed',
-        error.message
-      );
+      el.aiNotice.innerHTML = htmlReviewFailure(error.message);
     }
   } finally {
     setAiReviewing(false);
   }
+}
+
+/**
+ * A review that ended as `failed` said why, and the judge words that message
+ * itself — it names the setting that would have prevented it (thinking, the
+ * token limit). The notice repeats it as it is and hands the user the one
+ * place where those settings live.
+ *
+ * @param {string} message  what the job reported
+ * @returns {string} markup for the notice area
+ */
+function htmlReviewFailure(message) {
+  const text = String(message == null ? '' : message);
+  return `<div class="zr-alert zr-alert--danger">${htmlIcons.danger}<div class="zr-alert__body"><div class="zr-alert__title">The AI review failed</div><p class="zr-sm">${esc(text)}</p><p class="zr-sm"><a class="zr-link" href="/settings#duplicates-tab">Open the Duplicates settings</a></p></div></div>`;
 }
 
 /** What a review has to admit about itself, or '' when it went through. */
@@ -1820,11 +1917,7 @@ async function runAiReview() {
     }
   } catch (error) {
     if (el.aiNotice) {
-      el.aiNotice.innerHTML = htmlAlert(
-        'danger',
-        'The AI review failed',
-        error.message
-      );
+      el.aiNotice.innerHTML = htmlReviewFailure(error.message);
     }
   } finally {
     setAiReviewing(false);
@@ -2603,11 +2696,7 @@ async function reviewThenMerge() {
   } catch (error) {
     // Exactly where a full review reports: above the results, and no dialog.
     if (el.aiNotice) {
-      el.aiNotice.innerHTML = htmlAlert(
-        'danger',
-        'The AI review failed',
-        error.message
-      );
+      el.aiNotice.innerHTML = htmlReviewFailure(error.message);
     }
   } finally {
     setGuidedBusy(false);
