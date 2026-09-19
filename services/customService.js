@@ -10,10 +10,16 @@ const {
 } = require('./serviceUtils');
 const {
   abortSignal,
+  abortedGenerationError,
   hasNumber,
   hasSystemPrompt,
+  isAbortError,
   modelOverride,
+  progressHandler,
   readCompletionUsage,
+  reasoningEnabled,
+  runChatCompletionStream,
+  stripReasoningText,
 } = require('./aiGenerateOptions');
 const OpenAI = require('openai');
 const config = require('../config/config');
@@ -32,6 +38,19 @@ const responseLogPath = path.join(
   'response.txt'
 );
 const CUSTOM_PROVIDER_FALLBACK_API_KEY = 'no-auth-required';
+/** What an operator can do about an answer that hit the completion cap. */
+const TRUNCATION_REMEDY = 'Raise Response Tokens (RESPONSE_TOKENS).';
+/**
+ * The soft switch the Qwen family reads out of the prompt itself.
+ *
+ * `chat_template_kwargs` only reaches a server that applies the model's chat
+ * template; a gateway that forwards the messages and drops the rest leaves the
+ * model thinking anyway. Qwen understands the same wish written into the last
+ * line of the user message, so both are sent and whichever arrives wins.
+ */
+const QWEN_NO_THINK_SWITCH = '/no_think';
+/** Models that understand the line above. */
+const QWEN_MODEL_PATTERN = /qwen/i;
 
 class CustomOpenAIService {
   constructor() {
@@ -634,9 +653,18 @@ class CustomOpenAIService {
    * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
    * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS, still clamped
    * @param {AbortSignal} [options.signal] - Cancels the request in flight
+   * @param {Function} [options.onProgress] - Streams the answer and reports it
+   *   as it grows; see GenerateTextProgress in aiGenerateOptions
+   * @param {boolean} [options.reasoning] - Switches the model's thinking off
+   *   or on for this one call; nothing new is sent when the caller says nothing
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
+    // Read before the try so the catch can tell a stopped request from a
+    // failed one.
+    const signal = abortSignal(options);
+    const onProgress = progressHandler(options);
+
     try {
       this.initialize();
 
@@ -669,11 +697,18 @@ class CustomOpenAIService {
         );
       }
 
+      const reasoning = reasoningEnabled(options);
       const messages = [];
       if (hasSystemPrompt(options)) {
         messages.push({ role: 'system', content: options.systemPrompt });
       }
-      messages.push({ role: 'user', content: prompt });
+      messages.push({
+        role: 'user',
+        content:
+          reasoning === false && QWEN_MODEL_PATTERN.test(model)
+            ? `${prompt}\n${QWEN_NO_THINK_SWITCH}`
+            : prompt,
+      });
 
       const request = {
         model: model,
@@ -683,37 +718,78 @@ class CustomOpenAIService {
           : config.aiTemperatureGeneration,
         max_tokens: maxCompletionTokens,
       };
+      // The key every OpenAI-compatible server that applies a chat template
+      // understands; one that does not know it passes it through and the
+      // model decides for itself, as it did before.
+      if (reasoning !== null) {
+        request.chat_template_kwargs = { enable_thinking: reasoning };
+      }
 
       this.lastGenerateTextUsage = null;
       // The second argument is the SDK's request option bag; a caller that
       // brought no signal gets the call it always got.
-      const signal = abortSignal(options);
-      const response = signal
-        ? await this.client.chat.completions.create(request, { signal })
+      const requestOptions = signal ? { signal } : null;
+
+      if (onProgress) {
+        // include_usage buys the exact completion count at the end of the
+        // stream; without it the report is an estimate all the way.
+        return await runChatCompletionStream({
+          client: this.client,
+          request: {
+            ...request,
+            stream: true,
+            stream_options: { include_usage: true },
+          },
+          requestOptions,
+          signal,
+          onProgress,
+          provider: 'Custom OpenAI',
+          remedy: TRUNCATION_REMEDY,
+          onUsage: (usage) => {
+            this.lastGenerateTextUsage = usage;
+          },
+        });
+      }
+
+      const response = requestOptions
+        ? await this.client.chat.completions.create(request, requestOptions)
         : await this.client.chat.completions.create(request);
       this.lastGenerateTextUsage = readCompletionUsage(response);
 
+      const message = response?.choices?.[0]?.message;
+      // Reasoning is no part of the answer, and a block the cut-off left
+      // open is no part of it either.
+      const generatedText = extractChatMessageContent(
+        { ...message, content: stripReasoningText(message?.content) },
+        'Custom OpenAI'
+      );
+
+      // After the text is in hand: a cut-off answer is still a failure, but
+      // the caller can keep the prefix instead of paying for it twice.
       assertCompletionNotTruncated(
         response,
         'Custom OpenAI',
-        'Raise Response Tokens (RESPONSE_TOKENS).'
+        TRUNCATION_REMEDY,
+        { partialText: generatedText }
       );
 
-      const generatedText = extractChatMessageContent(
-        response?.choices?.[0]?.message,
-        'Custom OpenAI'
-      );
       if (!generatedText) {
         throw new Error('Invalid API response structure');
       }
 
       return generatedText;
     } catch (error) {
+      // One name for a stopped request, whatever the client called it; an
+      // abort this service raised already carries its partial text.
+      const thrown =
+        isAbortError(error, signal) && error?.name !== 'AbortError'
+          ? abortedGenerationError(error, '')
+          : error;
       console.error(
-        `Error generating text with Custom OpenAI: ${error.message}`
+        `Error generating text with Custom OpenAI: ${thrown.message}`
       );
-      console.debug(error);
-      throw error;
+      console.debug(thrown);
+      throw thrown;
     }
   }
 

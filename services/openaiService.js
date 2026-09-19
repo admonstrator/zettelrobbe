@@ -9,10 +9,15 @@ const {
 } = require('./serviceUtils');
 const {
   abortSignal,
+  abortedGenerationError,
   hasNumber,
   hasSystemPrompt,
+  isAbortError,
   modelOverride,
+  progressHandler,
   readCompletionUsage,
+  runChatCompletionStream,
+  stripReasoningText,
 } = require('./aiGenerateOptions');
 const OpenAI = require('openai');
 const config = require('../config/config');
@@ -30,6 +35,9 @@ const responseLogPath = path.join(
   'logs',
   'response.txt'
 );
+/** What an operator can do about an answer that hit the completion cap. */
+const TRUNCATION_REMEDY =
+  'Reduce the number of custom fields the prompt asks for, or use a model with a larger completion limit.';
 
 class OpenAIService {
   constructor() {
@@ -587,9 +595,18 @@ class OpenAIService {
    * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
    * @param {number} [options.maxTokens] - Completion cap for this call
    * @param {AbortSignal} [options.signal] - Cancels the request in flight
+   * @param {Function} [options.onProgress] - Streams the answer and reports it
+   *   as it grows; see GenerateTextProgress in aiGenerateOptions
+   * @param {boolean} [options.reasoning] - Read and deliberately ignored: the
+   *   OpenAI API has no thinking switch on the models this talks to
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
+    // Read before the try so the catch can tell a stopped request from a
+    // failed one.
+    const signal = abortSignal(options);
+    const onProgress = progressHandler(options);
+
     try {
       this.initialize();
 
@@ -623,31 +640,63 @@ class OpenAIService {
       this.lastGenerateTextUsage = null;
       // The second argument is the SDK's request option bag; a caller that
       // brought no signal gets the call it always got.
-      const signal = abortSignal(options);
-      const response = signal
-        ? await this.client.chat.completions.create(request, { signal })
+      const requestOptions = signal ? { signal } : null;
+
+      if (onProgress) {
+        // include_usage buys the exact completion count at the end of the
+        // stream; without it the report is an estimate all the way.
+        return await runChatCompletionStream({
+          client: this.client,
+          request: {
+            ...request,
+            stream: true,
+            stream_options: { include_usage: true },
+          },
+          requestOptions,
+          signal,
+          onProgress,
+          provider: 'OpenAI',
+          remedy: TRUNCATION_REMEDY,
+          onUsage: (usage) => {
+            this.lastGenerateTextUsage = usage;
+          },
+        });
+      }
+
+      const response = requestOptions
+        ? await this.client.chat.completions.create(request, requestOptions)
         : await this.client.chat.completions.create(request);
       this.lastGenerateTextUsage = readCompletionUsage(response);
 
-      assertCompletionNotTruncated(
-        response,
-        'OpenAI',
-        'Reduce the number of custom fields the prompt asks for, or use a model with a larger completion limit.'
-      );
-
+      const message = response?.choices?.[0]?.message;
+      // Reasoning is no part of the answer, and a block the cut-off left
+      // open is no part of it either.
       const generatedText = extractChatMessageContent(
-        response?.choices?.[0]?.message,
+        { ...message, content: stripReasoningText(message?.content) },
         'OpenAI'
       );
+
+      // After the text is in hand: a cut-off answer is still a failure, but
+      // the caller can keep the prefix instead of paying for it twice.
+      assertCompletionNotTruncated(response, 'OpenAI', TRUNCATION_REMEDY, {
+        partialText: generatedText,
+      });
+
       if (!generatedText) {
         throw new Error('Invalid API response structure');
       }
 
       return generatedText;
     } catch (error) {
-      console.error(`Error generating text with OpenAI: ${error.message}`);
-      console.debug(error);
-      throw error;
+      // One name for a stopped request, whatever the client called it; an
+      // abort this service raised already carries its partial text.
+      const thrown =
+        isAbortError(error, signal) && error?.name !== 'AbortError'
+          ? abortedGenerationError(error, '')
+          : error;
+      console.error(`Error generating text with OpenAI: ${thrown.message}`);
+      console.debug(thrown);
+      throw thrown;
     }
   }
 
