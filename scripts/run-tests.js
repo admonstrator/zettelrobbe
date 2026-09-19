@@ -66,6 +66,7 @@ const TESTS = {
   'quickstart-endpoint-protection': 'test-quickstart-endpoint-protection.js',
   'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
   'settings-quickstart-persistence': 'test-settings-quickstart-persistence.js',
+  'settings-duplicates-section': 'test-settings-duplicates-section.js',
   'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
   'scan-stop-flow': 'test-scan-stop-flow.js',
@@ -177,6 +178,7 @@ const AREAS = {
     'mobile-toolbar-grid',
     'playground-deprecation',
     'log-secret-redaction',
+    'settings-duplicates-section',
   ],
   processing: [
     'dashboard-stats-cache',

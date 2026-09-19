@@ -4722,6 +4722,57 @@
                     "description": "Disable automatic document processing",
                     "example": false
                   },
+                  "duplicatesAiReview": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Offer the AI review on the Duplicates page (yes/no). Default yes. Scanning and merging work without it.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiModel": {
+                    "type": "string",
+                    "description": "Model of the configured provider used only for judging duplicates. Empty means the provider's configured model.",
+                    "example": ""
+                  },
+                  "duplicatesAiReviewBatchSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Name pairs per model request (1-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 25
+                  },
+                  "duplicatesAiCandidateFloor": {
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 0.95,
+                    "description": "Lowest matcher score a pair needs to be shown to the model (0.50-0.95, default 0.6). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 0.6
+                  },
+                  "duplicatesAiExcerpts": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Send document excerpts for pairs the matcher linked by spelling alone (yes/no). Default yes.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiExcerptChars": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 500,
+                    "description": "Excerpt length in characters (50-500, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 300
+                  },
+                  "duplicatesAiExcerptDocuments": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 2
+                  },
                   "ocrAutoProcessEnabled": {
                     "type": "string",
                     "description": "Process queued OCR documents automatically (yes/no)",
