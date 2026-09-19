@@ -79,6 +79,18 @@
  * requests, no matter how large the archive is — the band is capped, the
  * groups are not, but they are few. A small context window buys more, smaller
  * requests for the same pairs; a truncation adds one request per split.
+ *
+ * ## Asking about a few groups only
+ *
+ * An archive with hundreds of correspondents produces dozens of groups at 94,
+ * 95, 96 per cent, and the user wants the model's opinion on a handful of them
+ * before merging, not on all of them. `reviewScan()` therefore takes three
+ * options that narrow what is asked: `groupIds` (the scan groups to judge),
+ * `minConfidence` (judge nothing below it) and `includeCandidates: false` (no
+ * band at all, which also saves the entity read per kind). They narrow the
+ * question, never the answer: every group of the scan comes back, the ones
+ * nobody asked about with `aiVerdict: null`, so the page keeps its list. A
+ * dozen selected groups without the band are one or two requests.
  */
 
 const config = require('../config/config');
@@ -186,6 +198,11 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  * @property {number} failedRequests  requests that answered nothing usable
  * @property {number} retries         requests made because an answer was cut off
  * @property {number} batchSize       pairs per request after the budget sizing
+ * @property {boolean} targeted       true when groupIds, minConfidence or
+ *                                    includeCandidates narrowed the review
+ * @property {number} groupsJudged    scan groups whose members were judged
+ * @property {number} groupsSkipped   scan groups the targeting left out; they
+ *                                    are still in `groups`, without a verdict
  */
 
 /**
@@ -201,6 +218,13 @@ const RAW_ANSWER_LOG_LENGTH = 200;
  * @property {number} [threshold]
  * @property {boolean} [includeDismissed]
  * @property {boolean} [withTitles]   fetch a few document titles per entity as context
+ * @property {string[]} [groupIds]    judge only these scan groups, by the id
+ *   findDuplicateGroups() gave them; every other group comes back unchanged.
+ *   An id this scan does not know is ignored.
+ * @property {number} [minConfidence] judge only groups scoring at least this;
+ *   with groupIds both have to hold
+ * @property {boolean} [includeCandidates] default true; false leaves the band
+ *   of near-misses below the threshold out of the review entirely
  */
 
 /** What one kind is called in the prompt. */
@@ -865,9 +889,17 @@ class EntityMatchAiService {
    * group's target, plus the candidates from the band below the threshold
    * that are not already inside one group.
    *
+   * `judgedGroupIds` is the targeting: a group that is not in it contributes
+   * no pairs, but its members' pairs still count as "inside one group", so a
+   * group the user did not select cannot come back as a candidate either.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object[]} groups        every scan group of this kind
+   * @param {object[]} candidates    the band below the threshold, possibly empty
+   * @param {Set<string>|null} [judgedGroupIds]  null judges every group
    * @returns {{pairs: AiReviewPair[], candidates: AiReviewPair[], candidateEdges: Map<string, {score:number, reason:string}>}}
    */
-  _pairsForKind(kind, groups, candidates) {
+  _pairsForKind(kind, groups, candidates, judgedGroupIds = null) {
     /** @type {AiReviewPair[]} */
     const pairs = [];
     const insideOneGroup = new Set();
@@ -884,6 +916,7 @@ class EntityMatchAiService {
             insideOneGroup.add(entityNameMatcher.pairKey(kind, a, b));
         }
       }
+      if (judgedGroupIds && !judgedGroupIds.has(group.id)) continue;
       for (const member of group.members) {
         if (member.id === target.id) continue;
         pairs.push({
@@ -968,9 +1001,49 @@ class EntityMatchAiService {
   }
 
   /**
+   * The groups of one kind a targeted review judges: the ones `selectedIds`
+   * names and, when a `minConfidence` is given, only those that reach it.
+   * Both conditions hold at once; an id nobody knows simply matches nothing.
+   *
+   * @param {object[]} groups
+   * @param {Set<string>|null} selectedIds
+   * @param {number|null} minConfidence
+   * @returns {object[]}
+   */
+  _selectGroups(groups, selectedIds, minConfidence) {
+    return groups.filter((group) => {
+      if (selectedIds && !selectedIds.has(String(group.id))) return false;
+      if (minConfidence != null && !(Number(group.confidence) >= minConfidence))
+        return false;
+      return true;
+    });
+  }
+
+  /**
+   * What the log says about the narrowing, e.g. ` (min confidence 0.95, 12
+   * ids)`. Empty when only the band was switched off.
+   *
+   * @param {Set<string>|null} selectedIds
+   * @param {number|null} minConfidence
+   * @returns {string}
+   */
+  _targetingNote(selectedIds, minConfidence) {
+    const parts = [];
+    if (minConfidence != null) parts.push(`min confidence ${minConfidence}`);
+    if (selectedIds) parts.push(`${selectedIds.size} ids`);
+    return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  }
+
+  /**
    * Runs a scan, adds the wider candidate band, has the model judge every
    * pair (group members against their target, and the candidates) and
    * returns the scan result with verdicts attached.
+   *
+   * `groupIds`, `minConfidence` and `includeCandidates` narrow what is asked
+   * about without narrowing what comes back: a group the targeting left out
+   * is still in `groups`, as the scan produced it, with `aiVerdict: null` on
+   * the group and on every member. The page therefore keeps rendering its
+   * whole scan and only pays for the groups it asked about.
    *
    * @param {AiReviewOptions} options
    * @returns {Promise<object>} DuplicateAiReviewResult (see schemas.js): the
@@ -997,10 +1070,36 @@ class EntityMatchAiService {
         ? duplicateMergeService._configuredTagNames()
         : [];
 
+    // The targeting. An absent option is no filter; only `includeCandidates`
+    // has a default, and it is the behaviour of an untargeted review.
+    const includeCandidates = options.includeCandidates !== false;
+    const selectedIds = Array.isArray(options.groupIds)
+      ? new Set(options.groupIds.map((id) => String(id)))
+      : null;
+    const minConfidence =
+      options.minConfidence == null ||
+      !Number.isFinite(Number(options.minConfidence))
+        ? null
+        : Number(options.minConfidence);
+    const targeted =
+      selectedIds !== null || minConfidence !== null || !includeCandidates;
+
+    if (selectedIds) {
+      const known = new Set((scan.groups || []).map((group) => group.id));
+      const unknown = [...selectedIds].filter((id) => !known.has(id)).length;
+      if (unknown > 0) {
+        this._log(
+          `${unknown} of ${selectedIds.size} group id(s) are not in this scan and were ignored.`
+        );
+      }
+    }
+
     const scanGroups = [];
     const candidateGroups = [];
     let judged = 0;
     let candidateCount = 0;
+    let groupsJudged = 0;
+    let groupsSkipped = 0;
     let requests = 0;
     let failedRequests = 0;
     let retries = 0;
@@ -1010,34 +1109,53 @@ class EntityMatchAiService {
 
     for (const kind of kinds) {
       const groups = (scan.groups || []).filter((group) => group.kind === kind);
-      const entities = await paperlessService.listEntities(kind);
+      const selected = this._selectGroups(groups, selectedIds, minConfidence);
+      const selectedGroupIds = new Set(selected.map((group) => group.id));
+      groupsJudged += selected.length;
+      groupsSkipped += groups.length - selected.length;
 
-      let dismissed = [];
-      if (!options.includeDismissed) {
-        const rows = await documentModel.listEntityMergeDismissals(kind);
-        dismissed = rows.map((row) =>
-          entityNameMatcher.pairKey(kind, row.idA, row.idB)
-        );
+      // Without the band nothing needs the entity list either, which is what
+      // makes a targeted review cheap: one scan, no second read per kind.
+      let entities = [];
+      let band = [];
+      if (includeCandidates) {
+        entities = await paperlessService.listEntities(kind);
+
+        let dismissed = [];
+        if (!options.includeDismissed) {
+          const rows = await documentModel.listEntityMergeDismissals(kind);
+          dismissed = rows.map((row) =>
+            entityNameMatcher.pairKey(kind, row.idA, row.idB)
+          );
+        }
+
+        band = entityNameMatcher.findCandidatePairs(entities, {
+          kind,
+          floor: this.candidateFloor(),
+          threshold: scan.threshold,
+          dismissedPairs: dismissed,
+          limit: CANDIDATE_LIMIT,
+        });
       }
-
-      const band = entityNameMatcher.findCandidatePairs(entities, {
-        kind,
-        floor: this.candidateFloor(),
-        threshold: scan.threshold,
-        dismissedPairs: dismissed,
-        limit: CANDIDATE_LIMIT,
-      });
 
       const { pairs, candidates, candidateEdges } = this._pairsForKind(
         kind,
         groups,
-        band
+        band,
+        selectedGroupIds
       );
       candidateCount += candidates.length;
       judged += pairs.length;
       this._log(
-        `${kind}: threshold ${scan.threshold}, ${groups.length} scan group(s), ` +
-          `${candidates.length} candidate(s) in the band, ${pairs.length} pair(s) to judge.`
+        `${kind}: threshold ${scan.threshold}, ` +
+          (targeted
+            ? `judging ${selected.length} of ${groups.length} group(s)` +
+              `${this._targetingNote(selectedIds, minConfidence)}, `
+            : `${groups.length} scan group(s), `) +
+          (includeCandidates
+            ? `${candidates.length} candidate(s) in the band, `
+            : 'band skipped, ') +
+          `${pairs.length} pair(s) to judge.`
       );
       if (pairs.length === 0) {
         scanGroups.push(
@@ -1114,7 +1232,11 @@ class EntityMatchAiService {
     this._log(
       `review finished: ${requests} request(s) (${retries} retry/retries, ${failedRequests} failed), ` +
         `${tokens == null ? 'unknown' : tokens} token(s), ${judged} pair(s) judged, ` +
-        `${candidateCount} candidate(s), ${confirmed} group(s) confirmed, in ${Date.now() - startedAt}ms.`
+        `${candidateCount} candidate(s), ${confirmed} group(s) confirmed` +
+        (targeted
+          ? `, ${groupsJudged} group(s) judged, ${groupsSkipped} skipped`
+          : '') +
+        `, in ${Date.now() - startedAt}ms.`
     );
 
     return {
@@ -1130,6 +1252,9 @@ class EntityMatchAiService {
         failedRequests,
         retries,
         batchSize: batchSize == null ? this.batchSize() : batchSize,
+        targeted,
+        groupsJudged,
+        groupsSkipped,
       },
     };
   }
