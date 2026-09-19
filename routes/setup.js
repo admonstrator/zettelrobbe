@@ -42,6 +42,7 @@ const dashboardStatsService = require('../services/dashboardStatsService');
 const duplicateMergeService = require('../services/duplicateMergeService');
 const entityNameMatcher = require('../services/entityNameMatcher');
 const entityMatchAiService = require('../services/entityMatchAiService');
+const duplicateReviewJobService = require('../services/duplicateReviewJobService');
 const {
   THUMBNAIL_CACHE_DIR,
   getThumbnailCachePath,
@@ -3877,6 +3878,8 @@ const ENV_EXPORT_GROUPS = [
       'DUPLICATES_AI_EXCERPTS',
       'DUPLICATES_AI_EXCERPT_CHARS',
       'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+      'DUPLICATES_AI_TOKEN_BUDGET',
+      'DUPLICATES_AI_IDLE_STOP_SECONDS',
     ],
   },
   {
@@ -6973,6 +6976,10 @@ router.get('/settings', async (req, res) => {
       process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
     DUPLICATES_AI_EXCERPT_DOCUMENTS:
       process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+    DUPLICATES_AI_TOKEN_BUDGET:
+      process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+    DUPLICATES_AI_IDLE_STOP_SECONDS:
+      process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
@@ -8468,6 +8475,18 @@ router.get('/health', async (req, res) => {
  *                 maximum: 5
  *                 description: Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.
  *                 example: 2
+ *               duplicatesAiTokenBudget:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 10000000
+ *                 description: The most one AI review may spend across all its requests, prompt and completion (0-10000000, default 200000). When it is reached the review stops itself and keeps the verdicts it has; 0 means no limit. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 200000
+ *               duplicatesAiIdleStopSeconds:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 3600
+ *                 description: A running review that no page has been watching for this many seconds stops itself, so a closed tab cannot leave the model running (0-3600, default 60). 0 means never. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 60
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)
@@ -8579,6 +8598,8 @@ router.post('/settings', express.json(), async (req, res) => {
       duplicatesAiExcerpts,
       duplicatesAiExcerptChars,
       duplicatesAiExcerptDocuments,
+      duplicatesAiTokenBudget,
+      duplicatesAiIdleStopSeconds,
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
@@ -8669,6 +8690,10 @@ router.post('/settings', express.json(), async (req, res) => {
         process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
       DUPLICATES_AI_EXCERPT_DOCUMENTS:
         process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+      DUPLICATES_AI_TOKEN_BUDGET:
+        process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+      DUPLICATES_AI_IDLE_STOP_SECONDS:
+        process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
@@ -9119,6 +9144,23 @@ router.post('/settings', express.json(), async (req, res) => {
         duplicatesAiExcerptDocuments,
         currentConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS,
         { min: 1, max: 5 }
+      );
+    }
+    // The two brakes of a running review. Zero is a meaningful value for both
+    // (no token limit, never stop an unwatched review), so the ranges start
+    // there instead of at one.
+    if (duplicatesAiTokenBudget !== undefined) {
+      updatedConfig.DUPLICATES_AI_TOKEN_BUDGET = sanitizeDuplicatesNumber(
+        duplicatesAiTokenBudget,
+        currentConfig.DUPLICATES_AI_TOKEN_BUDGET,
+        { min: 0, max: 10000000 }
+      );
+    }
+    if (duplicatesAiIdleStopSeconds !== undefined) {
+      updatedConfig.DUPLICATES_AI_IDLE_STOP_SECONDS = sanitizeDuplicatesNumber(
+        duplicatesAiIdleStopSeconds,
+        currentConfig.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        { min: 0, max: 3600 }
       );
     }
 
@@ -10970,6 +11012,132 @@ router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
 const MAX_AI_REVIEW_GROUP_IDS = 500;
 
 /**
+ * Reads a DuplicateAiReviewRequest off a request body.
+ *
+ * Both ways into a review — the synchronous POST and the job the page watches
+ * — validate exactly the same thing, so the validation lives here once instead
+ * of twice; the two can no longer drift apart.
+ *
+ * @param {object} body  the parsed request body
+ * @returns {{options: object}|{status: number, error: string}}
+ *   the options for `reviewScan()`, or the refusal the route sends back
+ */
+function parseAiReviewRequest(body) {
+  const source = body || {};
+  const kind = String(source.kind || duplicateMergeService.KIND_ALL);
+  const knownKinds = [
+    duplicateMergeService.KIND_ALL,
+    ...entityNameMatcher.KIND_LIST,
+  ];
+  if (!knownKinds.includes(kind)) {
+    return { status: 400, error: `Unknown entity kind: ${kind}` };
+  }
+
+  const rawThreshold = source.threshold;
+  const threshold =
+    rawThreshold === undefined || rawThreshold === null || rawThreshold === ''
+      ? entityNameMatcher.DEFAULT_THRESHOLD
+      : Number(rawThreshold);
+  if (!Number.isFinite(threshold) || threshold < 0.5 || threshold > 1) {
+    return {
+      status: 400,
+      error: 'threshold must be a number between 0.5 and 1',
+    };
+  }
+
+  const includeDismissed =
+    source.includeDismissed === true ||
+    String(source.includeDismissed).toLowerCase() === 'true';
+  // The titles are context, not a filter: a request that says nothing about
+  // them gets them, which is what the page's checkbox comes up as.
+  const withTitles =
+    source.withTitles === undefined || source.withTitles === null
+      ? true
+      : source.withTitles === true ||
+        String(source.withTitles).toLowerCase() === 'true';
+  // Same rule for the excerpts, which are the expensive half of the evidence:
+  // on unless the request or the instance says otherwise.
+  const withExcerpts =
+    source.withExcerpts === undefined || source.withExcerpts === null
+      ? true
+      : source.withExcerpts === true ||
+        String(source.withExcerpts).toLowerCase() === 'true';
+
+  // The three targeting options. Each one is left out of the call when the
+  // request says nothing about it, so an untargeted review asks for exactly
+  // what it asked for before.
+  const options = {
+    kind,
+    threshold,
+    includeDismissed,
+    withTitles,
+    withExcerpts,
+  };
+
+  if (source.groupIds !== undefined && source.groupIds !== null) {
+    const groupIds = source.groupIds;
+    if (!Array.isArray(groupIds)) {
+      return { status: 400, error: 'groupIds must be an array of group ids' };
+    }
+    if (groupIds.length > MAX_AI_REVIEW_GROUP_IDS) {
+      return {
+        status: 400,
+        error: `groupIds must not name more than ${MAX_AI_REVIEW_GROUP_IDS} groups`,
+      };
+    }
+    if (!groupIds.every((id) => typeof id === 'string' && id.trim() !== '')) {
+      return {
+        status: 400,
+        error: 'every entry of groupIds must be a non-empty string',
+      };
+    }
+    options.groupIds = groupIds;
+  }
+
+  if (source.minConfidence !== undefined && source.minConfidence !== null) {
+    const minConfidence = Number(source.minConfidence);
+    if (
+      !Number.isFinite(minConfidence) ||
+      minConfidence < 0.5 ||
+      minConfidence > 1
+    ) {
+      return {
+        status: 400,
+        error: 'minConfidence must be a number between 0.5 and 1',
+      };
+    }
+    options.minConfidence = minConfidence;
+  }
+
+  if (
+    source.includeCandidates !== undefined &&
+    source.includeCandidates !== null
+  ) {
+    if (typeof source.includeCandidates !== 'boolean') {
+      return { status: 400, error: 'includeCandidates must be true or false' };
+    }
+    options.includeCandidates = source.includeCandidates;
+  }
+
+  return { options };
+}
+
+/** How often a watched review stream writes a comment line to stay open. */
+const AI_REVIEW_KEEP_ALIVE_MS = 15 * 1000;
+
+/** Looks a review job up and answers the 404 itself; null when it did. */
+function findAiReviewJob(res, id) {
+  const job = duplicateReviewJobService.get(id);
+  if (!job) {
+    res
+      .status(404)
+      .json({ success: false, error: `Unknown AI review job: ${id}` });
+    return null;
+  }
+  return job;
+}
+
+/**
  * @swagger
  * /api/duplicates/ai-review:
  *   post:
@@ -11003,6 +11171,13 @@ const MAX_AI_REVIEW_GROUP_IDS = 500;
  *       `aiVerdict: null` on the group and its members. A group id this scan
  *       does not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`
  *       and `aiReview.groupsSkipped` report what the targeting did.
+ *
+ *       This route runs the review as the same job
+ *       `/api/duplicates/ai-review/jobs` starts and waits for it, so there is
+ *       still only one review at a time: while one runs this answers 409 with
+ *       the running job. A review that stopped early — by the token budget,
+ *       or because somebody pressed Stop — answers 200 with the verdicts it
+ *       reached and `aiReview.stopped`.
  *     tags:
  *       - Duplicates
  *       - API
@@ -11035,124 +11210,470 @@ const MAX_AI_REVIEW_GROUP_IDS = 500;
  *       401:
  *         description: Not authenticated
  *       409:
- *         description: The AI review is switched off (DUPLICATES_AI_REVIEW)
+ *         description: |
+ *           The AI review is switched off (DUPLICATES_AI_REVIEW), or another
+ *           review is already running; in the second case `data.job` names it
  *       502:
  *         description: Paperless-ngx or the AI provider could not be reached
  *       500:
  *         description: Server error
  */
 router.post('/api/duplicates/ai-review', isAuthenticated, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const kind = String(body.kind || duplicateMergeService.KIND_ALL);
-    const knownKinds = [
-      duplicateMergeService.KIND_ALL,
-      ...entityNameMatcher.KIND_LIST,
-    ];
-    if (!knownKinds.includes(kind)) {
-      return res
-        .status(400)
-        .json({ success: false, error: `Unknown entity kind: ${kind}` });
-    }
+  const parsed = parseAiReviewRequest(req.body);
+  if (parsed.error) {
+    return res.status(parsed.status).json({
+      success: false,
+      error: parsed.error,
+    });
+  }
 
-    const rawThreshold = body.threshold;
-    const threshold =
-      rawThreshold === undefined || rawThreshold === null || rawThreshold === ''
-        ? entityNameMatcher.DEFAULT_THRESHOLD
-        : Number(rawThreshold);
-    if (!Number.isFinite(threshold) || threshold < 0.5 || threshold > 1) {
-      return res.status(400).json({
+  let job;
+  try {
+    job = duplicateReviewJobService.start(parsed.options);
+  } catch (error) {
+    if (error?.status === 409) {
+      return res.status(409).json({
         success: false,
-        error: 'threshold must be a number between 0.5 and 1',
+        error: error.message,
+        data: { job: error.job },
       });
     }
-
-    const includeDismissed =
-      body.includeDismissed === true ||
-      String(body.includeDismissed).toLowerCase() === 'true';
-    // The titles are context, not a filter: a request that says nothing about
-    // them gets them, which is what the page's checkbox comes up as.
-    const withTitles =
-      body.withTitles === undefined || body.withTitles === null
-        ? true
-        : body.withTitles === true ||
-          String(body.withTitles).toLowerCase() === 'true';
-    // Same rule for the excerpts, which are the expensive half of the
-    // evidence: on unless the request or the instance says otherwise.
-    const withExcerpts =
-      body.withExcerpts === undefined || body.withExcerpts === null
-        ? true
-        : body.withExcerpts === true ||
-          String(body.withExcerpts).toLowerCase() === 'true';
-
-    // The three targeting options. Each one is left out of the call when the
-    // request says nothing about it, so an untargeted review asks for exactly
-    // what it asked for before.
-    const reviewOptions = {
-      kind,
-      threshold,
-      includeDismissed,
-      withTitles,
-      withExcerpts,
-    };
-
-    if (body.groupIds !== undefined && body.groupIds !== null) {
-      const groupIds = body.groupIds;
-      if (!Array.isArray(groupIds)) {
-        return res.status(400).json({
-          success: false,
-          error: 'groupIds must be an array of group ids',
-        });
-      }
-      if (groupIds.length > MAX_AI_REVIEW_GROUP_IDS) {
-        return res.status(400).json({
-          success: false,
-          error: `groupIds must not name more than ${MAX_AI_REVIEW_GROUP_IDS} groups`,
-        });
-      }
-      if (!groupIds.every((id) => typeof id === 'string' && id.trim() !== '')) {
-        return res.status(400).json({
-          success: false,
-          error: 'every entry of groupIds must be a non-empty string',
-        });
-      }
-      reviewOptions.groupIds = groupIds;
-    }
-
-    if (body.minConfidence !== undefined && body.minConfidence !== null) {
-      const minConfidence = Number(body.minConfidence);
-      if (
-        !Number.isFinite(minConfidence) ||
-        minConfidence < 0.5 ||
-        minConfidence > 1
-      ) {
-        return res.status(400).json({
-          success: false,
-          error: 'minConfidence must be a number between 0.5 and 1',
-        });
-      }
-      reviewOptions.minConfidence = minConfidence;
-    }
-
-    if (
-      body.includeCandidates !== undefined &&
-      body.includeCandidates !== null
-    ) {
-      if (typeof body.includeCandidates !== 'boolean') {
-        return res.status(400).json({
-          success: false,
-          error: 'includeCandidates must be true or false',
-        });
-      }
-      reviewOptions.includeCandidates = body.includeCandidates;
-    }
-
-    const data = await entityMatchAiService.reviewScan(reviewOptions);
-    return res.json({ success: true, data });
-  } catch (error) {
     return respondDuplicatesError(res, 'POST /api/duplicates/ai-review', error);
   }
+
+  // A caller that waits for the whole answer is watching it: without this the
+  // idle stop would end a long review that nobody subscribed to.
+  const unsubscribe = duplicateReviewJobService.subscribe(job.id, () => {});
+  try {
+    const event = await duplicateReviewJobService.wait(job.id);
+    if (!event) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/ai-review',
+        new Error('The AI review job disappeared before it answered')
+      );
+    }
+    if (event.type === 'failed') {
+      const status = Number.isInteger(job.errorStatus) ? job.errorStatus : 500;
+      console.error(
+        '[ERROR] POST /api/duplicates/ai-review:',
+        event.error || 'The AI review failed'
+      );
+      return res.status(status).json({
+        success: false,
+        error: event.error || 'The AI review failed',
+      });
+    }
+    // done and stopped answer the same way: a stopped review is a result with
+    // the verdicts it did reach and `aiReview.stopped` set.
+    return res.json({ success: true, data: event.data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/ai-review', error);
+  } finally {
+    unsubscribe();
+  }
 });
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs:
+ *   post:
+ *     summary: Start an AI review as a job the page can watch and stop
+ *     description: |
+ *       Starts the same review `POST /api/duplicates/ai-review` runs, but
+ *       answers at once with the job instead of waiting for it. The page then
+ *       follows it through `/api/duplicates/ai-review/jobs/{id}/events` and
+ *       can end it through `/api/duplicates/ai-review/jobs/{id}/stop`.
+ *
+ *       There is at most one review at a time. While one runs this answers
+ *       409 and carries the running job, so a second tab attaches to it
+ *       instead of failing.
+ *
+ *       The body is validated exactly as the synchronous route validates it.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *     responses:
+ *       202:
+ *         description: The review was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       400:
+ *         description: The same refusals the synchronous review answers
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A review is already running; `data.job` is that one
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 error:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/duplicates/ai-review/jobs',
+  isAuthenticated,
+  async (req, res) => {
+    const parsed = parseAiReviewRequest(req.body);
+    if (parsed.error) {
+      return res.status(parsed.status).json({
+        success: false,
+        error: parsed.error,
+      });
+    }
+    try {
+      const job = duplicateReviewJobService.start(parsed.options);
+      return res.status(202).json({
+        success: true,
+        data: { job: duplicateReviewJobService.toJSON(job) },
+      });
+    } catch (error) {
+      if (error?.status === 409) {
+        return res.status(409).json({
+          success: false,
+          error: error.message,
+          data: { job: error.job },
+        });
+      }
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/ai-review/jobs',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/current:
+ *   get:
+ *     summary: The AI review that is running, or the last one that finished
+ *     description: |
+ *       What a reloaded page asks first: `job` is the running review, the one
+ *       still winding down after a stop, or the last finished one while it is
+ *       retained, and `null` when there is none. Reading it counts as watching
+ *       the review, so a page that polls keeps it alive.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The current job, or null
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       nullable: true
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/duplicates/ai-review/jobs/current',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const job = duplicateReviewJobService.current();
+      if (job) duplicateReviewJobService.touch(job.id);
+      return res.json({
+        success: true,
+        data: { job: duplicateReviewJobService.toJSON(job) },
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/duplicates/ai-review/jobs/current',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/{id}:
+ *   get:
+ *     summary: One AI review job, with its result once it has one
+ *     description: |
+ *       The polling fallback for a page whose event stream a proxy cut: it
+ *       carries the same job and, once the review ended, the same result the
+ *       stream would have delivered. Reading it counts as watching the review.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The job and, when it has one, its result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *                     result:
+ *                       nullable: true
+ *                       $ref: '#/components/schemas/DuplicateAiReviewResult'
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: No job with that id
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/duplicates/ai-review/jobs/:id',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const job = findAiReviewJob(res, req.params.id);
+      if (!job) return undefined;
+      duplicateReviewJobService.touch(job.id);
+      return res.json({
+        success: true,
+        data: {
+          job: duplicateReviewJobService.toJSON(job),
+          result: duplicateReviewJobService.result(job.id),
+        },
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/duplicates/ai-review/jobs/:id',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/{id}/events:
+ *   get:
+ *     summary: Follow an AI review as server-sent events
+ *     description: |
+ *       One `AiReviewJobEvent` per `data:` line. The first event is the job as
+ *       it is right now, so a page that attaches late does not wait for the
+ *       next change; then one `progress` event per report of the judge; then
+ *       exactly one of `done`, `stopped` or `failed`, after which the stream
+ *       ends. A comment line every 15 seconds keeps the connection open
+ *       through proxies that close a quiet stream.
+ *
+ *       An open stream is what keeps the review alive: a job nobody watches
+ *       stops itself after DUPLICATES_AI_IDLE_STOP_SECONDS.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The event stream
+ *         content:
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: No job with that id
+ */
+router.get(
+  '/api/duplicates/ai-review/jobs/:id/events',
+  isAuthenticated,
+  (req, res) => {
+    const job = findAiReviewJob(res, req.params.id);
+    if (!job) return undefined;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
+    });
+
+    let unsubscribe = null;
+    let heartbeat = null;
+    let ended = false;
+
+    const cleanup = () => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
+
+    const listener = (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (res.flush) res.flush();
+      if (event.type === 'progress') return;
+      // done, stopped and failed are the last thing this stream says.
+      ended = true;
+      cleanup();
+      res.end();
+    };
+
+    // subscribe() reports the current state straight away, and on a job that
+    // already finished it reports the final event — which ends the stream
+    // before there is anything to unsubscribe from.
+    unsubscribe = duplicateReviewJobService.subscribe(req.params.id, listener);
+    if (ended) {
+      unsubscribe = null;
+      return undefined;
+    }
+
+    heartbeat = setInterval(() => {
+      res.write(': keep-alive\n\n');
+      if (res.flush) res.flush();
+    }, AI_REVIEW_KEEP_ALIVE_MS);
+    if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
+    req.on('close', () => {
+      if (ended) return;
+      ended = true;
+      cleanup();
+    });
+    return undefined;
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/{id}/stop:
+ *   post:
+ *     summary: Stop a running AI review
+ *     description: |
+ *       Asks the review to end after the request it is in. What it has judged
+ *       so far is kept: the job ends as `stopped` and carries the partial
+ *       result, which the stream delivers like a complete one. Stopping a
+ *       review that already finished changes nothing and still answers with
+ *       the job.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The job, now stopping or already finished
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: No job with that id
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/duplicates/ai-review/jobs/:id/stop',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const known = findAiReviewJob(res, req.params.id);
+      if (!known) return undefined;
+      const job = duplicateReviewJobService.stop(
+        req.params.id,
+        duplicateReviewJobService.STOP_REASONS.USER
+      );
+      return res.json({
+        success: true,
+        data: { job: duplicateReviewJobService.toJSON(job || known) },
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/ai-review/jobs/:id/stop',
+        error
+      );
+    }
+  }
+);
 
 /**
  * @swagger

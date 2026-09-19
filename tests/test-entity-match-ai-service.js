@@ -72,6 +72,25 @@
  * 40. getRecentDocumentExcerptsByEntity and getEntityNeighbourhood: what they
  *     ask Paperless-ngx for, and that they never throw
  * 41. The batch is sized on the prompt the excerpts made
+ * 42. A watched review is planned in full before the first request: scan,
+ *     evidence per kind, one judging report with the whole denominator, then
+ *     a report per answered request and a finishing one
+ * 43. Two kinds are one plan, and the evidence of both is read before the
+ *     first request
+ * 44. A cut-off answer adds its halves to the plan in its own report; a
+ *     failed request still moves the bar
+ * 45. The escalation reports its phase and raises the plan before it asks
+ * 46. A stop between requests: one request made, the pairs nobody asked
+ *     about have no verdict and cannot become a group, the rule verdicts
+ *     stay, and the log says what it cost
+ * 47. A stop in flight is not a failed request and fills nothing with unsure
+ * 48. The token budget stops the review itself and says so
+ * 49. A provider that reports no usage is measured, so the counter and the
+ *     budget work for it too
+ * 50. An already aborted signal makes no request and reads no band
+ * 51. Without a control the review is what it always was, and a report never
+ *     carries what the job derives
+ * 52. All four providers hand a signal on and send nothing new without one
  */
 
 'use strict';
@@ -731,11 +750,15 @@ async function main() {
       const customService = require('../services/customService');
       const azureService = require('../services/azureService');
       const sent = {};
+      // What the SDK was handed beside the body, and what axios was handed
+      // beside the URL: where a signal travels.
+      const sentOptions = {};
       const chatClient = (name) => ({
         chat: {
           completions: {
-            create: async (request) => {
+            create: async (request, requestOptions) => {
               sent[name] = request;
+              sentOptions[name] = requestOptions;
               return {
                 choices: [
                   { message: { content: 'answer' }, finish_reason: 'stop' },
@@ -754,8 +777,9 @@ async function main() {
       customService.client = chatClient('custom');
       azureService.client = chatClient('azure');
       ollamaService.client = {
-        post: async (url, body) => {
+        post: async (url, body, requestConfig) => {
           sent.ollama = body;
+          sentOptions.ollama = requestConfig;
           return {
             data: { response: 'answer', prompt_eval_count: 11, eval_count: 7 },
           };
@@ -763,6 +787,7 @@ async function main() {
       };
       return {
         sent,
+        sentOptions,
         services: {
           openai: openaiService,
           ollama: ollamaService,
@@ -995,6 +1020,11 @@ async function main() {
         excerpts: 0,
         spellingRules: 1,
         escalated: 0,
+        // A review nobody stopped says so, and says it every time: the three
+        // fields are on every result, not only on a stopped one.
+        stopped: false,
+        stopReason: null,
+        pairsNotJudged: 0,
       });
       assert.strictEqual(result.threshold, 0.95, 'the scan result is kept');
       assert.strictEqual(result.paperlessUrl, 'https://paperless.example');
@@ -2337,6 +2367,649 @@ async function main() {
         [],
         'an unknown kind is refused quietly'
       );
+    });
+    // ------------------------------------ watching, stopping, token budget
+
+    /**
+     * A stand-in for the control object of the review job: it records every
+     * progress patch, it aborts the way the job aborts, and it knows why it
+     * was stopped, the way the job tells the judge.
+     */
+    function useControl(options = {}) {
+      const controller = new AbortController();
+      const patches = [];
+      const stops = [];
+      let reason = options.reason ?? null;
+      const control = {
+        signal: controller.signal,
+        tokenBudget: options.tokenBudget ?? null,
+        onProgress: (patch) => patches.push({ ...patch }),
+        stop: (given) => {
+          stops.push(given);
+          reason = given;
+          controller.abort();
+        },
+        stopReason: () => reason,
+      };
+      return {
+        control,
+        patches,
+        stops,
+        /** What the job does when the user presses stop. */
+        abort(why = 'user') {
+          reason = why;
+          controller.abort();
+        },
+        /** The reports of one phase, in order. */
+        ofPhase: (phase) => patches.filter((patch) => patch.phase === phase),
+        /** The report of every answered request: the ones with no phase. */
+        requests: () => patches.filter((patch) => patch.phase === undefined),
+      };
+    }
+
+    /** Runs `fn` with `size` pairs per model request. */
+    async function withBatchSize(size, fn) {
+      const previous = config.duplicatesAiReviewBatchSize;
+      config.duplicatesAiReviewBatchSize = size;
+      try {
+        return await fn();
+      } finally {
+        config.duplicatesAiReviewBatchSize = previous;
+      }
+    }
+
+    /** The three band pairs of seedArchive(), asked one per request. */
+    const BAND_REVIEW = {
+      kind: 'correspondents',
+      threshold: 0.95,
+      includeDismissed: true,
+    };
+
+    await test('A watched review is planned in full before the first request', async () => {
+      seedArchive();
+      const watch = useControl();
+      let phasesAtFirstRequest = null;
+      const { calls } = useProvider((prompt) => {
+        if (phasesAtFirstRequest === null) {
+          phasesAtFirstRequest = watch.patches.map((patch) => patch.phase);
+        }
+        return answerFromTable()(prompt);
+      });
+
+      const result = await withBatchSize(1, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+
+      assert.strictEqual(calls.length, 3, 'three pairs, one per request');
+      assert.deepStrictEqual(
+        phasesAtFirstRequest,
+        ['scanning', 'evidence', 'evidence', 'judging'],
+        'the scan, both evidence reads and the whole plan happened first'
+      );
+      const judging = watch.ofPhase('judging');
+      assert.strictEqual(judging.length, 1, 'the plan is reported once');
+      assert.strictEqual(judging[0].requestsPlanned, 3);
+      assert.strictEqual(judging[0].pairsTotal, 3);
+      assert.strictEqual(judging[0].spellingRules, 1);
+      assert.strictEqual(
+        judging[0].message,
+        'Asking the model, request 1 of 3'
+      );
+      assert.ok(
+        judging[0].estimatedTokens >=
+          3 * (service.TOKENS_PER_PAIR + service.TOKENS_OVERHEAD),
+        `the estimate covers the whole review, not one kind: ${judging[0].estimatedTokens}`
+      );
+
+      const answered = watch.requests();
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.requestsDone),
+        [1, 2, 3]
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.pairsJudged),
+        [1, 2, 3]
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.tokens),
+        [100, 200, 300],
+        'the running total of the review, never a delta'
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.message),
+        [
+          'Asking the model, request 2 of 3',
+          'Asking the model, request 3 of 3',
+          'Waiting for the last answer…',
+        ]
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.kind),
+        ['correspondents', 'correspondents', 'correspondents']
+      );
+      const last = watch.patches[watch.patches.length - 1];
+      assert.strictEqual(last.phase, 'finishing');
+      assert.strictEqual(last.message, 'Building the groups…');
+
+      assert.strictEqual(result.aiReview.stopped, false);
+      assert.strictEqual(result.aiReview.stopReason, null);
+      assert.strictEqual(result.aiReview.pairsNotJudged, 0);
+      assert.strictEqual(result.aiReview.requests, 3);
+    });
+
+    await test('Two kinds are one plan, made before the first request', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Rechnung' },
+          { id: 2, name: 'Rechnungen' },
+        ],
+        correspondents: [
+          { id: 10, name: 'Vodafone Kundenservice' },
+          { id: 11, name: 'Kundenservice Vodafone Nord' },
+        ],
+        documents: [
+          { id: 100, title: 'Invoice A', tags: [1], correspondent: 10 },
+          { id: 101, title: 'Invoice B', tags: [2], correspondent: 11 },
+        ],
+      });
+      const watch = useControl();
+      let phasesAtFirstRequest = null;
+      const { calls } = useProvider((prompt) => {
+        if (phasesAtFirstRequest === null) {
+          phasesAtFirstRequest = watch.patches.map((patch) => patch.phase);
+        }
+        return answerAll('same', 'two spellings')(prompt);
+      });
+
+      const result = await withBatchSize(1, () =>
+        service.reviewScan({ kind: 'all', threshold: 0.95 }, watch.control)
+      );
+
+      assert.strictEqual(calls.length, 2, 'one pair per kind');
+      assert.strictEqual(phasesAtFirstRequest[0], 'scanning');
+      assert.strictEqual(
+        phasesAtFirstRequest[phasesAtFirstRequest.length - 1],
+        'judging'
+      );
+      assert.ok(
+        phasesAtFirstRequest.filter((phase) => phase === 'evidence').length >=
+          2,
+        `both kinds read their evidence before the first request: ${phasesAtFirstRequest.join(', ')}`
+      );
+      assert.deepStrictEqual(
+        [...new Set(watch.ofPhase('evidence').map((patch) => patch.kind))],
+        ['tags', 'correspondents'],
+        'and each report says which kind it is reading for'
+      );
+      const judging = watch.ofPhase('judging');
+      assert.strictEqual(judging.length, 1);
+      assert.strictEqual(
+        judging[0].requestsPlanned,
+        2,
+        'the denominator counts both kinds'
+      );
+      assert.strictEqual(judging[0].pairsTotal, 2);
+      assert.deepStrictEqual(
+        watch.requests().map((patch) => patch.kind),
+        ['tags', 'correspondents']
+      );
+      assert.strictEqual(result.aiReview.stopped, false);
+    });
+
+    await test('A cut-off answer raises the plan in the report of its own request', async () => {
+      seedArchive();
+      const watch = useControl();
+      const { calls } = useProvider((prompt, options, callNumber) =>
+        callNumber === 1 ? truncationError() : answerFromTable()(prompt)
+      );
+
+      await withBatchSize(3, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+
+      assert.deepStrictEqual(
+        calls.map((call) => idsInPrompt(call.prompt).length),
+        [3, 2, 1],
+        'the cut-off batch of three is re-asked as two halves'
+      );
+      assert.strictEqual(watch.ofPhase('judging')[0].requestsPlanned, 1);
+      const answered = watch.requests();
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.requestsPlanned),
+        [3, 3, 3],
+        'the split added its two halves to the plan in its own report'
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.requestsDone),
+        [1, 2, 3],
+        'so the bar never goes backwards in per cent'
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.pairsJudged),
+        [0, 2, 3],
+        'the request that only split settled nothing itself'
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.retries),
+        [0, 1, 2]
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.failedRequests),
+        [0, 0, 0],
+        'a truncation is not a failure'
+      );
+    });
+
+    await test('A failed request still moves the bar', async () => {
+      seedArchive();
+      const watch = useControl();
+      useProvider((prompt, options, callNumber) =>
+        callNumber === 1
+          ? new Error('socket hang up')
+          : answerFromTable()(prompt)
+      );
+
+      const result = await withBatchSize(1, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+
+      const answered = watch.requests();
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.requestsDone),
+        [1, 2, 3],
+        'a request that failed is a request the review is done with'
+      );
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.failedRequests),
+        [1, 1, 1]
+      );
+      assert.strictEqual(result.aiReview.failedRequests, 1);
+      assert.strictEqual(result.aiReview.stopped, false);
+      assert.strictEqual(
+        result.aiReview.pairsNotJudged,
+        0,
+        'a failed batch is answered — with unsure — not left open'
+      );
+    });
+
+    await test('The escalation reports its phase and raises the plan', async () => {
+      seedSpelling();
+      const watch = useControl();
+      const { calls } = useProvider((prompt, options, callNumber) =>
+        JSON.stringify(
+          idsInPrompt(prompt).map((id) => ({
+            id,
+            verdict: callNumber === 1 ? 'unsure' : 'same',
+            reason: callNumber === 1 ? 'the names alone' : 'the documents',
+          }))
+        )
+      );
+
+      const result = await service.reviewScan(
+        { kind: 'tags', threshold: 0.85 },
+        watch.control
+      );
+
+      assert.strictEqual(calls.length, 2, 'one round, then the escalation');
+      assert.strictEqual(watch.ofPhase('judging')[0].requestsPlanned, 1);
+      const escalating = watch.ofPhase('escalating');
+      assert.strictEqual(escalating.length, 1);
+      assert.strictEqual(escalating[0].kind, 'tags');
+      assert.strictEqual(escalating[0].escalated, 1);
+      assert.strictEqual(
+        escalating[0].requestsPlanned,
+        2,
+        'the second round is added to the plan before it is asked'
+      );
+      assert.strictEqual(
+        escalating[0].message,
+        'Asking once more about 1 unsure pairs, with excerpts…'
+      );
+      assert.strictEqual(
+        escalating[0].pairsTotal,
+        watch.ofPhase('judging')[0].pairsTotal + 1,
+        'a pair asked twice is due twice, so the bar cannot overtake itself'
+      );
+      const answered = watch.requests();
+      assert.strictEqual(answered[answered.length - 1].requestsPlanned, 2);
+      assert.strictEqual(answered[answered.length - 1].requestsDone, 2);
+      assert.strictEqual(result.aiReview.escalated, 1);
+      assert.strictEqual(result.aiReview.stopped, false);
+    });
+
+    await test('A stop between requests keeps the verdicts and asks nothing more', async () => {
+      seedArchive();
+      const watch = useControl();
+      const { calls } = useProvider((prompt, options, callNumber) => {
+        const answer = answerFromTable()(prompt);
+        // The job aborts while the review is between two requests.
+        if (callNumber === 1) watch.abort('user');
+        return answer;
+      });
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let result;
+      try {
+        result = await withBatchSize(1, () =>
+          service.reviewScan(BAND_REVIEW, watch.control)
+        );
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.strictEqual(calls.length, 1, 'the second request is never made');
+      assert.strictEqual(result.aiReview.stopped, true);
+      assert.strictEqual(
+        result.aiReview.stopReason,
+        null,
+        'the judge knows that it stopped, the job knows why'
+      );
+      assert.strictEqual(result.aiReview.pairsNotJudged, 2);
+      assert.strictEqual(result.aiReview.requests, 1);
+      assert.strictEqual(result.aiReview.failedRequests, 0);
+      assert.strictEqual(watch.requests().length, 1);
+
+      const scanGroup = result.groups.find((group) => group.source === 'scan');
+      assert.deepStrictEqual(
+        scanGroup.aiVerdict,
+        ruleVerdict('exact-normalized', 'case-or-spacing'),
+        'what a rule settled survives the stop'
+      );
+      assert.strictEqual(
+        result.groups.some((group) => group.aiVerdict?.verdict === 'unsure'),
+        false,
+        'a pair nobody asked about has no verdict at all; unsure is the model’s word'
+      );
+
+      const answeredKey = idsInPrompt(calls[0].prompt)[0];
+      const candidateGroups = result.groups.filter(
+        (group) => group.source === 'ai-candidate'
+      );
+      assert.strictEqual(
+        candidateGroups.length,
+        VERDICTS_BY_KEY[answeredKey][0] === 'same' ? 1 : 0,
+        'only a pair the model answered can become a group'
+      );
+      for (const key of Object.keys(VERDICTS_BY_KEY)) {
+        if (key === answeredKey) continue;
+        const [a, b] = key
+          .split(':')[1]
+          .split('-')
+          .map((id) => Number(id));
+        assert.strictEqual(
+          candidateGroups.some((group) =>
+            group.members.some((member) => member.id === a || member.id === b)
+          ),
+          false,
+          `${key} was never asked, so it is not offered as a group`
+        );
+      }
+      assert.ok(
+        lines.some((line) =>
+          /review stopped \(user\): 1 of 3 request\(s\) made, 2 pair\(s\) not judged, 100 token\(s\)\./.test(
+            line
+          )
+        ),
+        `no stop line:\n${lines.join('\n')}`
+      );
+    });
+
+    await test('A stop while a request is in flight is not a failed request', async () => {
+      seedArchive();
+      const watch = useControl();
+      const { calls } = useProvider(async (prompt, options, callNumber) => {
+        if (callNumber > 1) return answerFromTable()(prompt);
+        // The provider that waits, the way a real one waits for a model:
+        // the stop arrives while this request is open.
+        watch.abort('user');
+        await new Promise((resolve) => setImmediate(resolve));
+        const error = new Error('The operation was aborted');
+        error.name = 'AbortError';
+        return error;
+      });
+
+      const result = await withBatchSize(1, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+
+      assert.strictEqual(calls.length, 1);
+      assert.ok(
+        calls[0].options.signal instanceof AbortSignal,
+        'the request carried the signal it died on'
+      );
+      assert.strictEqual(
+        result.aiReview.failedRequests,
+        0,
+        'an aborted request is a stop, not a failure'
+      );
+      assert.strictEqual(result.aiReview.retries, 0);
+      assert.strictEqual(result.aiReview.stopped, true);
+      assert.strictEqual(
+        result.aiReview.pairsNotJudged,
+        3,
+        'not one pair was answered'
+      );
+      assert.strictEqual(
+        watch.requests().length,
+        0,
+        'an answer that never came is not a request done'
+      );
+      assert.strictEqual(
+        result.groups.some((group) => group.aiVerdict?.verdict === 'unsure'),
+        false
+      );
+      assert.strictEqual(
+        result.groups.filter((group) => group.source === 'ai-candidate').length,
+        0
+      );
+    });
+
+    await test('The token budget stops the review itself', async () => {
+      seedArchive();
+      const watch = useControl({ tokenBudget: 100 });
+      const { calls } = useProvider(answerFromTable());
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      let result;
+      try {
+        result = await withBatchSize(1, () =>
+          service.reviewScan(BAND_REVIEW, watch.control)
+        );
+      } finally {
+        console.log = realLog;
+      }
+
+      assert.strictEqual(calls.length, 1, 'the first answer spent the budget');
+      assert.deepStrictEqual(
+        watch.stops,
+        ['token-budget'],
+        'the judge tells the job why it is stopping'
+      );
+      assert.strictEqual(result.aiReview.stopped, true);
+      assert.strictEqual(result.aiReview.pairsNotJudged, 2);
+      assert.ok(
+        lines.some((line) =>
+          /token budget 100 reached after 1 request\(s\) \(100 tokens\)\./.test(
+            line
+          )
+        ),
+        `no budget line:\n${lines.join('\n')}`
+      );
+      assert.ok(
+        lines.some((line) =>
+          /review stopped \(token-budget\): 1 of 3 request\(s\) made, 2 pair\(s\) not judged, 100 token\(s\)\./.test(
+            line
+          )
+        ),
+        `no stop line:\n${lines.join('\n')}`
+      );
+    });
+
+    await test('A provider that reports no usage is measured instead', async () => {
+      const calls = [];
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText(prompt, options) {
+          calls.push({ prompt, options });
+          return answerFromTable()(prompt);
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+
+      seedArchive();
+      const watch = useControl();
+      const result = await withBatchSize(1, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+
+      const tokens = watch.requests().map((patch) => patch.tokens);
+      assert.strictEqual(tokens.length, 3);
+      assert.ok(
+        tokens[0] > 0,
+        `the page's counter never stays at null after a request: ${tokens[0]}`
+      );
+      assert.ok(
+        tokens[0] < tokens[1] && tokens[1] < tokens[2],
+        `and it keeps climbing: ${tokens.join(', ')}`
+      );
+      assert.strictEqual(
+        result.aiReview.tokens,
+        null,
+        'what the provider did not report is not invented in the summary'
+      );
+
+      // The same provider against a budget: the estimate is what brakes it.
+      seedArchive();
+      calls.length = 0;
+      const braked = useControl({ tokenBudget: 1 });
+      const stopped = await withBatchSize(1, () =>
+        service.reviewScan(BAND_REVIEW, braked.control)
+      );
+      assert.strictEqual(
+        calls.length,
+        1,
+        'the budget bites without a usage report'
+      );
+      assert.deepStrictEqual(braked.stops, ['token-budget']);
+      assert.strictEqual(stopped.aiReview.stopped, true);
+    });
+
+    await test('A signal that is already aborted costs nothing at all', async () => {
+      seedArchive();
+      const watch = useControl();
+      watch.abort('user');
+      const { calls } = useProvider(answerFromTable());
+
+      const result = await service.reviewScan(BAND_REVIEW, watch.control);
+
+      assert.strictEqual(calls.length, 0, 'not one request');
+      assert.strictEqual(result.aiReview.requests, 0);
+      assert.strictEqual(result.aiReview.stopped, true);
+      assert.strictEqual(
+        result.aiReview.candidates,
+        0,
+        'the band was not even read'
+      );
+      const scanGroup = result.groups.find((group) => group.source === 'scan');
+      assert.deepStrictEqual(
+        scanGroup.aiVerdict,
+        ruleVerdict('exact-normalized', 'case-or-spacing'),
+        'the scan and the verdicts a rule settled still come back'
+      );
+      assert.strictEqual(
+        result.groups.filter((group) => group.source === 'ai-candidate').length,
+        0
+      );
+    });
+
+    await test('A review without a control is the review it always was', async () => {
+      seedArchive();
+      const { calls } = useProvider(answerFromTable());
+      const result = await service.reviewScan(BAND_REVIEW);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(
+        'signal' in calls[0].options,
+        false,
+        'nothing can stop it, so nothing is sent to stop'
+      );
+      assert.strictEqual(result.aiReview.stopped, false);
+      assert.strictEqual(result.aiReview.stopReason, null);
+      assert.strictEqual(result.aiReview.pairsNotJudged, 0);
+
+      // An empty control is the same thing: there is nobody to report to.
+      seedArchive();
+      const empty = await service.reviewScan(BAND_REVIEW, {});
+      assert.strictEqual(empty.aiReview.stopped, false);
+      assert.strictEqual(empty.aiReview.pairsNotJudged, 0);
+    });
+
+    await test('A report is what the judge knows, and nothing the job derives', async () => {
+      seedArchive();
+      const watch = useControl();
+      useProvider(answerFromTable());
+      await withBatchSize(1, () =>
+        service.reviewScan(BAND_REVIEW, watch.control)
+      );
+      assert.ok(watch.patches.length >= 5);
+      for (const patch of watch.patches) {
+        assert.strictEqual(
+          'elapsedMs' in patch,
+          false,
+          'the job measures the time, the judge does not'
+        );
+        assert.strictEqual('etaMs' in patch, false);
+        assert.strictEqual('tokenBudget' in patch, false);
+        assert.strictEqual(typeof patch.message, 'string');
+        assert.notStrictEqual(patch.message, '');
+      }
+    });
+
+    await test('Every provider hands the signal on, and sends nothing new without one', async () => {
+      const stub = useProviderStubs();
+      const controller = new AbortController();
+      try {
+        for (const provider of Object.values(stub.services)) {
+          assert.strictEqual(
+            await provider.generateText('hello', {
+              signal: controller.signal,
+            }),
+            'answer'
+          );
+        }
+        for (const name of ['openai', 'custom', 'azure']) {
+          assert.strictEqual(
+            stub.sentOptions[name]?.signal,
+            controller.signal,
+            `${name}: the SDK gets the signal in its request options`
+          );
+        }
+        assert.strictEqual(stub.sentOptions.ollama.signal, controller.signal);
+        assert.ok(
+          stub.sentOptions.ollama.headers,
+          'and axios keeps the headers it always sent'
+        );
+
+        for (const provider of Object.values(stub.services)) {
+          assert.strictEqual(await provider.generateText('hello'), 'answer');
+        }
+        for (const name of ['openai', 'custom', 'azure']) {
+          assert.strictEqual(
+            stub.sentOptions[name],
+            undefined,
+            `${name}: no signal, no second argument`
+          );
+        }
+        assert.strictEqual(
+          'signal' in stub.sentOptions.ollama,
+          false,
+          'and no signal in the request config'
+        );
+      } finally {
+        stub.restore();
+      }
     });
   } finally {
     AIServiceFactory.getService = realGetService;

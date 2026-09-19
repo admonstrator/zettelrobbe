@@ -144,6 +144,9 @@ const RELEASES = [
       'New: DUPLICATES_AI_MODEL lets the judge run on a stronger model of the configured provider while document analysis keeps its own',
       'Fix: The member tables of the group cards line up across cards; long names truncate instead of shifting the columns',
       'New: A "Duplicates" section on the settings page holds every setting of the feature: AI review on or off, the judge model, pairs per request, the candidate floor, excerpts and their length and count',
+      'New: The AI review on the Duplicates page runs as a job you can watch and stop: a progress bar with the phase, requests and pairs done, tokens spent against the budget and the time left, a Stop button that keeps the verdicts already reached, and a page that re-attaches to a running review after a reload',
+      'New: Two brakes for the AI review, both on the settings page: a token budget per review that stops it on its own (DUPLICATES_AI_TOKEN_BUDGET, default 200000, 0 = no limit) and an idle stop that ends a review nobody has been watching (DUPLICATES_AI_IDLE_STOP_SECONDS, default 60, 0 = never)',
+      'Improvement: The judge plans every request before the first one, so the bar has a denominator and the estimate is known up front; the log says why a review stopped and what it cost',
     ],
   },
 ];

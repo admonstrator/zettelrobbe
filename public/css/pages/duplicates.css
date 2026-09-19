@@ -110,6 +110,98 @@
     margin-top: var(--zr-3);
   }
 
+  /* --- the progress panel of a running review --------------------------- */
+  /* A review is many model requests in a row, so it says where it is: a bar
+     over three lines of text, and the button that ends it. It lives in the AI
+     row rather than in a modal, because the page stays usable while the model
+     thinks. The three lines keep their height when they are empty, so the
+     stat tiles below do not move while the numbers come in. */
+  .dup-progress {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--zr-2) var(--zr-3);
+    width: 100%;
+    padding-top: var(--zr-3);
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .dup-progress__bar {
+    grid-column: 1 / -1;
+    height: 6px;
+    background: var(--zr-surface-sunken);
+    border-radius: var(--zr-r-full);
+    overflow: hidden;
+  }
+
+  .dup-progress__fill {
+    width: 0;
+    height: 100%;
+    background: var(--zr-brand);
+    border-radius: inherit;
+    transition: width 200ms var(--zr-ease);
+  }
+
+  /* Before the plan knows how many requests it needs there is no share to
+     show, so the bar says "working" instead of lying about a percentage. */
+  .dup-progress__fill--indeterminate {
+    width: 32%;
+    transition: none;
+    animation: dupProgressSlide 1.4s ease-in-out infinite;
+  }
+
+  @keyframes dupProgressSlide {
+    from {
+      transform: translateX(-110%);
+    }
+
+    to {
+      transform: translateX(320%);
+    }
+  }
+
+  .dup-progress__text {
+    display: grid;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  /* An empty line still takes its row: the panel must not resize under the
+     stats while a review reports. */
+  .dup-progress__text > span {
+    min-height: 1.15em;
+    overflow-wrap: anywhere;
+  }
+
+  /* All three lines carry something while a review runs, so only the panel
+     that has finished — one outcome line and nothing else — collapses. */
+  .dup-progress__text > span:empty {
+    min-height: 0;
+  }
+
+  .dup-progress__actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dup-progress__fill--indeterminate {
+      animation: none;
+    }
+  }
+
+  /* On a phone the counters already wrap over three lines; a button beside
+     them would squeeze both. It gets a row of its own. */
+  @media (max-width: 720px) {
+    .dup-progress {
+      grid-template-columns: 1fr;
+    }
+
+    .dup-progress__actions {
+      justify-content: flex-start;
+    }
+  }
+
   /* --- merge by hand ---------------------------------------------------- */
   /* The one module on this page that opens a layer above the others: its two
      search fields drop a list over whatever follows them. .zr-module clips its

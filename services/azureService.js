@@ -8,6 +8,7 @@ const {
   toNameList,
 } = require('./serviceUtils');
 const {
+  abortSignal,
   hasNumber,
   hasSystemPrompt,
   modelOverride,
@@ -525,6 +526,7 @@ class AzureOpenAIService {
    * @param {string} [options.systemPrompt] - Sent as the system message
    * @param {number} [options.temperature] - Overrides the default of 0.7
    * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS
+   * @param {AbortSignal} [options.signal] - Cancels the request in flight
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
@@ -544,8 +546,7 @@ class AzureOpenAIService {
       }
       messages.push({ role: 'user', content: prompt });
 
-      this.lastGenerateTextUsage = null;
-      const response = await this.client.chat.completions.create({
+      const request = {
         model: model,
         messages,
         temperature: hasNumber(options.temperature) ? options.temperature : 0.7,
@@ -556,7 +557,15 @@ class AzureOpenAIService {
           hasNumber(options.maxTokens) && options.maxTokens > 0
             ? Math.floor(options.maxTokens)
             : Number(config.responseTokens),
-      });
+      };
+
+      this.lastGenerateTextUsage = null;
+      // The second argument is the SDK's request option bag; a caller that
+      // brought no signal gets the call it always got.
+      const signal = abortSignal(options);
+      const response = signal
+        ? await this.client.chat.completions.create(request, { signal })
+        : await this.client.chat.completions.create(request);
       this.lastGenerateTextUsage = readCompletionUsage(response);
 
       assertCompletionNotTruncated(

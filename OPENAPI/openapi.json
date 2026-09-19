@@ -1228,12 +1228,192 @@
                   "spellingRules": {
                     "type": "integer",
                     "description": "pairs settled by the matcher's hard tiers (exact, umlaut, legal form) without asking the model"
+                  },
+                  "stopped": {
+                    "type": "boolean",
+                    "description": "true when the review ended before every pair was judged; the verdicts it did reach are in the groups"
+                  },
+                  "stopReason": {
+                    "type": "string",
+                    "nullable": true,
+                    "enum": [
+                      "user",
+                      "token-budget",
+                      "idle"
+                    ],
+                    "description": "why a stopped review ended; null when it ran through"
+                  },
+                  "pairsNotJudged": {
+                    "type": "integer",
+                    "description": "pairs that were due but never reached the model because the review stopped"
                   }
                 }
               }
             }
           }
         ]
+      },
+      "AiReviewProgress": {
+        "type": "object",
+        "description": "Where a running review is. Every field is present; a count that is not known yet is null.",
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "scanning",
+              "evidence",
+              "judging",
+              "escalating",
+              "finishing"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "one line for the page, e.g. \"Asking the model, request 3 of 8\""
+          },
+          "kind": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "tags",
+              "correspondents"
+            ],
+            "description": "the kind being worked on, null between kinds"
+          },
+          "requestsDone": {
+            "type": "integer"
+          },
+          "requestsPlanned": {
+            "type": "integer",
+            "nullable": true,
+            "description": "requests the plan expects for the whole review; grows when a cut-off answer is re-asked in halves"
+          },
+          "pairsJudged": {
+            "type": "integer"
+          },
+          "pairsTotal": {
+            "type": "integer",
+            "nullable": true,
+            "description": "pairs the review will ask about across all kinds"
+          },
+          "tokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "tokens spent so far, prompt and completion"
+          },
+          "tokenBudget": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the configured ceiling for this review; null when there is none"
+          },
+          "estimatedTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "what the plan expects the whole review to cost, known once the batches are sized"
+          },
+          "elapsedMs": {
+            "type": "integer"
+          },
+          "etaMs": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the remaining time the request rate so far suggests; null before the first request answered"
+          },
+          "excerpts": {
+            "type": "integer"
+          },
+          "escalated": {
+            "type": "integer"
+          },
+          "spellingRules": {
+            "type": "integer"
+          },
+          "failedRequests": {
+            "type": "integer"
+          },
+          "retries": {
+            "type": "integer"
+          }
+        }
+      },
+      "AiReviewJob": {
+        "type": "object",
+        "description": "One AI review running on the server, or the last one that finished. There is at most one at a time.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "stopping",
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "options": {
+            "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stopReason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "user",
+              "token-budget",
+              "idle"
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/AiReviewProgress"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "the message of a failed review"
+          },
+          "hasResult": {
+            "type": "boolean",
+            "description": "true when the job carries a DuplicateAiReviewResult (done, or stopped with partial verdicts)"
+          }
+        }
+      },
+      "AiReviewJobEvent": {
+        "type": "object",
+        "description": "One server-sent event of a review job. The stream ends after done, stopped or failed.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "progress",
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "job": {
+            "$ref": "#/components/schemas/AiReviewJob"
+          },
+          "data": {
+            "description": "the DuplicateAiReviewResult on done and on stopped (partial); absent otherwise",
+            "$ref": "#/components/schemas/DuplicateAiReviewResult"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        }
       },
       "EntityMergeDismissRequest": {
         "type": "object",
@@ -4773,6 +4953,20 @@
                     "description": "Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
                     "example": 2
                   },
+                  "duplicatesAiTokenBudget": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000000,
+                    "description": "The most one AI review may spend across all its requests, prompt and completion (0-10000000, default 200000). When it is reached the review stops itself and keeps the verdicts it has; 0 means no limit. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 200000
+                  },
+                  "duplicatesAiIdleStopSeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3600,
+                    "description": "A running review that no page has been watching for this many seconds stops itself, so a closed tab cannot leave the model running (0-3600, default 60). 0 means never. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 60
+                  },
                   "ocrAutoProcessEnabled": {
                     "type": "string",
                     "description": "Process queued OCR documents automatically (yes/no)",
@@ -6509,7 +6703,7 @@
     "/api/duplicates/ai-review": {
       "post": {
         "summary": "Let the configured AI provider judge what the scan found",
-        "description": "Runs the same scan as `/api/duplicates/scan`, shows the configured AI\nprovider every pair of the groups plus a wider band of near-misses,\nand returns the scan result with the model's verdict attached to each\ngroup and member. Groups the model confirmed below the sensitivity\narrive as extra groups with `source: ai-candidate`.\n\nRead-only and never automatic: it runs when the user asks for it,\nnothing is merged, and a verdict is information the user decides on.\n\nTwo options say how much the model gets to see. `withTitles` gives it\na few recent document titles per entry and the entries it is usually\nfiled with; `withExcerpts` adds the beginning of a couple of documents\nper entry, but only for the pairs the matcher linked by spelling alone\n(\"Kontoauszug\" / \"Kontoumzug\"), which is where names and titles are\nnot enough. Both default to on; `withExcerpts` is capped by\nDUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS and\nDUPLICATES_AI_EXCERPT_DOCUMENTS. `aiReview.excerpts` reports how many\nentries were read.\n\nThe review can be targeted, which is what makes it cheap on a large\narchive: `groupIds` names the scan groups to judge, `minConfidence`\njudges only groups scoring at least that much, and\n`includeCandidates: false` leaves the band of near-misses out\nentirely. Together they narrow the question, not the answer — every\ngroup of the scan still comes back, the ones nobody asked about with\n`aiVerdict: null` on the group and its members. A group id this scan\ndoes not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`\nand `aiReview.groupsSkipped` report what the targeting did.\n",
+        "description": "Runs the same scan as `/api/duplicates/scan`, shows the configured AI\nprovider every pair of the groups plus a wider band of near-misses,\nand returns the scan result with the model's verdict attached to each\ngroup and member. Groups the model confirmed below the sensitivity\narrive as extra groups with `source: ai-candidate`.\n\nRead-only and never automatic: it runs when the user asks for it,\nnothing is merged, and a verdict is information the user decides on.\n\nTwo options say how much the model gets to see. `withTitles` gives it\na few recent document titles per entry and the entries it is usually\nfiled with; `withExcerpts` adds the beginning of a couple of documents\nper entry, but only for the pairs the matcher linked by spelling alone\n(\"Kontoauszug\" / \"Kontoumzug\"), which is where names and titles are\nnot enough. Both default to on; `withExcerpts` is capped by\nDUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS and\nDUPLICATES_AI_EXCERPT_DOCUMENTS. `aiReview.excerpts` reports how many\nentries were read.\n\nThe review can be targeted, which is what makes it cheap on a large\narchive: `groupIds` names the scan groups to judge, `minConfidence`\njudges only groups scoring at least that much, and\n`includeCandidates: false` leaves the band of near-misses out\nentirely. Together they narrow the question, not the answer — every\ngroup of the scan still comes back, the ones nobody asked about with\n`aiVerdict: null` on the group and its members. A group id this scan\ndoes not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`\nand `aiReview.groupsSkipped` report what the targeting did.\n\nThis route runs the review as the same job\n`/api/duplicates/ai-review/jobs` starts and waits for it, so there is\nstill only one review at a time: while one runs this answers 409 with\nthe running job. A review that stopped early — by the token budget,\nor because somebody pressed Stop — answers 200 with the verdicts it\nreached and `aiReview.stopped`.\n",
         "tags": [
           "Duplicates",
           "API"
@@ -6558,13 +6752,325 @@
             "description": "Not authenticated"
           },
           "409": {
-            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW)"
+            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW), or another\nreview is already running; in the second case `data.job` names it\n"
           },
           "500": {
             "description": "Server error"
           },
           "502": {
             "description": "Paperless-ngx or the AI provider could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs": {
+      "post": {
+        "summary": "Start an AI review as a job the page can watch and stop",
+        "description": "Starts the same review `POST /api/duplicates/ai-review` runs, but\nanswers at once with the job instead of waiting for it. The page then\nfollows it through `/api/duplicates/ai-review/jobs/{id}/events` and\ncan end it through `/api/duplicates/ai-review/jobs/{id}/stop`.\n\nThere is at most one review at a time. While one runs this answers\n409 and carries the running job, so a second tab attaches to it\ninstead of failing.\n\nThe body is validated exactly as the synchronous route validates it.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The review was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The same refusals the synchronous review answers"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A review is already running; `data.job` is that one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/current": {
+      "get": {
+        "summary": "The AI review that is running, or the last one that finished",
+        "description": "What a reloaded page asks first: `job` is the running review, the one\nstill winding down after a stop, or the last finished one while it is\nretained, and `null` when there is none. Reading it counts as watching\nthe review, so a page that polls keeps it alive.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current job, or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "nullable": true,
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/{id}": {
+      "get": {
+        "summary": "One AI review job, with its result once it has one",
+        "description": "The polling fallback for a page whose event stream a proxy cut: it\ncarries the same job and, once the review ended, the same result the\nstream would have delivered. Reading it counts as watching the review.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job and, when it has one, its result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        },
+                        "result": {
+                          "nullable": true,
+                          "$ref": "#/components/schemas/DuplicateAiReviewResult"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/{id}/events": {
+      "get": {
+        "summary": "Follow an AI review as server-sent events",
+        "description": "One `AiReviewJobEvent` per `data:` line. The first event is the job as\nit is right now, so a page that attaches late does not wait for the\nnext change; then one `progress` event per report of the judge; then\nexactly one of `done`, `stopped` or `failed`, after which the stream\nends. A comment line every 15 seconds keeps the connection open\nthrough proxies that close a quiet stream.\n\nAn open stream is what keeps the review alive: a job nobody watches\nstops itself after DUPLICATES_AI_IDLE_STOP_SECONDS.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/{id}/stop": {
+      "post": {
+        "summary": "Stop a running AI review",
+        "description": "Asks the review to end after the request it is in. What it has judged\nso far is kept: the job ends as `stopped` and carries the partial\nresult, which the stream delivers like a complete one. Stopping a\nreview that already finished changes nothing and still answers with\nthe job.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job, now stopping or already finished",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          },
+          "500": {
+            "description": "Server error"
           }
         }
       }

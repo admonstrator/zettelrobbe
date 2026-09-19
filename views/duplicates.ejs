@@ -105,6 +105,27 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                             <span class="zr-sm zr-faint" id="dupAiProposalHint">Scans, lets the model judge every group and near-miss, and proposes what to merge. You deselect, nothing merges by itself.</span>
                             <span class="zr-sm dup-ai-proposal__status hidden" id="dupAiProposalStatus" aria-live="polite"></span>
                         </div>
+                        <!-- Where a running review shows itself: how far it is,
+                             what it costs, how long it still needs, and the one
+                             button that ends it. All three AI paths share it,
+                             and a reloaded page attaches to a review that is
+                             still going through /api/duplicates/ai-review/jobs. -->
+                        <div class="dup-progress hidden" id="dupAiProgress" role="status" aria-live="polite">
+                            <div class="dup-progress__bar" id="dupAiProgressBar" role="progressbar" aria-label="AI review progress">
+                                <div class="dup-progress__fill" id="dupAiProgressFill"></div>
+                            </div>
+                            <div class="dup-progress__text">
+                                <span class="zr-sm" id="dupAiProgressMessage"></span>
+                                <span class="zr-sm zr-faint zr-mono" id="dupAiProgressCounts"></span>
+                                <span class="zr-sm zr-faint" id="dupAiProgressEta"></span>
+                            </div>
+                            <div class="dup-progress__actions">
+                                <button class="zr-btn zr-btn--ghost" id="dupAiStopBtn" type="button">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
+                                    <span class="dup-progress__stop-label">Stop</span>
+                                </button>
+                            </div>
+                        </div>
 <% } -%>
                     </div>
                 </div>

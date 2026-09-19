@@ -27,6 +27,8 @@
  * 12. The targeting (groupIds, minConfidence, includeCandidates) reaches the
  *     service unchanged, an untargeted request still carries nothing extra,
  *     and a malformed targeting option is a 400
+ * 13. The review as a job: start, current, read, the event stream and the
+ *     stop, plus the synchronous route running through that same job
  */
 
 'use strict';
@@ -894,6 +896,506 @@ async function main() {
         );
       } finally {
         entityMatchAiService.reviewScan = realReviewScan;
+      }
+    });
+
+    /* ── the review as a job ──────────────────────────────────────────────
+       The same review, started and watched instead of waited for: the page
+       needs a progress panel and a Stop button, and neither is possible
+       through a single POST that answers when everything is over. The job
+       itself has its own suite (tests/test-duplicate-review-job.js); what is
+       pinned here is the wire format of the five routes around it. */
+
+    const reviewJobs = require(
+      path.join(REPO_ROOT, 'services', 'duplicateReviewJobService')
+    );
+
+    /**
+     * Replaces the judge with one that waits for a gate, so a test can look
+     * at a job while it runs.
+     *
+     * @param {(control: object) => object|Promise<object>} finish  what the
+     *   judge returns once the gate opens
+     * @returns {{open: () => void, seen: object}}
+     */
+    function gateJudge(finish) {
+      let open = () => {};
+      const opened = new Promise((resolve) => {
+        open = resolve;
+      });
+      const seen = {};
+      entityMatchAiService.reviewScan = async (options, control) => {
+        seen.options = options;
+        seen.control = control;
+        await opened;
+        return finish(control);
+      };
+      return { open, seen };
+    }
+
+    /**
+     * Reads a server-sent event stream to its end.
+     *
+     * @param {string} id  the job to follow
+     * @returns {Promise<{status: number, headers: Headers, events: object[],
+     *   comments: number, closed: Promise<void>}>}
+     */
+    async function openEventStream(id) {
+      const response = await fetch(
+        `${harness.base}/api/duplicates/ai-review/jobs/${id}/events`,
+        { headers: { 'x-api-key': API_KEY } }
+      );
+      const events = [];
+      const state = { comments: 0 };
+      if (!response.body) {
+        return {
+          status: response.status,
+          headers: response.headers,
+          events,
+          state,
+          closed: Promise.resolve(),
+        };
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const closed = (async () => {
+        let buffer = '';
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let cut = buffer.indexOf('\n\n');
+          while (cut !== -1) {
+            const chunk = buffer.slice(0, cut);
+            buffer = buffer.slice(cut + 2);
+            if (chunk.startsWith(':')) {
+              state.comments += 1;
+            } else if (chunk.startsWith('data: ')) {
+              events.push(JSON.parse(chunk.slice(6)));
+            }
+            cut = buffer.indexOf('\n\n');
+          }
+        }
+      })();
+      return {
+        status: response.status,
+        headers: response.headers,
+        events,
+        state,
+        closed,
+      };
+    }
+
+    /** Waits until `check()` is true, or gives up; the events are async. */
+    async function until(check, what) {
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        if (check()) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`timed out waiting for ${what}`);
+    }
+
+    await test('POST /api/duplicates/ai-review/jobs answers 202 with the job', async () => {
+      reviewJobs.reset();
+      const gate = gateJudge(() => reviewFixture());
+      try {
+        const response = await call('POST', '/api/duplicates/ai-review/jobs', {
+          kind: 'tags',
+          threshold: 0.9,
+          withTitles: false,
+        });
+        assert.strictEqual(response.status, 202, 'a started job is accepted');
+        const payload = await response.json();
+        assert.strictEqual(payload.success, true);
+        const job = payload.data.job;
+        assert.ok(job.id, 'the job is named');
+        assert.strictEqual(job.status, 'running');
+        assert.strictEqual(job.hasResult, false);
+        assert.strictEqual(job.progress.phase, 'starting');
+        assert.strictEqual('controller' in job, false, 'no internals leak');
+        // The options are the ones the synchronous route would have used.
+        assert.deepStrictEqual(gate.seen.options, {
+          kind: 'tags',
+          threshold: 0.9,
+          includeDismissed: false,
+          withTitles: false,
+          withExcerpts: true,
+        });
+
+        const second = await call('POST', '/api/duplicates/ai-review/jobs', {});
+        assert.strictEqual(second.status, 409, 'one review at a time');
+        const refusal = await second.json();
+        assert.strictEqual(refusal.success, false);
+        assert.match(refusal.error, /already running/);
+        assert.strictEqual(
+          refusal.data.job.id,
+          job.id,
+          'the refusal names the running job so a second tab can attach'
+        );
+      } finally {
+        gate.open();
+        await reviewJobs.wait(reviewJobs.current()?.id).catch(() => {});
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review/jobs validates like the synchronous route', async () => {
+      reviewJobs.reset();
+      entityMatchAiService.reviewScan = async () => {
+        throw new Error('the route must refuse before a job is started');
+      };
+      try {
+        for (const body of [
+          { kind: 'documents' },
+          { threshold: 2 },
+          { groupIds: 'tags:1-2' },
+        ]) {
+          const response = await call(
+            'POST',
+            '/api/duplicates/ai-review/jobs',
+            body
+          );
+          assert.strictEqual(
+            response.status,
+            400,
+            `expected 400 for ${JSON.stringify(body)}`
+          );
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.ok(payload.error, 'a reason is given');
+        }
+        assert.strictEqual(
+          reviewJobs.current(),
+          null,
+          'a refused request starts nothing'
+        );
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('GET /api/duplicates/ai-review/jobs/current is null, then the running job', async () => {
+      reviewJobs.reset();
+      const empty = await call('GET', '/api/duplicates/ai-review/jobs/current');
+      assert.strictEqual(empty.status, 200);
+      const nothing = await empty.json();
+      assert.strictEqual(nothing.success, true);
+      assert.strictEqual(nothing.data.job, null, 'no review, no job');
+
+      const gate = gateJudge(() => reviewFixture());
+      try {
+        const started = await call(
+          'POST',
+          '/api/duplicates/ai-review/jobs',
+          {}
+        );
+        const id = (await started.json()).data.job.id;
+        // Reading the job counts as watching: the idle stop must not end a
+        // review a page is polling because its event stream broke.
+        reviewJobs.current().watchedMs = Date.now() - 60000;
+        const running = await call(
+          'GET',
+          '/api/duplicates/ai-review/jobs/current'
+        );
+        const payload = await running.json();
+        assert.strictEqual(payload.data.job.id, id);
+        assert.strictEqual(payload.data.job.status, 'running');
+        assert.ok(
+          Date.now() - reviewJobs.current().watchedMs < 2000,
+          'the read touched the job'
+        );
+      } finally {
+        gate.open();
+        await reviewJobs.wait(reviewJobs.current()?.id).catch(() => {});
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('GET /api/duplicates/ai-review/jobs/:id carries the result once there is one', async () => {
+      reviewJobs.reset();
+      const unknown = await call(
+        'GET',
+        '/api/duplicates/ai-review/jobs/nope-nope'
+      );
+      assert.strictEqual(unknown.status, 404);
+      assert.strictEqual((await unknown.json()).success, false);
+
+      const gate = gateJudge(() => reviewFixture());
+      try {
+        const started = await call(
+          'POST',
+          '/api/duplicates/ai-review/jobs',
+          {}
+        );
+        const id = (await started.json()).data.job.id;
+
+        reviewJobs.current().watchedMs = Date.now() - 60000;
+        const running = await call(
+          'GET',
+          `/api/duplicates/ai-review/jobs/${id}`
+        );
+        const before = await running.json();
+        assert.strictEqual(before.data.job.status, 'running');
+        assert.strictEqual(before.data.result, null, 'nothing to show yet');
+        assert.ok(
+          Date.now() - reviewJobs.current().watchedMs < 2000,
+          'polling the job counts as watching it'
+        );
+
+        gate.open();
+        await reviewJobs.wait(id);
+
+        const finished = await call(
+          'GET',
+          `/api/duplicates/ai-review/jobs/${id}`
+        );
+        const after = await finished.json();
+        assert.strictEqual(after.data.job.status, 'done');
+        assert.strictEqual(after.data.job.hasResult, true);
+        assert.strictEqual(after.data.result.aiReview.judged, 2);
+        assert.strictEqual(after.data.result.groups.length, 2);
+      } finally {
+        gate.open();
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('The event stream sends the snapshot, progress and done, then ends', async () => {
+      reviewJobs.reset();
+      const gate = gateJudge((control) => {
+        control.onProgress({
+          phase: 'judging',
+          message: 'Asking the model, request 1 of 4',
+          requestsPlanned: 4,
+          requestsDone: 1,
+          pairsTotal: 40,
+          pairsJudged: 10,
+          tokens: 700,
+        });
+        return reviewFixture();
+      });
+      try {
+        const started = await call(
+          'POST',
+          '/api/duplicates/ai-review/jobs',
+          {}
+        );
+        const id = (await started.json()).data.job.id;
+        const stream = await openEventStream(id);
+        assert.strictEqual(stream.status, 200);
+        assert.match(
+          stream.headers.get('content-type') || '',
+          /text\/event-stream/
+        );
+        assert.strictEqual(stream.headers.get('cache-control'), 'no-cache');
+        assert.strictEqual(stream.headers.get('x-accel-buffering'), 'no');
+
+        await until(
+          () => stream.events.length > 0,
+          'the snapshot of the running job'
+        );
+        assert.strictEqual(stream.events[0].type, 'progress');
+        assert.strictEqual(stream.events[0].job.id, id);
+
+        gate.open();
+        await stream.closed;
+
+        const types = stream.events.map((event) => event.type);
+        assert.strictEqual(types[types.length - 1], 'done', 'done is the last');
+        assert.strictEqual(
+          types.filter((type) => type === 'done').length,
+          1,
+          'exactly one final event'
+        );
+        const judging = stream.events.find(
+          (event) => event.job.progress.requestsDone === 1
+        );
+        assert.ok(judging, 'a progress event reported the first request');
+        assert.strictEqual(judging.job.progress.requestsPlanned, 4);
+        assert.strictEqual(judging.job.progress.tokens, 700);
+        const final = stream.events[stream.events.length - 1];
+        assert.strictEqual(final.job.status, 'done');
+        assert.strictEqual(final.data.aiReview.judged, 2);
+      } finally {
+        gate.open();
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('The event stream of an unknown job is a 404 before any header', async () => {
+      reviewJobs.reset();
+      const response = await fetch(
+        `${harness.base}/api/duplicates/ai-review/jobs/nope-nope/events`,
+        { headers: { 'x-api-key': API_KEY } }
+      );
+      assert.strictEqual(response.status, 404);
+      assert.match(
+        response.headers.get('content-type') || '',
+        /application\/json/,
+        'a refusal is JSON, not a stream'
+      );
+      assert.strictEqual((await response.json()).success, false);
+    });
+
+    await test('POST /api/duplicates/ai-review/jobs/:id/stop ends the stream with the partial result', async () => {
+      reviewJobs.reset();
+      const unknown = await call(
+        'POST',
+        '/api/duplicates/ai-review/jobs/nope-nope/stop',
+        {}
+      );
+      assert.strictEqual(unknown.status, 404);
+
+      let aborted = null;
+      // This judge waits for the stop rather than for a gate.
+      entityMatchAiService.reviewScan = async (options, control) => {
+        await new Promise((resolve) =>
+          control.signal.addEventListener('abort', resolve, { once: true })
+        );
+        aborted = control.signal.aborted;
+        const partial = reviewFixture();
+        partial.aiReview.stopped = true;
+        partial.aiReview.pairsNotJudged = 56;
+        return partial;
+      };
+      try {
+        const started = await call(
+          'POST',
+          '/api/duplicates/ai-review/jobs',
+          {}
+        );
+        const id = (await started.json()).data.job.id;
+        const stream = await openEventStream(id);
+        await until(() => stream.events.length > 0, 'the snapshot');
+
+        const stopped = await call(
+          'POST',
+          `/api/duplicates/ai-review/jobs/${id}/stop`,
+          {}
+        );
+        assert.strictEqual(stopped.status, 200);
+        const payload = await stopped.json();
+        assert.strictEqual(payload.success, true);
+        assert.strictEqual(payload.data.job.status, 'stopping');
+        assert.strictEqual(payload.data.job.stopReason, 'user');
+
+        await stream.closed;
+        assert.strictEqual(aborted, true, 'the judge saw the aborted signal');
+        const final = stream.events[stream.events.length - 1];
+        assert.strictEqual(final.type, 'stopped');
+        assert.strictEqual(final.job.stopReason, 'user');
+        assert.strictEqual(final.data.aiReview.stopped, true);
+        assert.strictEqual(
+          final.data.aiReview.pairsNotJudged,
+          56,
+          'what it did judge comes home'
+        );
+
+        // Stopping what is over changes nothing and still answers the job.
+        const again = await call(
+          'POST',
+          `/api/duplicates/ai-review/jobs/${id}/stop`,
+          {}
+        );
+        assert.strictEqual(again.status, 200);
+        assert.strictEqual((await again.json()).data.job.status, 'stopped');
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('A failed review streams failed with the message', async () => {
+      reviewJobs.reset();
+      entityMatchAiService.reviewScan = async () => {
+        throw Object.assign(new Error('The AI review is switched off'), {
+          status: 409,
+        });
+      };
+      try {
+        const started = await call(
+          'POST',
+          '/api/duplicates/ai-review/jobs',
+          {}
+        );
+        assert.strictEqual(started.status, 202, 'the start itself succeeded');
+        const id = (await started.json()).data.job.id;
+        await reviewJobs.wait(id);
+        // A subscriber that arrives after the end still gets the verdict.
+        const stream = await openEventStream(id);
+        await stream.closed;
+        assert.strictEqual(stream.events.length, 1, 'only the final event');
+        assert.strictEqual(stream.events[0].type, 'failed');
+        assert.strictEqual(
+          stream.events[0].error,
+          'The AI review is switched off'
+        );
+        assert.strictEqual(stream.events[0].job.hasResult, false);
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review runs through the job and refuses a second one', async () => {
+      reviewJobs.reset();
+      const gate = gateJudge(() => reviewFixture());
+      try {
+        // The synchronous route waits for the job it started, so while it
+        // waits the job routes see exactly that job.
+        const pending = call('POST', '/api/duplicates/ai-review', {
+          kind: 'tags',
+        });
+        await until(() => reviewJobs.isRunning(), 'the job of the old route');
+        const busy = await call('POST', '/api/duplicates/ai-review', {});
+        assert.strictEqual(busy.status, 409, 'still one review at a time');
+        const refusal = await busy.json();
+        assert.ok(refusal.data.job.id, 'the refusal names the running job');
+
+        gate.open();
+        const response = await pending;
+        assert.strictEqual(response.status, 200);
+        const payload = await response.json();
+        assert.strictEqual(payload.success, true);
+        assert.strictEqual(
+          payload.data.aiReview.judged,
+          2,
+          'the body is what it always was'
+        );
+        assert.strictEqual(payload.data.groups.length, 2);
+      } finally {
+        gate.open();
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
+      }
+    });
+
+    await test('POST /api/duplicates/ai-review answers a stopped review with what it reached', async () => {
+      reviewJobs.reset();
+      entityMatchAiService.reviewScan = async (options, control) => {
+        control.onProgress({ phase: 'judging', requestsPlanned: 8 });
+        control.stop('token-budget');
+        const partial = reviewFixture();
+        partial.aiReview.stopped = true;
+        partial.aiReview.pairsNotJudged = 12;
+        return partial;
+      };
+      try {
+        const response = await call('POST', '/api/duplicates/ai-review', {});
+        assert.strictEqual(response.status, 200, 'a stop is not an error');
+        const payload = await response.json();
+        assert.strictEqual(payload.success, true);
+        assert.strictEqual(payload.data.aiReview.stopped, true);
+        assert.strictEqual(payload.data.aiReview.stopReason, 'token-budget');
+        assert.strictEqual(payload.data.aiReview.pairsNotJudged, 12);
+      } finally {
+        entityMatchAiService.reviewScan = realReviewScan;
+        reviewJobs.reset();
       }
     });
   } finally {

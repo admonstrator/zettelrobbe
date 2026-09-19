@@ -534,6 +534,18 @@ module.exports = {
   // Optional: a stronger model of the configured provider for the judge
   // only. Empty means the provider's configured model.
   duplicatesAiModel: (process.env.DUPLICATES_AI_MODEL || '').trim(),
+  // The two brakes of a running review. The token budget is the most one
+  // review may spend across all its requests before it stops itself (0 = no
+  // limit); the idle stop ends a review nobody has been watching for that
+  // many seconds (0 = never), so a closed tab cannot leave the model running.
+  duplicatesAiTokenBudget: parseInt(
+    process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+    10
+  ),
+  duplicatesAiIdleStopSeconds: parseInt(
+    process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
+    10
+  ),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:
