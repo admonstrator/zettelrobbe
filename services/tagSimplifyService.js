@@ -1264,7 +1264,7 @@ class TagSimplifyService {
    * shows it.
    *
    * @param {number} tagId
-   * @returns {Promise<{tagId:number, documents:number, withType:number, withDifferentType:number, typeId:number|null}>}
+   * @returns {Promise<{tagId:number, tagName:string, documents:number, withType:number, withDifferentType:number, typeId:number|null, typeSet:number, typeKept:number}>}
    */
   async proposalImpact(tagId) {
     const id = Number(tagId);
@@ -1308,12 +1308,26 @@ class TagSimplifyService {
         if (typeId == null || current !== typeId) withDifferentType += 1;
       }
       await this._storeDocumentsWithType(id, withDifferentType);
+      // What the apply would do with the type: every document with
+      // overwriteType, otherwise only those without one; a differing type is
+      // kept unless overwritten. Documents that already carry the proposed
+      // type are neither.
+      const overwrite = proposal.overwriteType === true;
+      const typeSet = !proposal.typeName
+        ? 0
+        : overwrite
+          ? documents.length
+          : documents.length - withType;
+      const typeKept = !proposal.typeName || overwrite ? 0 : withDifferentType;
       return {
         tagId: id,
+        tagName: proposal.tagName,
         documents: documents.length,
         withType,
         withDifferentType,
         typeId,
+        typeSet,
+        typeKept,
       };
     } catch (error) {
       throw this._asPaperlessError(error, `reading the documents of tag ${id}`);

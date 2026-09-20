@@ -13397,21 +13397,7 @@ router.patch(
  *                 success:
  *                   type: boolean
  *                 data:
- *                   type: object
- *                   properties:
- *                     tagId:
- *                       type: integer
- *                     tagName:
- *                       type: string
- *                     documents:
- *                       type: integer
- *                       description: documents that carry the tag
- *                     typeSet:
- *                       type: integer
- *                       description: documents whose document type would be set
- *                     typeKept:
- *                       type: integer
- *                       description: documents that carry a differing type and would keep it
+ *                   $ref: '#/components/schemas/TagSplitImpact'
  *       400:
  *         description: Invalid tag id
  *       401:

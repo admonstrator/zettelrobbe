@@ -687,11 +687,18 @@ async function main() {
       const impact = await service.proposalImpact(55);
       assert.deepStrictEqual(impact, {
         tagId: 55,
+        tagName: 'Stromrechnung',
         documents: 3,
         withType: 1,
         withDifferentType: 1,
         typeId: 7,
+        typeSet: 2,
+        typeKept: 1,
       });
+      await useProposal({ overwriteType: true });
+      const overwritten = await service.proposalImpact(55);
+      assert.strictEqual(overwritten.typeSet, 3, 'overwrite sets every type');
+      assert.strictEqual(overwritten.typeKept, 0, 'and keeps none');
       const stored = await documentModel.getTagSplitProposal(55);
       assert.strictEqual(
         stored.documentsWithType,

@@ -1319,6 +1319,34 @@
  *         status:
  *           type: string
  *           enum: [open, skipped]
+ *     TagSplitImpact:
+ *       type: object
+ *       description: What applying one proposal would do to the documents of the tag
+ *       properties:
+ *         tagId:
+ *           type: integer
+ *         tagName:
+ *           type: string
+ *         documents:
+ *           type: integer
+ *           description: documents that carry the tag and would get the topics
+ *         withType:
+ *           type: integer
+ *           description: documents that carry any document type today
+ *         withDifferentType:
+ *           type: integer
+ *           description: documents whose type differs from the proposed one
+ *         typeId:
+ *           type: integer
+ *           nullable: true
+ *           description: the proposed type's id in Paperless-ngx, null when it does not exist yet
+ *         typeSet:
+ *           type: integer
+ *           description: documents whose document type the apply would set
+ *         typeKept:
+ *           type: integer
+ *           description: documents that would keep a differing type (0 with overwriteType)
+ *
  *     TagSplitApplyRequest:
  *       type: object
  *       required: [tagIds]
