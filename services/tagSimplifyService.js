@@ -30,6 +30,19 @@
  *   runner and task name; they report progress through control.onProgress
  *   and honour control.signal like the judge does.
  *
+ * ## The proposed order (round 12)
+ *
+ * The page does not ask for a decision per tag any more, it asks for one per
+ * group. proposeOrder() is one job that proposes the vocabulary and then gives
+ * *every* tag one of four actions — split, merge, keep, delete — by rule first
+ * and by the model second. listGroups() derives the review from the stored
+ * rows: one group per document type, per topic, per merge target, plus the two
+ * buckets 'keep' and 'delete'. decideGroup() accepts, skips or reopens a whole
+ * group, removeGroupMember() takes one tag out of one group, and
+ * applyAccepted() writes what was accepted as a job: merges first (the merge
+ * service does them, so the log row and its undo are the ones the Duplicates
+ * page already knows), then splits, then deletes.
+ *
  * ## What the model is asked, and what happens without one
  *
  * Two questions, both optional. The vocabulary proposal reads every tag name
@@ -68,10 +81,23 @@ const PROPOSAL_STATUSES = Object.freeze([
 const PROPOSAL_ACTIONS = Object.freeze(['split', 'merge', 'keep', 'delete']);
 /** The kinds of group the order is shown in. */
 const GROUP_KINDS = Object.freeze(['type', 'topic', 'merge', 'keep', 'delete']);
+/**
+ * The order the page shows the kinds in: what the archive gains first, what
+ * it only tidies after that.
+ */
+const GROUP_KINDS_IN_ORDER = Object.freeze([
+  'type',
+  'topic',
+  'merge',
+  'delete',
+  'keep',
+]);
 /** What a group decision may be. */
 const GROUP_DECISIONS = Object.freeze(['accept', 'skip', 'reopen']);
 /** The log action of a split, shared with duplicateMergeService and the page. */
 const SPLIT_ACTION = 'split';
+/** The log action a deleted tag is written under, the same one the page knows. */
+const DELETE_ACTION = 'delete';
 /** Proposals one apply call may take. */
 const MAX_APPLY_TAGS = 200;
 /** Prefix of every line this service writes to the app log. */
@@ -237,6 +263,35 @@ function salvageObjects(text) {
   }
 
   return objects;
+}
+
+/** A tag name as the matcher compares it: one spelling for many. */
+function normalizedTagKey(name) {
+  return entityNameMatcher.normalizeName(String(name ?? ''), 'tags').asciiKey;
+}
+
+/**
+ * A group key as the page and the routes spell it: 'keep', 'delete' or
+ * '<kind>:<name>'. The name may itself contain a colon, so only the first one
+ * separates; it is compared exactly, spelling for spelling.
+ *
+ * @param {string} key
+ * @returns {{kind: string, name: string|null, key: string}|null}
+ */
+function parseGroupKey(key) {
+  const raw = String(key ?? '').trim();
+  if (raw === '') return null;
+  if (raw === 'keep' || raw === 'delete') {
+    return { kind: raw, name: null, key: raw };
+  }
+  const colon = raw.indexOf(':');
+  if (colon <= 0) return null;
+  const kind = raw.slice(0, colon);
+  const name = raw.slice(colon + 1);
+  if (!['type', 'topic', 'merge'].includes(kind) || name.trim() === '') {
+    return null;
+  }
+  return { kind, name, key: `${kind}:${name}` };
 }
 
 /** A model's reason, trimmed to what a table cell can show. */
@@ -1051,6 +1106,11 @@ class TagSimplifyService {
    * managed to write is kept, and an answer that salvaged nothing is asked
    * once more with a raised cap.
    *
+   * The proposed order asks a wider question of the same shape, so `prompt`
+   * and `build` let it reuse this: `label` names the request in the log,
+   * `prompt` writes the user prompt and `build` turns the answered items into
+   * rows.
+   *
    * @returns {Promise<object[]>} TagSplitProposal rows
    */
   async _splitChunk(
@@ -1060,15 +1120,24 @@ class TagSimplifyService {
     vocabulary,
     usage,
     control,
-    { cap: wanted = null, raises = 0 } = {}
+    {
+      cap: wanted = null,
+      raises = 0,
+      label = 'splits',
+      prompt = null,
+      build = null,
+    } = {}
   ) {
-    const userPrompt = this.buildSplitUserPrompt(tags);
+    const userPrompt =
+      typeof prompt === 'function'
+        ? prompt(tags)
+        : this.buildSplitUserPrompt(tags);
     const cap =
       wanted == null
         ? Math.max(MIN_COMPLETION_CAP, tags.length * TOKENS_PER_TAG)
         : wanted;
     usage.requests += 1;
-    const head = () => `splits: ${tags.length} tag(s), cap ${cap}`;
+    const head = () => `${label}: ${tags.length} tag(s), cap ${cap}`;
 
     let answer;
     let truncated = false;
@@ -1122,7 +1191,7 @@ class TagSimplifyService {
           vocabulary,
           usage,
           control,
-          { cap: cap * 2, raises: raises + 1 }
+          { cap: cap * 2, raises: raises + 1, label, prompt, build }
         );
       }
       if (salvaged.length === 0) {
@@ -1144,7 +1213,9 @@ class TagSimplifyService {
       items = salvaged;
     }
 
-    return this._modelProposals(items, tags, vocabulary);
+    return typeof build === 'function'
+      ? build(items, tags, vocabulary)
+      : this._modelProposals(items, tags, vocabulary);
   }
 
   /**
@@ -1473,24 +1544,39 @@ class TagSimplifyService {
   /**
    * One tag: read fresh, refuse what must not be split, write, log, delete.
    *
+   * Two actions take this path. A split gives the documents a document type
+   * and topic tags before the tag goes; a delete gives them nothing and is
+   * the same walk with an empty target, which is why it may not be refused
+   * for naming neither of the two. `context.statuses` says which proposals
+   * this run is allowed to take: the per-tag apply takes open ones, the
+   * apply job takes accepted ones.
+   *
    * @returns {Promise<object>} one entry of TagSplitApplyResult.applied
    */
   async _applyOne(tagId, context) {
     const { performedBy, configuredTagNames, vocabulary, mergeService } =
       context;
+    const statuses = Array.isArray(context.statuses)
+      ? context.statuses
+      : ['open'];
     const proposal = await documentModel.getTagSplitProposal(tagId);
     if (!proposal) {
       throw this._refusal(`There is no proposal for tag ${tagId}`);
     }
-    if (proposal.status !== 'open') {
+    if (!statuses.includes(proposal.status)) {
       throw this._refusal(
         proposal.status === 'applied'
           ? 'This proposal was already applied'
-          : 'This proposal is not open',
+          : `This proposal is not ${statuses.join(' or ')}`,
         proposal.tagName
       );
     }
-    if (!proposal.typeName && proposal.topicNames.length === 0) {
+    const isDelete = proposal.action === 'delete';
+    // A delete takes the tag off its documents and nothing else; the split's
+    // two targets are empty on purpose here.
+    const typeName = isDelete ? null : proposal.typeName;
+    const topicNames = isDelete ? [] : proposal.topicNames;
+    if (!isDelete && !typeName && topicNames.length === 0) {
       throw this._refusal(
         'The proposal names neither a document type nor a topic tag',
         proposal.tagName
@@ -1526,23 +1612,20 @@ class TagSimplifyService {
 
     let typeId = null;
     let createdTypeId = null;
-    if (proposal.typeName) {
+    if (typeName) {
       try {
-        const existing = await paperlessService.findDocumentTypeByExactName(
-          proposal.typeName
-        );
+        const existing =
+          await paperlessService.findDocumentTypeByExactName(typeName);
         if (existing) {
           typeId = Number(existing.id);
         } else {
-          const created = await paperlessService.createDocumentType(
-            proposal.typeName
-          );
+          const created = await paperlessService.createDocumentType(typeName);
           typeId = Number(created?.id);
           createdTypeId = typeId;
         }
       } catch (error) {
         throw this._refusal(
-          `the document type "${proposal.typeName}" could not be prepared: ${
+          `the document type "${typeName}" could not be prepared: ${
             error?.message || 'unknown error'
           }`,
           tagName
@@ -1550,13 +1633,13 @@ class TagSimplifyService {
       }
       if (!Number.isInteger(typeId)) {
         throw this._refusal(
-          `Paperless-ngx did not return an id for the document type "${proposal.typeName}"`,
+          `Paperless-ngx did not return an id for the document type "${typeName}"`,
           tagName
         );
       }
       await this._rememberVocabularyId(
         DIMENSIONS.TYPE,
-        proposal.typeName,
+        typeName,
         typeId,
         vocabulary
       );
@@ -1564,7 +1647,7 @@ class TagSimplifyService {
 
     const topicTagIds = [];
     const createdTagIds = [];
-    for (const topicName of proposal.topicNames) {
+    for (const topicName of topicNames) {
       let id;
       try {
         id = await this._topicTagId(topicName, vocabulary, createdTagIds);
@@ -1604,7 +1687,7 @@ class TagSimplifyService {
     }
 
     const details = {
-      typeName: proposal.typeName ?? null,
+      typeName: typeName ?? null,
       typeId,
       topicTagIds,
       createdTypeId,
@@ -1666,13 +1749,16 @@ class TagSimplifyService {
       );
     }
 
-    const targetName = [proposal.typeName, ...proposal.topicNames]
-      .filter(Boolean)
-      .join(' + ');
+    // A delete has no target at all; the column is NOT NULL, so the empty
+    // string is what deleteUnused() writes for one too.
+    const targetName = isDelete
+      ? ''
+      : [typeName, ...topicNames].filter(Boolean).join(' + ');
     const status = deleted ? 'done' : 'partial';
     const logId = await documentModel.addEntityMerge({
       kind: 'tags',
-      // A split has no survivor; the row is about the tag it took apart.
+      // Neither a split nor a delete has a survivor; the row is about the
+      // tag it took apart or removed.
       targetId: 0,
       targetName,
       targetBefore: null,
@@ -1696,7 +1782,7 @@ class TagSimplifyService {
       copiedMatchingRule: false,
       status,
       performedBy,
-      action: SPLIT_ACTION,
+      action: isDelete ? DELETE_ACTION : SPLIT_ACTION,
       details,
     });
 
@@ -1715,17 +1801,21 @@ class TagSimplifyService {
     await documentModel.updateTagSplitProposal(tagId, { status: 'applied' });
 
     this._log(
-      `split tag ${tagId} "${tagName}": ${documents.length} document(s)` +
-        (proposal.typeName
-          ? ` → type "${proposal.typeName}" (${typeSetIds.length} set, ${typeKept} kept)`
-          : ' → no document type') +
-        `, tags ${proposal.topicNames.join(', ') || '(none)'}; ` +
-        `${deleted ? 'tag deleted' : 'tag kept'}.`
+      isDelete
+        ? `deleted tag ${tagId} "${tagName}": ${documents.length} document(s) lost it; ` +
+            `${deleted ? 'tag deleted' : 'tag kept'}.`
+        : `split tag ${tagId} "${tagName}": ${documents.length} document(s)` +
+            (typeName
+              ? ` → type "${typeName}" (${typeSetIds.length} set, ${typeKept} kept)`
+              : ' → no document type') +
+            `, tags ${topicNames.join(', ') || '(none)'}; ` +
+            `${deleted ? 'tag deleted' : 'tag kept'}.`
     );
 
     return {
       tagId: Number(tagId),
       tagName,
+      action: isDelete ? DELETE_ACTION : SPLIT_ACTION,
       logId,
       documentsUpdated: documents.length,
       typeSet: typeSetIds.length,
@@ -2071,6 +2161,59 @@ class TagSimplifyService {
   /* --- The proposed order (round 12) ------------------------------------ */
 
   /**
+   * What the model is told about the order: the four actions, the vocabulary
+   * it may use, and that it is looking at names, not at documents.
+   *
+   * @param {{types: object[], topics: object[]}} vocabulary
+   * @returns {string}
+   */
+  buildOrderSystemPrompt(vocabulary) {
+    const typeNames = vocabulary.types.map((entry) => entry.name);
+    const topicNames = vocabulary.topics.map((entry) => entry.name);
+    return [
+      'You are given tag names of one personal document archive (Paperless-ngx).',
+      'The archive grew one tag per idea. The order it should end up with has two dimensions: the kind of a document belongs in its document type, what the document is about belongs in a tag.',
+      'Give every tag exactly one action:',
+      '"split" — the name presses a kind of document and a subject into one word ("Stromrechnung"). Name the "type" and the "topics" it stands for.',
+      '"merge" — the name is another spelling of another tag of this request. Name that tag in "mergeInto", copied exactly.',
+      '"keep" — the name is already a plain subject and stands on its own.',
+      '"delete" — the name carries no meaning worth a tag: a note to self, a leftover, a word that says nothing about the documents.',
+      '',
+      `The document types you may use: ${typeNames.join(', ') || '(none)'}.`,
+      `The topics you may use: ${topicNames.join(', ') || '(none)'}.`,
+      '',
+      'Use those names and no others. Never invent a type or a topic, and never answer with a name that is not in the two lists above.',
+      'Copy the names exactly as they are spelled in the lists.',
+      '"mergeInto" is the name of another tag of this request, copied exactly; never a type and never a topic.',
+      'You are given names and document counts, not documents. Judge by the name, and never guess what is inside a document.',
+      '"confidence" is "high" when the name plainly says it and "low" when you had to guess.',
+      '"reason" is at most twelve words.',
+      '',
+      'Answer with a JSON array and nothing else — no prose, no explanation, no code fence:',
+      '[{"id": "12", "action": "split", "type": "Rechnung", "topics": ["Strom"], "mergeInto": null, "confidence": "high", "reason": "<at most twelve words>"}]',
+      'Answer every tag you were given exactly once, with the id copied as it was given.',
+    ].join('\n');
+  }
+
+  /** The tags of one order request: id, name and how many documents carry it. */
+  buildOrderUserPrompt(tags) {
+    return [
+      `Tags: ${tags.length}`,
+      '[',
+      tags
+        .map((tag) =>
+          JSON.stringify({
+            id: String(tag.id),
+            name: String(tag.name ?? ''),
+            documents: Number(tag.documentCount) || 0,
+          })
+        )
+        .join(',\n'),
+      ']',
+    ].join('\n');
+  }
+
+  /**
    * One job for the whole order: reads every tag and every document type,
    * proposes the vocabulary itself (or keeps the saved one when
    * options.vocabulary is 'keep'), and gives every tag one action — split,
@@ -2082,10 +2225,459 @@ class TagSimplifyService {
    * @returns {Promise<{ vocabulary: object, proposals: number, byRule: number, byModel: number, requests: number, tokens: number, groups: number, stopped: boolean }>}
    */
   async proposeOrder(options = {}, control = {}) {
-    void options;
-    void control;
-    throw new SimplifyError('The order proposal is not available yet', 501);
+    const config = this._config();
+    const mode = options?.vocabulary === 'keep' ? 'keep' : 'propose';
+    const usage = { requests: 0, tokens: 0, failedRequests: 0 };
+
+    const vocabulary = await this._orderVocabulary(mode, usage, control);
+
+    let tags;
+    try {
+      tags = await paperlessService.listEntities('tags');
+    } catch (error) {
+      throw this._asPaperlessError(error, 'reading the tags');
+    }
+    const named = tags.filter((tag) => String(tag?.name ?? '').trim() !== '');
+
+    const mergeService = this._mergeService();
+    const rules = {
+      mergeService,
+      configuredTagNames: mergeService.configuredTagNames(),
+      topicKeys: new Set(
+        vocabulary.topics.map((entry) => normalizedTagKey(entry.name))
+      ),
+    };
+
+    const proposals = new Map();
+    const unsettled = [];
+    for (const tag of named) {
+      const settled = this._ruleAction(tag, named, vocabulary, rules);
+      if (settled) proposals.set(Number(tag.id), settled);
+      else unsettled.push(tag);
+    }
+    const settledByRule = proposals.size;
+
+    const withModel = unsettled.length > 0 && this.hasProvider();
+    const perRequest = Math.max(1, Number(config.simplifyTagsPerRequest) || 50);
+    const chunks = withModel ? chunkList(unsettled, perRequest) : [];
+    // The vocabulary proposal made requests of its own; the job's counters
+    // carry on from there instead of starting again.
+    const baseRequests = usage.requests;
+    const planned = baseRequests + chunks.length;
+
+    this._report(control, {
+      phase: PHASES.ORDERING,
+      kind: 'tags',
+      requestsDone: baseRequests,
+      requestsPlanned: planned,
+      pairsTotal: named.length,
+      pairsJudged: settledByRule,
+      tokens: usage.tokens,
+      message: this._splitMessage(
+        settledByRule,
+        named.length,
+        unsettled.length,
+        chunks.length,
+        0
+      ),
+    });
+
+    if (chunks.length > 0) {
+      const service = this._provider();
+      const systemPrompt = this.buildOrderSystemPrompt(vocabulary);
+      const index = new Map();
+      for (const tag of named) {
+        const key = normalizedTagKey(tag.name);
+        if (key !== '' && !index.has(key)) index.set(key, tag);
+      }
+      for (let request = 0; request < chunks.length; request += 1) {
+        if (this._stopped(control)) break;
+        this._report(control, {
+          phase: PHASES.ORDERING,
+          message: this._splitMessage(
+            settledByRule,
+            named.length,
+            unsettled.length,
+            chunks.length,
+            request + 1
+          ),
+          requestsDone: usage.requests,
+          requestsPlanned: planned,
+          tokens: usage.tokens,
+        });
+        const answered = await this._splitChunk(
+          service,
+          systemPrompt,
+          chunks[request],
+          vocabulary,
+          usage,
+          control,
+          {
+            label: 'order',
+            prompt: (chunk) => this.buildOrderUserPrompt(chunk),
+            build: (items, chunk, vocab) =>
+              this._orderProposals(items, chunk, vocab, index),
+          }
+        );
+        for (const row of answered) proposals.set(row.tagId, row);
+        this._report(control, {
+          phase: PHASES.ORDERING,
+          requestsDone: usage.requests,
+          requestsPlanned: planned,
+          pairsJudged: proposals.size,
+          tokens: usage.tokens,
+          failedRequests: usage.failedRequests,
+        });
+        this._checkTokenBudget(control, usage);
+      }
+    }
+
+    // Every tag ends up with an action. What neither the rule nor the model
+    // settled stays as it is rather than disappearing from the review.
+    for (const tag of named) {
+      if (proposals.has(Number(tag.id))) continue;
+      proposals.set(
+        Number(tag.id),
+        this._orderRow(tag, {
+          action: 'keep',
+          confidence: 'low',
+          reason: withModel
+            ? 'the model did not answer for this tag'
+            : 'nothing in the vocabulary accounts for this name',
+        })
+      );
+    }
+
+    const rows = [...proposals.values()].sort((a, b) =>
+      String(a.tagName).localeCompare(String(b.tagName), undefined, {
+        sensitivity: 'base',
+      })
+    );
+    await documentModel.replaceTagSplitProposals(rows);
+
+    const count = (action) =>
+      rows.filter((row) => row.action === action).length;
+    const byRule = rows.filter((row) => row.source === 'rule').length;
+    const byModel = rows.filter((row) => row.source === 'model').length;
+    const groups = (await this.listGroups()).groups.length;
+
+    this._log(
+      `order proposed: ${rows.length} tag(s): ${count('split')} split, ` +
+        `${count('merge')} merge, ${count('keep')} keep, ${count('delete')} delete; ` +
+        `${byRule} by rule, ${byModel} by the model in ${usage.requests} request(s).`
+    );
+    if (!withModel && unsettled.length > 0) {
+      this._log(
+        'no AI provider is configured; the tags the rule could not settle are kept.'
+      );
+    }
+
+    return {
+      vocabulary,
+      proposals: rows.length,
+      byRule,
+      byModel,
+      requests: usage.requests,
+      tokens: usage.tokens,
+      groups,
+      stopped: this._stopped(control),
+    };
   }
+
+  /**
+   * The vocabulary the order is built against: the saved one, or one the
+   * model proposes from every tag name and that is saved before the tags are
+   * read. Without a provider the saved one is all there is.
+   *
+   * @param {'propose'|'keep'} mode
+   * @param {{requests: number, tokens: number}} usage
+   * @param {object} control
+   * @returns {Promise<{types: object[], topics: object[]}>}
+   */
+  async _orderVocabulary(mode, usage, control) {
+    const saved = await this.getVocabulary();
+    const isEmpty = (entry) =>
+      entry.types.length === 0 && entry.topics.length === 0;
+
+    if (mode === 'keep') {
+      if (isEmpty(saved)) {
+        throw new SimplifyError(
+          'There is no saved vocabulary; let this run propose one',
+          409
+        );
+      }
+      this._report(control, {
+        phase: PHASES.VOCABULARY,
+        kind: 'tags',
+        message: `Using the saved vocabulary: ${saved.types.length} type(s), ${saved.topics.length} topic(s).`,
+      });
+      return saved;
+    }
+
+    if (!this.hasProvider()) {
+      if (isEmpty(saved)) {
+        throw new SimplifyError('The AI provider is not configured', 409);
+      }
+      this._log(
+        'no AI provider is configured; the saved vocabulary is used as it is.'
+      );
+      return saved;
+    }
+
+    const proposed = await this.proposeVocabulary({}, control);
+    usage.requests += Number(proposed.requests) || 0;
+    usage.tokens += Number(proposed.tokens) || 0;
+    if (proposed.types.length === 0 && proposed.topics.length === 0) {
+      if (isEmpty(saved)) {
+        throw new SimplifyError(
+          'The model proposed no vocabulary to order the tags by',
+          409
+        );
+      }
+      this._log(
+        'the model proposed no vocabulary; the saved one is used as it is.'
+      );
+      return saved;
+    }
+    return this.saveVocabulary({
+      types: proposed.types,
+      topics: proposed.topics,
+      source: 'model',
+    });
+  }
+
+  /**
+   * One proposal row with the defaults of the order, overwritten by what the
+   * rule or the model decided.
+   *
+   * @param {object} tag  EntityRecord
+   * @param {object} row
+   * @returns {object} a TagSplitProposal row
+   */
+  _orderRow(tag, row = {}) {
+    const defaults = {
+      tagId: Number(tag.id),
+      tagName: String(tag.name ?? ''),
+      documentCount: Number(tag.documentCount) || 0,
+      action: 'keep',
+      mergeInto: null,
+      typeName: null,
+      topicNames: [],
+      source: 'rule',
+      confidence: 'high',
+      reason: null,
+      documentsWithType: 0,
+      overwriteType: false,
+      status: 'open',
+    };
+    return { ...defaults, ...row, reason: toReason(row.reason) };
+  }
+
+  /**
+   * What the rule alone makes of one tag, or null when only the model can
+   * say.
+   *
+   * The order of the questions is the point. What must not be touched is
+   * settled first, so neither the inbox tag nor a tag the settings name nor
+   * the target vocabulary itself is ever proposed for deletion; only then
+   * does an empty tag become one.
+   *
+   * @param {object} tag  EntityRecord
+   * @param {object[]} tags  every tag of the archive, for the spelling match
+   * @param {{types: object[], topics: object[]}} vocabulary
+   * @param {{mergeService: object, configuredTagNames: string[], topicKeys: Set<string>}} rules
+   * @returns {object|null} a TagSplitProposal row
+   */
+  _ruleAction(tag, tags, vocabulary, rules) {
+    const name = String(tag.name ?? '');
+    if (tag.isInboxTag) {
+      return this._orderRow(tag, { reason: 'the inbox tag' });
+    }
+    if (
+      rules.mergeService.isConfiguredTagName(rules.configuredTagNames, name)
+    ) {
+      return this._orderRow(tag, { reason: 'the settings refer to this tag' });
+    }
+    if (tag.userCanChange === false) {
+      return this._orderRow(tag, {
+        reason: 'the API token may not change it',
+      });
+    }
+    if (rules.topicKeys.has(normalizedTagKey(name))) {
+      return this._orderRow(tag, { reason: 'a topic of the vocabulary' });
+    }
+    if ((Number(tag.documentCount) || 0) === 0) {
+      return this._orderRow(tag, { action: 'delete', reason: 'no documents' });
+    }
+
+    const decomposed = entityNameMatcher.decomposeCompound(name, vocabulary);
+    if (decomposed && decomposed.score >= 1) {
+      return this._ruleSplit(tag, decomposed);
+    }
+
+    const match = this._hardMatch(tag, tags);
+    if (match) {
+      return this._orderRow(tag, {
+        action: 'merge',
+        mergeInto: String(match.entity.name),
+        reason: `another spelling of "${match.entity.name}" (${match.reason})`,
+      });
+    }
+
+    if (decomposed && decomposed.score >= 0.7) {
+      return this._ruleSplit(tag, decomposed);
+    }
+    return null;
+  }
+
+  /** The split row a decomposition is worth, with the reason it already has. */
+  _ruleSplit(tag, decomposed) {
+    return this._orderRow(tag, {
+      action: 'split',
+      typeName: decomposed.type,
+      topicNames: [...decomposed.topics],
+      confidence: decomposed.score >= 1 ? 'high' : 'low',
+      reason: this._ruleReason(decomposed),
+    });
+  }
+
+  /**
+   * The tag this one is only another spelling of, when that other tag is the
+   * one to keep. The matcher's hard tiers are the same word in another
+   * spelling (case, umlauts, legal form, plural, word order); prefix and
+   * fuzzy are not, and are left to the model.
+   *
+   * The tag with more documents survives; a tie goes to the shorter name and
+   * then to the lower id, so both tags of a pair reach the same verdict and
+   * two tags never merge into each other.
+   *
+   * @returns {{entity: object, reason: string, score: number}|null}
+   */
+  _hardMatch(tag, tags) {
+    const others = tags.filter((other) => Number(other.id) !== Number(tag.id));
+    const best = entityNameMatcher.bestMatch(String(tag.name ?? ''), others, {
+      kind: 'tags',
+    });
+    if (!best || !entityNameMatcher.HARD_REASONS.includes(best.reason)) {
+      return null;
+    }
+    return this._mergeSurvivor(tag, best.entity) === tag ? null : best;
+  }
+
+  /** Which of two tags of a hard pair is the one to keep. */
+  _mergeSurvivor(a, b) {
+    const documentsA = Number(a.documentCount) || 0;
+    const documentsB = Number(b.documentCount) || 0;
+    if (documentsA !== documentsB) return documentsA > documentsB ? a : b;
+    const nameA = String(a.name ?? '');
+    const nameB = String(b.name ?? '');
+    if (nameA.length !== nameB.length)
+      return nameA.length < nameB.length ? a : b;
+    return Number(a.id) <= Number(b.id) ? a : b;
+  }
+
+  /**
+   * The rows one order answer is worth. Ids the request did not carry are
+   * dropped; a type or topic outside the vocabulary, a merge target that is
+   * no tag and an action nobody offered turn the row into 'keep' with a note
+   * in the reason rather than into a write to Paperless-ngx later.
+   *
+   * @param {object[]} items  what the model answered
+   * @param {object[]} tags   the tags of this request
+   * @param {{types: object[], topics: object[]}} vocabulary
+   * @param {Map<string, object>} index  every tag of the archive by name key
+   * @returns {object[]} TagSplitProposal rows
+   */
+  _orderProposals(items, tags, vocabulary, index) {
+    const byId = new Map(tags.map((tag) => [String(tag.id), tag]));
+    const nameOf = (entries, value) => {
+      const wanted = normalizedTagKey(value);
+      if (wanted === '') return null;
+      const found = entries.find(
+        (entry) => normalizedTagKey(entry.name) === wanted
+      );
+      return found ? found.name : null;
+    };
+
+    const rows = [];
+    const answered = new Set();
+    for (const item of Array.isArray(items) ? items : []) {
+      const id = String(item?.id ?? '').trim();
+      const tag = byId.get(id);
+      if (!tag || answered.has(id)) continue;
+      answered.add(id);
+
+      const notes = [];
+      let action = String(item?.action ?? '')
+        .trim()
+        .toLowerCase();
+      if (!PROPOSAL_ACTIONS.includes(action)) {
+        notes.push(
+          action === ''
+            ? 'the model named no action'
+            : `unknown action "${action.slice(0, 40)}"`
+        );
+        action = 'keep';
+      }
+
+      let typeName = null;
+      const topicNames = [];
+      let mergeInto = null;
+      if (action === 'split') {
+        const dropped = [];
+        if (item?.type != null && String(item.type).trim() !== '') {
+          typeName = nameOf(vocabulary.types, item.type);
+          if (!typeName) dropped.push(String(item.type).trim());
+        }
+        for (const value of Array.isArray(item?.topics) ? item.topics : []) {
+          const name = nameOf(vocabulary.topics, value);
+          if (!name) {
+            const raw = String(value ?? '').trim();
+            if (raw !== '') dropped.push(raw);
+            continue;
+          }
+          if (!topicNames.includes(name)) topicNames.push(name);
+        }
+        if (dropped.length > 0) {
+          notes.push(`not in the vocabulary: ${dropped.join(', ')}`);
+        }
+        if (!typeName && topicNames.length === 0) {
+          notes.push('nothing to split it into');
+          action = 'keep';
+        }
+      } else if (action === 'merge') {
+        const wanted = String(item?.mergeInto ?? '').trim();
+        const target = index.get(normalizedTagKey(wanted));
+        if (!target || Number(target.id) === Number(tag.id)) {
+          notes.push(
+            wanted === ''
+              ? 'the model named no tag to merge into'
+              : `no other tag is called "${wanted.slice(0, 60)}"`
+          );
+          action = 'keep';
+        } else {
+          mergeInto = String(target.name);
+        }
+      }
+
+      let reason = toReason(item?.reason) || 'proposed by the model';
+      if (notes.length > 0) reason = `${reason} (${notes.join('; ')})`;
+      rows.push(
+        this._orderRow(tag, {
+          action,
+          typeName,
+          topicNames,
+          mergeInto,
+          source: 'model',
+          confidence: item?.confidence === 'high' ? 'high' : 'low',
+          reason,
+        })
+      );
+    }
+    return rows;
+  }
+
+  /* --- The groups ------------------------------------------------------- */
 
   /**
    * The stored proposals as groups: one per document type (kind 'type', the
@@ -2097,7 +2689,96 @@ class TagSimplifyService {
    * @returns {Promise<{ groups: object[], tags: number, open: number, accepted: number, applied: number, skipped: number }>}
    */
   async listGroups() {
-    throw new SimplifyError('The group view is not available yet', 501);
+    const proposals = await documentModel.listTagSplitProposals();
+    return this._groupsOf(proposals);
+  }
+
+  /**
+   * The groups a list of proposals makes, in the order the page shows them:
+   * the kinds in the order type, topic, merge, delete, keep, inside a kind
+   * the biggest by documents first, and inside a group the same.
+   *
+   * @param {object[]} proposals
+   * @returns {{groups: object[], tags: number, open: number, accepted: number, applied: number, skipped: number}}
+   */
+  _groupsOf(proposals) {
+    const totals = { tags: 0, open: 0, accepted: 0, applied: 0, skipped: 0 };
+    const groups = new Map();
+    const add = (kind, name, member) => {
+      const key = name == null ? kind : `${kind}:${name}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          key,
+          kind,
+          name,
+          tags: 0,
+          documents: 0,
+          open: 0,
+          accepted: 0,
+          applied: 0,
+          skipped: 0,
+          members: [],
+        };
+        groups.set(key, group);
+      }
+      group.members.push(member);
+      group.tags += 1;
+      group.documents += member.documentCount;
+      if (PROPOSAL_STATUSES.includes(member.status)) {
+        group[member.status] += 1;
+      }
+    };
+
+    for (const proposal of Array.isArray(proposals) ? proposals : []) {
+      const member = {
+        tagId: Number(proposal.tagId),
+        tagName: String(proposal.tagName ?? ''),
+        documentCount: Number(proposal.documentCount) || 0,
+        action: proposal.action || 'split',
+        typeName: proposal.typeName ?? null,
+        topicNames: Array.isArray(proposal.topicNames)
+          ? [...proposal.topicNames]
+          : [],
+        mergeInto: proposal.mergeInto ?? null,
+        source: proposal.source || 'rule',
+        confidence: proposal.confidence ?? null,
+        reason: proposal.reason ?? null,
+        status: proposal.status || 'open',
+      };
+      totals.tags += 1;
+      if (PROPOSAL_STATUSES.includes(member.status)) {
+        totals[member.status] += 1;
+      }
+
+      if (member.action === 'split') {
+        if (member.typeName) add('type', member.typeName, member);
+        for (const topic of member.topicNames) add('topic', topic, member);
+      } else if (member.action === 'merge') {
+        if (member.mergeInto) add('merge', member.mergeInto, member);
+      } else if (member.action === 'delete') {
+        add('delete', null, member);
+      } else {
+        add('keep', null, member);
+      }
+    }
+
+    const byName = (a, b) =>
+      String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+    const list = [...groups.values()].sort(
+      (a, b) =>
+        GROUP_KINDS_IN_ORDER.indexOf(a.kind) -
+          GROUP_KINDS_IN_ORDER.indexOf(b.kind) ||
+        b.documents - a.documents ||
+        byName(a.name ?? a.kind, b.name ?? b.kind)
+    );
+    for (const group of list) {
+      group.members.sort(
+        (a, b) =>
+          b.documentCount - a.documentCount || byName(a.tagName, b.tagName)
+      );
+    }
+    return { groups: list, ...totals };
   }
 
   /**
@@ -2110,9 +2791,42 @@ class TagSimplifyService {
    * @returns {Promise<{ key: string, changed: number, group: object|null }>}
    */
   async decideGroup(key, decision) {
-    void key;
-    void decision;
-    throw new SimplifyError('Group decisions are not available yet', 501);
+    if (!GROUP_DECISIONS.includes(decision)) {
+      throw new SimplifyError(
+        `decision must be one of ${GROUP_DECISIONS.join(', ')}`,
+        400
+      );
+    }
+    const parsed = parseGroupKey(key);
+    const before = parsed ? await this.listGroups() : null;
+    const group =
+      before?.groups.find((entry) => entry.key === parsed.key) || null;
+    if (!group) {
+      throw new SimplifyError(`There is no group "${String(key ?? '')}"`, 404);
+    }
+
+    const moves = {
+      accept: { from: ['open', 'skipped'], to: 'accepted' },
+      skip: { from: ['open', 'accepted'], to: 'skipped' },
+      reopen: { from: ['accepted', 'skipped'], to: 'open' },
+    }[decision];
+    const tagIds = group.members
+      .filter((member) => moves.from.includes(member.status))
+      .map((member) => member.tagId);
+    const changed =
+      tagIds.length > 0
+        ? await documentModel.setTagSplitProposalStatus(tagIds, moves.to)
+        : 0;
+    this._log(
+      `group "${group.key}": ${decision}, ${changed} of ${group.tags} tag(s) changed.`
+    );
+
+    const after = await this.listGroups();
+    return {
+      key: group.key,
+      changed,
+      group: after.groups.find((entry) => entry.key === group.key) || null,
+    };
   }
 
   /**
@@ -2126,25 +2840,303 @@ class TagSimplifyService {
    * @returns {Promise<object>} the patched proposal
    */
   async removeGroupMember(key, tagId) {
-    void key;
-    void tagId;
-    throw new SimplifyError('Group edits are not available yet', 501);
+    const parsed = parseGroupKey(key);
+    if (!parsed) {
+      throw new SimplifyError(`There is no group "${String(key ?? '')}"`, 404);
+    }
+    const id = Number(tagId);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new SimplifyError('Unknown tag', 404);
+    }
+    const proposal = await documentModel.getTagSplitProposal(id);
+    if (!proposal) {
+      throw new SimplifyError(`There is no proposal for tag ${id}`, 404);
+    }
+    if (!this._isGroupMember(parsed, proposal)) {
+      throw new SimplifyError(
+        `Tag ${id} is not in the group "${parsed.key}"`,
+        404
+      );
+    }
+    if (proposal.status === 'applied') {
+      throw new SimplifyError('This proposal was already applied', 409);
+    }
+    if (parsed.kind === 'keep') {
+      throw new SimplifyError(
+        'A tag that is kept is already out of everything',
+        400
+      );
+    }
+
+    let action = proposal.action || 'split';
+    let typeName = proposal.typeName ?? null;
+    let topicNames = [...proposal.topicNames];
+    let mergeInto = proposal.mergeInto ?? null;
+    if (parsed.kind === 'type') {
+      typeName = null;
+    } else if (parsed.kind === 'topic') {
+      topicNames = topicNames.filter((name) => name !== parsed.name);
+    } else {
+      action = 'keep';
+    }
+    if (action === 'split' && !typeName && topicNames.length === 0) {
+      action = 'keep';
+    }
+    if (action === 'keep') {
+      typeName = null;
+      topicNames = [];
+      mergeInto = null;
+    }
+
+    const patched = await this.updateProposal(id, {
+      action,
+      typeName,
+      topicNames,
+      mergeInto,
+    });
+    this._log(
+      `group "${parsed.key}": tag ${id} "${patched.tagName}" taken out, it is now "${patched.action}".`
+    );
+    return patched;
   }
+
+  /** True when a proposal is shown in the given group. */
+  _isGroupMember(parsed, proposal) {
+    const action = proposal.action || 'split';
+    if (parsed.kind === 'keep') return action === 'keep';
+    if (parsed.kind === 'delete') return action === 'delete';
+    if (parsed.kind === 'merge') {
+      return action === 'merge' && proposal.mergeInto === parsed.name;
+    }
+    if (parsed.kind === 'type') {
+      return action === 'split' && proposal.typeName === parsed.name;
+    }
+    return (
+      action === 'split' &&
+      Array.isArray(proposal.topicNames) &&
+      proposal.topicNames.includes(parsed.name)
+    );
+  }
+
+  /* --- Applying the order ----------------------------------------------- */
 
   /**
    * Applies every accepted proposal (or those of one group when
-   * request.groupKey is set), one tag after the other: splits and deletes
-   * through applySplits, merges through duplicateMergeService.merge. Runs as
-   * a job with task 'apply'; the result has the shape of TagOrderApplyResult.
+   * request.groupKey is set), one tag after the other: merges first, then
+   * splits, then deletes, because a merge that feeds a split must happen
+   * before it. Runs as a job with task 'apply'; the result has the shape of
+   * TagOrderApplyResult. A stop between two tags leaves the rest accepted.
    *
    * @param {{ groupKey?: string|null, performedBy?: string|null }} request
    * @param {object} control
    * @returns {Promise<{ applied: object[], merged: object[], failed: object[], stopped: boolean }>}
    */
   async applyAccepted(request = {}, control = {}) {
-    void request;
-    void control;
-    throw new SimplifyError('Applying the order is not available yet', 501);
+    if (global.__paperlessAiScanControl?.running) {
+      throw new SimplifyError(
+        'A document scan is running. Wait until it has finished.',
+        409
+      );
+    }
+    const performedBy = request.performedBy ?? null;
+    const wanted =
+      request.groupKey == null || String(request.groupKey).trim() === ''
+        ? null
+        : String(request.groupKey);
+
+    let accepted = await documentModel.listTagSplitProposals({
+      status: 'accepted',
+    });
+    let groupKey = null;
+    if (wanted !== null) {
+      const parsed = parseGroupKey(wanted);
+      const group = parsed
+        ? (await this.listGroups()).groups.find(
+            (entry) => entry.key === parsed.key
+          )
+        : null;
+      if (!group) {
+        throw new SimplifyError(`There is no group "${wanted}"`, 404);
+      }
+      groupKey = group.key;
+      const ids = new Set(group.members.map((member) => member.tagId));
+      accepted = accepted.filter((proposal) => ids.has(proposal.tagId));
+    }
+
+    // 'keep' is a decision not to write anything; it never reaches the API.
+    const order = { merge: 0, split: 1, delete: 2 };
+    const todo = accepted
+      .filter((proposal) => order[proposal.action] != null)
+      .sort(
+        (a, b) =>
+          order[a.action] - order[b.action] ||
+          b.documentCount - a.documentCount ||
+          String(a.tagName).localeCompare(String(b.tagName), undefined, {
+            sensitivity: 'base',
+          })
+      );
+
+    const mergeService = this._mergeService();
+    const context = {
+      performedBy,
+      configuredTagNames: mergeService.configuredTagNames(),
+      vocabulary: await this.getVocabulary(),
+      mergeService,
+      statuses: ['accepted'],
+      tags: null,
+    };
+    const startedAt = Date.now();
+    this._log(
+      `order apply started: ${todo.length} accepted proposal(s)` +
+        `${groupKey ? ` of the group "${groupKey}"` : ''}.`
+    );
+    this._report(control, {
+      phase: PHASES.APPLYING,
+      kind: 'tags',
+      requestsDone: 0,
+      requestsPlanned: 0,
+      pairsTotal: todo.length,
+      pairsJudged: 0,
+      tokens: 0,
+      message:
+        todo.length === 0
+          ? 'Nothing is accepted.'
+          : `Applying ${todo.length} tag(s)…`,
+    });
+
+    const applied = [];
+    const merged = [];
+    const failed = [];
+    let stopped = false;
+    let done = 0;
+    for (const proposal of todo) {
+      if (this._stopped(control)) {
+        stopped = true;
+        break;
+      }
+      this._report(control, {
+        phase: PHASES.APPLYING,
+        pairsTotal: todo.length,
+        pairsJudged: done,
+        message: `Applying ${done + 1} of ${todo.length}: ${proposal.tagName}…`,
+      });
+      try {
+        if (proposal.action === 'merge') {
+          merged.push(await this._applyMerge(proposal, context));
+        } else {
+          applied.push(await this._applyOne(proposal.tagId, context));
+        }
+      } catch (error) {
+        failed.push({
+          tagId: Number(proposal.tagId),
+          tagName: error?.tagName || proposal.tagName,
+          error: error?.message || 'unknown error',
+        });
+        this._log(
+          `${proposal.action} tag ${proposal.tagId} "${proposal.tagName}": refused, ` +
+            `${error?.message || 'unknown error'}.`
+        );
+      }
+      done += 1;
+      this._report(control, {
+        phase: PHASES.APPLYING,
+        pairsTotal: todo.length,
+        pairsJudged: done,
+      });
+    }
+
+    const deleted = applied.filter(
+      (entry) => entry.action === DELETE_ACTION
+    ).length;
+    if (applied.length > 0) {
+      // A merge drops the caches itself; a split or a delete does not.
+      mergeService.afterWrite('split');
+    }
+    this._log(
+      `order applied: ${applied.length - deleted} split, ${merged.length} merged, ` +
+        `${deleted} deleted, ${failed.length} failed, in ${(
+          (Date.now() - startedAt) /
+          1000
+        ).toFixed(1)}s.`
+    );
+    return { applied, merged, failed, stopped };
+  }
+
+  /**
+   * One merge of the order: the target is looked up by name in Paperless-ngx
+   * (the proposal only remembers a name), and the merge service does the
+   * rest, so the row in the log and its undo are the ones the Duplicates page
+   * already knows.
+   *
+   * @returns {Promise<{tagId:number, tagName:string, targetId:number, targetName:string, logId:number|null, documentsUpdated:number}>}
+   */
+  async _applyMerge(proposal, context) {
+    const name = String(proposal.mergeInto ?? '').trim();
+    if (name === '') {
+      throw this._refusal(
+        'The proposal names no tag to merge into',
+        proposal.tagName
+      );
+    }
+    if (context.tags === null) {
+      try {
+        context.tags = await context.mergeService.listEntities('tags');
+      } catch (error) {
+        throw this._refusal(
+          `the tags could not be read: ${error?.message || 'unknown error'}`,
+          proposal.tagName
+        );
+      }
+    }
+    const wanted = normalizedTagKey(name);
+    const target =
+      context.tags.find((entity) => String(entity.name) === name) ||
+      context.tags.find((entity) => normalizedTagKey(entity.name) === wanted);
+    if (!target) {
+      throw this._refusal(
+        `There is no tag called "${name}" in Paperless-ngx`,
+        proposal.tagName
+      );
+    }
+    if (Number(target.id) === Number(proposal.tagId)) {
+      throw this._refusal(
+        'A tag cannot be merged into itself',
+        proposal.tagName
+      );
+    }
+
+    const result = await context.mergeService.merge({
+      kind: 'tags',
+      targetId: Number(target.id),
+      sourceIds: [Number(proposal.tagId)],
+      performedBy: context.performedBy,
+    });
+    const source = (Array.isArray(result?.sources) ? result.sources : [])[0];
+    if (!source || !source.deleted) {
+      throw this._refusal(
+        source?.error || 'The tag was not merged',
+        proposal.tagName
+      );
+    }
+    await documentModel.updateTagSplitProposal(proposal.tagId, {
+      status: 'applied',
+    });
+    // The tag is gone; the next merge of this run must not find it again.
+    context.tags = context.tags.filter(
+      (entity) => Number(entity.id) !== Number(proposal.tagId)
+    );
+    this._log(
+      `merged tag ${proposal.tagId} "${proposal.tagName}" into ` +
+        `${target.id} "${target.name}": ${source.documentsMoved} document(s).`
+    );
+    return {
+      tagId: Number(proposal.tagId),
+      tagName: String(proposal.tagName ?? ''),
+      targetId: Number(target.id),
+      targetName: String(target.name ?? ''),
+      logId: result?.mergeId ?? null,
+      documentsUpdated: Number(source.documentsMoved) || 0,
+    };
   }
 }
 
@@ -2156,6 +3148,7 @@ tagSimplifyService.PROPOSAL_ACTIONS = PROPOSAL_ACTIONS;
 tagSimplifyService.GROUP_KINDS = GROUP_KINDS;
 tagSimplifyService.GROUP_DECISIONS = GROUP_DECISIONS;
 tagSimplifyService.SPLIT_ACTION = SPLIT_ACTION;
+tagSimplifyService.DELETE_ACTION = DELETE_ACTION;
 tagSimplifyService.MAX_APPLY_TAGS = MAX_APPLY_TAGS;
 tagSimplifyService.SimplifyError = SimplifyError;
 tagSimplifyService.PHASES = PHASES;
