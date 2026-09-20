@@ -6,10 +6,17 @@
  * page keeps a small target vocabulary of both, proposes for every tag what it
  * stands for, and applies the splits the user confirmed.
  *
+ * Round 12 puts the proposed order first: one job reads every tag and every
+ * document type, proposes the vocabulary and gives every tag an action, and
+ * the answer is read as a couple of dozen group cards — one per document type,
+ * one per topic, one per merge target, plus "keep" and "delete". A group is
+ * accepted, skipped or reopened as a whole and applied with one confirmation;
+ * the table of round 10 stays as the detail view of the very same rows.
+ *
  * Nothing here starts on its own. The vocabulary is saved when the button is
- * used, the proposals run when the button is used, and a split happens when
- * the confirm dialog is accepted. Every split is written to the merge log on
- * the Duplicates page and can be undone from there.
+ * used, the order runs when the button is used, and an apply happens when the
+ * confirm dialog is accepted. Every write is in the merge log on the
+ * Duplicates page and can be undone from there.
  *
  * Escaping rule for this file
  * ---------------------------
@@ -58,12 +65,55 @@ const SOURCE_TONES = {
 /** What a proposal can be, as the status column says it. */
 const STATUS_BADGES = {
   open: { tone: '', label: 'open' },
+  accepted: { tone: 'zr-badge--info', label: 'accepted' },
   skipped: { tone: 'zr-badge--warn', label: 'skipped' },
   applied: { tone: 'zr-badge--ok', label: 'applied' },
 };
 
-/** The two tasks of this page, as the job service names them. */
-const JOB_TASKS = { VOCABULARY: 'vocabulary', SPLITS: 'splits' };
+/** The four tasks of this page, as the job service names them. */
+const JOB_TASKS = {
+  VOCABULARY: 'vocabulary',
+  SPLITS: 'splits',
+  ORDER: 'order',
+  APPLY: 'apply',
+};
+
+/** The kinds of group, as the badge on a card says them. */
+const GROUP_KIND_LABELS = {
+  type: 'type',
+  topic: 'topic',
+  merge: 'merge',
+  delete: 'delete',
+  keep: 'keep',
+};
+
+/** One tone each, so a card is recognised before it is read. */
+const GROUP_KIND_TONES = {
+  type: 'zr-badge--brand',
+  topic: 'zr-badge--info',
+  merge: 'zr-badge--warn',
+  delete: 'zr-badge--danger',
+  keep: 'zr-badge--ok',
+};
+
+/** And one icon each, out of the app's set. */
+const GROUP_KIND_ICONS = {
+  type: 'i-file',
+  topic: 'i-tag',
+  merge: 'i-merge',
+  delete: 'i-trash',
+  keep: 'i-check-circle',
+};
+
+/** What a decision is called once it has happened. */
+const DECISION_WORDS = {
+  accept: 'accepted',
+  skip: 'skipped',
+  reopen: 'reopened',
+};
+
+/** Members a card renders before it offers "Show N more". */
+const MEMBERS_PER_PAGE = 50;
 
 /** The two job states that mean "still going". */
 const JOB_LIVE_STATES = ['running', 'stopping'];
@@ -85,6 +135,13 @@ const VOCABULARY_EMPTY =
 const PROPOSALS_EMPTY =
   'No proposals yet. Save a vocabulary, then propose splits.';
 
+/** What the page says before any order has been proposed. */
+const ORDER_EMPTY =
+  'No order proposed yet. Propose one: the model reads every tag and every document type.';
+
+/** And what a filter that matches nothing says. */
+const GROUPS_EMPTY = 'No groups match.';
+
 /** The notice over an unsaved model proposal. */
 const PROPOSAL_NOTICE = 'Proposed by the model, not saved yet';
 
@@ -105,6 +162,33 @@ const IN_VOCABULARY_BADGE = { text: 'in vocabulary', tone: 'ok' };
 /* --- state ---------------------------------------------------------------- */
 
 const el = {
+  order: document.getElementById('simOrder'),
+  orderBtn: document.getElementById('simOrderBtn'),
+  orderMeta: document.getElementById('simOrderMeta'),
+  orderSummary: document.getElementById('simOrderSummary'),
+  orderEmpty: document.getElementById('simOrderEmpty'),
+  keepVocabulary: document.getElementById('simOrderKeepVocabulary'),
+  keepVocabularyWrap: document.getElementById('simOrderKeepWrap'),
+  orderStats: document.getElementById('simOrderStats'),
+  statGroupTypes: document.getElementById('simStatGroupTypes'),
+  statGroupTopics: document.getElementById('simStatGroupTopics'),
+  statGroupMerges: document.getElementById('simStatGroupMerges'),
+  statGroupDelete: document.getElementById('simStatGroupDelete'),
+  statGroupKeep: document.getElementById('simStatGroupKeep'),
+  statOrderAccepted: document.getElementById('simStatOrderAccepted'),
+  statOrderApplied: document.getElementById('simStatOrderApplied'),
+  view: document.getElementById('simView'),
+  groupFilters: document.getElementById('simGroupFilters'),
+  groupKind: document.getElementById('simGroupKind'),
+  groupStatus: document.getElementById('simGroupStatus'),
+  groupSearch: document.getElementById('simGroupSearch'),
+  groups: document.getElementById('simGroups'),
+  applyAcceptedBtn: document.getElementById('simApplyAcceptedBtn'),
+  applyAcceptedLabel: document.getElementById('simApplyAcceptedLabel'),
+  applyResult: document.getElementById('simApplyResult'),
+  vocabularyBlock: document.getElementById('simVocabularyBlock'),
+  reproposeBtn: document.getElementById('simReproposeBtn'),
+  proposals: document.getElementById('simProposals'),
   vocabularyNotice: document.getElementById('simVocabularyNotice'),
   vocabularyMeta: document.getElementById('simVocabularyMeta'),
   types: document.getElementById('simTypes'),
@@ -149,6 +233,9 @@ const el = {
 /** The vocabulary the page is editing: names only, in the user's order. */
 const vocabulary = { types: [], topics: [] };
 
+/** The rows behind it, kept for what only they know: who wrote an entry. */
+let vocabularyRows = [];
+
 /** The document types Paperless-ngx has, as the route last answered them. */
 let documentTypes = [];
 
@@ -169,6 +256,21 @@ const proposals = new Map();
 /** Tag ids ticked for the next apply. */
 const selected = new Set();
 
+/** The proposed order as the route last answered it, one card each. */
+let groups = [];
+
+/** Which cards are expanded, and how many members each of them renders. */
+const groupsOpen = new Set();
+const groupShown = new Map();
+
+/** What the last order run reported, for the one summary line. */
+let orderResult = null;
+let orderStopped = false;
+
+let groupKind = 'all';
+let groupStatus = 'open';
+let groupSearch = '';
+let view = 'groups';
 let statusFilter = 'open';
 let searchText = '';
 let vocabularySaved = false;
@@ -225,6 +327,16 @@ function htmlAlert(tone, title, body) {
 
 function htmlEmptyRow(columns, text) {
   return `<tr><td colspan="${num(columns)}" class="zr-empty">${esc(text)}</td></tr>`;
+}
+
+/** One symbol out of the app's icon set; there is no icon font. */
+function htmlIconMarkup(name) {
+  return `<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#${esc(name)}"/></svg>`;
+}
+
+/** "3,410" — a count of documents the eye can take in at a glance. */
+function grouped(value) {
+  return num(value).toLocaleString('en-US');
 }
 
 /* --- the vocabulary editor ------------------------------------------------ */
@@ -530,19 +642,51 @@ function takeExistingSpelling(button) {
   }
 }
 
+/**
+ * What the saved vocabulary decides about the order section: the block is open
+ * while there is nothing in it, "Keep my vocabulary" is only offered once
+ * something is saved and comes up ticked when the user wrote any of it, and
+ * the re-propose button waits for a vocabulary to re-propose against.
+ */
+function renderVocabularyState(fresh) {
+  if (el.vocabularyBlock) el.vocabularyBlock.open = !vocabularySaved;
+  if (el.reproposeBtn) {
+    el.reproposeBtn.classList.toggle('hidden', !vocabularySaved);
+  }
+  if (el.keepVocabularyWrap) {
+    // Without the model there is no button the tick belongs to: the order then
+    // only runs from the vocabulary block, against the saved names anyway.
+    el.keepVocabularyWrap.classList.toggle(
+      'hidden',
+      !vocabularySaved || el.orderBtn === null
+    );
+  }
+  // Only on a load or a save: a tick the user set themselves is theirs.
+  if (fresh === true && el.keepVocabulary) {
+    el.keepVocabulary.checked = vocabularyRows.some(
+      (row) => String(row.source || '') === 'user'
+    );
+  }
+}
+
+function readVocabularyPayload(data) {
+  const rows = data || {};
+  vocabulary.types = (rows.types || []).map((row) => String(row.name));
+  vocabulary.topics = (rows.topics || []).map((row) => String(row.name));
+  vocabularyRows = [...(rows.types || []), ...(rows.topics || [])];
+  vocabularySaved = vocabulary.types.length > 0 || vocabulary.topics.length > 0;
+  if (el.vocabularyNotice) {
+    el.vocabularyNotice.innerHTML = vocabularySaved
+      ? ''
+      : htmlVocabularyEmpty();
+  }
+  renderVocabularyState(true);
+}
+
 async function loadVocabulary() {
   try {
     const payload = await requestJson('/api/simplify/vocabulary');
-    const data = payload.data || {};
-    vocabulary.types = (data.types || []).map((row) => String(row.name));
-    vocabulary.topics = (data.topics || []).map((row) => String(row.name));
-    vocabularySaved =
-      vocabulary.types.length > 0 || vocabulary.topics.length > 0;
-    if (el.vocabularyNotice) {
-      el.vocabularyNotice.innerHTML = vocabularySaved
-        ? ''
-        : htmlVocabularyEmpty();
-    }
+    readVocabularyPayload(payload.data || {});
     renderVocabulary();
   } catch (error) {
     if (el.vocabularyNotice) {
@@ -563,16 +707,7 @@ async function saveVocabulary() {
       types: vocabulary.types,
       topics: vocabulary.topics,
     });
-    const data = payload.data || {};
-    vocabulary.types = (data.types || []).map((row) => String(row.name));
-    vocabulary.topics = (data.topics || []).map((row) => String(row.name));
-    vocabularySaved =
-      vocabulary.types.length > 0 || vocabulary.topics.length > 0;
-    if (el.vocabularyNotice) {
-      el.vocabularyNotice.innerHTML = vocabularySaved
-        ? ''
-        : htmlVocabularyEmpty();
-    }
+    readVocabularyPayload(payload.data || {});
     renderVocabulary();
     renderProposals();
     toast(payload.message || 'The vocabulary was saved', { tone: 'ok' });
@@ -584,6 +719,22 @@ async function saveVocabulary() {
 }
 
 /* --- the proposal table --------------------------------------------------- */
+
+/**
+ * What the order does with the tag, as the table's first column says it:
+ * "split", "merge → Amazon", "keep", "delete". Pure on purpose.
+ *
+ * @param {object} proposal a TagSplitProposal
+ * @returns {string}
+ */
+function actionLabel(proposal) {
+  const action = String((proposal && proposal.action) || 'split');
+  if (action !== 'merge') return action;
+  const target = String(
+    proposal.mergeInto == null ? '' : proposal.mergeInto
+  ).trim();
+  return target === '' ? 'merge' : `merge → ${target}`;
+}
 
 /** The badge a proposal wears for where it came from. */
 function htmlSourceBadge(proposal) {
@@ -679,6 +830,7 @@ function htmlProposalRow(proposal, types) {
       ? 'sim-row sim-row--failed'
       : 'sim-row';
   return `<tr class="${esc(rowClass)}" data-tag-id="${num(proposal.tagId)}">
+        <td data-label="Action" class="sim-proposals__actioncol"><span class="zr-sm sim-action">${esc(actionLabel(proposal))}</span></td>
         <td data-label="Apply" class="sim-proposals__pickcol">${htmlPick}</td>
         <td data-label="Tag" class="zr-truncate" title="${esc(proposal.tagName)}">${esc(proposal.tagName)}</td>
         <td data-label="Documents" class="zr-mono">${num(proposal.documentCount)}</td>
@@ -709,7 +861,7 @@ function renderProposals() {
     ? rows
         .map((proposal) => htmlProposalRow(proposal, vocabulary.types))
         .join('')
-    : htmlEmptyRow(8, proposals.size === 0 ? PROPOSALS_EMPTY : 'Nothing here.');
+    : htmlEmptyRow(9, proposals.size === 0 ? PROPOSALS_EMPTY : 'Nothing here.');
   rows.forEach((proposal) => {
     if (!selected.has(proposal.tagId)) return;
     const box = el.proposalsBody.querySelector(
@@ -752,7 +904,7 @@ function renderStats() {
 
 async function loadProposals() {
   if (!el.proposalsBody) return;
-  el.proposalsBody.innerHTML = htmlEmptyRow(8, 'Loading proposals…');
+  el.proposalsBody.innerHTML = htmlEmptyRow(9, 'Loading proposals…');
   try {
     const payload = await requestJson('/api/simplify/proposals');
     proposals.clear();
@@ -765,7 +917,7 @@ async function loadProposals() {
     if (el.proposalsAlert) el.proposalsAlert.innerHTML = '';
     renderProposals();
   } catch (error) {
-    el.proposalsBody.innerHTML = htmlEmptyRow(8, error.message);
+    el.proposalsBody.innerHTML = htmlEmptyRow(9, error.message);
   }
 }
 
@@ -800,6 +952,715 @@ function updateApplyButtons() {
   const count = selected.size;
   if (el.applyBtn) el.applyBtn.disabled = count === 0 || applying;
   if (el.skipBtn) el.skipBtn.disabled = count === 0 || applying;
+}
+
+/* --- the proposed order, as groups ---------------------------------------- */
+
+/**
+ * What a card is called. A type or a topic group is its name; the other three
+ * say what they are, because "Amazon" alone would read like a tag.
+ *
+ * @param {object} group a TagOrderGroup
+ * @returns {string}
+ */
+function groupTitle(group) {
+  const kind = String((group && group.kind) || '');
+  const name = String(group && group.name == null ? '' : group.name);
+  if (kind === 'merge') return `→ ${name}`;
+  if (kind === 'delete') return 'Delete';
+  if (kind === 'keep') return 'Keep as they are';
+  return name;
+}
+
+/** The same group in the one sentence a confirmation asks with. */
+function groupConfirmName(group) {
+  const kind = String((group && group.kind) || '');
+  const name = String(group && group.name == null ? '' : group.name);
+  if (kind === 'merge') return `merge into ${name}`;
+  if (kind === 'delete') return 'the deletions';
+  if (kind === 'keep') return 'the tags that stay';
+  return name;
+}
+
+/** "212 tags · 3,410 documents". */
+function groupCountsText(group) {
+  const tags = num(group && group.tags);
+  const documents = num(group && group.documents);
+  return `${tags} ${plural(tags, 'tag', 'tags')} · ${grouped(documents)} ${plural(
+    documents,
+    'document',
+    'documents'
+  )}`;
+}
+
+/**
+ * What the proposed order does with one tag, in the words the member table
+ * uses: "→ Rechnung + Strom", "→ merge into Amazon", "delete", "keep".
+ *
+ * @param {object} member a TagOrderGroupMember
+ * @returns {string}
+ */
+function memberOutcome(member) {
+  const action = String((member && member.action) || 'split');
+  if (action === 'merge') {
+    const target = String(member.mergeInto == null ? '' : member.mergeInto);
+    return target === '' ? 'merge' : `→ merge into ${target}`;
+  }
+  if (action === 'delete') return 'delete';
+  if (action === 'keep') return 'keep';
+  const parts = [];
+  const type = String(member.typeName == null ? '' : member.typeName);
+  if (type !== '') parts.push(type);
+  (Array.isArray(member.topicNames) ? member.topicNames : []).forEach((raw) => {
+    const name = String(raw == null ? '' : raw);
+    if (name !== '') parts.push(name);
+  });
+  return parts.length === 0 ? 'keep' : `→ ${parts.join(' + ')}`;
+}
+
+/** "180 open · 30 accepted · 2 applied", as small badges; zeroes are left out. */
+function htmlGroupStatusBadges(group) {
+  return ['open', 'accepted', 'applied', 'skipped']
+    .filter((status) => num(group[status]) > 0)
+    .map((status) => {
+      const badge = STATUS_BADGES[status] || { tone: '', label: status };
+      return `<span class="zr-badge ${esc(badge.tone)}">${esc(`${num(group[status])} ${badge.label}`)}</span>`;
+    })
+    .join('');
+}
+
+/**
+ * One row of a group's member table. Pure on purpose: tests/test-simplify-ui.js
+ * renders it for every action.
+ *
+ * @param {object} group the card the row belongs to
+ * @param {object} member a TagOrderGroupMember
+ * @returns {string} markup
+ */
+function htmlMemberRow(group, member) {
+  const status = String(member.status || 'open');
+  const badge = STATUS_BADGES[status] || { tone: '', label: status };
+  const name = String(member.tagName == null ? '' : member.tagName);
+  const documents = num(member.documentCount);
+  // A keep group holds the tags nothing happens to; there is nothing to take
+  // out of it, and an applied row is history.
+  const htmlRemove =
+    String(group.kind || '') === 'keep' || status === 'applied'
+      ? ''
+      : `<button type="button" class="zr-btn zr-btn--ghost zr-btn--icon sim-member-remove" data-tag-id="${num(member.tagId)}" title="Take this tag out of the group" aria-label="Take ${esc(name)} out of the group">${htmlIconMarkup('i-x')}</button>`;
+  const htmlSkip =
+    status === 'applied'
+      ? ''
+      : `<button type="button" class="zr-btn zr-btn--ghost zr-sm sim-member-skip" data-tag-id="${num(member.tagId)}" data-status="${esc(status)}">${esc(status === 'skipped' ? 'Reopen' : 'Skip')}</button>`;
+  return `<tr class="sim-member" data-tag-id="${num(member.tagId)}">
+        <td data-label="Tag" class="zr-truncate" title="${esc(name)}">${esc(name)}</td>
+        <td data-label="Documents" class="zr-mono">${esc(grouped(documents))}</td>
+        <td data-label="What happens"><span class="sim-member__outcome">${esc(memberOutcome(member))}</span></td>
+        <td data-label="Source">${htmlSourceBadge(member)}</td>
+        <td data-label="Reason"><span class="zr-sm zr-faint sim-reason">${esc(member.reason == null ? '' : member.reason)}</span></td>
+        <td data-label="Status"><span class="zr-badge ${esc(badge.tone)}">${esc(badge.label)}</span></td>
+        <td data-label="Edit" class="sim-member__actions">${htmlSkip}${htmlRemove}</td>
+      </tr>`;
+}
+
+/**
+ * One card. Pure on purpose: tests/test-simplify-ui.js renders it for every
+ * kind and reads the badge, the counts and the buttons back.
+ *
+ * @param {object} group a TagOrderGroup
+ * @param {{open?: boolean, shown?: number}} state what the page remembers of it
+ * @returns {string} markup
+ */
+function htmlGroupCard(group, state) {
+  const card = state || {};
+  const kind = String(group.kind || 'type');
+  const members = Array.isArray(group.members) ? group.members : [];
+  const shown = Math.max(1, num(card.shown) || MEMBERS_PER_PAGE);
+  const rest = Math.max(0, members.length - shown);
+  const open = num(group.open);
+  const accepted = num(group.accepted);
+  const decided = accepted + num(group.skipped);
+  // Attribute fragments, not values: the "html" prefix is what marks them as
+  // markup this file has already made safe.
+  const htmlOpen = card.open === true ? ' open' : '';
+  const htmlDecideDisabled = open === 0 ? ' disabled' : '';
+  const htmlApplyDisabled = accepted === 0 ? ' disabled' : '';
+  const htmlRows = members
+    .slice(0, shown)
+    .map((member) => htmlMemberRow(group, member))
+    .join('');
+  const htmlMore =
+    rest === 0
+      ? ''
+      : `<div class="sim-group__morewrap"><button type="button" class="zr-btn zr-btn--ghost sim-group__more">${esc(`Show ${rest} more`)}</button></div>`;
+  // A keep group decides nothing and applies nothing: its tags are the ones
+  // the order leaves alone.
+  const htmlAccept =
+    kind === 'keep'
+      ? ''
+      : `<button type="button" class="zr-btn zr-btn--primary sim-group-accept"${htmlDecideDisabled}>${esc('Accept')}</button>`;
+  const htmlApply =
+    kind === 'keep'
+      ? ''
+      : `<button type="button" class="zr-btn sim-group-apply"${htmlApplyDisabled}>${esc('Apply group')}</button>`;
+  const htmlReopen =
+    decided === 0
+      ? ''
+      : `<button type="button" class="zr-btn zr-btn--ghost sim-group-reopen">${esc('Reopen')}</button>`;
+  const htmlSkip = `<button type="button" class="zr-btn zr-btn--ghost sim-group-skip"${htmlDecideDisabled}>${esc('Skip')}</button>`;
+  return `<section class="zr-module sim-group" data-group-key="${esc(group.key)}" data-kind="${esc(kind)}">
+    <div class="zr-module__head sim-group__head">
+      <span class="zr-badge ${esc(GROUP_KIND_TONES[kind] || '')}">${htmlIconMarkup(GROUP_KIND_ICONS[kind] || 'i-tag')}${esc(GROUP_KIND_LABELS[kind] || kind)}</span>
+      <span class="zr-module__title sim-group__name" title="${esc(groupTitle(group))}">${esc(groupTitle(group))}</span>
+      <span class="zr-sm zr-faint sim-group__counts">${esc(groupCountsText(group))}</span>
+      <span class="zr-chips sim-group__status">${htmlGroupStatusBadges(group)}</span>
+    </div>
+    <details class="sim-group__members"${htmlOpen}>
+      <summary class="sim-group__summary">${esc(`Show ${members.length} ${plural(members.length, 'tag', 'tags')}`)}</summary>
+      <div class="zr-table-wrap">
+        <table class="zr-table zr-table--stack sim-members">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th>Documents</th>
+              <th>What happens</th>
+              <th>Source</th>
+              <th class="sim-members__reasoncol">Reason</th>
+              <th>Status</th>
+              <th class="sim-members__editcol">Edit</th>
+            </tr>
+          </thead>
+          <tbody class="sim-group__rows">${htmlRows}</tbody>
+        </table>
+      </div>
+      ${htmlMore}
+    </details>
+    <div class="zr-module__foot sim-group__foot">${htmlAccept}${htmlSkip}${htmlReopen}${htmlApply}</div>
+  </section>`;
+}
+
+/**
+ * Every tag of the order, counted once however many groups it is a member of,
+ * by status and by action. Pure on purpose.
+ *
+ * @param {object[]} groupList the cards as the route answered them
+ * @param {?string} status only members in this status, or every one
+ * @returns {object} { tags, open, accepted, applied, skipped, split, merge, keep, delete }
+ */
+function memberTotals(groupList, status) {
+  const seen = new Map();
+  (Array.isArray(groupList) ? groupList : []).forEach((group) => {
+    (Array.isArray(group.members) ? group.members : []).forEach((member) => {
+      const id = num(member.tagId);
+      if (!seen.has(id)) seen.set(id, member);
+    });
+  });
+  const totals = {
+    tags: 0,
+    open: 0,
+    accepted: 0,
+    applied: 0,
+    skipped: 0,
+    split: 0,
+    merge: 0,
+    keep: 0,
+    delete: 0,
+  };
+  seen.forEach((member) => {
+    const rowStatus = String(member.status || 'open');
+    if (status && rowStatus !== status) return;
+    totals.tags += 1;
+    if (totals[rowStatus] !== undefined) totals[rowStatus] += 1;
+    const action = String(member.action || 'split');
+    if (totals[action] !== undefined) totals[action] += 1;
+  });
+  return totals;
+}
+
+/**
+ * The one line a finished order run leaves behind. Pure on purpose.
+ *
+ * @param {object} result what the job answered
+ * @param {object} totals memberTotals() over the groups it produced
+ * @returns {string}
+ */
+function orderSummaryText(result, totals) {
+  const run = result || {};
+  const tags = num(totals.tags);
+  const requests = num(run.requests);
+  const parts = [
+    `${tags} ${plural(tags, 'tag', 'tags')}: ${num(totals.split)} split, ${num(totals.merge)} merge, ${num(totals.keep)} keep, ${num(totals.delete)} delete`,
+    `${num(run.byRule)} by rule, ${num(run.byModel)} by the model`,
+    `${requests} ${plural(requests, 'request', 'requests')}`,
+  ];
+  if (run.stopped === true) parts.push('stopped');
+  return parts.join(' · ');
+}
+
+/** True while the card passes the three filters above the list. */
+function matchesFilters(group) {
+  if (groupKind !== 'all' && String(group.kind || '') !== groupKind) {
+    return false;
+  }
+  if (groupStatus !== 'all' && num(group[groupStatus]) <= 0) return false;
+  const needle = groupSearch.trim().toLowerCase();
+  if (needle === '') return true;
+  if (groupTitle(group).toLowerCase().includes(needle)) return true;
+  return (Array.isArray(group.members) ? group.members : []).some((member) =>
+    String(member.tagName || '')
+      .toLowerCase()
+      .includes(needle)
+  );
+}
+
+function visibleGroups() {
+  return groups.filter(matchesFilters);
+}
+
+function groupByKey(key) {
+  return groups.find((group) => String(group.key) === String(key)) || null;
+}
+
+/** The card element of a key; a key carries a name, so no selector is built. */
+function groupNode(key) {
+  if (!el.groups) return null;
+  return (
+    [...el.groups.querySelectorAll('.sim-group')].find(
+      (node) => node.dataset.groupKey === String(key)
+    ) || null
+  );
+}
+
+function cardState(group) {
+  return {
+    open: groupsOpen.has(String(group.key)),
+    shown: groupShown.get(String(group.key)) || MEMBERS_PER_PAGE,
+  };
+}
+
+function renderGroups() {
+  if (!el.groups) return;
+  const rows = visibleGroups();
+  el.groups.innerHTML = rows
+    .map((group) => htmlGroupCard(group, cardState(group)))
+    .join('');
+  renderViewState();
+  renderOrderEmpty(rows.length);
+  renderOrderStats();
+  updateApplyAcceptedButton();
+}
+
+/** One card redrawn from what a route answered; a group that is gone is gone. */
+function renderGroupCard(key, group) {
+  const at = groups.findIndex((row) => String(row.key) === String(key));
+  if (!group) {
+    if (at !== -1) groups.splice(at, 1);
+    groupsOpen.delete(String(key));
+    groupShown.delete(String(key));
+    renderGroups();
+    return;
+  }
+  if (at === -1) groups.push(group);
+  else groups[at] = group;
+  const node = groupNode(key);
+  if (!node) {
+    renderGroups();
+    return;
+  }
+  // In place, and in place even when the decision just took the card out of
+  // the filter: a group that was accepted is a group that is about to be
+  // applied, and it must not vanish under the hand that accepted it.
+  node.outerHTML = htmlGroupCard(group, cardState(group));
+  renderOrderStats();
+  updateApplyAcceptedButton();
+}
+
+function renderOrderEmpty(count) {
+  if (!el.orderEmpty) return;
+  const show = view === 'groups' && count === 0;
+  if (show) {
+    el.orderEmpty.textContent =
+      groups.length === 0 ? ORDER_EMPTY : GROUPS_EMPTY;
+  }
+  el.orderEmpty.classList.toggle('hidden', !show);
+}
+
+function renderOrderStats() {
+  const has = groups.length > 0;
+  if (el.orderStats) el.orderStats.classList.toggle('hidden', !has);
+  const ofKind = (kind) =>
+    groups.filter((group) => String(group.kind || '') === kind).length;
+  const write = (node, value) => {
+    if (node) node.textContent = String(value);
+  };
+  write(el.statGroupTypes, ofKind('type'));
+  write(el.statGroupTopics, ofKind('topic'));
+  write(el.statGroupMerges, ofKind('merge'));
+  write(el.statGroupDelete, ofKind('delete'));
+  write(el.statGroupKeep, ofKind('keep'));
+  const totals = memberTotals(groups);
+  write(el.statOrderAccepted, totals.accepted);
+  write(el.statOrderApplied, totals.applied);
+  if (el.orderMeta) {
+    el.orderMeta.textContent = has
+      ? `${groups.length} ${plural(groups.length, 'group', 'groups')} · ${totals.tags} ${plural(totals.tags, 'tag', 'tags')}`
+      : '';
+  }
+}
+
+function renderOrderSummary() {
+  if (!el.orderSummary) return;
+  const text = orderResult
+    ? orderSummaryText(
+        Object.assign({}, orderResult, { stopped: orderStopped }),
+        memberTotals(groups)
+      )
+    : '';
+  el.orderSummary.textContent = text;
+  el.orderSummary.classList.toggle('hidden', text === '');
+}
+
+function updateApplyAcceptedButton() {
+  if (!el.applyAcceptedBtn) return;
+  const accepted = memberTotals(groups, 'accepted').tags;
+  if (el.applyAcceptedLabel) {
+    el.applyAcceptedLabel.textContent = `Apply all accepted (${accepted})`;
+  }
+  el.applyAcceptedBtn.disabled = accepted === 0 || jobId !== null || applying;
+}
+
+/** What the view segment decides: the cards and their filters, or the table. */
+function renderViewState() {
+  const table = view === 'table';
+  if (el.groupFilters) {
+    // Three filters over nothing are noise; they come back with the groups.
+    el.groupFilters.classList.toggle('hidden', table || groups.length === 0);
+  }
+  if (el.groups) el.groups.classList.toggle('hidden', table);
+  if (el.proposals) el.proposals.classList.toggle('hidden', !table);
+}
+
+/** Groups or table; the table is the same proposals, one row each. */
+function setView(next) {
+  view = next === 'table' ? 'table' : 'groups';
+  if (el.view) {
+    [...el.view.querySelectorAll('button[data-view]')].forEach((button) => {
+      button.setAttribute(
+        'aria-selected',
+        button.dataset.view === view ? 'true' : 'false'
+      );
+    });
+  }
+  renderViewState();
+  renderOrderEmpty(visibleGroups().length);
+}
+
+async function loadGroups() {
+  if (!el.groups) return;
+  try {
+    const payload = await requestJson('/api/simplify/groups');
+    const data = payload.data || {};
+    groups = Array.isArray(data.groups) ? data.groups : [];
+    renderGroups();
+  } catch (error) {
+    groups = [];
+    renderGroups();
+    if (el.orderEmpty) {
+      el.orderEmpty.textContent = error.message;
+      el.orderEmpty.classList.remove('hidden');
+    }
+  }
+}
+
+/** Accept, skip or reopen every open member of one group. */
+async function decideGroup(group, decision) {
+  try {
+    const payload = await sendJson(
+      'POST',
+      `/api/simplify/groups/${encodeURIComponent(String(group.key))}/decision`,
+      { decision }
+    );
+    const data = payload.data || {};
+    renderGroupCard(group.key, data.group || null);
+    toast(
+      `${groupTitle(group)} ${DECISION_WORDS[decision] || decision}: ${num(data.changed)} ${plural(num(data.changed), 'tag', 'tags')}`,
+      { tone: 'ok' }
+    );
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+    await loadGroups();
+  }
+}
+
+/**
+ * What a removal did, in one short sentence. Pure on purpose: the route
+ * answers the patched proposal, and this reads it back.
+ *
+ * @param {object} group the card the tag was taken out of
+ * @param {object} proposal the TagSplitProposal the route answered
+ * @returns {string}
+ */
+function removeMemberText(group, proposal) {
+  const name = String(proposal.tagName == null ? '' : proposal.tagName);
+  const action = String(proposal.action || 'keep');
+  const kind = String(group.kind || '');
+  if (action === 'keep') return `${name} is kept as it is`;
+  if (kind === 'type') return `${name} keeps its topics, loses the type`;
+  if (kind === 'topic') {
+    return `${name} loses the topic ${String(group.name == null ? '' : group.name)}`;
+  }
+  return `${name} is kept as it is`;
+}
+
+/** One tag out of one group. No question asked; the toast says what happened. */
+async function removeGroupMember(group, tagId) {
+  try {
+    const payload = await requestJson(
+      `/api/simplify/groups/${encodeURIComponent(String(group.key))}/members/${encodeURIComponent(String(tagId))}`,
+      { method: 'DELETE' }
+    );
+    // The answer is one proposal, and a proposal can sit in three groups, so
+    // the list is read again rather than patched in place.
+    await loadGroups();
+    toast(removeMemberText(group, payload.data || {}), { tone: 'ok' });
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+  }
+}
+
+/** The per-tag skip, and the same button back again. */
+async function toggleMemberStatus(group, tagId, status) {
+  const next = String(status) === 'skipped' ? 'open' : 'skipped';
+  try {
+    await sendJson(
+      'PATCH',
+      `/api/simplify/proposals/${encodeURIComponent(String(tagId))}`,
+      { status: next }
+    );
+    await loadGroups();
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+  }
+}
+
+/* --- the two jobs of the order -------------------------------------------- */
+
+/** Everything that starts a job is dead while one runs. */
+function setOrderBusy(busy) {
+  if (el.orderBtn) el.orderBtn.disabled = busy;
+  if (el.reproposeBtn) el.reproposeBtn.disabled = busy;
+  updateApplyAcceptedButton();
+  updateProposeSplitsButton();
+}
+
+/**
+ * The one job that proposes the order: the vocabulary, then an action for
+ * every tag. 'keep' runs it against the saved vocabulary instead.
+ */
+async function runOrderJob(mode) {
+  if (jobId) return;
+  setOrderBusy(true);
+  if (el.applyResult) el.applyResult.innerHTML = '';
+  try {
+    const job = await startJob('/api/simplify/order/propose', {
+      vocabulary: mode === 'keep' ? 'keep' : 'propose',
+    });
+    const { result, stopped } = await followJob(job);
+    orderResult = result || {};
+    orderStopped = stopped === true;
+    await loadVocabulary();
+    await loadGroups();
+    await loadProposals();
+    renderOrderSummary();
+    toast(stopped ? 'The order was stopped' : 'The order is ready', {
+      tone: stopped ? 'warn' : 'ok',
+    });
+  } catch (error) {
+    if (el.applyResult) {
+      el.applyResult.innerHTML = htmlAlert(
+        'danger',
+        'The order could not be proposed',
+        error.message
+      );
+    }
+    toast(error.message, { tone: 'danger' });
+  } finally {
+    setOrderBusy(false);
+  }
+}
+
+function proposeOrder() {
+  const keep = el.keepVocabulary !== null && el.keepVocabulary.checked === true;
+  return runOrderJob(keep ? 'keep' : 'propose');
+}
+
+/** The same job from the vocabulary block: these names, no new ones. */
+function repropose() {
+  return runOrderJob('keep');
+}
+
+/**
+ * The one sentence "Apply group" asks with. Pure on purpose.
+ *
+ * @param {object} group a TagOrderGroup
+ * @returns {string}
+ */
+function groupApplyConfirmText(group) {
+  const accepted = num(group.accepted);
+  const kind = String(group.kind || '');
+  const name = String(group.name == null ? '' : group.name);
+  let what;
+  if (kind === 'merge') {
+    what = `their documents merge into ${name}; the tags are deleted`;
+  } else if (kind === 'delete') {
+    what = 'the tags are deleted from their documents';
+  } else if (kind === 'topic') {
+    what =
+      'their documents get the document type and the topics of each tag; the tags are deleted';
+  } else {
+    what = `their documents get the document type ${name} and the topics of each tag; the tags are deleted`;
+  }
+  return `Apply ${groupConfirmName(group)}? ${accepted} accepted ${plural(accepted, 'tag', 'tags')}: ${what}. You can undo each one from the log on the Duplicates page.`;
+}
+
+/**
+ * And the one "Apply all accepted" asks with, with the totals per action.
+ * Pure on purpose.
+ *
+ * @param {object} totals memberTotals(groups, 'accepted')
+ * @returns {string}
+ */
+function applyAllConfirmText(totals) {
+  const tags = num(totals.tags);
+  const parts = [];
+  if (num(totals.split) > 0) {
+    parts.push(
+      `${num(totals.split)} ${plural(num(totals.split), 'is', 'are')} split into a document type and topics`
+    );
+  }
+  if (num(totals.merge) > 0) {
+    parts.push(`${num(totals.merge)} merge into another tag`);
+  }
+  if (num(totals.delete) > 0) {
+    parts.push(
+      `${num(totals.delete)} ${plural(num(totals.delete), 'is', 'are')} deleted from their documents`
+    );
+  }
+  if (num(totals.keep) > 0) {
+    parts.push(`${num(totals.keep)} stay as they are`);
+  }
+  return `Apply everything accepted? ${tags} ${plural(tags, 'tag', 'tags')}: ${parts.join(', ')}. You can undo each one from the log on the Duplicates page.`;
+}
+
+/**
+ * The line an apply leaves behind: "12 split, 3 merged, 1 deleted, 2 failed".
+ * Pure on purpose.
+ *
+ * @param {object} result a TagOrderApplyResult
+ * @returns {string}
+ */
+function applyResultText(result) {
+  const applied = Array.isArray(result.applied) ? result.applied : [];
+  const merged = Array.isArray(result.merged) ? result.merged : [];
+  const failed = Array.isArray(result.failed) ? result.failed : [];
+  const deleted = applied.filter(
+    (entry) => String(entry.action || 'split') === 'delete'
+  ).length;
+  const parts = [
+    `${applied.length - deleted} split`,
+    `${merged.length} merged`,
+    `${deleted} deleted`,
+  ];
+  if (failed.length > 0) parts.push(`${failed.length} failed`);
+  return parts.join(', ');
+}
+
+/** The same, as the block under the panel, with every failure named. */
+function htmlApplyResultBlock(result, stopped) {
+  const failed = Array.isArray(result.failed) ? result.failed : [];
+  const htmlItems = failed
+    .map(
+      (failure) =>
+        `<li class="zr-sm">${esc(`${failure.tagName == null ? failure.tagId : failure.tagName}: ${failure.error}`)}</li>`
+    )
+    .join('');
+  const htmlFailures =
+    failed.length === 0
+      ? ''
+      : `<ul class="sim-apply-result__failures">${htmlItems}</ul>`;
+  const htmlNote =
+    stopped === true
+      ? `<p class="zr-sm">${esc('Stopped; everything that was not applied stays accepted.')}</p>`
+      : '';
+  const tone = failed.length > 0 ? 'warn' : 'ok';
+  return `<div class="zr-alert zr-alert--${esc(tone)}"><div class="zr-alert__body"><div class="zr-alert__title">${esc(applyResultText(result))}</div>${htmlNote}${htmlFailures}</div></div>`;
+}
+
+/** Starts the apply job, for one group or for everything accepted. */
+async function applyOrder(groupKey) {
+  if (jobId) return;
+  setOrderBusy(true);
+  applying = true;
+  if (el.applyResult) el.applyResult.innerHTML = '';
+  try {
+    const job = await startJob(
+      '/api/simplify/order/apply',
+      groupKey ? { groupKey } : {}
+    );
+    const { result, stopped } = await followJob(job);
+    const data = result || {};
+    if (el.applyResult) {
+      el.applyResult.innerHTML = htmlApplyResultBlock(
+        data,
+        stopped === true || data.stopped === true
+      );
+    }
+    await loadGroups();
+    await loadProposals();
+    // An apply creates the document types it needs, so the picker's choices
+    // are one behind. The service drops the cache on that write; this reads it.
+    await loadDocumentTypes();
+    const failures = Array.isArray(data.failed) ? data.failed.length : 0;
+    toast(applyResultText(data), { tone: failures > 0 ? 'warn' : 'ok' });
+  } catch (error) {
+    if (el.applyResult) {
+      el.applyResult.innerHTML = htmlAlert(
+        'danger',
+        'The order could not be applied',
+        error.message
+      );
+    }
+    toast(error.message, { tone: 'danger' });
+  } finally {
+    applying = false;
+    setOrderBusy(false);
+  }
+}
+
+async function applyGroup(group) {
+  const confirmed = await confirmDialog({
+    title: 'Apply this group',
+    body: groupApplyConfirmText(group),
+    confirmLabel: 'Apply',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
+  await applyOrder(group.key);
+}
+
+async function applyAllAccepted() {
+  const totals = memberTotals(groups, 'accepted');
+  if (totals.tags === 0) return;
+  const confirmed = await confirmDialog({
+    title: 'Apply everything accepted',
+    body: applyAllConfirmText(totals),
+    confirmLabel: 'Apply',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
+  await applyOrder(null);
 }
 
 /* --- the job panel -------------------------------------------------------- */
@@ -1022,7 +1883,7 @@ function followJob(job) {
       closeSource();
       stopPolling();
       jobId = null;
-      updateProposeSplitsButton();
+      setOrderBusy(false);
       finish(value);
     };
 
@@ -1213,10 +2074,37 @@ async function reattachJob() {
   }
   if (!job || !JOB_LIVE_STATES.includes(job.status)) return;
   const task = String(job.task || '');
-  if (task !== JOB_TASKS.VOCABULARY && task !== JOB_TASKS.SPLITS) return;
+  const mine = [
+    JOB_TASKS.VOCABULARY,
+    JOB_TASKS.SPLITS,
+    JOB_TASKS.ORDER,
+    JOB_TASKS.APPLY,
+  ];
+  if (!mine.includes(task)) return;
   try {
-    const { result } = await followJob(job);
+    const { result, stopped } = await followJob(job);
     if (task === JOB_TASKS.SPLITS) {
+      await loadProposals();
+      return;
+    }
+    if (task === JOB_TASKS.ORDER) {
+      orderResult = result || {};
+      orderStopped = stopped === true;
+      await loadVocabulary();
+      await loadGroups();
+      await loadProposals();
+      renderOrderSummary();
+      return;
+    }
+    if (task === JOB_TASKS.APPLY) {
+      const applied = result || {};
+      if (el.applyResult) {
+        el.applyResult.innerHTML = htmlApplyResultBlock(
+          applied,
+          stopped === true || applied.stopped === true
+        );
+      }
+      await loadGroups();
       await loadProposals();
       return;
     }
@@ -1471,6 +2359,109 @@ function initTypePicker() {
   });
 }
 
+/** The order section: the two jobs, the three filters and the cards. */
+function initOrder() {
+  if (el.orderBtn) el.orderBtn.addEventListener('click', proposeOrder);
+  if (el.reproposeBtn) {
+    el.reproposeBtn.addEventListener('click', repropose);
+  }
+  if (el.applyAcceptedBtn) {
+    el.applyAcceptedBtn.addEventListener('click', applyAllAccepted);
+  }
+
+  const pickOne = (host, attribute, apply) => {
+    if (!host) return;
+    host.addEventListener('click', (event) => {
+      const button = event.target.closest(`button[${attribute}]`);
+      if (!button) return;
+      [...host.querySelectorAll('button')].forEach((entry) => {
+        entry.setAttribute(
+          'aria-selected',
+          entry === button ? 'true' : 'false'
+        );
+      });
+      apply(button.dataset);
+    });
+  };
+  pickOne(el.view, 'data-view', (data) => setView(data.view));
+  pickOne(el.groupKind, 'data-kind', (data) => {
+    groupKind = data.kind;
+    renderGroups();
+  });
+  pickOne(el.groupStatus, 'data-group-status', (data) => {
+    groupStatus = data.groupStatus;
+    renderGroups();
+  });
+  if (el.groupSearch) {
+    el.groupSearch.addEventListener('input', () => {
+      groupSearch = el.groupSearch.value || '';
+      renderGroups();
+    });
+  }
+
+  if (!el.groups) return;
+  el.groups.addEventListener('click', (event) => {
+    const card = event.target.closest('.sim-group');
+    if (!card) return;
+    const group = groupByKey(card.dataset.groupKey);
+    if (!group) return;
+    if (event.target.closest('.sim-group-accept')) {
+      decideGroup(group, 'accept');
+      return;
+    }
+    if (event.target.closest('.sim-group-skip')) {
+      decideGroup(group, 'skip');
+      return;
+    }
+    if (event.target.closest('.sim-group-reopen')) {
+      decideGroup(group, 'reopen');
+      return;
+    }
+    if (event.target.closest('.sim-group-apply')) {
+      applyGroup(group);
+      return;
+    }
+    if (event.target.closest('.sim-group__more')) {
+      groupShown.set(
+        String(group.key),
+        (Array.isArray(group.members) ? group.members : []).length
+      );
+      renderGroupCard(group.key, group);
+      return;
+    }
+    const remove = event.target.closest('.sim-member-remove');
+    if (remove) {
+      removeGroupMember(group, num(remove.dataset.tagId));
+      return;
+    }
+    const skip = event.target.closest('.sim-member-skip');
+    if (skip) {
+      toggleMemberStatus(group, num(skip.dataset.tagId), skip.dataset.status);
+    }
+  });
+
+  // A card that is open stays open across a re-render; `toggle` does not
+  // bubble, so the listener has to catch it on the way down.
+  el.groups.addEventListener(
+    'toggle',
+    (event) => {
+      const details = event.target;
+      if (
+        !details.classList ||
+        !details.classList.contains('sim-group__members')
+      ) {
+        return;
+      }
+      const card = details.closest('.sim-group');
+      if (!card) return;
+      const key = String(card.dataset.groupKey);
+      if (details.open) groupsOpen.add(key);
+      else groupsOpen.delete(key);
+    },
+    true
+  );
+}
+
 function initProposals() {
   if (el.proposeSplitsBtn) {
     el.proposeSplitsBtn.addEventListener('click', proposeSplits);
@@ -1566,9 +2557,12 @@ function initProposals() {
 
 async function init() {
   initVocabulary();
+  initOrder();
   initProposals();
+  setView('groups');
   await loadVocabulary();
   await loadDocumentTypes();
+  await loadGroups();
   await loadProposals();
   await reattachJob();
 }
