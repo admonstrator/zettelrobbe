@@ -477,6 +477,56 @@ function gate() {
       `which is about what it has already taken: ${lanes.etaMs} after ${lanes.elapsedMs}ms`
     );
   });
+  await test('a job waits for the running document scan and runs when it ends', async () => {
+    // The scan loop of server.js keeps its state on this global; a job that
+    // starts while it runs holds back, says so, and goes on when it is over.
+    global.__paperlessAiScanControl = { running: true };
+    jobs.scanPollMs = 5;
+    let ran = 0;
+    judge.reviewScan = async () => {
+      ran += 1;
+      return result();
+    };
+    try {
+      const job = jobs.start({ kind: 'tags' });
+      await sleep(30);
+      assert.strictEqual(ran, 0, 'the judge has not started');
+      assert.strictEqual(job.status, 'running');
+      assert.strictEqual(job.progress.phase, 'starting');
+      assert.match(job.progress.message, /document scan is running/);
+
+      global.__paperlessAiScanControl.running = false;
+      await jobs.wait(job.id);
+      assert.strictEqual(ran, 1, 'the judge ran once the scan was over');
+      assert.strictEqual(job.status, 'done');
+    } finally {
+      delete global.__paperlessAiScanControl;
+      jobs.scanPollMs = 1000;
+    }
+  });
+
+  await test('a stop while waiting for the scan ends the job as stopped', async () => {
+    global.__paperlessAiScanControl = { running: true };
+    jobs.scanPollMs = 5;
+    let ran = 0;
+    judge.reviewScan = async () => {
+      ran += 1;
+      return result();
+    };
+    try {
+      const job = jobs.start({ kind: 'tags' });
+      await sleep(15);
+      jobs.stop(job.id);
+      await jobs.wait(job.id);
+      assert.strictEqual(job.status, 'stopped');
+      assert.strictEqual(job.stopReason, 'user');
+      assert.strictEqual(ran, 0, 'the judge never ran');
+    } finally {
+      delete global.__paperlessAiScanControl;
+      jobs.scanPollMs = 1000;
+    }
+  });
+
   console.log = quiet;
   console.log(`\n${passed} passed, ${failed} failed`);
   fs.rmSync(tmpDir, { recursive: true, force: true });

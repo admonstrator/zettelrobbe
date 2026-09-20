@@ -1787,6 +1787,66 @@ async function main() {
       );
     });
 
+    await test('A write refuses while a document scan runs, and counts as writing otherwise', async () => {
+      // The scan loop of server.js tags documents; a merge that deletes a
+      // tag meanwhile is how a document ends up with an id that is gone. So
+      // a merge, an undo and a delete made by hand are told to wait, and
+      // while one runs the scan sees it and stands down.
+      useFake({
+        tags: [
+          { id: 1, name: 'Rechnung' },
+          { id: 2, name: 'Rechnungen' },
+          { id: 3, name: 'Altlast' },
+        ],
+        documents: [{ id: 100, tags: [2] }],
+      });
+      global.__paperlessAiScanControl = { running: true };
+      try {
+        for (const [hint, write] of [
+          [
+            'merge',
+            () =>
+              duplicateMergeService.merge({
+                kind: 'tags',
+                targetId: 1,
+                sourceIds: [2],
+              }),
+          ],
+          [
+            'delete',
+            () =>
+              duplicateMergeService.deleteUnused({ kind: 'tags', ids: [3] }),
+          ],
+          ['undo', () => duplicateMergeService.undo(1)],
+        ]) {
+          const error = await expectRefusal(write, 409, hint);
+          assert.match(error.message, /document scan is running/);
+        }
+      } finally {
+        delete global.__paperlessAiScanControl;
+      }
+      assert.strictEqual(duplicateMergeService.isWriting(), false);
+
+      const realBulkEdit = paperlessService.bulkEditDocuments;
+      let seenWriting = null;
+      paperlessService.bulkEditDocuments = async function (...args) {
+        seenWriting = duplicateMergeService.isWriting();
+        return realBulkEdit.apply(this, args);
+      };
+      try {
+        const data = await duplicateMergeService.merge({
+          kind: 'tags',
+          targetId: 1,
+          sourceIds: [2],
+        });
+        assert.strictEqual(data.status, 'done');
+      } finally {
+        paperlessService.bulkEditDocuments = realBulkEdit;
+      }
+      assert.strictEqual(seenWriting, true, 'the scan would have seen it');
+      assert.strictEqual(duplicateMergeService.isWriting(), false);
+    });
+
     await test('An undone merge reopens the proposal that made it', async () => {
       const fake = useFake({
         tags: [

@@ -2433,6 +2433,162 @@ async function main() {
       );
     });
 
+    await test('Accepted proposals are applied side by side where that changes nothing', async () => {
+      // Four deletes and two independent merges run in lanes; the two splits
+      // that share document 101 run one after the other so the second sees
+      // the type the first set, and its undo puts that back; two splits into
+      // a type and a topic that do not exist yet create each once.
+      const fake = useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Mietvertrag' },
+          { id: 3, name: 'Autorechnung' },
+          { id: 12, name: 'Tankbeleg' },
+          { id: 4, name: 'Altlast1' },
+          { id: 5, name: 'Altlast2' },
+          { id: 6, name: 'Altlast3' },
+          { id: 7, name: 'Altlast4' },
+          { id: 8, name: 'amazon' },
+          { id: 9, name: 'Amazon' },
+          { id: 10, name: 'Steuern' },
+          { id: 11, name: 'Steuer' },
+        ],
+        documentTypes: [{ id: 7, name: 'Rechnung' }],
+        documents: [
+          { id: 100, tags: [1], document_type: null },
+          { id: 101, tags: [1, 2], document_type: null },
+          { id: 112, tags: [1], document_type: null },
+          { id: 102, tags: [2], document_type: null },
+          { id: 103, tags: [3], document_type: null },
+          { id: 113, tags: [12], document_type: null },
+          { id: 104, tags: [4] },
+          { id: 105, tags: [5] },
+          { id: 106, tags: [6] },
+          { id: 107, tags: [7] },
+          { id: 108, tags: [8] },
+          { id: 109, tags: [9] },
+          { id: 110, tags: [10] },
+          { id: 111, tags: [11] },
+        ],
+      });
+      await useVocabulary(
+        ['Rechnung', 'Vertrag', 'Beleg'],
+        ['Strom', 'Miete', 'Auto']
+      );
+      await useOrderProposals([
+        {
+          tagId: 1,
+          tagName: 'Stromrechnung',
+          documentCount: 3,
+          typeName: 'Rechnung',
+          topicNames: ['Strom'],
+        },
+        {
+          tagId: 2,
+          tagName: 'Mietvertrag',
+          documentCount: 2,
+          typeName: 'Vertrag',
+          topicNames: ['Miete'],
+        },
+        {
+          tagId: 3,
+          tagName: 'Autorechnung',
+          typeName: 'Beleg',
+          topicNames: ['Auto'],
+        },
+        {
+          tagId: 12,
+          tagName: 'Tankbeleg',
+          typeName: 'Beleg',
+          topicNames: ['Auto'],
+        },
+        { tagId: 4, tagName: 'Altlast1', action: 'delete' },
+        { tagId: 5, tagName: 'Altlast2', action: 'delete' },
+        { tagId: 6, tagName: 'Altlast3', action: 'delete' },
+        { tagId: 7, tagName: 'Altlast4', action: 'delete' },
+        { tagId: 8, tagName: 'amazon', action: 'merge', mergeInto: 'Amazon' },
+        { tagId: 10, tagName: 'Steuern', action: 'merge', mergeInto: 'Steuer' },
+      ]);
+
+      config.duplicatesAiConcurrency = 3;
+      const realBulkEdit = paperlessService.bulkEditDocuments;
+      let inFlight = 0;
+      let peak = 0;
+      paperlessService.bulkEditDocuments = async function (...args) {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        try {
+          return await realBulkEdit.apply(this, args);
+        } finally {
+          inFlight -= 1;
+        }
+      };
+      let value;
+      try {
+        ({ value } = await withLog(() => service.applyAccepted({})));
+      } finally {
+        paperlessService.bulkEditDocuments = realBulkEdit;
+        config.duplicatesAiConcurrency = 1;
+      }
+
+      assert.deepStrictEqual(
+        value.failed,
+        [],
+        `nothing failed: ${JSON.stringify(value.failed)}`
+      );
+      assert.strictEqual(value.applied.length, 8, 'four splits, four deletes');
+      assert.strictEqual(value.merged.length, 2);
+      assert.ok(peak >= 2, `at most ${peak} write(s) were in flight at once`);
+      for (const id of [1, 2, 3, 12, 4, 5, 6, 7, 8, 10]) {
+        assert.strictEqual(fake.tag(id), undefined, `tag ${id} is gone`);
+      }
+      assert.strictEqual(
+        fake.documentTypeNames().filter((name) => name === 'Beleg').length,
+        1,
+        'the type two splits share was created once'
+      );
+      assert.strictEqual(
+        fake.tagNames().filter((name) => name === 'Auto').length,
+        1,
+        'and so was the topic'
+      );
+      assert.strictEqual(
+        fake.document(101).document_type,
+        7,
+        'the bigger split set the type on the shared document first'
+      );
+
+      // The second split's undo leaves the type the first one set.
+      const logOf = (tagId) =>
+        value.applied.find((entry) => entry.tagId === tagId).logId;
+      await withLog(() => duplicateMergeService.undo(logOf(2)));
+      assert.strictEqual(fake.document(101).document_type, 7);
+      await withLog(() => duplicateMergeService.undo(logOf(1)));
+      assert.strictEqual(fake.document(101).document_type, null);
+
+      // The strands themselves: a merge chain is one, independent merges are
+      // one each.
+      assert.deepStrictEqual(
+        (
+          await service._applyStrands('merge', [
+            { tagName: 'A', mergeInto: 'B' },
+            { tagName: 'B', mergeInto: 'C' },
+          ])
+        ).map((strand) => strand.length),
+        [2]
+      );
+      assert.deepStrictEqual(
+        (
+          await service._applyStrands('merge', [
+            { tagName: 'A', mergeInto: 'X' },
+            { tagName: 'B', mergeInto: 'Y' },
+          ])
+        ).map((strand) => strand.length),
+        [1, 1]
+      );
+    });
+
     await test('A stop between two tags leaves the rest accepted', async () => {
       const fake = orderArchive();
       await useVocabulary(['Rechnung'], ['Strom']);

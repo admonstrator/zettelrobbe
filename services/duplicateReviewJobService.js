@@ -84,6 +84,9 @@ const JOB_TASKS = Object.freeze({
 
 /** How long a finished job stays reachable through current() and get(). */
 const RETENTION_MS = 10 * 60 * 1000;
+
+/** How often a job waiting for the document scan looks again. */
+const SCAN_POLL_MS = 1000;
 /** How often the idle watch looks at a running job. */
 const IDLE_CHECK_MS = 5 * 1000;
 
@@ -156,6 +159,8 @@ function freshProgress(tokenBudget) {
 
 class DuplicateReviewJobService {
   constructor() {
+    /** Overridable so a test does not have to wait a second per look. */
+    this.scanPollMs = SCAN_POLL_MS;
     /** @type {object|null} the running job, or the last finished one */
     this.job = null;
     this.idleTimer = null;
@@ -366,6 +371,34 @@ class DuplicateReviewJobService {
 
   /* --- internals -------------------------------------------------------- */
 
+  /** True while the document scan of server.js runs. */
+  _scanRunning() {
+    return require('./duplicateMergeService').scanRunning();
+  }
+
+  /**
+   * Holds the job while the document scan of server.js runs. The two write
+   * the same tags, and the scan standing down for a job is only half of
+   * that. The wait is reported as progress; a stop during it ends the job.
+   *
+   * @param {object} job
+   * @param {{ signal: AbortSignal }} control
+   */
+  async _awaitScan(job, control) {
+    const merges = require('./duplicateMergeService');
+    this._log(`job ${job.id} waits for the running document scan to finish.`);
+    this._progress(job, {
+      message: 'A document scan is running; waiting for it to finish…',
+    });
+    while (merges.scanRunning()) {
+      if (control.signal.aborted) {
+        throw new Error('Stopped while waiting for the document scan');
+      }
+      await new Promise((resolve) => setTimeout(resolve, this.scanPollMs));
+    }
+    this._progress(job, { message: 'Starting…' });
+  }
+
   async _run(job) {
     const control = {
       signal: job.controller.signal,
@@ -380,6 +413,9 @@ class DuplicateReviewJobService {
       stopReason: () => job.stopReason,
     };
     try {
+      // Asked before any await: a runner that reports synchronously must
+      // still do so before start() returns, as it always has.
+      if (this._scanRunning()) await this._awaitScan(job, control);
       const run =
         job.runner ||
         ((options, ctl) => this._judge().reviewScan(options, ctl));

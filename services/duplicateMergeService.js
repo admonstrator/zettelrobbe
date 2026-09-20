@@ -179,8 +179,23 @@ function createPayloadFrom(kind, snapshot) {
   return payload;
 }
 
+/**
+ * True while the document scan of server.js runs. The scan keeps its state
+ * on the global so its stop button can reach it; here it is only read.
+ *
+ * @returns {boolean}
+ */
+function scanRunning() {
+  return global.__paperlessAiScanControl?.running === true;
+}
+
 class DuplicateMergeService {
   constructor() {
+    /**
+     * Writes to Paperless-ngx in flight: merges, undos and deletes. The scan
+     * loop reads it and stands down while it is above zero.
+     */
+    this.writesInFlight = 0;
     /** The pending dashboard rebuild, or null when none is waiting. */
     this._dashboardRefreshTimer = null;
     /** Overridable so a test does not have to wait two seconds. */
@@ -659,7 +674,55 @@ class DuplicateMergeService {
    * @param {string|null} [request.performedBy]
    * @returns {Promise<object>} EntityMergeResult
    */
-  async merge({
+  /** True while the document scan of server.js runs. */
+  scanRunning() {
+    return scanRunning();
+  }
+
+  /** True while a merge, an undo or a delete writes to Paperless-ngx. */
+  isWriting() {
+    return this.writesInFlight > 0;
+  }
+
+  /**
+   * Runs one write against Paperless-ngx: refused while the document scan
+   * runs, because the two would tag the same documents at once, and counted
+   * meanwhile so a scan that wants to start sees it and stands down. The
+   * jobs of the Duplicates and Simplify pages wait for a scan before they
+   * get here; a merge, undo or delete made by hand is told to try again.
+   *
+   * @template T
+   * @param {() => Promise<T>} work
+   * @returns {Promise<T>}
+   */
+  async _writing(work) {
+    if (scanRunning()) {
+      throw new MergeValidationError(
+        'A document scan is running. Try again when it has finished.',
+        409
+      );
+    }
+    this.writesInFlight += 1;
+    try {
+      return await work();
+    } finally {
+      this.writesInFlight -= 1;
+    }
+  }
+
+  async merge(request) {
+    return this._writing(() => this._merge(request));
+  }
+
+  async undo(mergeId, options = {}) {
+    return this._writing(() => this._undo(mergeId, options));
+  }
+
+  async deleteUnused(request) {
+    return this._writing(() => this._deleteUnused(request));
+  }
+
+  async _merge({
     kind,
     targetId,
     sourceIds,
@@ -1141,7 +1204,7 @@ class DuplicateMergeService {
    * @param {string|null} [options.performedBy]
    * @returns {Promise<object>} EntityMergeUndoResult
    */
-  async undo(mergeId, { performedBy = null } = {}) {
+  async _undo(mergeId, { performedBy = null } = {}) {
     const id = Number(mergeId);
     if (!isPositiveInteger(id)) {
       throw new MergeValidationError('Unknown merge', 404);
@@ -1278,7 +1341,7 @@ class DuplicateMergeService {
    * @param {string|null} [request.performedBy]
    * @returns {Promise<object>} EntityDeleteResult
    */
-  async deleteUnused({ kind, ids, performedBy = null }) {
+  async _deleteUnused({ kind, ids, performedBy = null }) {
     if (!KIND_LIST.includes(kind)) {
       throw new MergeValidationError(`Unknown entity kind: ${kind}`, 400);
     }

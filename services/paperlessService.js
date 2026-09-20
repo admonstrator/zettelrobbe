@@ -488,8 +488,12 @@ class PaperlessService {
       // The page size only has to be asked for once: Paperless-ngx builds its
       // `next` link from the request URL, so every following page carries it.
       let nextUrl = `/tags/?page_size=${TAG_PAGE_SIZE}`;
+      let reported = null;
       while (nextUrl) {
         const response = await this.client.get(nextUrl);
+        if (Number.isInteger(response?.data?.count)) {
+          reported = response.data.count;
+        }
 
         // Validate response structure
         if (!response?.data?.results) {
@@ -515,8 +519,15 @@ class PaperlessService {
         }
       }
       this.lastTagRefresh = Date.now();
+      // The cache is keyed by the lower-cased name, so two tags that differ
+      // only in case share one entry; the count Paperless-ngx reports says
+      // how many that hides.
+      const hidden =
+        reported != null && reported !== this.tagCache.size
+          ? ` (Paperless-ngx counts ${reported}; names that differ only in case share one entry)`
+          : '';
       console.log(
-        `[DEBUG] Tag cache refreshed. Found ${this.tagCache.size} tags.`
+        `[DEBUG] Tag cache refreshed. Found ${this.tagCache.size} tags${hidden}.`
       );
     } catch (error) {
       console.error('[ERROR] refreshing tag cache:', error.message);
