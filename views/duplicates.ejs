@@ -232,23 +232,23 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
 
                         <div class="dup-manual__field">
                             <label class="zr-label" for="dupManualTarget">Keep</label>
-                            <div class="dup-picker" id="dupManualTargetPicker">
-                                <input class="zr-input dup-picker__input" id="dupManualTarget" type="text"
+                            <div class="zr-picker" id="dupManualTargetPicker">
+                                <input class="zr-input zr-picker__input" id="dupManualTarget" type="text"
                                        autocomplete="off" role="combobox" aria-expanded="false"
                                        aria-autocomplete="list" aria-controls="dupManualTargetList"
                                        placeholder="Search an entry to keep" data-selected-id="">
-                                <div class="dup-picker__list hidden" id="dupManualTargetList" role="listbox" aria-label="Entries to keep"></div>
+                                <div class="zr-picker__list hidden" id="dupManualTargetList" role="listbox" aria-label="Entries to keep"></div>
                             </div>
                         </div>
 
                         <div class="dup-manual__field">
                             <label class="zr-label" for="dupManualSources">Merge away</label>
-                            <div class="dup-picker" id="dupManualSourcesPicker">
-                                <input class="zr-input dup-picker__input" id="dupManualSources" type="text"
+                            <div class="zr-picker" id="dupManualSourcesPicker">
+                                <input class="zr-input zr-picker__input" id="dupManualSources" type="text"
                                        autocomplete="off" role="combobox" aria-expanded="false"
                                        aria-autocomplete="list" aria-controls="dupManualSourcesList"
                                        placeholder="Search entries to merge away">
-                                <div class="dup-picker__list hidden" id="dupManualSourcesList" role="listbox" aria-label="Entries to merge away"></div>
+                                <div class="zr-picker__list hidden" id="dupManualSourcesList" role="listbox" aria-label="Entries to merge away"></div>
                             </div>
                             <div class="zr-chips dup-manual__chips" id="dupManualChips"></div>
                         </div>
