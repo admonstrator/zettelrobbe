@@ -535,6 +535,60 @@ async function main() {
       assert.deepStrictEqual(value.topics, ['Auto']);
     });
 
+    await test('An empty answer names the reasoning it cost', async () => {
+      // The log line of an answer that could not be read says what the model
+      // did instead, so an operator can tell a model that thought itself
+      // empty from one that sent nothing at all.
+      useFake({ tags: [{ id: 1, name: 'Stromrechnung' }] });
+      config.simplifyVocabularySize = 6;
+      service._observedThinking = 0;
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText() {
+          provider.lastGenerateTextUsage = {
+            totalTokens: 900,
+            reasoningTokens: 890,
+            answerChars: 0,
+            finishReason: 'stop',
+          };
+          return '';
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+      try {
+        const { value, lines } = await withLog(() =>
+          service.proposeVocabulary()
+        );
+        assert.strictEqual(value.requests, 1);
+        assert.deepStrictEqual(value.types, []);
+        const line = simplifyLines(lines).find((entry) =>
+          entry.includes('failed:')
+        );
+        assert.ok(line, `no failure line:\n${simplifyLines(lines).join('\n')}`);
+        assert.ok(
+          line.endsWith(
+            'failed: the model answered nothing (reasoning: 890 token(s), ' +
+              'answer: 0 character(s), finish_reason: stop). Raw answer: (none)'
+          ),
+          line
+        );
+      } finally {
+        service._observedThinking = 0;
+      }
+
+      // A provider that reports nothing keeps the line as it was.
+      useProvider(() => '');
+      const { lines } = await withLog(() => service.proposeVocabulary());
+      const line = simplifyLines(lines).find((entry) =>
+        entry.includes('failed:')
+      );
+      assert.ok(
+        line.endsWith('failed: the model answered nothing. Raw answer: (none)'),
+        line
+      );
+    });
+
     await test('The token budget stops the vocabulary proposal', async () => {
       const tags = [];
       for (let id = 1; id <= 200; id += 1) tags.push({ id, name: `Tag ${id}` });

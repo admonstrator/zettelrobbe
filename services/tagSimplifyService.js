@@ -625,6 +625,32 @@ class TagSimplifyService {
   }
 
   /**
+   * What the last request came back with, for the log line of an answer that
+   * could not be read: the reasoning it cost, the characters of answer, and
+   * how the server said it ended. Empty when the service reported nothing.
+   *
+   * @param {object} service
+   * @returns {string} '' or ' (reasoning: …, answer: …, finish_reason: …)'
+   */
+  _answerDiagnosis(service) {
+    const usage = service?.lastGenerateTextUsage;
+    if (!usage || typeof usage !== 'object') return '';
+    const parts = [];
+    const thought = Number(usage.reasoningTokens);
+    if (Number.isFinite(thought) && thought > 0) {
+      parts.push(`reasoning: ${thought} token(s)`);
+    }
+    const answer = Number(usage.answerChars);
+    if (Number.isFinite(answer)) {
+      parts.push(`answer: ${answer} character(s)`);
+    }
+    if (typeof usage.finishReason === 'string' && usage.finishReason !== '') {
+      parts.push(`finish_reason: ${usage.finishReason}`);
+    }
+    return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  }
+
+  /**
    * The cap a cut-off answer is asked again with: at least four times the
    * last one and never below RAISED_CAP_MIN, bounded by the ceiling; null
    * when the ceiling leaves no room.
@@ -963,7 +989,7 @@ class TagSimplifyService {
           truncated
             ? 'the answer was cut off with nothing usable in it'
             : error.message
-        }. Raw answer: ` +
+        }${this._answerDiagnosis(service)}. Raw answer: ` +
           `${String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'}`
       );
       return { types: [], topics: [] };
@@ -1409,7 +1435,7 @@ class TagSimplifyService {
             truncated
               ? 'the answer was cut off with nothing usable in it'
               : parseError?.message || 'the answer could not be read'
-          }. Raw answer: ${
+          }${this._answerDiagnosis(service)}. Raw answer: ${
             String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'
           }`
         );

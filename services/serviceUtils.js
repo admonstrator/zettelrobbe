@@ -920,6 +920,51 @@ function buildTimeoutErrorMessage(scope, timeoutMs = null) {
   return `${normalizedScope} response timeout reached${suffix}. Please check provider availability and timeout settings.`;
 }
 
+/** Opening brackets tried per kind before jsonFromText gives up on a text. */
+const JSON_SPAN_ATTEMPTS = 200;
+
+/**
+ * The JSON array or object a text holds, as a string, or '' when it holds
+ * none that parses.
+ *
+ * Made for the reasoning of a model that wrote its answer while thinking and
+ * then stopped. Such a text is prose with drafts in it and the answer at the
+ * end, so two rules: per kind of bracket the span from an opening bracket to
+ * the last closing one, widest first, is tried until one parses (a draft
+ * before the answer spoils the widest span, the answer starts at a later
+ * bracket); of the two kinds, the one whose span ends last wins, because the
+ * answer is what the model wrote last.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function jsonFromText(text) {
+  const raw = typeof text === 'string' ? text : '';
+  if (raw.trim() === '') return '';
+  let best = null;
+  for (const [open, close] of [
+    ['[', ']'],
+    ['{', '}'],
+  ]) {
+    const end = raw.lastIndexOf(close);
+    if (end === -1) continue;
+    let start = raw.indexOf(open);
+    let attempts = 0;
+    while (start !== -1 && start < end && attempts < JSON_SPAN_ATTEMPTS) {
+      attempts += 1;
+      const candidate = raw.slice(start, end + 1);
+      try {
+        JSON.parse(candidate);
+        if (!best || end > best.end) best = { text: candidate, end };
+        break;
+      } catch {
+        start = raw.indexOf(open, start + 1);
+      }
+    }
+  }
+  return best ? best.text : '';
+}
+
 /**
  * Extracts assistant message content from OpenAI-compatible responses.
  * Falls back to extracting JSON from reasoning_content when content is empty.
@@ -946,12 +991,12 @@ function extractChatMessageContent(
     return '';
   }
 
-  const jsonMatch = reasoningContent.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
+  const extracted = jsonFromText(reasoningContent);
+  if (extracted !== '') {
     console.warn(
       `[WARN] [${providerLabel}] Empty message.content, using JSON extracted from reasoning_content.`
     );
-    return jsonMatch[0].trim();
+    return extracted;
   }
 
   console.warn(
@@ -996,6 +1041,7 @@ module.exports = {
   shouldQueueForOcrOnAiError,
   classifyOcrQueueReasonFromAiError,
   extractChatMessageContent,
+  jsonFromText,
   isTimeoutError,
   buildTimeoutErrorMessage,
   estimateTokenCount,

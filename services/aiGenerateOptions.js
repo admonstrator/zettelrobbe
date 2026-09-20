@@ -3,6 +3,7 @@
 const {
   assertCompletionNotTruncated,
   estimateTokenCount,
+  jsonFromText,
 } = require('./serviceUtils');
 
 /**
@@ -364,6 +365,9 @@ function createProgressCollector(options = {}) {
   // between <think> markers is counted by the splitter instead, so both
   // dialects end up in the same number.
   let separateReasoningChars = 0;
+  // ... and the reasoning itself, kept because a model that stops after
+  // thinking sometimes wrote its answer in there.
+  let separateReasoningText = '';
   let separateReasoning = false;
   let started = false;
   let finished = false;
@@ -424,6 +428,7 @@ function createProgressCollector(options = {}) {
       if (typeof delta !== 'string' || delta === '') return;
       producedChars += delta.length;
       separateReasoningChars += delta.length;
+      separateReasoningText += delta;
       started = true;
       separateReasoning = true;
     },
@@ -455,8 +460,9 @@ function createProgressCollector(options = {}) {
     text() {
       return splitter.text().trim();
     },
+    /** Everything the model wrote as reasoning, in both dialects. */
     reasoning() {
-      return splitter.reasoning();
+      return separateReasoningText + splitter.reasoning();
     },
     /** Tokens of reasoning so far, null when the model wrote none. */
     thinkingTokens() {
@@ -475,14 +481,21 @@ function createProgressCollector(options = {}) {
     /** What lastGenerateTextUsage becomes after a streamed request. */
     usageSummary() {
       const thought = thinkingTokens();
+      // What arrived, in characters, and how the server said it ended: the
+      // caller that got an empty answer can say what the model did instead.
+      const shape = {
+        finishReason: finishReason ?? null,
+        answerChars: splitter.text().trim().length,
+        reasoningChars: reasoningChars(),
+      };
       const reported = readCompletionUsage({ usage });
       if (reported) {
         // A server that counts its reasoning tokens is the truth; one that
         // only streams the text gets the count off the text it streamed, so
         // the judge can size its requests around the thinking either way.
         return reported.reasoningTokens == null
-          ? { ...reported, reasoningTokens: thought }
-          : reported;
+          ? { ...reported, reasoningTokens: thought, ...shape }
+          : { ...reported, ...shape };
       }
       const estimate = estimateTokenCount(producedChars);
       return {
@@ -491,6 +504,7 @@ function createProgressCollector(options = {}) {
         totalTokens: estimate,
         reasoningTokens: thought,
         estimated: true,
+        ...shape,
       };
     },
   };
@@ -644,7 +658,19 @@ async function runChatCompletionStream({
     { partialText: collector.text() }
   );
 
-  return collector.text();
+  const text = collector.text();
+  if (text !== '') return text;
+  // A model that reasons and then stops without an answer sometimes wrote
+  // the answer inside its reasoning. The analysis path digs it out of
+  // reasoning_content the same way; here the reasoning was streamed.
+  const salvaged = jsonFromText(collector.reasoning());
+  if (salvaged !== '') {
+    console.warn(
+      `[WARN] [${provider}] Empty answer, using JSON extracted from ${collector.reasoning().length} characters of reasoning.`
+    );
+    return salvaged;
+  }
+  return text;
 }
 
 module.exports = {
