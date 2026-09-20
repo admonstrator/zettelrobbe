@@ -315,80 +315,6 @@
     gap: var(--zr-2);
   }
 
-  /* --- the search dropdown ---------------------------------------------- */
-  /* Width of its own: as a flex item of a flex-start column it would otherwise
-     shrink to the placeholder and take the dropdown with it. */
-  .dup-picker {
-    position: relative;
-    width: 100%;
-    max-width: 460px;
-  }
-
-  .dup-picker__list {
-    position: absolute;
-    inset-inline: 0;
-    top: calc(100% + 2px);
-    z-index: 5;
-    /* Twelve rows plus the line that counts the rest: the whole answer of the
-       filter fits without a scroll, so "… 14 more" is never the thing hidden
-       below the fold. */
-    max-height: 360px;
-    overflow-y: auto;
-    padding: var(--zr-1);
-    background: var(--zr-surface);
-    border: 1px solid var(--zr-line-strong);
-    border-radius: var(--zr-r-md);
-    box-shadow: var(--zr-shadow-md);
-  }
-
-  .dup-picker__row {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-2);
-    padding: 4px var(--zr-2);
-    border-radius: var(--zr-r-sm);
-    cursor: pointer;
-  }
-
-  /* A list with nothing in it holds nothing to click, but it still covers the
-     chips and the buttons below the field. Letting the pointer through means
-     one click both closes it and reaches what it was aimed at. */
-  .dup-picker__list--empty {
-    pointer-events: none;
-  }
-
-  .dup-picker__row:hover {
-    background: var(--zr-surface-sunken);
-  }
-
-  /* The keyboard's position in the list, which Enter picks. It has to read as
-     a choice rather than as a hover, so it takes the brand tint. */
-  .dup-picker__row--active {
-    background: var(--zr-brand-soft);
-    color: var(--zr-brand-text);
-  }
-
-  .dup-picker__name {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  .dup-picker__count {
-    flex: none;
-  }
-
-  .dup-picker__lock {
-    color: var(--zr-warn);
-    display: inline-flex;
-    flex: none;
-  }
-
-  .dup-picker__more {
-    padding: 4px var(--zr-2);
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-faint);
-  }
-
   @media (max-width: 720px) {
     /* Full width on a phone: the segment splits evenly and the two buttons sit
        side by side rather than one per line. */
@@ -402,12 +328,6 @@
     .dup-manual__actions .zr-btn {
       flex: 1;
       justify-content: center;
-    }
-    /* The phone carries a fixed tab bar at the bottom of the viewport. A list
-       long enough to reach it would hide its own last rows behind it, so it
-       stops short and scrolls instead. */
-    .dup-picker__list {
-      max-height: 210px;
     }
   }
 

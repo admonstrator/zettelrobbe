@@ -151,6 +151,7 @@ const RELEASES = [
       'New: Document analysis decomposes a new compound tag name against the saved vocabulary instead of creating it, and the mapping is listed on the Duplicates page',
       'Improvement: The AI review treats the thinking a model does as a fixed cost per request instead of shrinking the batch, runs requests side by side (DUPLICATES_AI_CONCURRENCY, automatic: one for Ollama, three for hosted providers) and remembers every verdict so an unchanged pair is not asked again (DUPLICATES_AI_VERDICT_MEMORY_DAYS, default 90); "Forget remembered verdicts" clears the memory',
       'Improvement: Reasoning models that ignore the thinking switch are asked for low reasoning effort where their model family supports it',
+      'Improvement: The document type field of the "Simplify tags" vocabulary is a searchable drop-down over the document types Paperless-ngx already has, with document counts, cached like the tags and a Reload next to it; an empty vocabulary offers to take over the existing types with one click, and a typed topic that is an existing tag says so',
     ],
   },
 ];

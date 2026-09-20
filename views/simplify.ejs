@@ -24,7 +24,7 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                 <!-- The target vocabulary: the couple of dozen concepts the
                      archive should end up with. Local names, not objects in
                      Paperless-ngx — a split creates the object it needs. -->
-                <section class="zr-module" id="simVocabulary">
+                <section class="zr-module sim-vocab-module" id="simVocabulary">
                     <div class="zr-module__head">
                         <h2 class="zr-module__title">Vocabulary</h2>
                         <span class="zr-module__meta" id="simVocabularyMeta"></span>
@@ -38,9 +38,24 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                             <div class="sim-vocab__col">
                                 <span class="zr-label" id="simTypesLabel">Document types</span>
                                 <div class="zr-chips sim-chips" id="simTypes" role="list" aria-labelledby="simTypesLabel"></div>
-                                <input class="zr-input sim-vocab__input" id="simTypeInput" type="text"
-                                       autocomplete="off" placeholder="Add a document type, then press Enter"
-                                       aria-label="Add a document type">
+                                <!-- The one field of this page that offers what
+                                     Paperless-ngx already has. The type select
+                                     per proposal stays limited to the
+                                     vocabulary, so a split never bypasses it. -->
+                                <div class="sim-vocab__pick">
+                                    <div class="zr-picker" id="simTypePicker">
+                                        <input class="zr-input zr-picker__input sim-vocab__input" id="simTypeInput" type="text"
+                                               autocomplete="off" role="combobox" aria-expanded="false"
+                                               aria-autocomplete="list" aria-controls="simTypeList"
+                                               placeholder="Search a document type or type a new one"
+                                               aria-label="Add a document type">
+                                        <div class="zr-picker__list hidden" id="simTypeList" role="listbox" aria-label="Document types in Paperless-ngx"></div>
+                                    </div>
+                                    <button class="zr-btn zr-btn--ghost zr-btn--icon" id="simTypesReloadBtn" type="button" aria-label="Reload document types">
+                                        <svg class="zr-icon zr-icon--sm" id="simTypesReloadIcon" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                    </button>
+                                </div>
+                                <p class="zr-sm zr-faint sim-hint hidden" id="simTypesNote" aria-live="polite"></p>
                             </div>
                             <div class="sim-vocab__col">
                                 <span class="zr-label" id="simTopicsLabel">Topics</span>
@@ -48,8 +63,13 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                                 <input class="zr-input sim-vocab__input" id="simTopicInput" type="text"
                                        autocomplete="off" placeholder="Add a topic, then press Enter"
                                        aria-label="Add a topic">
+                                <p class="zr-sm zr-faint sim-hint hidden" id="simTopicHint" aria-live="polite"></p>
                             </div>
                         </div>
+                        <!-- Offered only while the vocabulary holds no type and
+                             Paperless-ngx holds at least one: one click puts
+                             them into the list, unsaved, as a proposal would. -->
+                        <div class="zr-alert zr-alert--info sim-adopt hidden" id="simAdoptTypes"></div>
                         <div class="sim-actions">
 <% if (simAiEnabled) { -%>
                             <button class="zr-btn" id="simProposeVocabularyBtn" type="button">

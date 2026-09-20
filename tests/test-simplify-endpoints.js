@@ -20,6 +20,9 @@
  *  4. PUT /api/simplify/vocabulary stores names, trims them, drops blanks
  *  5. PUT validates: not a list, too many names, a name that is too long,
  *     an entry that is not a string
+ *  5a. GET /api/simplify/document-types lists them sorted and marked,
+ *     reads past the cache on fresh=1, and answers 502 when Paperless-ngx
+ *     cannot be reached
  *  6. POST /api/simplify/vocabulary/propose starts a job with task vocabulary
  *  7. A second start while one runs is a 409 that names the running job
  *  8. GET /api/simplify/proposals lists, filters by status, refuses an
@@ -161,6 +164,9 @@ async function main() {
   const reviewJobs = require(
     path.join(REPO_ROOT, 'services', 'duplicateReviewJobService')
   );
+  const paperlessService = require(
+    path.join(REPO_ROOT, 'services', 'paperlessService')
+  );
 
   const call = (method, url, body) =>
     fetch(harness.base + url, {
@@ -184,6 +190,7 @@ async function main() {
       for (const url of [
         '/simplify',
         '/api/simplify/vocabulary',
+        '/api/simplify/document-types',
         '/api/simplify/proposals',
       ]) {
         const anonymous = await fetch(harness.base + url, {
@@ -266,6 +273,7 @@ async function main() {
       assert.ok(
         routes.includes('/api/simplify/vocabulary') &&
           routes.includes('/api/simplify/vocabulary/propose') &&
+          routes.includes('/api/simplify/document-types') &&
           routes.includes('/api/simplify/proposals') &&
           routes.includes('/api/simplify/proposals/run') &&
           routes.includes('/api/simplify/proposals/:tagId') &&
@@ -365,6 +373,140 @@ async function main() {
         types: ['Rechnung', 'Brief'],
         topics: ['Strom', 'Auto'],
       });
+    });
+
+    await test('GET /api/simplify/document-types lists them, marked and sorted', async () => {
+      // The vocabulary of the case before is in place: Rechnung, Brief.
+      const filledAt = Date.UTC(2026, 8, 20, 8, 55, 0);
+      await withStubs(
+        paperlessService,
+        {
+          listDocumentTypesCached: async () => [
+            { id: 9, name: 'vertrag', documentCount: 3 },
+            { id: 7, name: 'Rechnung', documentCount: 128 },
+            { id: 8, name: 'Brief', documentCount: 64 },
+            { id: 10, name: 'Vertrag', documentCount: 31 },
+          ],
+          documentTypeCacheFilledAt: () => filledAt,
+        },
+        async () => {
+          const response = await call('GET', '/api/simplify/document-types');
+          assert.strictEqual(response.status, 200);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, true);
+          assert.deepStrictEqual(
+            payload.data.types.map((row) => row.name),
+            ['Brief', 'Rechnung', 'vertrag', 'Vertrag'],
+            'sorted by name, case-insensitively, the id breaking a tie'
+          );
+          assert.strictEqual(payload.data.total, 4);
+          assert.strictEqual(
+            payload.data.cachedAt,
+            new Date(filledAt).toISOString(),
+            'the page is told how old its choices are'
+          );
+          const marked = payload.data.types.filter((row) => row.inVocabulary);
+          assert.deepStrictEqual(
+            marked.map((row) => row.name),
+            ['Brief', 'Rechnung'],
+            'only a name the saved vocabulary holds is marked'
+          );
+          // Names are case sensitive in Paperless-ngx, and so is the mark.
+          const lower = payload.data.types.find(
+            (row) => row.name === 'vertrag'
+          );
+          assert.strictEqual(lower.inVocabulary, false);
+          assert.strictEqual(lower.documentCount, 3);
+          assert.strictEqual(lower.id, 9);
+        }
+      );
+
+      // Nothing cached yet: the page gets null rather than 1970.
+      await withStubs(
+        paperlessService,
+        {
+          listDocumentTypesCached: async () => [],
+          documentTypeCacheFilledAt: () => 0,
+        },
+        async () => {
+          const response = await call('GET', '/api/simplify/document-types');
+          const payload = await response.json();
+          assert.deepStrictEqual(payload.data.types, []);
+          assert.strictEqual(payload.data.total, 0);
+          assert.strictEqual(payload.data.cachedAt, null);
+        }
+      );
+    });
+
+    await test('fresh=1 reaches the service past the cache', async () => {
+      const asked = [];
+      await withStubs(
+        paperlessService,
+        {
+          listDocumentTypesCached: async (options) => {
+            asked.push(options);
+            return [];
+          },
+          documentTypeCacheFilledAt: () => 0,
+        },
+        async () => {
+          await call('GET', '/api/simplify/document-types');
+          await call('GET', '/api/simplify/document-types?fresh=1');
+          await call('GET', '/api/simplify/document-types?fresh=true');
+          await call('GET', '/api/simplify/document-types?fresh=0');
+          await call('GET', '/api/simplify/document-types?fresh=please');
+        }
+      );
+      assert.deepStrictEqual(
+        asked.map((options) => options.fresh),
+        [false, true, true, false, false],
+        'only 1, true and yes read past the cache'
+      );
+    });
+
+    await test('A service that cannot reach Paperless-ngx answers 502', async () => {
+      await withStubs(
+        paperlessService,
+        {
+          listDocumentTypesCached: async () => {
+            throw new Error('connect ECONNREFUSED 10.0.0.9:8000');
+          },
+        },
+        async () => {
+          const response = await call('GET', '/api/simplify/document-types');
+          assert.strictEqual(response.status, 502);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.match(
+            payload.error,
+            /Paperless-ngx could not be reached/,
+            'the message must name what could not be reached'
+          );
+          assert.match(payload.error, /ECONNREFUSED/, 'and why');
+        }
+      );
+
+      // A refusal that already carries a status keeps it.
+      await withStubs(
+        paperlessService,
+        {
+          listDocumentTypesCached: async () => {
+            const error = new Error('The Paperless-ngx API is not configured');
+            error.status = 409;
+            throw error;
+          },
+        },
+        async () => {
+          const response = await call('GET', '/api/simplify/document-types');
+          assert.strictEqual(response.status, 409);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.strictEqual(
+            payload.error,
+            'The Paperless-ngx API is not configured'
+          );
+        }
+      );
     });
 
     await test('POST /api/simplify/vocabulary/propose starts a job with task vocabulary', async () => {

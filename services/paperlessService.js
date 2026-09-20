@@ -190,6 +190,16 @@ class PaperlessService {
      * @type {Map<string, {records: object[], at: number}>}
      */
     this._guardEntityCache = new Map();
+    /**
+     * The document types of the instance, cached the way the tags are: the
+     * "Simplify tags" page offers them on its vocabulary field and would
+     * otherwise page through /document_types/ on every keystroke.
+     *
+     * @type {object[]} EntityRecord objects, [] while nothing was read yet
+     */
+    this.documentTypeCache = [];
+    this.lastDocumentTypeRefresh = 0;
+    this._documentTypeRefreshPromise = null;
   }
 
   get CACHE_LIFETIME() {
@@ -3351,13 +3361,14 @@ class PaperlessService {
   }
 
   /**
-   * Drops every cached tag and correspondent name. A merge deletes objects,
-   * so anything cached from before it is wrong.
+   * Drops every cached tag, correspondent name and document type. A merge or
+   * a split deletes objects, so anything cached from before it is wrong.
    */
   clearEntityCaches() {
     this.clearTagCache();
     this.correspondentNameCache.clear();
     this.lastCorrespondentRefresh = 0;
+    this.clearDocumentTypeCache();
     // The creation guard must not offer an object a merge has just deleted.
     this._invalidateGuardEntities();
   }
@@ -3645,6 +3656,95 @@ class PaperlessService {
   }
 
   /**
+   * The same list from a cache, for everything that asks often: the picker on
+   * the "Simplify tags" page rebuilds its dropdown on every keystroke and must
+   * not page through Paperless-ngx for it.
+   *
+   * The mechanism is ensureTagCache()'s: the list is rebuilt when it is empty,
+   * when it is older than CACHE_LIFETIME (TAG_CACHE_TTL_SECONDS) or when the
+   * caller asks for it, and callers that arrive during a refresh share the one
+   * request rather than starting a second. A refresh that fails leaves the
+   * entries of the last good one in place and rethrows, so a caller never sees
+   * a half-built list.
+   *
+   * @param {{fresh?: boolean}} [options] fresh: true bypasses the age check
+   * @returns {Promise<object[]>} EntityRecord objects, in Paperless-ngx's order
+   * @throws on a network error, an HTTP error or an unreadable answer
+   */
+  async listDocumentTypesCached({ fresh = false } = {}) {
+    const cacheAge = Date.now() - this.lastDocumentTypeRefresh;
+    const stale =
+      fresh === true ||
+      this.documentTypeCache.length === 0 ||
+      cacheAge > this.CACHE_LIFETIME;
+    if (!stale) {
+      return [...this.documentTypeCache];
+    }
+    // A refresh that is already running is at most milliseconds old; joining
+    // it is what "fresh" asked for and saves the second round of paging.
+    if (this._documentTypeRefreshPromise) {
+      return this._documentTypeRefreshPromise;
+    }
+    const ttlSeconds = Math.floor(this.CACHE_LIFETIME / 1000);
+    console.log(
+      fresh === true
+        ? `[DEBUG] Document type cache bypassed on request (TTL: ${ttlSeconds}s)`
+        : this.lastDocumentTypeRefresh === 0
+          ? `[DEBUG] Document type cache empty, building it (TTL: ${ttlSeconds}s)`
+          : `[DEBUG] Document type cache expired (age: ${Math.floor(
+              cacheAge / 1000
+            )}s, TTL: ${ttlSeconds}s, expired at: ${new Date(
+              this.lastDocumentTypeRefresh + this.CACHE_LIFETIME
+            ).toISOString()})`
+    );
+    // No race: nothing can run between the check above and this assignment,
+    // so every caller that arrives while it is set joins this one refresh.
+    this._documentTypeRefreshPromise = this.refreshDocumentTypeCache().finally(
+      () => {
+        this._documentTypeRefreshPromise = null;
+      }
+    );
+    return this._documentTypeRefreshPromise;
+  }
+
+  /**
+   * Reads every document type and replaces the cache with it. The list is
+   * built first and assigned afterwards: a read that throws half way through
+   * must leave the previous answer intact rather than shorten it.
+   *
+   * @returns {Promise<object[]>} what the cache now holds
+   */
+  async refreshDocumentTypeCache() {
+    const records = await this.listDocumentTypes();
+    this.documentTypeCache = records;
+    this.lastDocumentTypeRefresh = Date.now();
+    console.log(
+      `[DEBUG] Document type cache refreshed. Found ${records.length} document types.`
+    );
+    return [...records];
+  }
+
+  /**
+   * Empties the document type cache. Every write that creates or deletes a
+   * type calls this, so a type a split just created is listed at once.
+   */
+  clearDocumentTypeCache() {
+    this.documentTypeCache = [];
+    this.lastDocumentTypeRefresh = 0;
+  }
+
+  /**
+   * When the cached list was built, as epoch milliseconds; 0 while nothing
+   * was read yet. The route hands this to the page so a picker can say how
+   * old its choices are.
+   *
+   * @returns {number}
+   */
+  documentTypeCacheFilledAt() {
+    return this.lastDocumentTypeRefresh;
+  }
+
+  /**
    * One raw document type in the EntityRecord shape the matcher and the
    * simplify service read.
    *
@@ -3743,6 +3843,7 @@ class PaperlessService {
     const client = this._requireClient(`creating document type "${wanted}"`);
     try {
       const response = await client.post('/document_types/', { name: wanted });
+      this.clearDocumentTypeCache();
       return this._toDocumentTypeRecord(response?.data ?? null);
     } catch (error) {
       console.error(
@@ -3761,6 +3862,7 @@ class PaperlessService {
     const client = this._requireClient(`deleting document type ${id}`);
     try {
       await client.delete(`/document_types/${id}/`);
+      this.clearDocumentTypeCache();
       return true;
     } catch (error) {
       if (error?.response?.status === 404) {

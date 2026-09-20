@@ -12,6 +12,13 @@
 
 @layer pages {
   /* --- the vocabulary editor -------------------------------------------- */
+  /* A module clips what leaves it, so that a table keeps the rounded corners
+     of its card. This one holds no table but a picker, whose dropdown is
+     absolutely positioned and would be cut off after two rows. */
+  .sim-vocab-module {
+    overflow: visible;
+  }
+
   /* Two lists side by side on a desktop, stacked on a phone: the document
      types and the topics are edited the same way, so they look the same. */
   .sim-vocab {
@@ -48,6 +55,39 @@
     width: 100%;
   }
 
+  /* The type field and its reload button on one line. The picker itself caps
+     its width at 460px, so the button sits beside it rather than at the far
+     edge of a wide column. */
+  .sim-vocab__pick {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+  }
+
+  /* One line under a field: what a typed topic is, or why the document types
+     could not be read. Empty means no line at all. */
+  .sim-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  /* The offer to take over the existing document types: the sentence on the
+     left, the one button on the right, and nothing of it while it is empty. */
+  .sim-adopt {
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .sim-adopt .zr-alert__body {
+    flex: 1 1 auto;
+  }
+
+  .sim-adopt .zr-btn {
+    flex: none;
+  }
+
   .sim-vocab__empty {
     color: var(--zr-text-faint);
     font-size: var(--zr-fs-sm);
@@ -74,6 +114,12 @@
     .sim-actions .zr-btn {
       flex: 1;
       justify-content: center;
+    }
+
+    /* The offer keeps its button on its own line rather than squeezing the
+       sentence next to it. */
+    .sim-adopt {
+      flex-wrap: wrap;
     }
   }
 
