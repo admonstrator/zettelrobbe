@@ -14,6 +14,8 @@
  * the case says and records every call.
  *
  * Covers:
+ *  0. The document type cache the picker on the page reads: the TTL, the
+ *     shared refresh, `fresh`, the writes that empty it, a failed refresh
  *  1. The vocabulary proposal merges the chunks by votes and keeps the size
  *  2. It reads the existing document types into its prompt and reports its
  *     requests as a job
@@ -214,6 +216,197 @@ async function main() {
   }
 
   try {
+    /* --- The document type cache ---------------------------------------- */
+    /* Not the simplify service's own code, but the list it and the picker on
+       its page read. It sits here because this suite is the one that drives
+       the real paperlessService against a real store. */
+
+    /** How many times the code paged through /document_types/. */
+    const typeReads = (fake) =>
+      fake.calls.filter(
+        (call) => call.method === 'get' && call.path === '/document_types/'
+      ).length;
+
+    await test('The document type cache answers a second call without a request', async () => {
+      const fake = useFake({
+        documentTypes: [
+          { id: 7, name: 'Rechnung' },
+          { id: 8, name: 'Brief' },
+        ],
+        documents: [{ id: 1, document_type: 7 }],
+      });
+
+      const { value: first, lines } = await withLog(() =>
+        paperlessService.listDocumentTypesCached()
+      );
+      assert.deepStrictEqual(
+        first.map((record) => record.name),
+        ['Brief', 'Rechnung'],
+        'the records are what listDocumentTypes() builds, in its order'
+      );
+      assert.strictEqual(first[1].documentCount, 1, 'counts come along');
+      assert.strictEqual(first[1].userCanChange, true);
+      assert.strictEqual(typeReads(fake), 1, 'one read to fill an empty cache');
+      assert.ok(
+        lines.some((line) =>
+          line.includes('Document type cache empty, building it (TTL:')
+        ),
+        'a refresh says why it happened, the way the tag cache does'
+      );
+      assert.ok(
+        lines.some((line) =>
+          line.includes('Document type cache refreshed. Found 2 document types')
+        ),
+        'and what it found'
+      );
+
+      const second = await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(typeReads(fake), 1, 'the second call is the cache');
+      assert.deepStrictEqual(
+        second.map((record) => record.name),
+        ['Brief', 'Rechnung']
+      );
+      // The caller gets a copy; editing it must not edit the cache.
+      second.pop();
+      const third = await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(third.length, 2, 'the cache handed out its own array');
+
+      // Callers that arrive while one refresh runs share it.
+      paperlessService.clearDocumentTypeCache();
+      const together = await Promise.all([
+        paperlessService.listDocumentTypesCached(),
+        paperlessService.listDocumentTypesCached(),
+        paperlessService.listDocumentTypesCached(),
+      ]);
+      assert.strictEqual(typeReads(fake), 2, 'three callers, one refresh');
+      together.forEach((records) => assert.strictEqual(records.length, 2));
+    });
+
+    await test('fresh reads past the cache, and so does an expired one', async () => {
+      const fake = useFake({ documentTypes: [{ id: 7, name: 'Rechnung' }] });
+
+      await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(typeReads(fake), 1);
+      await paperlessService.listDocumentTypesCached({ fresh: false });
+      assert.strictEqual(typeReads(fake), 1, 'fresh: false is the cache');
+
+      const { value: records, lines } = await withLog(() =>
+        paperlessService.listDocumentTypesCached({ fresh: true })
+      );
+      assert.strictEqual(typeReads(fake), 2, 'fresh: true reads again');
+      assert.deepStrictEqual(
+        records.map((record) => record.name),
+        ['Rechnung']
+      );
+      assert.ok(
+        lines.some((line) =>
+          line.includes('Document type cache bypassed on request')
+        ),
+        'the log has to say that the cache was skipped on purpose'
+      );
+
+      // An entry older than the TTL is read again without being asked to.
+      paperlessService.lastDocumentTypeRefresh =
+        Date.now() - paperlessService.CACHE_LIFETIME - 1000;
+      const { lines: expiredLines } = await withLog(() =>
+        paperlessService.listDocumentTypesCached()
+      );
+      assert.strictEqual(typeReads(fake), 3, 'an expired cache is rebuilt');
+      assert.ok(
+        expiredLines.some((line) =>
+          line.includes('Document type cache expired (age:')
+        ),
+        'and says how old it was'
+      );
+    });
+
+    await test('Every write that touches a document type empties the cache', async () => {
+      const fake = useFake({
+        documentTypes: [{ id: 7, name: 'Rechnung' }],
+      });
+
+      await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(typeReads(fake), 1);
+
+      // A type a split creates must be in the next answer.
+      const created = await paperlessService.createDocumentType('Brief');
+      assert.strictEqual(created.name, 'Brief');
+      assert.strictEqual(
+        paperlessService.documentTypeCache.length,
+        0,
+        'a create must drop the list it just made wrong'
+      );
+      const afterCreate = await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(typeReads(fake), 2);
+      assert.ok(
+        afterCreate.some((record) => record.name === 'Brief'),
+        'the created type is listed at once'
+      );
+
+      await paperlessService.deleteDocumentType(created.id);
+      assert.strictEqual(
+        paperlessService.documentTypeCache.length,
+        0,
+        'a delete must drop it too'
+      );
+      const afterDelete = await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(typeReads(fake), 3);
+      assert.ok(
+        !afterDelete.some((record) => record.name === 'Brief'),
+        'the deleted type is gone from the next answer'
+      );
+
+      // The one call every write of the Duplicates feature already makes.
+      await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(typeReads(fake), 3, 'still cached');
+      paperlessService.clearEntityCaches();
+      assert.strictEqual(paperlessService.documentTypeCache.length, 0);
+      assert.strictEqual(paperlessService.documentTypeCacheFilledAt(), 0);
+      await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(typeReads(fake), 4, 'and read again after it');
+    });
+
+    await test('A refresh that fails keeps what the cache had and throws', async () => {
+      const fake = useFake({
+        documentTypes: [
+          { id: 7, name: 'Rechnung' },
+          { id: 8, name: 'Brief' },
+        ],
+      });
+
+      await paperlessService.listDocumentTypesCached();
+      const filledAt = paperlessService.documentTypeCacheFilledAt();
+      assert.ok(filledAt > 0, 'the cache knows when it was built');
+
+      const realGet = fake.client.get;
+      fake.client.get = async () => {
+        throw new Error('connect ECONNREFUSED');
+      };
+      let thrown = null;
+      try {
+        await paperlessService.listDocumentTypesCached({ fresh: true });
+      } catch (error) {
+        thrown = error;
+      }
+      fake.client.get = realGet;
+
+      assert.ok(thrown, 'a read that fails must not be swallowed');
+      assert.match(thrown.message, /ECONNREFUSED/);
+      assert.deepStrictEqual(
+        paperlessService.documentTypeCache.map((record) => record.name),
+        ['Brief', 'Rechnung'],
+        'the entries of the last good read are still there'
+      );
+      assert.strictEqual(
+        paperlessService.documentTypeCacheFilledAt(),
+        filledAt,
+        'and they are still dated from then'
+      );
+      // The next caller is served from them rather than from nothing.
+      const after = await paperlessService.listDocumentTypesCached();
+      assert.strictEqual(after.length, 2);
+    });
+
     /* --- The vocabulary proposal --------------------------------------- */
 
     await test('The vocabulary proposal merges the chunks by votes and keeps the size', async () => {

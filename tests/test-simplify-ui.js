@@ -16,6 +16,9 @@
  *     carries no inline event handler
  *  5. the vocabulary chips: what they render, what removes one, what an empty
  *     vocabulary says instead of two empty lists
+ *  5b. the document types Paperless-ngx already has: the picker markup, the
+ *     shared module and its stylesheet, the offer to take the types over and
+ *     the hint under a typed topic
  *  6. the proposal row: the select of document types, the topic chips, the
  *     source badge, the overwrite switch with the number that keeps its type
  *  7. the confirmation of an apply, with the numbers the impact route gives
@@ -738,6 +741,438 @@ test('A model proposal keeps what the user already had', () => {
       "sendJson('PUT', '/api/simplify/vocabulary'"
     ),
     'the save button is the one thing that stores a vocabulary'
+  );
+});
+
+/* ── 5b. the document types Paperless-ngx already has ─────────────────────── */
+
+const PICKER = read('public', 'js', 'modules', 'picker.js');
+const PICKER_CSS = read('public', 'css', 'picker.css');
+
+/**
+ * The same trick helpers() plays, for the shared module: it has no page to
+ * belong to, so its exports are evaluated straight out of the file with the
+ * import line and the export keywords taken off.
+ */
+function pickerHelpers(names, globals = {}) {
+  const source = PICKER.replace(/^import .*$/m, '').replace(/^export /gm, '');
+  const keys = Object.keys(globals);
+  return new Function(...keys, `${source}\nreturn { ${names.join(', ')} };`)(
+    ...keys.map((key) => globals[key])
+  );
+}
+
+test('The view carries the picker, the reload and the two notices', () => {
+  [
+    'simTypePicker',
+    'simTypeInput',
+    'simTypeList',
+    'simTypesReloadBtn',
+    'simTypesNote',
+    'simAdoptTypes',
+    'simTopicHint',
+  ].forEach((id) => {
+    assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
+  });
+  ['simTypeList', 'simTypesReloadBtn', 'simTypesNote', 'simAdoptTypes'].forEach(
+    (id) => {
+      assert.ok(
+        SCRIPT.includes(`'${id}'`) || SCRIPT.includes(`"${id}"`),
+        `#${id} is in the view but the page script never reads it`
+      );
+    }
+  );
+
+  // The input is the picker's, with the aria wiring a combobox needs.
+  assert.match(
+    page,
+    /id="simTypeInput"[\s\S]{0,400}?role="combobox"/,
+    'the type field must announce itself as a combobox'
+  );
+  assert.match(
+    page,
+    /id="simTypeInput"[\s\S]{0,400}?aria-controls="simTypeList"/,
+    'the combobox must name the list it controls'
+  );
+  assert.match(
+    page,
+    /id="simTypeInput"[\s\S]{0,400}?aria-expanded="false"/,
+    'the list starts closed'
+  );
+  assert.match(
+    page,
+    /class="zr-picker" id="simTypePicker"/,
+    'the field must sit in the shared .zr-picker wrapper'
+  );
+  assert.match(
+    page,
+    /class="zr-picker__list hidden" id="simTypeList" role="listbox"/,
+    'the dropdown is a listbox and comes up hidden'
+  );
+  assert.ok(
+    page.includes('placeholder="Search a document type or type a new one"'),
+    'the placeholder must say that a new name is allowed too'
+  );
+
+  // The reload is an icon button and says what it does.
+  assert.match(
+    page,
+    /id="simTypesReloadBtn"[^>]*aria-label="Reload document types"/,
+    'an icon button needs a label'
+  );
+  assert.match(
+    page,
+    /id="simTypesReloadIcon"[\s\S]{0,120}icons\.svg#i-refresh/,
+    'the reload button uses the icon set'
+  );
+
+  // Both notices come up empty and hidden; the script fills them.
+  assert.match(
+    page,
+    /class="zr-alert zr-alert--info sim-adopt hidden" id="simAdoptTypes"/,
+    'the offer is an info alert that starts hidden'
+  );
+  assert.match(
+    page,
+    /class="zr-sm zr-faint sim-hint hidden" id="simTopicHint"/,
+    'the topic hint starts hidden'
+  );
+  assert.match(
+    page,
+    /id="simTopicHint"[^>]*aria-live="polite"/,
+    'a hint that appears after a keystroke has to be announced'
+  );
+  // The module clips what leaves it, which would cut the dropdown short.
+  assert.match(
+    page,
+    /class="zr-module sim-vocab-module" id="simVocabulary"/,
+    'the vocabulary section needs the class that lets the dropdown out'
+  );
+});
+
+test('head-start.ejs links picker.css, which is one @layer components block', () => {
+  const head = read('views', 'partials', 'shell', 'head-start.ejs');
+  assert.ok(
+    head.includes('<link rel="stylesheet" href="/css/picker.css">'),
+    'the shared picker stylesheet is never loaded'
+  );
+  assert.ok(
+    head.indexOf('/css/dialogs.css') < head.indexOf('/css/picker.css'),
+    'picker.css belongs right after dialogs.css'
+  );
+
+  const layers = [
+    ...PICKER_CSS.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(
+      /@layer\s+([^;{]+)[;{]/g
+    ),
+  ].map((match) => match[1].trim());
+  assert.deepStrictEqual(
+    layers,
+    ['components'],
+    'the shared picker is framework, not a page — and one layer block per file'
+  );
+  // Every class it styles is its own.
+  const classes = [
+    ...PICKER_CSS.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(
+      /\.([a-z][a-z0-9-]*)/g
+    ),
+  ].map((match) => match[1]);
+  assert.deepStrictEqual(
+    [...new Set(classes)].filter((name) => !name.startsWith('zr-picker')),
+    [],
+    'picker.css may only style .zr-picker*'
+  );
+  // The page files must not carry the old copy any more.
+  ['duplicates', 'simplify'].forEach((name) => {
+    assert.ok(
+      !read('public', 'css', 'pages', `${name}.css`).includes('dup-picker'),
+      `${name}.css still carries the picker rules that moved`
+    );
+  });
+  assert.ok(
+    !read('public', 'js', 'duplicates.js').includes('dup-picker'),
+    'the Duplicates page must use the shared classes now'
+  );
+  assert.match(
+    read('views', 'duplicates.ejs'),
+    /class="zr-picker" id="dupManualTargetPicker"/,
+    'the manual merge markup must use the shared classes now'
+  );
+});
+
+test('A row of the picker wears the badge the page asked for', () => {
+  const { htmlPickerRow } = pickerHelpers(['htmlPickerRow'], {
+    esc: escForTest,
+  });
+
+  const plain = htmlPickerRow(
+    { name: 'Brief', documentCount: 64 },
+    0,
+    'simTypeRow'
+  );
+  assert.ok(plain.includes('class="zr-picker__row"'), 'the shared row class');
+  assert.ok(plain.includes('id="simTypeRow0"'), 'the row must be addressable');
+  assert.ok(plain.includes('>Brief<'), 'the name belongs in the row');
+  assert.ok(plain.includes('>64<'), 'so does the document count');
+  assert.ok(!plain.includes('zr-badge'), 'a plain row wears no badge');
+
+  const marked = htmlPickerRow(
+    {
+      name: 'Rechnung',
+      documentCount: 128,
+      badge: { text: 'in vocabulary', tone: 'ok' },
+    },
+    1,
+    'simTypeRow'
+  );
+  assert.ok(
+    marked.includes('<span class="zr-badge zr-badge--ok">in vocabulary</span>'),
+    'the badge must be a framework badge in the tone the page asked for'
+  );
+
+  // A tone the framework does not have is dropped, not written into a class.
+  const odd = htmlPickerRow(
+    { name: 'Brief', badge: { text: 'x', tone: 'evil"><script>' } },
+    0,
+    'r'
+  );
+  assert.ok(
+    odd.includes('<span class="zr-badge">x</span>'),
+    'an unknown tone leaves the badge plain'
+  );
+  assert.ok(!odd.includes('<script>'), 'and never reaches the page as markup');
+
+  // Names are user data wherever they land.
+  const nasty = htmlPickerRow(
+    { name: '<b>Brief</b>', documentCount: 'nope' },
+    0,
+    'r'
+  );
+  assert.ok(nasty.includes('&lt;b&gt;Brief&lt;/b&gt;'));
+  assert.ok(!nasty.includes('<b>'), 'a name must never reach the page as tags');
+  assert.ok(nasty.includes('>0<'), 'a count that is not a number is 0');
+
+  // The lock the Duplicates page relies on survived the move.
+  const locked = htmlPickerRow({ name: 'Brief', userCanChange: false }, 0, 'r');
+  assert.ok(locked.includes('zr-picker__lock'), 'the lock is gone');
+  assert.ok(locked.includes('icons.svg#i-shield'), 'with the icon it had');
+
+  // The page hands the module what it may offer; the module fetches nothing.
+  assert.ok(
+    !/fetch\(|getElementById/.test(PICKER),
+    'the shared module must know nothing about a page: no ids, no requests'
+  );
+  assert.match(
+    SCRIPT,
+    /import \{ createPicker \} from '\/js\/modules\/picker\.js';/,
+    'the page must use the shared picker, not a copy'
+  );
+});
+
+test('The offer to take over the existing types names their number', () => {
+  const { htmlAdoptTypes } = helpers(['num', 'plural', 'htmlAdoptTypes'], {
+    globals: { esc: escForTest },
+  });
+
+  const many = htmlAdoptTypes(4);
+  assert.ok(
+    many.includes('Paperless-ngx already has 4 document types.'),
+    'the sentence must say how many there are'
+  );
+  assert.ok(
+    many.includes('>Take over 4 document types<'),
+    'and the button must say what it will do'
+  );
+  assert.ok(
+    many.includes('id="simAdoptTypesBtn"'),
+    'the button is addressed by id'
+  );
+
+  const one = htmlAdoptTypes(1);
+  assert.ok(one.includes('Paperless-ngx already has 1 document type.'));
+  assert.ok(one.includes('>Take over 1 document type<'));
+
+  // Offered only while there is nothing to lose, and never after a failure.
+  const render = functionBody('renderAdoptOffer');
+  assert.ok(
+    render.includes('vocabulary.types.length === 0'),
+    'a vocabulary that already has a type is not offered one'
+  );
+  assert.ok(
+    render.includes('!typesUnreachable'),
+    'nothing is offered while the list could not be read'
+  );
+  assert.ok(
+    render.includes('documentTypes.length > 0'),
+    'and nothing is offered when the instance has none'
+  );
+  assert.ok(
+    functionBody('renderVocabulary').includes('renderAdoptOffer()'),
+    'the offer must go as soon as the list has an entry'
+  );
+
+  // Taking it over stores nothing; the save button still does that.
+  const adopt = functionBody('adoptDocumentTypes');
+  assert.ok(
+    adopt.includes("addVocabularyName('type'"),
+    'the names go into the list the user is editing'
+  );
+  assert.ok(adopt.includes('ADOPT_NOTICE'), 'and the list is marked unsaved');
+  assert.ok(
+    !adopt.includes('sendJson'),
+    'taking over must not write anything by itself'
+  );
+  assert.match(
+    SCRIPT,
+    /const ADOPT_NOTICE = 'Taken over from Paperless-ngx, not saved yet';/,
+    'the notice must say exactly that'
+  );
+});
+
+test('The hint under a typed topic says what the tag list knows', () => {
+  const { htmlTopicHint, useExistingSpelling } = helpers(
+    ['num', 'plural', 'htmlTopicHint', 'useExistingSpelling'],
+    { globals: { esc: escForTest } }
+  );
+
+  // 1. the same name: the split reuses the tag.
+  assert.strictEqual(
+    htmlTopicHint('Strom', { name: 'Strom', documentCount: 12 }),
+    '&#39;Strom&#39; is an existing tag with 12 documents; a split reuses it.'
+  );
+  assert.ok(
+    htmlTopicHint('Strom', { name: 'Strom', documentCount: 1 }).includes(
+      '1 document;'
+    ),
+    'one document is not "1 documents"'
+  );
+
+  // 2. only the spelling differs: the offer to take the existing one.
+  const cased = htmlTopicHint('strom', { name: 'Strom', documentCount: 12 });
+  assert.ok(
+    cased.includes(
+      '&#39;strom&#39; differs from the existing tag &#39;Strom&#39; only in spelling.'
+    ),
+    'the sentence must name both spellings'
+  );
+  assert.ok(
+    cased.includes('class="zr-btn sim-hint__use"'),
+    'the offer is a button, not a sentence to read'
+  );
+  assert.ok(cased.includes('data-name="Strom"'), 'it must name what it sets');
+  assert.ok(cased.includes('data-typed="strom"'), 'and what it replaces');
+  assert.ok(cased.includes('>Use &#39;Strom&#39;<'), 'and say so');
+
+  // 3. nothing of that name: no hint at all.
+  assert.strictEqual(htmlTopicHint('Photovoltaik', null), '');
+
+  // A name is user data here too.
+  const nasty = htmlTopicHint('<b>x</b>', { name: '<b>X</b>' });
+  assert.ok(!nasty.includes('<b>'), 'a name must never reach the page as tags');
+
+  // Taking the offer keeps the position and never leaves the name twice.
+  assert.deepStrictEqual(
+    useExistingSpelling(['Auto', 'strom', 'Steuer'], 'strom', 'Strom'),
+    ['Auto', 'Strom', 'Steuer'],
+    'the chip stays where it was'
+  );
+  assert.deepStrictEqual(
+    useExistingSpelling(['Strom', 'strom'], 'strom', 'Strom'),
+    ['Strom'],
+    'a list that already holds the wanted spelling only loses the typed one'
+  );
+  assert.deepStrictEqual(
+    useExistingSpelling(['Auto'], 'strom', 'Strom'),
+    ['Auto'],
+    'a chip that is gone is not put back'
+  );
+
+  // The tag list is read once, lazily, and never fails the page.
+  const ensure = functionBody('ensureTagIndex');
+  assert.ok(
+    ensure.includes("'/api/duplicates/entities?kind=tags'"),
+    'the names come from the list the Duplicates page already offers'
+  );
+  assert.ok(
+    ensure.includes('if (tagIndex) return Promise.resolve(tagIndex)'),
+    'the list is read once and kept'
+  );
+  assert.ok(ensure.includes('.catch('), 'a hint must never break the page');
+  assert.ok(
+    !functionBody('init').includes('ensureTagIndex'),
+    'a page that never adds a topic must not fetch a thousand names'
+  );
+  // Only a typed topic is hinted at; a proposal of the model is not.
+  const wiring = functionBody('initVocabulary');
+  assert.ok(
+    wiring.includes("addFrom(el.topicInput, 'topic', showTopicHint)"),
+    'the hint hangs off the topic input, nothing else'
+  );
+  assert.ok(
+    !functionBody('proposeVocabulary').includes('showTopicHint'),
+    'a proposal of the model gets no hint'
+  );
+});
+
+test('The document types are read on load, past the cache on reload', () => {
+  const load = functionBody('loadDocumentTypes');
+  assert.ok(
+    load.includes("'/api/simplify/document-types'"),
+    'the page reads the cached list on load'
+  );
+  assert.ok(
+    load.includes("'/api/simplify/document-types?fresh=1'"),
+    'and past the cache when asked to'
+  );
+  assert.ok(
+    load.includes('TYPES_UNREACHABLE'),
+    'a failure must say so rather than leave an empty field'
+  );
+  assert.match(
+    SCRIPT,
+    /const TYPES_UNREACHABLE =\n\s+'Paperless-ngx could not be reached; you can still type a name\.';/,
+    'the note must be worded exactly that way'
+  );
+  assert.ok(
+    functionBody('reloadDocumentTypes').includes('loadDocumentTypes(true)'),
+    'the reload button is the one thing that bypasses the cache'
+  );
+  const init = functionBody('init');
+  assert.ok(
+    init.includes('loadDocumentTypes()'),
+    'the list is fetched once when the page opens'
+  );
+  assert.ok(
+    functionBody('applySelected').includes('loadDocumentTypes()'),
+    'a split may have created a type, so the list is read again afterwards'
+  );
+
+  // Picking a row adds the name; a row already in the vocabulary only closes.
+  const picker = functionBody('initTypePicker');
+  assert.ok(picker.includes("prefix: 'simTypeRow'"), 'the rows need an id');
+  assert.ok(
+    picker.includes("if (inVocabulary('type', name)) return;"),
+    'a type the vocabulary has is not added a second time'
+  );
+  assert.ok(
+    picker.includes("addVocabularyName('type', name)"),
+    'and any other row is'
+  );
+  assert.ok(
+    functionBody('typeChoices').includes('IN_VOCABULARY_BADGE'),
+    'a row the vocabulary already holds must be recognisable'
+  );
+  assert.match(
+    SCRIPT,
+    /const IN_VOCABULARY_BADGE = \{ text: 'in vocabulary', tone: 'ok' \};/,
+    'the badge must read "in vocabulary"'
+  );
+  // Enter on a query nothing matches still adds the typed name.
+  assert.ok(
+    functionBody('initVocabulary').includes(
+      'if (event.defaultPrevented) return;'
+    ),
+    'a row picked with Enter must not be added as text as well'
   );
 });
 

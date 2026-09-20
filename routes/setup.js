@@ -13120,6 +13120,154 @@ router.put('/api/simplify/vocabulary', isAuthenticated, async (req, res) => {
 
 /**
  * @swagger
+ * components:
+ *   schemas:
+ *     TagVocabularyDocumentType:
+ *       type: object
+ *       description: |
+ *         One document type of the Paperless-ngx instance, as the picker on
+ *         the "Simplify tags" page offers it.
+ *       properties:
+ *         id:
+ *           type: integer
+ *           description: The id in Paperless-ngx
+ *           example: 7
+ *         name:
+ *           type: string
+ *           description: The name, exactly as Paperless-ngx spells it
+ *           example: Rechnung
+ *         documentCount:
+ *           type: integer
+ *           description: How many documents carry this type
+ *           example: 128
+ *         inVocabulary:
+ *           type: boolean
+ *           description: |
+ *             True when the saved vocabulary holds a document type of exactly
+ *             this name. Names in Paperless-ngx are case sensitive, so the
+ *             comparison is too.
+ *           example: true
+ */
+
+/**
+ * @swagger
+ * /api/simplify/document-types:
+ *   get:
+ *     summary: The document types Paperless-ngx already has
+ *     description: |
+ *       What the "Document type" field of the vocabulary offers. Read-only and
+ *       cached: the list is refreshed when it is empty, when it is older than
+ *       TAG_CACHE_TTL_SECONDS or when `fresh` asks for it, and every write
+ *       that creates or deletes a document type empties it, so a type a split
+ *       just created is listed at once.
+ *
+ *       `inVocabulary` says which of them the saved vocabulary already holds;
+ *       the page marks those rows and does not add them a second time.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: fresh
+ *         required: false
+ *         description: 1, true or yes reads past the cache
+ *         schema:
+ *           type: string
+ *           example: '1'
+ *     responses:
+ *       200:
+ *         description: The document types, sorted by name
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     types:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/TagVocabularyDocumentType'
+ *                     total:
+ *                       type: integer
+ *                       example: 8
+ *                     cachedAt:
+ *                       type: string
+ *                       nullable: true
+ *                       format: date-time
+ *                       description: When the cached list was built; null while nothing was read yet
+ *       401:
+ *         description: Not authenticated
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.get(
+  '/api/simplify/document-types',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const fresh = ['1', 'true', 'yes'].includes(
+        String(req.query.fresh ?? '').toLowerCase()
+      );
+      const records = await paperlessService.listDocumentTypesCached({ fresh });
+      const vocabulary = await tagSimplifyService.getVocabulary();
+      // Names are case sensitive in Paperless-ngx, so "Rechnung" and
+      // "rechnung" are two types and only one of them is in the vocabulary.
+      const known = new Set(vocabulary.types.map((row) => String(row.name)));
+      const types = records
+        .map((record) => ({
+          id: Number(record.id),
+          name: String(record.name ?? ''),
+          documentCount: Number(record.documentCount) || 0,
+          inVocabulary: known.has(String(record.name ?? '')),
+        }))
+        .sort((a, b) => {
+          const byName = a.name.localeCompare(b.name, undefined, {
+            sensitivity: 'base',
+          });
+          // Two names that differ only in case compare equal; the id then
+          // decides, so the same instance always answers in the same order.
+          return byName !== 0 ? byName : a.id - b.id;
+        });
+      const filledAt = paperlessService.documentTypeCacheFilledAt();
+      return res.json({
+        success: true,
+        data: {
+          types,
+          total: types.length,
+          cachedAt: filledAt ? new Date(filledAt).toISOString() : null,
+        },
+      });
+    } catch (error) {
+      // paperlessService throws what axios threw, which carries no status of
+      // its own; the page must be able to tell "unreachable" from "broken".
+      const failure = Number.isInteger(error?.status)
+        ? error
+        : Object.assign(
+            new Error(
+              `Paperless-ngx could not be reached while listing the document types: ${
+                error?.message || 'unknown error'
+              }`
+            ),
+            { status: 502 }
+          );
+      return respondDuplicatesError(
+        res,
+        'GET /api/simplify/document-types',
+        failure
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
  * /api/simplify/vocabulary/propose:
  *   post:
  *     summary: Let the model propose a vocabulary from the tag names

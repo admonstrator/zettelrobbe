@@ -24,6 +24,7 @@
 
 import { toast, confirmDialog } from '/js/zr.js';
 import { escapeHtml as esc } from '/js/modules/text-utils.js';
+import { createPicker } from '/js/modules/picker.js';
 
 /* --- interpolation helpers ------------------------------------------------ */
 
@@ -87,6 +88,20 @@ const PROPOSALS_EMPTY =
 /** The notice over an unsaved model proposal. */
 const PROPOSAL_NOTICE = 'Proposed by the model, not saved yet';
 
+/** Its sibling for the types taken over from Paperless-ngx in one click. */
+const ADOPT_NOTICE = 'Taken over from Paperless-ngx, not saved yet';
+
+/** What both notices say underneath: nothing is stored until Save is used. */
+const UNSAVED_HINT =
+  'Edit the lists, then save them. Nothing is stored until you do.';
+
+/** What the note says when the document types could not be read. */
+const TYPES_UNREACHABLE =
+  'Paperless-ngx could not be reached; you can still type a name.';
+
+/** The badge a row of the picker wears when the vocabulary already has it. */
+const IN_VOCABULARY_BADGE = { text: 'in vocabulary', tone: 'ok' };
+
 /* --- state ---------------------------------------------------------------- */
 
 const el = {
@@ -95,7 +110,12 @@ const el = {
   types: document.getElementById('simTypes'),
   topics: document.getElementById('simTopics'),
   typeInput: document.getElementById('simTypeInput'),
+  typeList: document.getElementById('simTypeList'),
+  typesReloadBtn: document.getElementById('simTypesReloadBtn'),
+  typesNote: document.getElementById('simTypesNote'),
+  adoptTypes: document.getElementById('simAdoptTypes'),
   topicInput: document.getElementById('simTopicInput'),
+  topicHint: document.getElementById('simTopicHint'),
   proposeVocabularyBtn: document.getElementById('simProposeVocabularyBtn'),
   saveVocabularyBtn: document.getElementById('simSaveVocabularyBtn'),
   proposeSplitsBtn: document.getElementById('simProposeSplitsBtn'),
@@ -128,6 +148,20 @@ const el = {
 
 /** The vocabulary the page is editing: names only, in the user's order. */
 const vocabulary = { types: [], topics: [] };
+
+/** The document types Paperless-ngx has, as the route last answered them. */
+let documentTypes = [];
+
+/** True once a fetch of them failed: no offer, and the note explains why. */
+let typesUnreachable = false;
+
+/**
+ * The tag names of the archive, lower case -> { name, documentCount }. Read
+ * once, the first time a topic is typed, and kept for the page's life: the
+ * hint is an extra, not a reason to fetch a thousand names on load.
+ */
+let tagIndex = null;
+let tagIndexPromise = null;
 
 /** Every proposal the last load brought, by tag id. */
 const proposals = new Map();
@@ -238,6 +272,7 @@ function renderVocabulary() {
       ? `${total} ${plural(total, 'entry', 'entries')}`
       : '';
   }
+  renderAdoptOffer();
   updateProposeSplitsButton();
 }
 
@@ -272,6 +307,227 @@ function mergeProposedVocabulary(current, proposed) {
     merged.push(name);
   });
   return merged;
+}
+
+/* --- the document types Paperless-ngx already has ------------------------- */
+
+/**
+ * The offer that turns the existing document types into a vocabulary. Pure on
+ * purpose: tests/test-simplify-ui.js renders it for one type and for four.
+ *
+ * @param {number} count how many types the instance has
+ * @returns {string} markup for the body of #simAdoptTypes
+ */
+function htmlAdoptTypes(count) {
+  const total = num(count);
+  const kinds = `document ${plural(total, 'type', 'types')}`;
+  return `<div class="zr-alert__body"><p class="zr-sm">${esc(`Paperless-ngx already has ${total} ${kinds}.`)}</p></div><button class="zr-btn" id="simAdoptTypesBtn" type="button">${esc(`Take over ${total} ${kinds}`)}</button>`;
+}
+
+/** Shows the offer only while there is nothing to lose by taking it. */
+function renderAdoptOffer() {
+  if (!el.adoptTypes) return;
+  const offer =
+    !typesUnreachable &&
+    vocabulary.types.length === 0 &&
+    documentTypes.length > 0;
+  el.adoptTypes.innerHTML = offer ? htmlAdoptTypes(documentTypes.length) : '';
+  el.adoptTypes.classList.toggle('hidden', !offer);
+}
+
+/**
+ * What the picker may offer right now. The badge is worked out from the list
+ * the user is editing rather than from `inVocabulary` of the last fetch: a
+ * name added a second ago must already wear it.
+ */
+function typeChoices() {
+  const taken = new Set(vocabulary.types.map((name) => name.toLowerCase()));
+  return documentTypes.map((record) => {
+    const name = String(record.name == null ? '' : record.name);
+    return taken.has(name.toLowerCase())
+      ? { ...record, badge: IN_VOCABULARY_BADGE }
+      : record;
+  });
+}
+
+/** True when the vocabulary already holds this name, whatever its case. */
+function inVocabulary(dimension, name) {
+  const list = dimension === 'type' ? vocabulary.types : vocabulary.topics;
+  const wanted = String(name == null ? '' : name).toLowerCase();
+  return list.some((entry) => entry.toLowerCase() === wanted);
+}
+
+/**
+ * Reads the document types behind the cache, or `fresh` past it.
+ *
+ * A failure is not an error state of the page: the field stays a text field
+ * and the note says so, because a vocabulary is a list of names and does not
+ * need Paperless-ngx to be typed.
+ *
+ * @param {boolean} [fresh] true reads past the cache
+ * @returns {Promise<boolean>} whether Paperless-ngx answered
+ */
+async function loadDocumentTypes(fresh) {
+  try {
+    // Two spelled-out literals rather than one built URL: nothing of this
+    // page's data reaches a path, and the escaping check can see that.
+    const payload = await requestJson(
+      fresh === true
+        ? '/api/simplify/document-types?fresh=1'
+        : '/api/simplify/document-types'
+    );
+    const data = payload.data || {};
+    documentTypes = Array.isArray(data.types) ? data.types : [];
+    typesUnreachable = false;
+  } catch {
+    documentTypes = [];
+    typesUnreachable = true;
+  }
+  if (el.typesNote) {
+    el.typesNote.textContent = typesUnreachable ? TYPES_UNREACHABLE : '';
+    el.typesNote.classList.toggle('hidden', !typesUnreachable);
+  }
+  renderAdoptOffer();
+  return !typesUnreachable;
+}
+
+/** The reload button: past the cache, and it says what came back. */
+async function reloadDocumentTypes() {
+  if (!el.typesReloadBtn) return;
+  el.typesReloadBtn.disabled = true;
+  try {
+    const reached = await loadDocumentTypes(true);
+    if (!reached) {
+      toast(TYPES_UNREACHABLE, { tone: 'danger' });
+      return;
+    }
+    const total = documentTypes.length;
+    toast(`${total} document ${plural(total, 'type', 'types')} read`, {
+      tone: 'ok',
+    });
+  } finally {
+    el.typesReloadBtn.disabled = false;
+  }
+}
+
+/** The one click that makes the existing types the vocabulary's types. */
+function adoptDocumentTypes() {
+  let added = 0;
+  documentTypes.forEach((record) => {
+    if (addVocabularyName('type', record.name)) added += 1;
+  });
+  if (added === 0) return;
+  if (el.vocabularyNotice) {
+    el.vocabularyNotice.innerHTML = htmlAlert(
+      'info',
+      ADOPT_NOTICE,
+      UNSAVED_HINT
+    );
+  }
+  toast(`${added} document ${plural(added, 'type', 'types')} taken over`, {
+    tone: 'ok',
+  });
+}
+
+/* --- the hint under a typed topic ----------------------------------------- */
+
+/**
+ * The tag names of the archive, read once and kept. A list that cannot be
+ * read is an empty one: the hint is an extra, never a reason to fail.
+ *
+ * @returns {Promise<Map<string, {name: string, documentCount: number}>>}
+ */
+function ensureTagIndex() {
+  if (tagIndex) return Promise.resolve(tagIndex);
+  if (!tagIndexPromise) {
+    tagIndexPromise = requestJson('/api/duplicates/entities?kind=tags')
+      .then((payload) => {
+        const index = new Map();
+        (payload.data || []).forEach((record) => {
+          const name = String(record.name == null ? '' : record.name);
+          if (name === '' || index.has(name.toLowerCase())) return;
+          index.set(name.toLowerCase(), {
+            name,
+            documentCount: num(record.documentCount),
+          });
+        });
+        tagIndex = index;
+        return index;
+      })
+      .catch(() => {
+        tagIndex = new Map();
+        return tagIndex;
+      });
+  }
+  return tagIndexPromise;
+}
+
+/**
+ * What a typed topic is told about the tag of that name. Pure on purpose:
+ * tests/test-simplify-ui.js runs the three cases.
+ *
+ * @param {string} typed the name the user entered
+ * @param {?{name: string, documentCount: number}} match the tag of that name,
+ *   ignoring case, or null when there is none
+ * @returns {string} markup, '' when there is nothing to say
+ */
+function htmlTopicHint(typed, match) {
+  const name = String(typed == null ? '' : typed);
+  if (!match) return '';
+  const existing = String(match.name == null ? '' : match.name);
+  if (existing === name) {
+    const count = num(match.documentCount);
+    const documents = `${count} ${plural(count, 'document', 'documents')}`;
+    return esc(
+      `'${name}' is an existing tag with ${documents}; a split reuses it.`
+    );
+  }
+  const htmlUse = `<button type="button" class="zr-btn sim-hint__use" data-name="${esc(existing)}" data-typed="${esc(name)}">${esc(`Use '${existing}'`)}</button>`;
+  return `${esc(`'${name}' differs from the existing tag '${existing}' only in spelling.`)}${htmlUse}`;
+}
+
+/**
+ * Replaces the typed spelling with the existing one, keeping its position and
+ * never leaving the same name twice. Pure on purpose.
+ *
+ * @param {string[]} list the topics as they stand
+ * @param {string} typed what the user entered
+ * @param {string} wanted how Paperless-ngx spells it
+ * @returns {string[]} the topics afterwards
+ */
+function useExistingSpelling(list, typed, wanted) {
+  const names = Array.isArray(list) ? [...list] : [];
+  const at = names.indexOf(typed);
+  if (at === -1) return names;
+  const others = names.filter((entry, index) => index !== at);
+  if (others.some((entry) => entry.toLowerCase() === wanted.toLowerCase())) {
+    return others;
+  }
+  names[at] = wanted;
+  return names;
+}
+
+/** Shows what the tag list says about a topic the user just typed. */
+async function showTopicHint(typed) {
+  if (!el.topicHint) return;
+  const index = await ensureTagIndex();
+  const match = index.get(String(typed).toLowerCase()) || null;
+  el.topicHint.innerHTML = htmlTopicHint(typed, match);
+  el.topicHint.classList.toggle('hidden', !match);
+}
+
+/** Takes the hint's offer: the chip gets the spelling Paperless-ngx uses. */
+function takeExistingSpelling(button) {
+  vocabulary.topics = useExistingSpelling(
+    vocabulary.topics,
+    String(button.dataset.typed || ''),
+    String(button.dataset.name || '')
+  );
+  renderVocabulary();
+  if (el.topicHint) {
+    el.topicHint.innerHTML = '';
+    el.topicHint.classList.add('hidden');
+  }
 }
 
 async function loadVocabulary() {
@@ -901,7 +1157,7 @@ async function proposeVocabulary() {
       el.vocabularyNotice.innerHTML = htmlAlert(
         stopped ? 'warn' : 'info',
         PROPOSAL_NOTICE,
-        'Edit the lists, then save them. Nothing is stored until you do.'
+        UNSAVED_HINT
       );
     }
     toast('The model proposed a vocabulary', { tone: 'ok' });
@@ -972,7 +1228,7 @@ async function reattachJob() {
       el.vocabularyNotice.innerHTML = htmlAlert(
         'info',
         PROPOSAL_NOTICE,
-        'Edit the lists, then save them. Nothing is stored until you do.'
+        UNSAVED_HINT
       );
     }
   } catch (error) {
@@ -1103,6 +1359,9 @@ async function applySelected() {
       });
     }
     await loadProposals();
+    // A split creates the document type it needs, so the picker's choices are
+    // one behind. The service drops the cache on that write; this reads it.
+    await loadDocumentTypes();
     (data.failed || []).forEach((failure) => {
       const proposal = proposals.get(num(failure.tagId));
       if (proposal) proposal.error = failure.error;
@@ -1138,16 +1397,42 @@ async function skipSelected() {
 /* --- wiring --------------------------------------------------------------- */
 
 function initVocabulary() {
-  const addFrom = (input, dimension) => {
+  // Before addFrom() below, so the picker's Enter handler runs first and can
+  // mark the event as handled for it.
+  initTypePicker();
+
+  const addFrom = (input, dimension, added) => {
     if (!input) return;
     input.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return;
+      // The picker already picked a row with this Enter; the text in the
+      // field is a query, not a name to add.
+      if (event.defaultPrevented) return;
       event.preventDefault();
-      if (addVocabularyName(dimension, input.value)) input.value = '';
+      const name = String(input.value || '').trim();
+      if (!addVocabularyName(dimension, name)) return;
+      input.value = '';
+      if (added) added(name);
     });
   };
   addFrom(el.typeInput, 'type');
-  addFrom(el.topicInput, 'topic');
+  addFrom(el.topicInput, 'topic', showTopicHint);
+
+  if (el.topicHint) {
+    el.topicHint.addEventListener('click', (event) => {
+      const button = event.target.closest('.sim-hint__use');
+      if (button) takeExistingSpelling(button);
+    });
+  }
+
+  if (el.typesReloadBtn) {
+    el.typesReloadBtn.addEventListener('click', reloadDocumentTypes);
+  }
+  if (el.adoptTypes) {
+    el.adoptTypes.addEventListener('click', (event) => {
+      if (event.target.closest('#simAdoptTypesBtn')) adoptDocumentTypes();
+    });
+  }
 
   [el.types, el.topics].forEach((host) => {
     if (!host) return;
@@ -1164,6 +1449,26 @@ function initVocabulary() {
   if (el.proposeVocabularyBtn) {
     el.proposeVocabularyBtn.addEventListener('click', proposeVocabulary);
   }
+}
+
+/** The search field over the document types, on the vocabulary's type list. */
+function initTypePicker() {
+  if (!el.typeInput || !el.typeList) return;
+  createPicker({
+    input: el.typeInput,
+    list: el.typeList,
+    prefix: 'simTypeRow',
+    choices: typeChoices,
+    emptyText: 'No document type matches. Press Enter to add it as a new one.',
+    onPick: (record) => {
+      const name = String(record.name == null ? '' : record.name);
+      el.typeInput.value = '';
+      // A type the vocabulary already holds is shown so it can be recognised,
+      // not so it can be added twice; picking it only closes the list.
+      if (inVocabulary('type', name)) return;
+      addVocabularyName('type', name);
+    },
+  });
 }
 
 function initProposals() {
@@ -1263,6 +1568,7 @@ async function init() {
   initVocabulary();
   initProposals();
   await loadVocabulary();
+  await loadDocumentTypes();
   await loadProposals();
   await reattachJob();
 }
