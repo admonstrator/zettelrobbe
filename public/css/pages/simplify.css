@@ -19,6 +19,26 @@
     overflow: visible;
   }
 
+  /* Since round 12 the block is a details: the order above it is what the page
+     is read for, and the vocabulary is what it was built from. */
+  .sim-vocab__summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .sim-vocab__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sim-vocab__chevron {
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .sim-vocab-module[open] .sim-vocab__chevron {
+    transform: rotate(90deg);
+  }
+
   /* Two lists side by side on a desktop, stacked on a phone: the document
      types and the topics are edited the same way, so they look the same. */
   .sim-vocab {
@@ -247,6 +267,17 @@
     white-space: nowrap;
   }
 
+  /* What the order does with the row, as its first column: four short words,
+     none of which may wrap. */
+  .sim-proposals__actioncol {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  .sim-action {
+    color: var(--zr-text-muted);
+  }
+
   /* The two editable cells carry a control each, so they need room the text
      columns do not, and the reason must not squeeze them out. A table lays
      itself out by content, so the widths go on the header row. */
@@ -385,5 +416,191 @@
     padding-left: var(--zr-4);
     display: grid;
     gap: 4px;
+  }
+
+  /* --- the proposed order ----------------------------------------------- */
+  /* The head carries the title, the counts and the one button that applies
+     everything accepted; below 720px that is one line too many, so it wraps
+     rather than pushing the title out of the card. */
+  .sim-order__head {
+    flex-wrap: wrap;
+    row-gap: var(--zr-2);
+  }
+
+  .sim-order__apply-all {
+    margin-left: auto;
+  }
+
+  .sim-order__keep {
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+
+  /* The one line a finished run leaves behind. It is read next to the panel
+     above it, so it carries no card of its own. */
+  .sim-order__summary {
+    margin: 0;
+    color: var(--zr-text-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .sim-order__empty {
+    padding: var(--zr-5) var(--zr-3);
+  }
+
+  /* What an apply reported: one alert, with a line per failure under it. */
+  .sim-apply-result:empty {
+    display: none;
+  }
+
+  .sim-apply-result__failures {
+    margin: var(--zr-2) 0 0;
+    padding-left: var(--zr-4);
+    display: grid;
+    gap: 4px;
+  }
+
+  /* The view switch sits above the filters and reads like one of them. */
+  .sim-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    align-items: flex-start;
+  }
+
+  /* --- one group of the order ------------------------------------------- */
+  .sim-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  /* The head carries four things of very different widths — the kind badge,
+     the name, the counts and the status badges. A wrapping flex row keeps them
+     readable down to 320px without a media query. */
+  .sim-group__head {
+    flex-wrap: wrap;
+    row-gap: var(--zr-2);
+  }
+
+  .sim-group__name {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+
+  .sim-group__counts {
+    white-space: nowrap;
+  }
+
+  .sim-group__status {
+    margin-left: auto;
+  }
+
+  /* The member list is closed until it is asked for: 200 rows are the detail,
+     the decision is made on the head and the foot. */
+  .sim-group__summary {
+    padding: var(--zr-2) var(--zr-3);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  /* A closed card is head, one line and foot; the line only becomes a border
+     of its own once there is a table under it. */
+  .sim-group__members[open] .sim-group__summary {
+    border-bottom: 1px solid var(--zr-line);
+  }
+
+  .sim-group__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sim-group__summary:hover {
+    color: var(--zr-text);
+  }
+
+  .sim-group__morewrap {
+    display: flex;
+    justify-content: center;
+    padding: var(--zr-2) var(--zr-3);
+  }
+
+  .sim-group__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+  }
+
+  /* What happens to a tag is the one cell the eye looks for, so it keeps the
+     type and the topics on one line and never wraps mid-name. */
+  .sim-member__outcome {
+    display: inline-block;
+    font-size: var(--zr-fs-sm);
+    overflow-wrap: anywhere;
+  }
+
+  /* The two buttons of a row belong on one line: the column is as wide as its
+     content, so a wrap here would make every row twice as tall. */
+  .sim-member__actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+
+  .sim-members__editcol {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  @media (min-width: 900px) {
+    .sim-members .sim-members__reasoncol {
+      width: 26ch;
+    }
+  }
+
+  @media (max-width: 720px) {
+    /* A card at 390px: the head stacks, and the buttons of the foot take a
+       full row each rather than squeezing four onto one. */
+    .sim-group__status {
+      margin-left: 0;
+    }
+
+    .sim-group__foot .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .sim-member__actions {
+      justify-content: flex-start;
+    }
+
+    .sim-order__apply-all {
+      width: 100%;
+      margin-left: 0;
+      justify-content: center;
+    }
+
+    /* Six choices do not fit on one 390px line; they wrap into rows of three
+       rather than sliding out of the card. */
+    .sim-filters__field--wide .zr-segment {
+      flex-wrap: wrap;
+    }
+
+    .sim-filters__field--wide .zr-segment button {
+      flex: 1 0 28%;
+    }
+
+    .sim-view .zr-segment {
+      display: flex;
+      width: 100%;
+    }
+
+    .sim-view .zr-segment button {
+      flex: 1;
+    }
   }
 }

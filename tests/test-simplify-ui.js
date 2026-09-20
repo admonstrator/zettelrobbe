@@ -27,6 +27,11 @@
  *     the event stream with its polling fallback and the re-attach after a
  *     reload
  * 10. the requests the page sends, and the one route it sends each on
+ * 11. the proposed order of round 12: the ids the section carries, the group
+ *     card for every kind, the member row for every action, the cut at 50
+ *     members, the three filters, the summary line, the two confirmations,
+ *     the result of an apply, the removal of one member, the two jobs, the
+ *     vocabulary block, the table as the detail view and the empty states
  */
 
 'use strict';
@@ -845,7 +850,7 @@ test('The view carries the picker, the reload and the two notices', () => {
   // The module clips what leaves it, which would cut the dropdown short.
   assert.match(
     page,
-    /class="zr-module sim-vocab-module" id="simVocabulary"/,
+    /class="zr-module sim-vocab-module" id="simVocabularyBlock"/,
     'the vocabulary section needs the class that lets the dropdown out'
   );
 });
@@ -1183,6 +1188,7 @@ test('The proposal row carries the select, the chips and the badges', () => {
     [
       'num',
       'plural',
+      'actionLabel',
       'htmlSourceBadge',
       'overwriteLabel',
       'htmlTypeSelect',
@@ -1320,6 +1326,7 @@ test('An applied row is history, with the one link that takes it back', () => {
     [
       'num',
       'plural',
+      'actionLabel',
       'htmlSourceBadge',
       'overwriteLabel',
       'htmlTypeSelect',
@@ -1638,13 +1645,18 @@ test('The page follows a job through the stream, and polls when it breaks', () =
     'a reloaded page asks what is running'
   );
   assert.ok(
-    reattach.includes('task !== JOB_TASKS.VOCABULARY') &&
-      reattach.includes('task !== JOB_TASKS.SPLITS'),
+    reattach.includes('if (!mine.includes(task)) return;'),
     'a review of the Duplicates page belongs there, not here'
   );
+  ['VOCABULARY', 'SPLITS', 'ORDER', 'APPLY'].forEach((task) => {
+    assert.ok(
+      reattach.includes(`JOB_TASKS.${task}`),
+      `a running ${task.toLowerCase()} job must get its page back`
+    );
+  });
   assert.match(
     SCRIPT,
-    /const JOB_TASKS = \{ VOCABULARY: 'vocabulary', SPLITS: 'splits' \};/,
+    /const JOB_TASKS = \{\n\s+VOCABULARY: 'vocabulary',\n\s+SPLITS: 'splits',\n\s+ORDER: 'order',\n\s+APPLY: 'apply',\n\s*\};/,
     'the task names are contract with the job service'
   );
 });
@@ -1706,6 +1718,1076 @@ test('Every request goes to the route the page was built for', () => {
       `${name}() must be behind a button`
     );
   });
+});
+
+/* ── 11. the proposed order ───────────────────────────────────────────────── */
+
+/**
+ * The renderers of the order, taken out of the module the same way. The
+ * constants that are plain numbers or that the scanner cannot read are handed
+ * in as globals; everything else comes out of the file itself.
+ */
+function orderHelpers(names, globals = {}) {
+  return helpers(names, {
+    constants: [
+      'GROUP_KIND_LABELS',
+      'GROUP_KIND_TONES',
+      'GROUP_KIND_ICONS',
+      'STATUS_BADGES',
+      'SOURCE_LABELS',
+      'SOURCE_TONES',
+      'DECISION_WORDS',
+    ],
+    globals: Object.assign({ esc: escForTest, MEMBERS_PER_PAGE: 50 }, globals),
+  });
+}
+
+/** One group of the fixture the filter cases run on. */
+function fixtureGroup(over) {
+  return Object.assign(
+    {
+      key: 'type:Rechnung',
+      kind: 'type',
+      name: 'Rechnung',
+      tags: 2,
+      documents: 30,
+      open: 2,
+      accepted: 0,
+      applied: 0,
+      skipped: 0,
+      members: [],
+    },
+    over
+  );
+}
+
+function fixtureMember(over) {
+  return Object.assign(
+    {
+      tagId: 9,
+      tagName: 'Stromrechnung',
+      documentCount: 12,
+      action: 'split',
+      typeName: 'Rechnung',
+      topicNames: ['Strom'],
+      mergeInto: null,
+      source: 'rule',
+      confidence: 'high',
+      reason: 'compound of Rechnung and Strom',
+      status: 'open',
+    },
+    over
+  );
+}
+
+test('The view opens with the order, above the vocabulary and the table', () => {
+  [
+    'simOrder',
+    'simOrderMeta',
+    'simOrderSummary',
+    'simOrderEmpty',
+    'simOrderKeepVocabulary',
+    'simOrderKeepWrap',
+    'simOrderStats',
+    'simStatGroupTypes',
+    'simStatGroupTopics',
+    'simStatGroupMerges',
+    'simStatGroupDelete',
+    'simStatGroupKeep',
+    'simStatOrderAccepted',
+    'simStatOrderApplied',
+    'simView',
+    'simGroupKind',
+    'simGroupStatus',
+    'simGroupSearch',
+    'simGroups',
+    'simGroupFilters',
+    'simApplyAcceptedBtn',
+    'simApplyAcceptedLabel',
+    'simApplyResult',
+    'simVocabularyBlock',
+    'simReproposeBtn',
+  ].forEach((id) => {
+    assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
+    assert.ok(
+      SCRIPT.includes(`'${id}'`) || SCRIPT.includes(`"${id}"`),
+      `#${id} is in the view but the page script never reads it`
+    );
+  });
+
+  // The order comes first, then the vocabulary, then the table of round 10.
+  assert.ok(
+    page.indexOf('id="simOrder"') < page.indexOf('id="simVocabularyBlock"'),
+    'the order is what the page opens with'
+  );
+  assert.ok(
+    page.indexOf('id="simVocabularyBlock"') < page.indexOf('id="simProposals"'),
+    'the table is the detail view and comes last'
+  );
+  // Groups are the default; the table waits behind the segment.
+  assert.match(
+    page,
+    /class="zr-module hidden" id="simProposals"/,
+    'the table view must come up hidden'
+  );
+  assert.match(
+    page,
+    /data-view="groups" aria-selected="true"/,
+    'Groups is the view the page opens in'
+  );
+  assert.match(
+    page,
+    /id="simApplyAcceptedBtn" type="button" disabled/,
+    'nothing is accepted yet, so the button is dead'
+  );
+  // The block is a details, closed by the script once a vocabulary is saved.
+  assert.match(
+    page,
+    /<details class="zr-module sim-vocab-module" id="simVocabularyBlock">/,
+    'the vocabulary moved into a details block'
+  );
+  assert.ok(
+    page.includes('Re-propose with this vocabulary'),
+    'the block must offer the order again against the saved names'
+  );
+  assert.ok(
+    page.includes(
+      'The model reads every tag and every document type, proposes a vocabulary and sorts every tag into it. Nothing here runs on its own.'
+    ),
+    'the sentence over the order is contract'
+  );
+});
+
+test('The order button is the model-backed one; without it comes the hint', () => {
+  const offered = renderSync(
+    'simplify.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  assert.ok(
+    offered.includes('id="simOrderBtn"') &&
+      offered.includes('Propose a new order'),
+    'the primary button of the page is missing'
+  );
+  assert.match(
+    offered,
+    /id="simOrderIcon"[\s\S]{0,120}icons\.svg#i-wand/,
+    'the model-backed button wears the wand'
+  );
+  assert.ok(
+    !offered.includes('id="simOrderAiHint"'),
+    'with a model there is nothing to explain'
+  );
+
+  // Without a model the page still works, and says what it can do.
+  assert.ok(!page.includes('id="simOrderBtn"'), 'no model, no model button');
+  assert.ok(
+    page.includes(
+      'The AI review is switched off in the settings; the page can only propose splits by rule from a saved vocabulary.'
+    ),
+    'the hint must be worded exactly that way'
+  );
+  // Everything that decides and applies is there either way.
+  ['simGroups', 'simApplyAcceptedBtn', 'simReproposeBtn'].forEach((id) => {
+    assert.ok(
+      page.includes(`id="${id}"`),
+      `#${id} must be there without the AI as well`
+    );
+  });
+});
+
+test('A group card says what it is, how big it is and what can be done', () => {
+  const { htmlGroupCard } = orderHelpers([
+    'num',
+    'plural',
+    'grouped',
+    'htmlIconMarkup',
+    'groupTitle',
+    'groupCountsText',
+    'htmlGroupStatusBadges',
+    'memberOutcome',
+    'htmlSourceBadge',
+    'htmlMemberRow',
+    'htmlGroupCard',
+  ]);
+
+  const card = htmlGroupCard(
+    fixtureGroup({
+      tags: 212,
+      documents: 3410,
+      open: 180,
+      accepted: 30,
+      applied: 2,
+      members: [fixtureMember({})],
+    }),
+    {}
+  );
+  assert.ok(
+    card.includes('data-group-key="type:Rechnung"'),
+    'a card names the group it is'
+  );
+  assert.ok(card.includes('data-kind="type"'), 'and the kind it belongs to');
+  assert.ok(
+    card.includes('<span class="zr-badge zr-badge--brand">'),
+    'a type group wears the brand tone'
+  );
+  assert.ok(card.includes('#i-file'), 'and the icon of a document type');
+  assert.ok(card.includes('>type<'), 'the badge says what kind it is');
+  assert.ok(card.includes('>Rechnung<'), 'the name belongs in the head');
+  assert.ok(
+    card.includes('212 tags · 3,410 documents'),
+    `the counts are wrong: ${card}`
+  );
+  assert.ok(
+    card.includes('>180 open<') &&
+      card.includes('>30 accepted<') &&
+      card.includes('>2 applied<'),
+    'the status counts belong in the head'
+  );
+  assert.ok(
+    !card.includes('skipped<'),
+    'a count of zero is not worth a badge of its own'
+  );
+  ['sim-group-accept', 'sim-group-skip', 'sim-group-reopen'].forEach((cls) => {
+    assert.ok(card.includes(cls), `${cls} is missing from the foot`);
+  });
+  assert.ok(
+    /class="zr-btn sim-group-apply"(?!.{0,20}disabled)/.test(card),
+    'with accepted members the apply must be alive'
+  );
+  assert.ok(
+    card.includes('<summary class="sim-group__summary">Show 1 tag</summary>'),
+    `the member list must be collapsed behind a summary: ${card}`
+  );
+  assert.ok(
+    !card.includes('<details class="sim-group__members" open>'),
+    'a card comes up closed'
+  );
+  assert.ok(
+    htmlGroupCard(fixtureGroup({ members: [fixtureMember({})] }), {
+      open: true,
+    }).includes('<details class="sim-group__members" open>'),
+    'a card the user opened stays open'
+  );
+});
+
+test('Every kind of group reads as itself', () => {
+  const { htmlGroupCard, groupTitle } = orderHelpers([
+    'num',
+    'plural',
+    'grouped',
+    'htmlIconMarkup',
+    'groupTitle',
+    'groupCountsText',
+    'htmlGroupStatusBadges',
+    'memberOutcome',
+    'htmlSourceBadge',
+    'htmlMemberRow',
+    'htmlGroupCard',
+  ]);
+
+  assert.strictEqual(
+    groupTitle({ kind: 'type', name: 'Rechnung' }),
+    'Rechnung'
+  );
+  assert.strictEqual(groupTitle({ kind: 'topic', name: 'Strom' }), 'Strom');
+  assert.strictEqual(groupTitle({ kind: 'merge', name: 'Amazon' }), '→ Amazon');
+  assert.strictEqual(groupTitle({ kind: 'delete', name: null }), 'Delete');
+  assert.strictEqual(
+    groupTitle({ kind: 'keep', name: null }),
+    'Keep as they are'
+  );
+
+  const of = (kind, over) =>
+    htmlGroupCard(
+      fixtureGroup(
+        Object.assign(
+          { key: kind, kind, name: kind === 'merge' ? 'Amazon' : null },
+          over
+        )
+      ),
+      {}
+    );
+
+  assert.ok(
+    of('topic', { name: 'Strom' }).includes('zr-badge--info'),
+    'a topic is information, not a claim'
+  );
+  const merge = of('merge', { accepted: 1 });
+  assert.ok(merge.includes('zr-badge--warn') && merge.includes('#i-merge'));
+  assert.ok(merge.includes('→ Amazon'), 'a merge group names its target');
+  const remove = of('delete');
+  assert.ok(remove.includes('zr-badge--danger') && remove.includes('#i-trash'));
+  assert.ok(remove.includes('>Delete<'));
+
+  // The tags nothing happens to: no accept, no apply, nothing to take out.
+  const keep = of('keep', { members: [fixtureMember({ action: 'keep' })] });
+  assert.ok(keep.includes('zr-badge--ok'), 'keep is settled, not a warning');
+  assert.ok(keep.includes('Keep as they are'));
+  assert.ok(
+    !keep.includes('sim-group-accept'),
+    'a keep group has nothing to accept'
+  );
+  assert.ok(!keep.includes('sim-group-apply'), 'and nothing to apply either');
+  assert.ok(
+    !keep.includes('sim-member-remove'),
+    'there is nothing to take out of the tags that stay'
+  );
+
+  // Nothing accepted, nothing decided: the apply sleeps, reopen is not shown.
+  const fresh = of('type', { name: 'Brief' });
+  assert.ok(
+    /class="zr-btn sim-group-apply" disabled/.test(fresh),
+    'without accepted members the apply must be dead'
+  );
+  assert.ok(
+    !fresh.includes('sim-group-reopen'),
+    'nothing was decided, so there is nothing to reopen'
+  );
+  // Nothing open: accept and skip have nothing left to do.
+  const done = of('type', { name: 'Brief', open: 0, accepted: 2 });
+  assert.ok(
+    /class="zr-btn zr-btn--primary sim-group-accept" disabled/.test(done),
+    'every member is decided, so accept is dead'
+  );
+  assert.ok(done.includes('sim-group-reopen'), 'and reopen is offered');
+});
+
+test('A member row says what happens to the tag', () => {
+  const { htmlMemberRow, memberOutcome } = orderHelpers([
+    'num',
+    'plural',
+    'grouped',
+    'htmlIconMarkup',
+    'memberOutcome',
+    'htmlSourceBadge',
+    'htmlMemberRow',
+  ]);
+
+  assert.strictEqual(memberOutcome(fixtureMember({})), '→ Rechnung + Strom');
+  assert.strictEqual(
+    memberOutcome(fixtureMember({ topicNames: [] })),
+    '→ Rechnung'
+  );
+  assert.strictEqual(
+    memberOutcome(fixtureMember({ typeName: null })),
+    '→ Strom'
+  );
+  assert.strictEqual(
+    memberOutcome(
+      fixtureMember({ typeName: null, topicNames: ['Strom', 'Auto'] })
+    ),
+    '→ Strom + Auto'
+  );
+  assert.strictEqual(
+    memberOutcome(
+      fixtureMember({ action: 'merge', mergeInto: 'Amazon', typeName: null })
+    ),
+    '→ merge into Amazon'
+  );
+  assert.strictEqual(
+    memberOutcome(fixtureMember({ action: 'delete' })),
+    'delete'
+  );
+  assert.strictEqual(memberOutcome(fixtureMember({ action: 'keep' })), 'keep');
+  // A split that has nothing left to give is a keep, whatever it is called.
+  assert.strictEqual(
+    memberOutcome(fixtureMember({ typeName: null, topicNames: [] })),
+    'keep'
+  );
+
+  const row = htmlMemberRow(fixtureGroup({}), fixtureMember({}));
+  assert.ok(row.includes('data-tag-id="9"'), 'the row names its tag');
+  assert.ok(row.includes('>Stromrechnung<'), 'and shows its name');
+  assert.ok(row.includes('>12<'), 'and how many documents it carries');
+  assert.ok(
+    row.includes('<span class="zr-badge zr-badge--ok">rule</span>'),
+    'the source badge is the one of round 10'
+  );
+  assert.ok(
+    row.includes('compound of Rechnung and Strom'),
+    'the reason belongs in the row'
+  );
+  assert.ok(
+    row.includes('class="zr-btn zr-btn--ghost zr-btn--icon sim-member-remove"'),
+    'every row carries the button that takes it out'
+  );
+  assert.ok(
+    row.includes('title="Take this tag out of the group"'),
+    'and that button says what it does'
+  );
+  assert.ok(row.includes('sim-member-skip'), 'and the per-tag skip');
+  assert.ok(row.includes('>Skip<'), 'an open row is skipped');
+  assert.ok(
+    htmlMemberRow(fixtureGroup({}), fixtureMember({ status: 'skipped' })),
+    'a skipped row can be reopened'
+  );
+  assert.ok(
+    htmlMemberRow(
+      fixtureGroup({}),
+      fixtureMember({ status: 'skipped' })
+    ).includes('>Reopen<'),
+    'the same button reads the other way round'
+  );
+  // An applied row is history: nothing is decided on it any more.
+  const applied = htmlMemberRow(
+    fixtureGroup({}),
+    fixtureMember({ status: 'applied' })
+  );
+  assert.ok(!applied.includes('sim-member-skip'));
+  assert.ok(!applied.includes('sim-member-remove'));
+  assert.ok(
+    applied.includes('<span class="zr-badge zr-badge--ok">applied</span>')
+  );
+  assert.ok(
+    htmlMemberRow(
+      fixtureGroup({}),
+      fixtureMember({ status: 'accepted' })
+    ).includes('<span class="zr-badge zr-badge--info">accepted</span>'),
+    'accepted is a status of its own since round 12'
+  );
+
+  // Names are the user's and the model's, everywhere they land.
+  const nasty = htmlMemberRow(
+    fixtureGroup({}),
+    fixtureMember({
+      tagName: '<img src=x>',
+      mergeInto: '<b>x</b>',
+      action: 'merge',
+      reason: '<script>alert(1)</script>',
+    })
+  );
+  assert.ok(
+    !nasty.includes('<img'),
+    'a tag name must never reach the page as tags'
+  );
+  assert.ok(!nasty.includes('<script>'), 'and neither must a reason');
+  assert.ok(nasty.includes('&lt;img src=x&gt;'));
+});
+
+test('A card renders 50 members and offers the rest', () => {
+  const { htmlGroupCard } = orderHelpers([
+    'num',
+    'plural',
+    'grouped',
+    'htmlIconMarkup',
+    'groupTitle',
+    'groupCountsText',
+    'htmlGroupStatusBadges',
+    'memberOutcome',
+    'htmlSourceBadge',
+    'htmlMemberRow',
+    'htmlGroupCard',
+  ]);
+
+  const members = Array.from({ length: 212 }, (unused, index) =>
+    fixtureMember({ tagId: index + 1, tagName: `Tag ${index + 1}` })
+  );
+  const card = htmlGroupCard(fixtureGroup({ tags: 212, members }), {});
+  assert.strictEqual(
+    (card.match(/class="sim-member"/g) || []).length,
+    50,
+    'a card must not render two hundred rows before it is asked to'
+  );
+  assert.ok(
+    card.includes('>Show 162 more<'),
+    `the rest must be offered by number: ${card.slice(0, 200)}`
+  );
+  assert.ok(
+    card.includes('sim-group__more'),
+    'and behind the class that appends it'
+  );
+
+  const all = htmlGroupCard(fixtureGroup({ tags: 212, members }), {
+    shown: 212,
+  });
+  assert.strictEqual((all.match(/class="sim-member"/g) || []).length, 212);
+  assert.ok(!all.includes('sim-group__more'), 'nothing is left to show');
+
+  const small = htmlGroupCard(
+    fixtureGroup({ tags: 2, members: members.slice(0, 2) }),
+    {}
+  );
+  assert.ok(!small.includes('sim-group__more'), 'two rows need no button');
+
+  // The page appends by remembering the number, not by fetching again.
+  const wiring = functionBody('initOrder');
+  assert.ok(
+    wiring.includes('groupShown.set('),
+    'the "show more" click must raise what the card renders'
+  );
+  assert.ok(
+    wiring.includes('renderGroupCard(group.key, group)'),
+    'and redraw that one card'
+  );
+});
+
+test('The three filters over the cards, on a fixture', () => {
+  const groups = [
+    fixtureGroup({ key: 'type:Rechnung', kind: 'type', name: 'Rechnung' }),
+    fixtureGroup({
+      key: 'topic:Strom',
+      kind: 'topic',
+      name: 'Strom',
+      open: 0,
+      accepted: 3,
+      members: [fixtureMember({ tagName: 'Stromrechnung' })],
+    }),
+    fixtureGroup({
+      key: 'merge:Amazon',
+      kind: 'merge',
+      name: 'Amazon',
+      open: 0,
+      applied: 4,
+      members: [fixtureMember({ tagName: 'amazon' })],
+    }),
+    fixtureGroup({ key: 'keep', kind: 'keep', name: null, open: 7 }),
+  ];
+  const visible = (kind, status, search) =>
+    helpers(['num', 'groupTitle', 'matchesFilters', 'visibleGroups'], {
+      globals: {
+        groups,
+        groupKind: kind,
+        groupStatus: status,
+        groupSearch: search,
+      },
+    })
+      .visibleGroups()
+      .map((group) => group.key);
+
+  assert.deepStrictEqual(
+    visible('all', 'all', ''),
+    ['type:Rechnung', 'topic:Strom', 'merge:Amazon', 'keep'],
+    'All over All leaves everything'
+  );
+  assert.deepStrictEqual(
+    visible('all', 'open', ''),
+    ['type:Rechnung', 'keep'],
+    'Open means "has an open member", not "is untouched"'
+  );
+  assert.deepStrictEqual(visible('all', 'accepted', ''), ['topic:Strom']);
+  assert.deepStrictEqual(visible('all', 'applied', ''), ['merge:Amazon']);
+  assert.deepStrictEqual(visible('all', 'skipped', ''), []);
+  assert.deepStrictEqual(visible('topic', 'all', ''), ['topic:Strom']);
+  assert.deepStrictEqual(visible('keep', 'all', ''), ['keep']);
+  // The search reads the group's name and the names of its members.
+  assert.deepStrictEqual(visible('all', 'all', 'rechnung'), [
+    'type:Rechnung',
+    'topic:Strom',
+  ]);
+  assert.deepStrictEqual(visible('all', 'all', 'AMAZON'), ['merge:Amazon']);
+  assert.deepStrictEqual(visible('all', 'all', 'keep as'), ['keep']);
+  assert.deepStrictEqual(visible('all', 'all', 'zzz'), []);
+});
+
+test('The tiles and the summary count every tag once', () => {
+  const { memberTotals, orderSummaryText } = helpers(
+    ['num', 'plural', 'memberTotals', 'orderSummaryText'],
+    {}
+  );
+
+  // A tag with a type and two topics is a member of three groups and stays
+  // one tag.
+  const groups = [
+    {
+      kind: 'type',
+      members: [
+        fixtureMember({ tagId: 1, status: 'accepted' }),
+        fixtureMember({ tagId: 2 }),
+      ],
+    },
+    {
+      kind: 'topic',
+      members: [fixtureMember({ tagId: 1, status: 'accepted' })],
+    },
+    {
+      kind: 'merge',
+      members: [
+        fixtureMember({ tagId: 3, action: 'merge', status: 'applied' }),
+      ],
+    },
+    {
+      kind: 'delete',
+      members: [fixtureMember({ tagId: 4, action: 'delete' })],
+    },
+    { kind: 'keep', members: [fixtureMember({ tagId: 5, action: 'keep' })] },
+  ];
+  const totals = memberTotals(groups);
+  assert.strictEqual(totals.tags, 5, 'a tag in three groups is one tag');
+  assert.strictEqual(totals.split, 2);
+  assert.strictEqual(totals.merge, 1);
+  assert.strictEqual(totals.delete, 1);
+  assert.strictEqual(totals.keep, 1);
+  assert.strictEqual(totals.accepted, 1);
+  assert.strictEqual(totals.applied, 1);
+  assert.strictEqual(totals.open, 3);
+
+  const accepted = memberTotals(groups, 'accepted');
+  assert.strictEqual(accepted.tags, 1, 'only what is accepted counts');
+  assert.strictEqual(accepted.split, 1);
+  assert.strictEqual(memberTotals([], 'accepted').tags, 0);
+  assert.strictEqual(memberTotals(null).tags, 0);
+
+  // The one line a run leaves behind, word for word.
+  assert.strictEqual(
+    orderSummaryText(
+      { byRule: 640, byModel: 660, requests: 14 },
+      {
+        tags: 1300,
+        split: 812,
+        merge: 94,
+        keep: 371,
+        delete: 23,
+      }
+    ),
+    '1300 tags: 812 split, 94 merge, 371 keep, 23 delete · 640 by rule, 660 by the model · 14 requests'
+  );
+  assert.ok(
+    orderSummaryText({ requests: 1, stopped: true }, { tags: 1 }).endsWith(
+      '1 request · stopped'
+    ),
+    'a stopped run says so at the end'
+  );
+});
+
+test('Every apply asks with the numbers of what it is about to do', () => {
+  const { groupApplyConfirmText, applyAllConfirmText } = helpers(
+    [
+      'num',
+      'plural',
+      'groupTitle',
+      'groupConfirmName',
+      'groupApplyConfirmText',
+      'applyAllConfirmText',
+    ],
+    {}
+  );
+
+  assert.strictEqual(
+    groupApplyConfirmText({ kind: 'type', name: 'Rechnung', accepted: 30 }),
+    'Apply Rechnung? 30 accepted tags: their documents get the document type Rechnung and the topics of each tag; the tags are deleted. You can undo each one from the log on the Duplicates page.',
+    'the wording of the confirmation is contract'
+  );
+  assert.ok(
+    groupApplyConfirmText({
+      kind: 'topic',
+      name: 'Strom',
+      accepted: 1,
+    }).startsWith('Apply Strom? 1 accepted tag: '),
+    'one tag is one tag'
+  );
+  const merge = groupApplyConfirmText({
+    kind: 'merge',
+    name: 'Amazon',
+    accepted: 4,
+  });
+  assert.ok(
+    merge.startsWith('Apply merge into Amazon? 4 accepted tags: '),
+    merge
+  );
+  assert.ok(
+    merge.includes('their documents merge into Amazon'),
+    'a merge group says where the documents go'
+  );
+  const remove = groupApplyConfirmText({
+    kind: 'delete',
+    name: null,
+    accepted: 5,
+  });
+  assert.ok(
+    remove.startsWith('Apply the deletions? 5 accepted tags: '),
+    remove
+  );
+  assert.ok(
+    remove.includes('the tags are deleted from their documents'),
+    'a delete group says what it takes away'
+  );
+  [merge, remove].forEach((text) => {
+    assert.ok(
+      text.endsWith(
+        'You can undo each one from the log on the Duplicates page.'
+      ),
+      'every apply promises the undo'
+    );
+  });
+
+  assert.strictEqual(
+    applyAllConfirmText({ tags: 42, split: 30, merge: 8, delete: 4, keep: 0 }),
+    'Apply everything accepted? 42 tags: 30 are split into a document type and topics, 8 merge into another tag, 4 are deleted from their documents. You can undo each one from the log on the Duplicates page.'
+  );
+  const one = applyAllConfirmText({ tags: 1, split: 1, merge: 0, delete: 0 });
+  assert.ok(
+    one.startsWith('Apply everything accepted? 1 tag: 1 is split'),
+    one
+  );
+  assert.ok(
+    !one.includes('merge into another tag'),
+    'an action nothing is accepted for is left out'
+  );
+
+  // Both dialogs are the kernel's, and both are decisions.
+  const group = functionBody('applyGroup');
+  assert.ok(
+    group.includes('confirmDialog({') && group.includes("tone: 'danger'"),
+    'an apply deletes tags and asks like every other destructive step'
+  );
+  assert.ok(group.includes('groupApplyConfirmText(group)'));
+  const all = functionBody('applyAllAccepted');
+  assert.ok(all.includes('applyAllConfirmText(totals)'));
+  assert.ok(
+    all.includes("memberTotals(groups, 'accepted')"),
+    'the totals come from the groups, not from a guess'
+  );
+});
+
+test('An apply leaves a line, and names every tag that failed', () => {
+  const { applyResultText, htmlApplyResultBlock } = helpers(
+    ['applyResultText', 'htmlApplyResultBlock'],
+    { globals: { esc: escForTest } }
+  );
+
+  assert.strictEqual(
+    applyResultText({
+      applied: [
+        { tagId: 1, action: 'split' },
+        { tagId: 2, action: 'split' },
+        { tagId: 3, action: 'delete' },
+      ],
+      merged: [{ tagId: 4 }],
+      failed: [{ tagId: 5 }, { tagId: 6 }],
+    }),
+    '2 split, 1 merged, 1 deleted, 2 failed'
+  );
+  assert.strictEqual(
+    applyResultText({ applied: [], merged: [], failed: [] }),
+    '0 split, 0 merged, 0 deleted',
+    'a run without failures does not say "0 failed"'
+  );
+  assert.strictEqual(
+    applyResultText({}),
+    '0 split, 0 merged, 0 deleted',
+    'a result the page cannot read is not a crash'
+  );
+
+  const block = htmlApplyResultBlock(
+    {
+      applied: [{ tagId: 1, action: 'split' }],
+      merged: [],
+      failed: [
+        { tagId: 2, tagName: '<b>Autorechnung</b>', error: 'Tag is gone' },
+      ],
+    },
+    false
+  );
+  assert.ok(block.includes('zr-alert--warn'), 'a failure is a warning');
+  assert.ok(block.includes('1 split, 0 merged, 0 deleted, 1 failed'));
+  assert.ok(
+    block.includes('sim-apply-result__failures'),
+    'the failures are listed under the line'
+  );
+  assert.ok(
+    block.includes('&lt;b&gt;Autorechnung&lt;/b&gt;: Tag is gone'),
+    'each failure names its tag and its error, escaped'
+  );
+  assert.ok(!block.includes('<b>'), 'a tag name is never markup');
+
+  const clean = htmlApplyResultBlock(
+    { applied: [], merged: [], failed: [] },
+    false
+  );
+  assert.ok(clean.includes('zr-alert--ok'), 'a clean run is a good one');
+  assert.ok(!clean.includes('sim-apply-result__failures'));
+
+  const stopped = htmlApplyResultBlock({ applied: [], merged: [] }, true);
+  assert.ok(
+    stopped.includes(
+      'Stopped; everything that was not applied stays accepted.'
+    ),
+    'a stop must say what happened to the rest'
+  );
+});
+
+test('A removal says what it did to the tag', () => {
+  const { removeMemberText } = helpers(['removeMemberText'], {});
+
+  assert.strictEqual(
+    removeMemberText(
+      { kind: 'type', name: 'Rechnung' },
+      { tagName: 'Stromrechnung', action: 'split', topicNames: ['Strom'] }
+    ),
+    'Stromrechnung keeps its topics, loses the type'
+  );
+  assert.strictEqual(
+    removeMemberText(
+      { kind: 'topic', name: 'Strom' },
+      { tagName: 'Stromrechnung', action: 'split', typeName: 'Rechnung' }
+    ),
+    'Stromrechnung loses the topic Strom'
+  );
+  // Nothing left to split, nothing to merge into, nothing to delete: it stays.
+  assert.strictEqual(
+    removeMemberText(
+      { kind: 'type', name: 'Rechnung' },
+      { tagName: 'Stromrechnung', action: 'keep' }
+    ),
+    'Stromrechnung is kept as it is'
+  );
+  assert.strictEqual(
+    removeMemberText(
+      { kind: 'merge', name: 'Amazon' },
+      { tagName: 'amazon', action: 'keep' }
+    ),
+    'amazon is kept as it is'
+  );
+
+  // No dialog: a removal is one tag out of one group and is undone by hand.
+  const remove = functionBody('removeGroupMember');
+  assert.ok(
+    !remove.includes('confirmDialog'),
+    'taking one tag out of a group asks nothing'
+  );
+  assert.ok(
+    remove.includes('removeMemberText(group, payload.data || {})'),
+    'the toast is built from what the route answered'
+  );
+  assert.ok(
+    remove.includes('await loadGroups()'),
+    'a tag sits in up to three groups, so the list is read again'
+  );
+});
+
+test('A decision reaches the route and redraws the one card', () => {
+  const decide = functionBody('decideGroup');
+  assert.ok(
+    decide.includes(
+      '`/api/simplify/groups/${encodeURIComponent(String(group.key))}/decision`'
+    ),
+    'a group key carries a name and must be encoded'
+  );
+  assert.ok(
+    decide.includes('{ decision }'),
+    'the body is the decision, nothing else'
+  );
+  assert.ok(
+    decide.includes('renderGroupCard(group.key, data.group || null)'),
+    'the card is redrawn from what came back'
+  );
+  assert.match(
+    SCRIPT,
+    /const DECISION_WORDS = \{\n\s+accept: 'accepted',\n\s+skip: 'skipped',\n\s+reopen: 'reopened',\n\s*\};/,
+    'the toast says the decision in the past tense'
+  );
+
+  // A group that comes back null is gone from the page.
+  const render = functionBody('renderGroupCard');
+  assert.ok(
+    render.includes('if (!group) {') && render.includes('groups.splice(at, 1)'),
+    'a group the route no longer knows disappears'
+  );
+  assert.ok(
+    render.includes('node.outerHTML = htmlGroupCard(group, cardState(group))'),
+    'and everything else is redrawn in place'
+  );
+});
+
+test('The order and the apply run as jobs of the one job service', () => {
+  const run = functionBody('runOrderJob');
+  assert.ok(
+    run.includes("startJob('/api/simplify/order/propose'"),
+    'the order is one job'
+  );
+  assert.ok(
+    run.includes("vocabulary: mode === 'keep' ? 'keep' : 'propose'"),
+    'and it is told whether to propose a vocabulary or keep the saved one'
+  );
+  assert.ok(
+    run.includes('await followJob(job)') &&
+      run.includes('await loadGroups()') &&
+      run.includes('renderOrderSummary()'),
+    'a finished run reloads the groups and leaves its line'
+  );
+  assert.ok(
+    functionBody('proposeOrder').includes('el.keepVocabulary.checked === true'),
+    'the checkbox decides what the button asks for'
+  );
+  assert.ok(
+    functionBody('repropose').includes("runOrderJob('keep')"),
+    'the vocabulary block always re-proposes against the saved names'
+  );
+
+  const apply = functionBody('applyOrder');
+  assert.ok(
+    apply.includes(
+      "startJob(\n      '/api/simplify/order/apply',\n      groupKey ? { groupKey } : {}\n    )"
+    ) || apply.includes("'/api/simplify/order/apply'"),
+    'the apply is a job too'
+  );
+  assert.ok(
+    apply.includes('groupKey ? { groupKey } : {}'),
+    'one group, or everything that is accepted'
+  );
+  assert.ok(
+    apply.includes('htmlApplyResultBlock('),
+    'and it leaves its result on the page'
+  );
+  assert.ok(
+    apply.includes('await loadDocumentTypes()'),
+    'an apply creates document types, so the picker is read again'
+  );
+
+  // Nothing on this page starts by itself.
+  ['proposeOrder', 'repropose', 'applyAllAccepted'].forEach((name) => {
+    assert.ok(
+      SCRIPT.includes(`addEventListener('click', ${name})`),
+      `${name}() must be behind a button`
+    );
+  });
+});
+
+test('The saved vocabulary decides what the order section offers', () => {
+  const state = functionBody('renderVocabularyState');
+  assert.ok(
+    state.includes('el.vocabularyBlock.open = !vocabularySaved'),
+    'the block is open exactly while there is nothing in it'
+  );
+  assert.ok(
+    state.includes(
+      "el.reproposeBtn.classList.toggle('hidden', !vocabularySaved)"
+    ),
+    'there is nothing to re-propose against without a vocabulary'
+  );
+  assert.ok(
+    state.includes("String(row.source || '') === 'user'"),
+    'a vocabulary the user wrote is one they want kept'
+  );
+  assert.ok(
+    state.includes('el.orderBtn === null'),
+    'without the model button the tick has nothing to belong to'
+  );
+  assert.ok(
+    functionBody('readVocabularyPayload').includes(
+      'renderVocabularyState(true)'
+    ),
+    'a load and a save are the two moments the tick is set'
+  );
+});
+
+test('The table stays as the detail view, with the action in front', () => {
+  const { actionLabel } = helpers(['actionLabel'], {});
+  assert.strictEqual(actionLabel({ action: 'split' }), 'split');
+  assert.strictEqual(actionLabel({ action: 'keep' }), 'keep');
+  assert.strictEqual(actionLabel({ action: 'delete' }), 'delete');
+  assert.strictEqual(
+    actionLabel({ action: 'merge', mergeInto: 'Amazon' }),
+    'merge → Amazon'
+  );
+  assert.strictEqual(actionLabel({ action: 'merge' }), 'merge');
+  assert.strictEqual(actionLabel({}), 'split', 'a row of round 10 is a split');
+
+  // The column is the first one, in the head and in the row.
+  assert.match(
+    page,
+    /<th class="sim-proposals__actioncol">Action<\/th>\s*\n\s*<th class="sim-proposals__pickcol">Apply<\/th>/,
+    'the action comes before the checkbox'
+  );
+  assert.ok(
+    SCRIPT.includes(
+      '<td data-label="Action" class="sim-proposals__actioncol">'
+    ),
+    'and the row carries the same cell'
+  );
+  assert.ok(
+    SCRIPT.includes('htmlEmptyRow(9,'),
+    'nine columns, so the empty row spans nine'
+  );
+
+  // The segment swaps the two, and the table only lives behind it.
+  const setter = functionBody('renderViewState');
+  assert.ok(
+    setter.includes("el.groups.classList.toggle('hidden', table)") &&
+      setter.includes("el.proposals.classList.toggle('hidden', !table)"),
+    'one view at a time'
+  );
+  assert.ok(
+    setter.includes('groups.length === 0'),
+    'three filters over nothing are noise'
+  );
+  assert.ok(
+    functionBody('init').includes("setView('groups')"),
+    'the page opens on the groups'
+  );
+  // "Propose splits" of round 10 stays where the table is.
+  assert.ok(
+    page.indexOf('id="simProposeSplitsBtn"') >
+      page.indexOf('id="simProposals"'),
+    'the old button belongs to the table view'
+  );
+});
+
+test('The order has an empty state for nothing and one for no match', () => {
+  assert.match(
+    SCRIPT,
+    /const ORDER_EMPTY =\n\s+'No order proposed yet\. Propose one: the model reads every tag and every document type\.';/,
+    'the empty order must say exactly that'
+  );
+  assert.match(
+    SCRIPT,
+    /const GROUPS_EMPTY = 'No groups match\.';/,
+    'and a filter that matches nothing must say exactly that'
+  );
+  const empty = functionBody('renderOrderEmpty');
+  assert.ok(
+    empty.includes('groups.length === 0 ? ORDER_EMPTY : GROUPS_EMPTY'),
+    'the two states are told apart by what is there, not by what is shown'
+  );
+  assert.ok(
+    empty.includes("view === 'groups'"),
+    'the table view has an empty state of its own'
+  );
+  assert.ok(
+    empty.includes('el.orderEmpty.textContent'),
+    'an empty state is text, never markup'
+  );
+  assert.match(
+    page,
+    /class="zr-empty sim-order__empty hidden" id="simOrderEmpty"/,
+    'the empty state comes up hidden and is the framework one'
+  );
+});
+
+test('The group cards and the order keep the stylesheet to itself', () => {
+  [
+    '.sim-groups',
+    '.sim-group__head',
+    '.sim-group__summary',
+    '.sim-group__foot',
+    '.sim-member__actions',
+    '.sim-order__head',
+    '.sim-apply-result__failures',
+    '.sim-view',
+  ].forEach((selector) => {
+    assert.ok(
+      CSS.includes(`${selector} {`) || CSS.includes(`${selector},`),
+      `${selector} has no rule of its own`
+    );
+  });
+  // Still one block, still only this page's classes (checked in full above).
+  assert.strictEqual(
+    (CSS.match(/@layer [a-z]+ \{/g) || []).length,
+    1,
+    'stylelint scopes its duplicate checks per layer block, so keep one'
+  );
+  // A card at 390px: the foot's buttons take a row each rather than four
+  // squeezed onto one.
+  assert.match(
+    CSS,
+    /@media \(max-width: 720px\) \{[\s\S]*?\.sim-group__foot \.zr-btn \{\n\s+flex: 1;/,
+    'the buttons of a card do not work at phone width'
+  );
+  assert.match(
+    CSS,
+    /\.sim-filters__field--wide \.zr-segment \{\n\s+flex-wrap: wrap;/,
+    'six filter choices do not fit on one phone line'
+  );
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
