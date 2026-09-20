@@ -56,6 +56,7 @@ const path = require('path');
 const OpenAI = require('openai');
 
 const { createFakeOpenAI } = require('./helpers/fake-openai');
+const { jsonFromText } = require('../services/serviceUtils');
 const { createFakeOllama } = require('./helpers/fake-ollama');
 
 let passed = 0;
@@ -448,6 +449,11 @@ async function main() {
         completionTokens: 321,
         totalTokens: 361,
         reasoningTokens: null,
+        // What arrived and how it ended ride along, for the log line of an
+        // answer that could not be read.
+        finishReason: 'stop',
+        answerChars: 2,
+        reasoningChars: 0,
       });
     });
 
@@ -477,6 +483,9 @@ async function main() {
         // price it per request instead of per pair.
         reasoningTokens: 5,
         estimated: true,
+        finishReason: 'stop',
+        answerChars: 12,
+        reasoningChars: 20,
       });
     });
 
@@ -900,7 +909,107 @@ async function main() {
         completionTokens: 321,
         totalTokens: 361,
         reasoningTokens: 300,
+        finishReason: 'stop',
+        answerChars: 2,
+        reasoningChars: 20,
       });
+    });
+
+    await test('An answer that only lives in the reasoning is dug out', async () => {
+      // A model that reasons and then stops: the JSON sits in the reasoning,
+      // the content never comes. The plain path reads such answers out of
+      // reasoning_content; the streamed path must not be worse.
+      const thought = 'Invoices and electricity, so: ';
+      const json = '{"types":["Rechnung"],"topics":["Strom"]}';
+      useScript({
+        chunks: [{ reasoning: thought }, { reasoning: json }],
+        usage: null,
+      });
+      const seen = recorder();
+
+      const answer = await quiet(() =>
+        customService.generateText('hello', { onProgress: seen.onProgress })
+      );
+
+      assert.strictEqual(answer, json);
+      assert.strictEqual(
+        seen.last().text,
+        '',
+        'the progress reports saw no answer; the dig happens at the end'
+      );
+      const usage = customService.lastGenerateTextUsage;
+      assert.strictEqual(usage.answerChars, 0, 'the answer itself was empty');
+      assert.strictEqual(
+        usage.reasoningChars,
+        thought.length + json.length,
+        'and the usage says how much reasoning there was instead'
+      );
+      assert.strictEqual(usage.finishReason, 'stop');
+
+      // The think-block dialect, left open at the end, is read the same way.
+      useScript({
+        chunks: [
+          { content: '<think>both invoices, so: ' },
+          { content: '[{"id":"tags:1-2","verdict":"same"}]' },
+        ],
+        usage: null,
+      });
+      assert.strictEqual(
+        await quiet(() =>
+          customService.generateText('hello', { onProgress: () => {} })
+        ),
+        '[{"id":"tags:1-2","verdict":"same"}]'
+      );
+
+      // Reasoning with no JSON in it leaves the answer empty, as before.
+      useScript({
+        chunks: [{ reasoning: 'I have no idea what these are.' }],
+        usage: null,
+      });
+      assert.strictEqual(
+        await quiet(() =>
+          customService.generateText('hello', { onProgress: () => {} })
+        ),
+        ''
+      );
+
+      // An answer that did arrive is never replaced by what the reasoning holds.
+      useScript({
+        chunks: [{ reasoning: 'draft {"a":1}' }, { content: '{"b":2}' }],
+        usage: null,
+      });
+      assert.strictEqual(
+        await customService.generateText('hello', { onProgress: () => {} }),
+        '{"b":2}'
+      );
+    });
+
+    await test('jsonFromText takes the answer the model wrote last, drafts skipped', () => {
+      assert.strictEqual(jsonFromText('so: {"a":1} done'), '{"a":1}');
+      assert.strictEqual(
+        jsonFromText(
+          'first draft {"types":["a"]} then final {"types":["a","b"],"topics":[]}'
+        ),
+        '{"types":["a","b"],"topics":[]}',
+        'the draft spoils the widest span; the answer starts at a later brace'
+      );
+      assert.strictEqual(
+        jsonFromText(
+          'ids ["x"] then [{"id":1,"action":"keep"},{"id":2,"action":"delete"}]'
+        ),
+        '[{"id":1,"action":"keep"},{"id":2,"action":"delete"}]',
+        'an array of objects is the array, not its last object'
+      );
+      assert.strictEqual(
+        jsonFromText(
+          'list ["a"] first, object {"title":"t","tags":["x"]} last'
+        ),
+        '{"title":"t","tags":["x"]}',
+        'of two kinds that parse, the one written last wins'
+      );
+      assert.strictEqual(jsonFromText('nothing { here'), '');
+      assert.strictEqual(jsonFromText(''), '');
+      assert.strictEqual(jsonFromText(null), '');
     });
 
     // ----------------------------------------- the switch per model family
