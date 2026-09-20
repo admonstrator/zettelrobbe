@@ -1386,6 +1386,232 @@ function bestMatch(name, entities, options = {}) {
     : null;
 }
 
+/* --- "Simplify tags": the compound decomposition ----------------------- */
+
+/**
+ * What a compound puts between its two parts ("Versicherungsbeitrag",
+ * "Rechnungen") and what a written-out name separates them with. Tried
+ * longest first, and only after the remainder was offered to the vocabulary
+ * unchanged, so a topic that happens to end in one of them is not eaten.
+ */
+const COMPOUND_JOINTS = Object.freeze(['es', 'en', 's', 'n', '-', '_', ' ']);
+
+/** A type has to be this long to be looked for at the end of a longer word. */
+const MIN_TYPE_SUFFIX_LENGTH = 3;
+
+/** A topic has to be this long to be looked for inside a longer word. */
+const MIN_CONTAINED_TOPIC_LENGTH = 4;
+
+/** What is left of a word after its type has to be at least this long. */
+const MIN_COMPOUND_REMAINDER = 2;
+
+/**
+ * The comparison forms of one name: the normalised key, and the same key with
+ * the plural of its last word folded away. Two names belong to each other
+ * when any of their forms match, which is what lets "Stromrechnungen" end in
+ * the type "Rechnung". Punctuation is dropped with the tokens, so
+ * "Kfz-Steuer" and "Kfz Steuer" are one name.
+ *
+ * @param {string} value
+ * @returns {string[]} the plain key first
+ */
+function decompositionForms(value) {
+  const prepared = prepareName(value, KINDS.TAGS);
+  const forms = [];
+  const joined = prepared.tokens.join(' ');
+  if (joined !== '') forms.push(joined);
+  if (prepared.foldedKey !== '' && !forms.includes(prepared.foldedKey)) {
+    forms.push(prepared.foldedKey);
+  }
+  return forms;
+}
+
+/** True when two names share a comparison form. */
+function sharesForm(formsA, formsB) {
+  return formsA.some((form) => formsB.includes(form));
+}
+
+/**
+ * The vocabulary of one dimension as the decomposition reads it: the names
+ * with their comparison forms, longest first and then alphabetical, so the
+ * order the user keeps their vocabulary in cannot change what a name
+ * decomposes into. Entries may be plain names or vocabulary rows.
+ *
+ * @param {Array<string|{name: string}>} entries
+ * @returns {Array<{name: string, forms: string[], length: number}>}
+ */
+function decompositionVocabulary(entries) {
+  const list = [];
+  const seen = new Set();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const raw = entry && typeof entry === 'object' ? entry.name : entry;
+    const name = String(raw ?? '').trim();
+    if (name === '') continue;
+    const forms = decompositionForms(name);
+    if (forms.length === 0) continue;
+    if (seen.has(forms[0])) continue;
+    seen.add(forms[0]);
+    list.push({ name, forms, length: forms[0].length });
+  }
+  return list.sort(
+    (a, b) => b.length - a.length || a.name.localeCompare(b.name)
+  );
+}
+
+/**
+ * One word folded character by character, with the index in the original each
+ * folded character came from. That map is what lets the remainder of a
+ * compound be reported as it is written: "Kfz-Steuerbescheid" leaves "Kfz",
+ * not "kfz", and an umlaut that folds into two characters does not shift the
+ * cut.
+ *
+ * @param {string} word
+ * @returns {{source: string, key: string, origin: number[]}}
+ */
+function foldWithOrigin(word) {
+  const source = String(word ?? '').normalize('NFKC');
+  let key = '';
+  const origin = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const folded = toAsciiKey(source[index].toLowerCase());
+    for (const character of folded) {
+      key += character;
+      origin.push(index);
+    }
+  }
+  return { source, key, origin };
+}
+
+/** Where the folded character `cut` starts in the original word. */
+function writtenIndex(folded, cut) {
+  if (cut <= 0) return 0;
+  if (cut >= folded.origin.length) return folded.source.length;
+  return folded.origin[cut];
+}
+
+/** The part of the original word the folded characters [from, to) came from. */
+function writtenBetween(folded, from, to) {
+  return folded.source.slice(
+    writtenIndex(folded, from),
+    writtenIndex(folded, to)
+  );
+}
+
+/** The key with one joint taken off its end, longest joint first. */
+function withoutJoint(key) {
+  for (const joint of COMPOUND_JOINTS) {
+    if (key.length > joint.length + 1 && key.endsWith(joint)) {
+      return key.slice(0, key.length - joint.length);
+    }
+  }
+  return null;
+}
+
+/**
+ * The vocabulary entry a key names, unchanged or after its joint is taken
+ * off. Exact only: a short topic must not be found inside a word here.
+ *
+ * @param {string} key
+ * @param {Array<{name: string, forms: string[]}>} vocabulary
+ * @returns {{name: string, forms: string[]}|null}
+ */
+function entryForKey(key, vocabulary) {
+  if (key === '') return null;
+  const candidates = [key];
+  const trimmed = withoutJoint(key);
+  if (trimmed) candidates.push(trimmed);
+  for (const candidate of candidates) {
+    const forms = decompositionForms(candidate);
+    const found = vocabulary.find((entry) => sharesForm(entry.forms, forms));
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * What a part of a word stands for: the topics it names, and what is left
+ * over when it names them only in part ("Stromanbieter" is the topic "Strom"
+ * plus "anbieter", "Autoversicherung" is two topics and nothing else).
+ *
+ * @param {{source: string, key: string, origin: number[]}} folded
+ * @param {number} from  first folded character that belongs to it
+ * @param {number} to    one past its last folded character
+ * @param {Array<{name: string, forms: string[], length: number}>} topics
+ * @returns {{topics: string[], rest: string}}
+ */
+function topicsInRemainder(folded, from, to, topics) {
+  const key = folded.key.slice(from, to);
+  if (key === '') return { topics: [], rest: '' };
+
+  const exact = entryForKey(key, topics);
+  if (exact) return { topics: [exact.name], rest: '' };
+
+  for (const topic of topics) {
+    if (topic.length < MIN_CONTAINED_TOPIC_LENGTH) continue;
+    for (const form of topic.forms) {
+      if (key.length <= form.length) continue;
+      if (key.startsWith(form)) {
+        const tail = topicsInRemainder(folded, from + form.length, to, topics);
+        return { topics: [topic.name, ...tail.topics], rest: tail.rest };
+      }
+      if (key.endsWith(form)) {
+        const head = topicsInRemainder(folded, from, to - form.length, topics);
+        return { topics: [...head.topics, topic.name], rest: head.rest };
+      }
+    }
+  }
+  return { topics: [], rest: writtenBetween(folded, from, to) };
+}
+
+/**
+ * What one word of a name stands for: a document type, a topic, a compound of
+ * both, or nothing the vocabulary knows.
+ *
+ * @param {string} word
+ * @param {Array<object>} types
+ * @param {Array<object>} topics
+ * @returns {{type: string|null, topics: string[], rest: string}}
+ */
+function decomposeWord(word, types, topics) {
+  const forms = decompositionForms(word);
+  const exactType = types.find((entry) => sharesForm(entry.forms, forms));
+  if (exactType) return { type: exactType.name, topics: [], rest: '' };
+  const exactTopic = topics.find((entry) => sharesForm(entry.forms, forms));
+  if (exactTopic) return { type: null, topics: [exactTopic.name], rest: '' };
+
+  const folded = foldWithOrigin(word);
+  const keys = [folded.key];
+  const singular = foldPlural(folded.key);
+  if (singular !== folded.key) keys.push(singular);
+
+  // The head of a compound is its last part: "Stromrechnung" is a Rechnung
+  // about Strom, never a Strom about Rechnung.
+  for (const key of keys) {
+    for (const type of types) {
+      if (type.length < MIN_TYPE_SUFFIX_LENGTH) continue;
+      const form = type.forms.find(
+        (candidate) =>
+          key.length - candidate.length >= MIN_COMPOUND_REMAINDER &&
+          key.endsWith(candidate)
+      );
+      if (!form) continue;
+      const found = topicsInRemainder(
+        folded,
+        0,
+        key.length - form.length,
+        topics
+      );
+      return { type: type.name, topics: found.topics, rest: found.rest };
+    }
+  }
+
+  const found = topicsInRemainder(folded, 0, folded.key.length, topics);
+  if (found.topics.length > 0) {
+    return { type: null, topics: found.topics, rest: found.rest };
+  }
+  return { type: null, topics: [], rest: folded.source };
+}
+
 /**
  * Splits a compound tag name against the vocabulary of "Simplify tags": the
  * head of the compound names the document type, what precedes it names a
@@ -1394,17 +1620,64 @@ function bestMatch(name, entities, options = {}) {
  * whose head is in the vocabulary but whose remainder is not gives the type
  * and the remainder as `rest`, for the model or the user to name.
  *
- * Contract of round 10; the implementation lands with the simplify service.
+ * Names are compared after the matcher's normalisation — case, umlauts,
+ * hyphens, spaces and the plural of the last word — so "Stromrechnungen",
+ * "Strom-Rechnung" and "Rechnung (Strom)" all decompose into the same two
+ * parts. The score says how much of the name the vocabulary accounts for: 1
+ * when nothing is left over, 0.7 for a type with a remainder nobody named,
+ * 0.5 for a topic without a type. A `rest` is reported as it is written.
  *
  * @param {string} name
- * @param {{types: string[], topics: string[]}} vocabulary
+ * @param {{types: Array<string|{name:string}>, topics: Array<string|{name:string}>}} vocabulary
  * @returns {{type: string|null, topics: string[], rest: string, score: number}|null}
  *   null when nothing in the vocabulary matches the name
  */
 function decomposeCompound(name, vocabulary) {
-  void name;
-  void vocabulary;
-  return null;
+  const raw = String(name ?? '')
+    .normalize('NFKC')
+    .trim();
+  if (raw === '') return null;
+  const types = decompositionVocabulary(vocabulary?.types);
+  const topics = decompositionVocabulary(vocabulary?.topics);
+  if (types.length === 0 && topics.length === 0) return null;
+
+  const whole = decompositionForms(raw);
+  const wholeType = types.find((entry) => sharesForm(entry.forms, whole));
+  if (wholeType) {
+    return { type: wholeType.name, topics: [], rest: '', score: 1 };
+  }
+  // The name is vocabulary itself, not a compound of it.
+  if (topics.some((entry) => sharesForm(entry.forms, whole))) return null;
+
+  const words = raw.split(TOKEN_SEPARATOR).filter(Boolean);
+  let type = null;
+  const found = [];
+  const rest = [];
+  for (const word of words) {
+    const part = decomposeWord(word, types, topics);
+    if (part.type) {
+      // Two types in one name: the last one is the head, the earlier one is a
+      // word the vocabulary does not account for.
+      if (type) rest.push(type);
+      type = part.type;
+    }
+    for (const topic of part.topics) {
+      if (!found.includes(topic)) found.push(topic);
+    }
+    if (part.rest !== '') rest.push(part.rest);
+  }
+
+  const leftover = rest.join(' ').trim();
+  if (type == null && found.length === 0) return null;
+  if (type == null) {
+    return { type: null, topics: found, rest: leftover, score: 0.5 };
+  }
+  return {
+    type,
+    topics: found,
+    rest: leftover,
+    score: leftover === '' ? 1 : 0.7,
+  };
 }
 
 module.exports = {

@@ -1320,5 +1320,216 @@ test('The hard reasons are the five tiers above prefix, and semantic is a known 
   assert.strictEqual(matcher.MATCH_REASONS.SEMANTIC, 'semantic');
 });
 
+/* --- "Simplify tags": decomposeCompound -------------------------------- */
+
+/** The vocabulary of the archive this was written for, about 25 entries. */
+const VOCABULARY = Object.freeze({
+  types: ['Rechnung', 'Brief', 'Vertrag', 'Bescheid', 'Beitrag'],
+  topics: [
+    'Strom',
+    'Gas',
+    'Auto',
+    'Steuer',
+    'Versicherung',
+    'Lebensmittel',
+    'Gebühren',
+  ],
+});
+
+/** decomposeCompound against VOCABULARY, as one comparable object. */
+function decompose(name, vocabulary = VOCABULARY) {
+  return matcher.decomposeCompound(name, vocabulary);
+}
+
+test('A name that is a document type itself becomes that type', () => {
+  assert.deepStrictEqual(decompose('Rechnung'), {
+    type: 'Rechnung',
+    topics: [],
+    rest: '',
+    score: 1,
+  });
+  assert.deepStrictEqual(
+    decompose('rechnungen'),
+    { type: 'Rechnung', topics: [], rest: '', score: 1 },
+    'case and plural are the same name'
+  );
+});
+
+test('A name that is a topic itself is vocabulary, not a compound', () => {
+  assert.strictEqual(decompose('Strom'), null);
+  assert.strictEqual(decompose('strom '), null);
+  assert.strictEqual(decompose('Gebühren'), null);
+});
+
+test('A compound of a topic and a type gives both, with nothing left over', () => {
+  assert.deepStrictEqual(decompose('Stromrechnung'), {
+    type: 'Rechnung',
+    topics: ['Strom'],
+    rest: '',
+    score: 1,
+  });
+  assert.deepStrictEqual(decompose('Lebensmittelrechnung'), {
+    type: 'Rechnung',
+    topics: ['Lebensmittel'],
+    rest: '',
+    score: 1,
+  });
+  assert.deepStrictEqual(
+    decompose('STROMRECHNUNG'),
+    { type: 'Rechnung', topics: ['Strom'], rest: '', score: 1 },
+    'the case of the tag says nothing'
+  );
+});
+
+test('The plural of the compound decomposes like its singular', () => {
+  assert.deepStrictEqual(decompose('Stromrechnungen'), {
+    type: 'Rechnung',
+    topics: ['Strom'],
+    rest: '',
+    score: 1,
+  });
+  assert.deepStrictEqual(decompose('Gasrechnungen'), {
+    type: 'Rechnung',
+    topics: ['Gas'],
+    rest: '',
+    score: 1,
+  });
+});
+
+test('A joint between the two parts is taken off', () => {
+  assert.deepStrictEqual(
+    decompose('Versicherungsbeitrag'),
+    { type: 'Beitrag', topics: ['Versicherung'], rest: '', score: 1 },
+    'the s of "Versicherungs-" belongs to neither part'
+  );
+});
+
+test('A multi-word name with one type and otherwise topics scores 1', () => {
+  for (const name of [
+    'Rechnung Strom',
+    'Strom-Rechnung',
+    'Rechnung (Strom)',
+    'Strom / Rechnung',
+  ]) {
+    assert.deepStrictEqual(
+      decompose(name),
+      { type: 'Rechnung', topics: ['Strom'], rest: '', score: 1 },
+      `"${name}" is the same two parts`
+    );
+  }
+});
+
+test('A type with a remainder nobody named keeps the remainder as written', () => {
+  assert.deepStrictEqual(decompose('Handyrechnung'), {
+    type: 'Rechnung',
+    topics: [],
+    rest: 'Handy',
+    score: 0.7,
+  });
+  assert.deepStrictEqual(
+    decompose('Kfz-Steuerbescheid'),
+    { type: 'Bescheid', topics: ['Steuer'], rest: 'Kfz', score: 0.7 },
+    'the topic is found and "Kfz" is what is left'
+  );
+});
+
+test('Umlauts fold for the comparison and stay in the remainder', () => {
+  assert.deepStrictEqual(decompose('Müllgebührenbescheid'), {
+    type: 'Bescheid',
+    topics: ['Gebühren'],
+    rest: 'Müll',
+    score: 0.7,
+  });
+  assert.deepStrictEqual(
+    decompose('Gebuehrenbescheid'),
+    { type: 'Bescheid', topics: ['Gebühren'], rest: '', score: 1 },
+    'a topic written without its umlaut is the same topic'
+  );
+});
+
+test('A topic without a type scores 0.5 and says what is left', () => {
+  assert.deepStrictEqual(decompose('Stromanbieter'), {
+    type: null,
+    topics: ['Strom'],
+    rest: 'anbieter',
+    score: 0.5,
+  });
+  assert.deepStrictEqual(
+    decompose('Autoversicherung'),
+    { type: null, topics: ['Auto', 'Versicherung'], rest: '', score: 0.5 },
+    'two topics and no type is still no document type'
+  );
+});
+
+test('A name the vocabulary says nothing about decomposes into nothing', () => {
+  assert.strictEqual(decompose('Nachbarschaft'), null);
+  assert.strictEqual(decompose('Kontoauszug'), null);
+  assert.strictEqual(decompose(''), null);
+  assert.strictEqual(decompose('   '), null);
+  assert.strictEqual(decompose(null), null);
+});
+
+test('Without a vocabulary nothing is decomposed', () => {
+  assert.strictEqual(
+    decompose('Stromrechnung', { types: [], topics: [] }),
+    null
+  );
+  assert.strictEqual(matcher.decomposeCompound('Stromrechnung'), null);
+  assert.strictEqual(
+    matcher.decomposeCompound('Stromrechnung', { types: [''], topics: ['  '] }),
+    null,
+    'blank entries are no vocabulary'
+  );
+});
+
+test('The order of the vocabulary does not change any result', () => {
+  const reversed = {
+    types: [...VOCABULARY.types].reverse(),
+    topics: [...VOCABULARY.topics].reverse(),
+  };
+  const names = [
+    'Rechnung',
+    'Strom',
+    'Stromrechnung',
+    'Stromrechnungen',
+    'Versicherungsbeitrag',
+    'Rechnung Strom',
+    'Kfz-Steuerbescheid',
+    'Stromanbieter',
+    'Handyrechnung',
+    'Nachbarschaft',
+  ];
+  for (const name of names) {
+    assert.deepStrictEqual(
+      decompose(name, reversed),
+      decompose(name),
+      `"${name}" decomposes the same whatever the order`
+    );
+  }
+});
+
+test('The vocabulary may arrive as names or as rows', () => {
+  assert.deepStrictEqual(
+    decompose('Stromrechnung', {
+      types: [{ name: 'Rechnung', paperlessId: 4 }],
+      topics: [{ name: 'Strom', paperlessId: null }],
+    }),
+    { type: 'Rechnung', topics: ['Strom'], rest: '', score: 1 }
+  );
+});
+
+test('The longest type wins the end of a compound', () => {
+  const vocabulary = {
+    types: ['Bescheid', 'Steuerbescheid'],
+    topics: ['Kfz'],
+  };
+  assert.deepStrictEqual(decompose('Kfz-Steuerbescheid', vocabulary), {
+    type: 'Steuerbescheid',
+    topics: ['Kfz'],
+    rest: '',
+    score: 1,
+  });
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
