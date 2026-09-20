@@ -52,6 +52,9 @@
  *     writes one log row an undo re-creates the objects from
  * 26. A running document scan refuses a delete; a locked target refuses a rename
  * 27. listEntities reads its pages three at a time and keeps them in order
+ * 28. A delete row that carries documents (the one "Simplify tags" writes)
+ *     gives them back on an undo, and reopens the proposal behind it
+ * 29. An undone merge reopens the proposal that made it, and only that one
  */
 
 'use strict';
@@ -1693,6 +1696,153 @@ async function main() {
       assert.ok(
         elapsed < 300,
         `parallel pages should beat the ~500ms a sequential read costs, took ${elapsed}ms`
+      );
+    });
+
+    // ---------------------------------- the delete "Simplify tags" writes
+
+    await test('A delete row that carries documents gives them back', async () => {
+      const fake = useFake({
+        tags: [{ id: 10, name: 'Keep me' }],
+        documents: [
+          { id: 100, tags: [10] },
+          { id: 101, tags: [] },
+        ],
+      });
+      // The row "Simplify tags" writes for the delete action: the tag is
+      // already gone, and its documents are in `details`.
+      fake.state.tags.delete(10);
+      fake.state.documents.get(100).tags = [];
+      const logId = await documentModel.addEntityMerge({
+        kind: 'tags',
+        targetId: 0,
+        targetName: '',
+        sources: [
+          {
+            id: 10,
+            name: 'Keep me',
+            snapshot: { name: 'Keep me', color: '#ff0000' },
+            documentIds: [100, 999],
+            documentsAlreadyOnTarget: [],
+            documentsMoved: 1,
+            deleted: true,
+            error: null,
+          },
+        ],
+        documentsMoved: 1,
+        status: 'done',
+        action: 'delete',
+        details: {
+          typeName: null,
+          typeId: null,
+          topicTagIds: [],
+          createdTypeId: null,
+          createdTagIds: [],
+          documents: [
+            { id: 100, addedTagIds: [], previousTypeId: null, typeSet: false },
+          ],
+        },
+      });
+      await documentModel.replaceTagSplitProposals([
+        {
+          tagId: 10,
+          tagName: 'Keep me',
+          documentCount: 1,
+          action: 'delete',
+          typeName: null,
+          topicNames: [],
+          source: 'model',
+          confidence: 'high',
+          reason: 'says nothing',
+          documentsWithType: 0,
+          overwriteType: false,
+          status: 'applied',
+        },
+      ]);
+
+      const undone = await duplicateMergeService.undo(logId, {
+        performedBy: 'tester',
+      });
+      assert.strictEqual(undone.status, 'undone');
+      assert.strictEqual(undone.performedBy, 'tester');
+      const restoredId = undone.sources[0].restoredId;
+      assert.ok(Number.isInteger(restoredId));
+      assert.notStrictEqual(restoredId, 10, 'a re-created tag has a new id');
+      assert.strictEqual(fake.tag(restoredId).name, 'Keep me');
+      assert.deepStrictEqual(fake.document(100).tags, [restoredId]);
+      assert.strictEqual(undone.sources[0].documentsRestored, 1);
+      assert.strictEqual(
+        undone.sources[0].documentsSkipped,
+        1,
+        'a document that no longer exists is skipped, not invented'
+      );
+      assert.strictEqual(
+        (await documentModel.getEntityMergeById(logId)).status,
+        'undone'
+      );
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(10)).status,
+        'open',
+        'the proposal behind it is a decision again'
+      );
+    });
+
+    await test('An undone merge reopens the proposal that made it', async () => {
+      const fake = useFake({
+        tags: [
+          { id: 10, name: 'Amazon' },
+          { id: 11, name: 'amazon' },
+          { id: 12, name: 'Zalando' },
+        ],
+        documents: [{ id: 100, tags: [11] }],
+      });
+      await documentModel.replaceTagSplitProposals([
+        {
+          tagId: 11,
+          tagName: 'amazon',
+          documentCount: 1,
+          action: 'merge',
+          mergeInto: 'Amazon',
+          typeName: null,
+          topicNames: [],
+          source: 'rule',
+          confidence: 'high',
+          reason: 'another spelling',
+          documentsWithType: 0,
+          overwriteType: false,
+          status: 'applied',
+        },
+        {
+          tagId: 12,
+          tagName: 'Something else',
+          documentCount: 0,
+          action: 'delete',
+          typeName: null,
+          topicNames: [],
+          source: 'rule',
+          confidence: 'high',
+          reason: 'no documents',
+          documentsWithType: 0,
+          overwriteType: false,
+          status: 'applied',
+        },
+      ]);
+
+      const result = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 10,
+        sourceIds: [11],
+      });
+      await duplicateMergeService.undo(result.mergeId);
+      assert.ok(fake.tagNames().includes('amazon'), 'the source is back');
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(11)).status,
+        'open'
+      );
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(12)).status,
+        'applied',
+        'a proposal this row is not about is left alone'
       );
     });
   } finally {
