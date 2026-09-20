@@ -39,6 +39,8 @@
  *     (`targetRenamedFrom`)
  * 18. The names the creation guard mapped: the list and the way to forget it
  * 19. `semanticSweep` reaches the review as the boolean it is, or not at all
+ * 20. The judge's memory can be emptied, and the log can be narrowed to one
+ *     action — which is how the Simplify tags page finds its split rows
  */
 
 'use strict';
@@ -2005,6 +2007,157 @@ async function main() {
       } finally {
         entityMatchAiService.reviewScan = realReviewScan;
         reviewJobs.reset();
+      }
+    });
+    /* ── round 10: the judge's memory and the split rows of the log ───────── */
+
+    await test('DELETE /api/duplicates/ai-review/memory empties the memory and counts it', async () => {
+      const empty = await call('DELETE', '/api/duplicates/ai-review/memory');
+      assert.strictEqual(empty.status, 200);
+      const emptyPayload = await empty.json();
+      assert.strictEqual(emptyPayload.success, true);
+      assert.strictEqual(
+        emptyPayload.data.removed,
+        0,
+        'an instance that never judged anything has nothing to forget'
+      );
+      assert.match(emptyPayload.message, /nothing to forget/i);
+
+      await harness.documentModel.saveAiPairVerdict({
+        kind: 'tags',
+        pairKey: '1-2',
+        nameA: 'Rechnung',
+        nameB: 'Rechnungen',
+        verdict: 'same',
+        model: 'test',
+      });
+      await harness.documentModel.saveAiPairVerdict({
+        kind: 'tags',
+        pairKey: '3-4',
+        nameA: 'Brief',
+        nameB: 'Briefe',
+        verdict: 'same',
+        model: 'test',
+      });
+
+      const response = await call('DELETE', '/api/duplicates/ai-review/memory');
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      assert.strictEqual(payload.success, true);
+      assert.strictEqual(payload.data.removed, 2, 'both verdicts are gone');
+      assert.strictEqual(
+        await harness.documentModel.countAiPairVerdicts(),
+        0,
+        'the table is empty afterwards'
+      );
+
+      // The judge owns the memory when it can; the route then reports what
+      // the judge says rather than counting rows itself.
+      const realForget = entityMatchAiService.forgetVerdicts;
+      entityMatchAiService.forgetVerdicts = async () => 7;
+      try {
+        const viaJudge = await call(
+          'DELETE',
+          '/api/duplicates/ai-review/memory'
+        );
+        const judged = await viaJudge.json();
+        assert.strictEqual(judged.data.removed, 7);
+      } finally {
+        if (realForget === undefined)
+          delete entityMatchAiService.forgetVerdicts;
+        else entityMatchAiService.forgetVerdicts = realForget;
+      }
+
+      const anonymous = await fetch(
+        harness.base + '/api/duplicates/ai-review/memory',
+        { method: 'DELETE', redirect: 'manual' }
+      );
+      assert.strictEqual(anonymous.status, 302, 'no credentials -> /login');
+    });
+
+    await test('GET /api/duplicates/log filters by action', async () => {
+      const splitId = await harness.documentModel.addEntityMerge({
+        kind: 'tags',
+        targetId: 0,
+        targetName: 'Rechnung + Strom',
+        sources: [
+          {
+            id: 970,
+            name: 'Stromrechnung',
+            deleted: true,
+            documentIds: [1, 2, 3],
+          },
+        ],
+        documentsMoved: 3,
+        action: 'split',
+        details: {
+          typeName: 'Rechnung',
+          documents: [{ id: 1, addedTagIds: [5], typeSet: true }],
+        },
+      });
+      assert.ok(splitId > 0);
+
+      const splits = await call('GET', '/api/duplicates/log?action=split');
+      assert.strictEqual(splits.status, 200);
+      const splitPayload = await splits.json();
+      assert.strictEqual(splitPayload.success, true);
+      assert.ok(
+        splitPayload.data.every((row) => row.action === 'split'),
+        'the filter must not let another action through'
+      );
+      assert.strictEqual(
+        splitPayload.recordsTotal,
+        splitPayload.data.length,
+        'recordsTotal counts what matched, not the whole log'
+      );
+      const split = splitPayload.data.find((row) => row.id === splitId);
+      assert.ok(split, 'the split row is in the filtered list');
+      assert.strictEqual(split.targetName, 'Rechnung + Strom');
+      assert.strictEqual(split.details.typeName, 'Rechnung');
+
+      const merges = await call('GET', '/api/duplicates/log?action=merge');
+      const mergePayload = await merges.json();
+      assert.ok(
+        mergePayload.data.every((row) => row.action === 'merge'),
+        'a merge filter shows merges only'
+      );
+      assert.ok(
+        !mergePayload.data.some((row) => row.id === splitId),
+        'the split must not appear among the merges'
+      );
+
+      const deletes = await call('GET', '/api/duplicates/log?action=delete');
+      const deletePayload = await deletes.json();
+      assert.ok(
+        deletePayload.data.every((row) => row.action === 'delete'),
+        'a delete filter shows deletes only'
+      );
+
+      // No filter is still the whole log, and the kind filter still applies
+      // beside the action one.
+      const all = await call('GET', '/api/duplicates/log?limit=100');
+      const allPayload = await all.json();
+      assert.ok(
+        allPayload.data.some((row) => row.id === splitId),
+        'an unfiltered log still carries the split'
+      );
+      const both = await call(
+        'GET',
+        '/api/duplicates/log?action=split&kind=correspondents'
+      );
+      const bothPayload = await both.json();
+      assert.strictEqual(
+        bothPayload.data.length,
+        0,
+        'the split was written for tags, so a correspondents filter finds none'
+      );
+
+      for (const value of ['undo', 'merged', 'SPLIT']) {
+        const bad = await call('GET', `/api/duplicates/log?action=${value}`);
+        assert.strictEqual(bad.status, 400, `expected 400 for ${value}`);
+        const badPayload = await bad.json();
+        assert.strictEqual(badPayload.success, false);
+        assert.match(badPayload.error, /action/i);
       }
     });
   } finally {

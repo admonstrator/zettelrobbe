@@ -2,7 +2,8 @@
 
 /**
  * In-memory stand-in for the part of the Paperless-ngx API the Duplicates
- * feature talks to: tags, correspondents, the document list and bulk_edit.
+ * feature talks to: tags, correspondents, document types, the document list
+ * and bulk_edit.
  *
  * It exists because the merge service is only interesting in the places where
  * Paperless-ngx answers something the code did not hope for — a source that
@@ -55,7 +56,8 @@ function project(document, fields) {
  * @param {object} [seed]
  * @param {object[]} [seed.tags]            { id, name, match?, matching_algorithm?, is_insensitive?, is_inbox_tag?, color?, owner?, user_can_change? }
  * @param {object[]} [seed.correspondents]  { id, name, match?, ... }
- * @param {object[]} [seed.documents]       { id, title?, content?, tags?: number[], correspondent?: number|null }
+ * @param {object[]} [seed.documentTypes]   { id, name, match?, ... }
+ * @param {object[]} [seed.documents]       { id, title?, content?, tags?: number[], correspondent?: number|null, document_type?: number|null }
  * @param {Set<number>|number[]} [seed.bulkEditIgnores] document ids a bulk edit silently does not touch
  * @param {number} [seed.requestDelayMs] milliseconds every request waits before it is answered
  * @returns {object} the stand-in
@@ -64,6 +66,9 @@ function createFakePaperless(seed = {}) {
   const state = {
     tags: new Map(),
     correspondents: new Map(),
+    // "Simplify tags" writes the kind of a document into its document type,
+    // so the third object kind behaves like the other two here.
+    document_types: new Map(),
     documents: new Map(),
     // Every request the code made, for assertions about paging and batching.
     calls: [],
@@ -112,7 +117,7 @@ function createFakePaperless(seed = {}) {
       entity.color = raw.color ?? '#a6cee3';
       entity.text_color = raw.text_color ?? '#000000';
       entity.is_inbox_tag = Boolean(raw.is_inbox_tag);
-    } else {
+    } else if (kind === 'correspondents') {
       entity.last_correspondence = raw.last_correspondence ?? null;
     }
     state[kind].set(entity.id, entity);
@@ -124,6 +129,9 @@ function createFakePaperless(seed = {}) {
   for (const correspondent of seed.correspondents || []) {
     addEntity('correspondents', correspondent);
   }
+  for (const documentType of seed.documentTypes || []) {
+    addEntity('document_types', documentType);
+  }
   for (const document of seed.documents || []) {
     state.documents.set(Number(document.id), {
       id: Number(document.id),
@@ -132,15 +140,17 @@ function createFakePaperless(seed = {}) {
       tags: (document.tags || []).map(Number),
       correspondent:
         document.correspondent == null ? null : Number(document.correspondent),
+      document_type:
+        document.document_type == null ? null : Number(document.document_type),
     });
   }
 
   const documentCount = (kind, id) =>
-    [...state.documents.values()].filter((document) =>
-      kind === 'tags'
-        ? document.tags.includes(id)
-        : document.correspondent === id
-    ).length;
+    [...state.documents.values()].filter((document) => {
+      if (kind === 'tags') return document.tags.includes(id);
+      if (kind === 'document_types') return document.document_type === id;
+      return document.correspondent === id;
+    }).length;
 
   const serialize = (kind, entity) => ({
     ...entity,
@@ -180,7 +190,8 @@ function createFakePaperless(seed = {}) {
       if (!(key in params)) params[key] = value;
     }
 
-    const entityMatch = /^\/(tags|correspondents)\/(?:(\d+)\/)?$/.exec(path);
+    const entityMatch =
+      /^\/(tags|correspondents|document_types)\/(?:(\d+)\/)?$/.exec(path);
     if (entityMatch) {
       const kind = entityMatch[1];
       const id = entityMatch[2] ? Number(entityMatch[2]) : null;
@@ -192,6 +203,18 @@ function createFakePaperless(seed = {}) {
           items = items.filter(
             (entity) => entity.name.toLowerCase() === wanted
           );
+        }
+        // What getOrCreateDocumentType() asks with, and the exact `name` its
+        // retry after a unique-constraint error falls back to.
+        if (params.name__icontains != null) {
+          const wanted = String(params.name__icontains).toLowerCase();
+          items = items.filter((entity) =>
+            entity.name.toLowerCase().includes(wanted)
+          );
+        }
+        if (params.name != null) {
+          const wanted = String(params.name);
+          items = items.filter((entity) => entity.name === wanted);
         }
         if (params.ordering === 'name') {
           items.sort((a, b) => a.name.localeCompare(b.name));
@@ -280,6 +303,10 @@ function createFakePaperless(seed = {}) {
           (document) => document.correspondent === correspondentId
         );
       }
+      if (params.document_type__id != null) {
+        const typeId = Number(params.document_type__id);
+        items = items.filter((document) => document.document_type === typeId);
+      }
       if (params.id__in != null) {
         const wanted = new Set(
           String(params.id__in)
@@ -336,6 +363,9 @@ function createFakePaperless(seed = {}) {
         } else if (body.method === 'set_correspondent') {
           const value = body.parameters?.correspondent;
           document.correspondent = value == null ? null : Number(value);
+        } else if (body.method === 'set_document_type') {
+          const value = body.parameters?.document_type;
+          document.document_type = value == null ? null : Number(value);
         } else {
           throw httpError(400, {
             method: [`Unsupported method: ${body.method}`],
@@ -380,10 +410,13 @@ function createFakePaperless(seed = {}) {
     calls: state.calls,
     tag: (id) => state.tags.get(Number(id)),
     correspondent: (id) => state.correspondents.get(Number(id)),
+    documentType: (id) => state.document_types.get(Number(id)),
     document: (id) => state.documents.get(Number(id)),
     tagNames: () => [...state.tags.values()].map((tag) => tag.name),
     correspondentNames: () =>
       [...state.correspondents.values()].map((entity) => entity.name),
+    documentTypeNames: () =>
+      [...state.document_types.values()].map((entity) => entity.name),
   };
 }
 

@@ -1,0 +1,1170 @@
+/**
+ * Test: services/tagSimplifyService.js
+ *
+ * "Simplify tags" is the second place in Zettelrobbe that deletes objects in
+ * Paperless-ngx, and the first that creates them on the user's behalf: a
+ * confirmed split writes topic tags and a document type onto every document
+ * of a tag and then deletes the tag. The suite is written from that angle:
+ * what has to be true before the DELETE goes out, what has to be written down
+ * before it does, and what an undo can rebuild from those notes afterwards.
+ *
+ * The Paperless-ngx side is the real store (tests/helpers/fake-paperless.js)
+ * including its document types, the local side is the real models/document.js
+ * on a throwaway database, and the model is a stand-in that answers whatever
+ * the case says and records every call.
+ *
+ * Covers:
+ *  1. The vocabulary proposal merges the chunks by votes and keeps the size
+ *  2. It reads the existing document types into its prompt and reports its
+ *     requests as a job
+ *  3. A chunk whose answer cannot be read costs that chunk, nothing else
+ *  4. The token budget stops the proposal
+ *  5. Without a provider the vocabulary proposal is refused
+ *  6. Without a vocabulary the split proposals are refused
+ *  7. The rule table: the type itself, a compound, a joint, a plural, the
+ *     multi-word forms, a topic without a type, an unknown remainder
+ *  8. The exclusions: the vocabulary itself, the inbox tag, a configured tag,
+ *     a tag the token may not change
+ *  9. The model answers what the rule could not settle
+ * 10. A type or topic outside the vocabulary is dropped, with a note
+ * 11. A cut-off answer is salvaged
+ * 12. A stop keeps the proposals that were made and stores them
+ * 13. Without a provider the rule proposals are all there is
+ * 14. proposalImpact counts the documents that keep their type, and stores it
+ * 15. applySplits: tags added, type set, tag deleted, log row with details,
+ *     local records rewritten, the caches dropped
+ * 16. A document with another type keeps it; overwriteType sets it anyway
+ * 17. A created type and a created tag are recorded for the undo
+ * 18. Refusals: no proposal, an empty proposal, an inbox tag, a gone tag, a
+ *     configured tag, one applied twice
+ * 19. A tag that still carries documents afterwards is not deleted: partial
+ * 20. undoSplit puts the tag, the documents and the types back
+ * 21. An object the split created is only deleted when nothing uses it
+ * 22. undoSplit adopts a tag of the same name instead of creating a second
+ * 23. A second undo is refused
+ * 24. duplicateMergeService.undo() hands a split row to undoSplit
+ */
+
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs').promises;
+const os = require('os');
+const path = require('path');
+
+const { createFakePaperless } = require('./helpers/fake-paperless');
+
+let passed = 0;
+let failed = 0;
+
+async function test(name, fn) {
+  try {
+    await fn();
+    console.log(`✅  ${name}`);
+    passed += 1;
+  } catch (error) {
+    console.error(`❌  ${name}`);
+    console.error(`    ${error.stack || error.message}`);
+    failed += 1;
+  }
+}
+
+async function expectRefusal(fn, status, hint) {
+  try {
+    await fn();
+  } catch (error) {
+    assert.strictEqual(
+      error.status,
+      status,
+      `${hint}: expected status ${status}, got ${error.status} (${error.message})`
+    );
+    return error;
+  }
+  throw new Error(`${hint}: expected a refusal, none was thrown`);
+}
+
+/** Runs `fn` with console.log and console.warn captured. */
+async function withLog(fn) {
+  const lines = [];
+  const realLog = console.log;
+  const realWarn = console.warn;
+  console.log = (...args) => lines.push(args.join(' '));
+  console.warn = (...args) => lines.push(args.join(' '));
+  try {
+    const value = await fn();
+    return { value, lines };
+  } finally {
+    console.log = realLog;
+    console.warn = realWarn;
+  }
+}
+
+function simplifyLines(lines) {
+  return lines.filter((line) => line.startsWith('[SIMPLIFY]'));
+}
+
+/** The ids a split request carried, in the order the prompt lists them. */
+function idsInPrompt(prompt) {
+  return [...String(prompt).matchAll(/"id":\s*"(\d+)"/g)].map(
+    (match) => match[1]
+  );
+}
+
+async function main() {
+  const originalCwd = process.cwd();
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'zr-simplify-svc-'));
+  process.chdir(tempRoot);
+
+  process.env.NODE_ENV = 'test';
+  process.env.LOG_LEVEL = 'error';
+  process.env.PAPERLESS_API_URL = 'http://127.0.0.1:9';
+  process.env.PAPERLESS_API_TOKEN = 'test-token';
+  process.env.AI_PROVIDER = 'openai';
+  process.env.OPENAI_API_KEY = 'test';
+  process.env.OPENAI_MODEL = 'test-model';
+  process.env.ADD_AI_PROCESSED_TAG = 'yes';
+  process.env.AI_PROCESSED_TAG_NAME = 'ai-processed';
+  process.env.IGNORE_TAGS = 'do-not-touch';
+  delete process.env.TAGS;
+
+  const config = require('../config/config');
+  const documentModel = require('../models/document');
+  const paperlessService = require('../services/paperlessService');
+  const dashboardStatsService = require('../services/dashboardStatsService');
+  const AIServiceFactory = require('../services/aiServiceFactory');
+  const duplicateMergeService = require('../services/duplicateMergeService');
+  const service = require('../services/tagSimplifyService');
+
+  // The dashboard rebuild is fired detached after every write; it would talk
+  // to the network and outlive the test process.
+  dashboardStatsService.refresh = async () => ({});
+  const realGetService = AIServiceFactory.getService;
+
+  /** Points the service at a fresh store and returns it. */
+  function useFake(seed) {
+    const fake = createFakePaperless(seed);
+    paperlessService.client = fake.client;
+    paperlessService.clearEntityCaches();
+    duplicateMergeService.invalidateScanCache();
+    return fake;
+  }
+
+  /** Points the factory at a stand-in that answers with `respond`. */
+  function useProvider(respond) {
+    const calls = [];
+    const provider = {
+      client: {},
+      lastGenerateTextUsage: null,
+      async generateText(prompt, options) {
+        calls.push({ prompt, options });
+        const answer = await respond(prompt, options, calls.length);
+        if (answer instanceof Error) throw answer;
+        provider.lastGenerateTextUsage = { totalTokens: 100 };
+        return answer;
+      },
+    };
+    AIServiceFactory.getService = () => provider;
+    return { provider, calls };
+  }
+
+  /** No provider at all: what an instance without an API key looks like. */
+  function useNoProvider() {
+    AIServiceFactory.getService = () => null;
+  }
+
+  /** Saves a vocabulary the way the page does. */
+  async function useVocabulary(types, topics) {
+    await service.saveVocabulary({ types, topics });
+  }
+
+  /** The archive the apply and undo cases share. */
+  function splitArchive() {
+    return useFake({
+      tags: [
+        { id: 55, name: 'Stromrechnung' },
+        { id: 60, name: 'Inbox', is_inbox_tag: true },
+      ],
+      documentTypes: [{ id: 7, name: 'Rechnung' }],
+      documents: [
+        { id: 100, tags: [55], document_type: null },
+        { id: 101, tags: [55], document_type: null },
+        { id: 102, tags: [55], document_type: 3 },
+      ],
+    });
+  }
+
+  /** One open proposal, as proposeSplits would have stored it. */
+  async function useProposal(row) {
+    await documentModel.replaceTagSplitProposals([
+      {
+        tagId: 55,
+        tagName: 'Stromrechnung',
+        documentCount: 3,
+        typeName: 'Rechnung',
+        topicNames: ['Strom'],
+        source: 'rule',
+        confidence: 'high',
+        reason: 'compound of Rechnung and Strom',
+        documentsWithType: 0,
+        overwriteType: false,
+        status: 'open',
+        ...row,
+      },
+    ]);
+  }
+
+  try {
+    /* --- The vocabulary proposal --------------------------------------- */
+
+    await test('The vocabulary proposal merges the chunks by votes and keeps the size', async () => {
+      const tags = [];
+      for (let id = 1; id <= 120; id += 1) {
+        tags.push({ id, name: `Tag ${String(id).padStart(3, '0')}` });
+      }
+      useFake({ tags });
+      config.duplicatesAiSweepNames = 50;
+      config.simplifyVocabularySize = 6;
+      const answers = [
+        { types: ['Rechnung', 'Brief'], topics: ['Strom', 'Auto'] },
+        { types: ['Rechnung'], topics: ['Strom', 'Steuer'] },
+        { types: ['Vertrag'], topics: ['Strom'] },
+      ];
+      const { calls } = useProvider((prompt, options, index) =>
+        JSON.stringify(answers[index - 1])
+      );
+
+      const result = await service.proposeVocabulary();
+
+      assert.strictEqual(calls.length, 3, '120 names in chunks of 50');
+      assert.strictEqual(result.requests, 3);
+      assert.deepStrictEqual(
+        result.types,
+        ['Rechnung', 'Brief'],
+        'two types at most: a third of six, and the most voted first'
+      );
+      assert.deepStrictEqual(
+        result.topics,
+        ['Strom', 'Auto', 'Steuer'],
+        'the rest of the six, by votes then by first appearance'
+      );
+      assert.ok(result.tokens > 0, 'the tokens are counted');
+      assert.deepStrictEqual(
+        await service.getVocabulary(),
+        { types: [], topics: [] },
+        'a proposal saves nothing'
+      );
+    });
+
+    await test('The proposal reads the existing document types and reports its requests', async () => {
+      useFake({
+        tags: [{ id: 1, name: 'Stromrechnung' }],
+        documentTypes: [
+          { id: 7, name: 'Rechnung' },
+          { id: 8, name: 'Brief' },
+        ],
+      });
+      const { calls } = useProvider(() =>
+        JSON.stringify({ types: ['Rechnung'], topics: ['Strom'] })
+      );
+      const patches = [];
+      const { value, lines } = await withLog(() =>
+        service.proposeVocabulary(
+          {},
+          { onProgress: (patch) => patches.push(patch) }
+        )
+      );
+
+      const system = calls[0].options.systemPrompt;
+      assert.ok(
+        system.includes('reuse them by name where they fit: Rechnung, Brief'),
+        `the existing types are in the prompt:\n${system}`
+      );
+      assert.ok(
+        system.includes('"types"') && system.includes('"topics"'),
+        'the answer shape is in the prompt'
+      );
+      assert.strictEqual(calls[0].options.temperature, 0);
+      assert.strictEqual(calls[0].options.reasoning, false);
+      assert.ok(
+        patches.some(
+          (patch) =>
+            patch.phase === 'vocabulary' &&
+            patch.message ===
+              'Reading 1 tag names for a vocabulary, request 1 of 1…'
+        ),
+        `no vocabulary line:\n${JSON.stringify(patches)}`
+      );
+      assert.strictEqual(value.requests, 1);
+      assert.ok(
+        simplifyLines(lines).some(
+          (line) =>
+            line ===
+            '[SIMPLIFY] vocabulary proposed from 1 tag names in 1 request(s): ' +
+              '1 type(s), 1 topic(s).'
+        ),
+        `no log line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('A chunk whose answer cannot be read costs that chunk, nothing else', async () => {
+      const tags = [];
+      for (let id = 1; id <= 60; id += 1) tags.push({ id, name: `Tag ${id}` });
+      useFake({ tags });
+      config.duplicatesAiSweepNames = 50;
+      config.simplifyVocabularySize = 6;
+      useProvider((prompt, options, index) =>
+        index === 1
+          ? 'I am afraid I cannot do that'
+          : JSON.stringify({ types: ['Brief'], topics: ['Auto'] })
+      );
+
+      const { value } = await withLog(() => service.proposeVocabulary());
+      assert.strictEqual(value.requests, 2);
+      assert.deepStrictEqual(value.types, ['Brief']);
+      assert.deepStrictEqual(value.topics, ['Auto']);
+    });
+
+    await test('The token budget stops the vocabulary proposal', async () => {
+      const tags = [];
+      for (let id = 1; id <= 200; id += 1) tags.push({ id, name: `Tag ${id}` });
+      useFake({ tags });
+      config.duplicatesAiSweepNames = 50;
+      useProvider(() => JSON.stringify({ types: ['Brief'], topics: ['Auto'] }));
+
+      let stoppedWith = null;
+      const control = {
+        tokenBudget: 150,
+        stop: (reason) => {
+          stoppedWith = reason;
+          control.stopped = true;
+        },
+        stopReason: () => (control.stopped ? 'token-budget' : null),
+      };
+      const { value } = await withLog(() =>
+        service.proposeVocabulary({}, control)
+      );
+      assert.strictEqual(value.requests, 2, 'two requests spend 200 tokens');
+      assert.strictEqual(stoppedWith, 'token-budget');
+      assert.strictEqual(value.stopped, true);
+    });
+
+    await test('Without a provider the vocabulary proposal is refused', async () => {
+      useFake({ tags: [{ id: 1, name: 'Stromrechnung' }] });
+      useNoProvider();
+      const error = await expectRefusal(
+        () => service.proposeVocabulary(),
+        409,
+        'no provider'
+      );
+      assert.match(error.message, /provider is not configured/);
+    });
+
+    /* --- The split proposals -------------------------------------------- */
+
+    await test('Without a vocabulary the split proposals are refused', async () => {
+      useFake({ tags: [{ id: 1, name: 'Stromrechnung' }] });
+      await documentModel.replaceTagVocabulary([]);
+      const error = await expectRefusal(
+        () => service.proposeSplits(),
+        409,
+        'no vocabulary'
+      );
+      assert.match(error.message, /Save a vocabulary first/);
+    });
+
+    await test('The rule settles what the vocabulary accounts for', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Rechnungen' },
+          { id: 2, name: 'Stromrechnung' },
+          { id: 3, name: 'Versicherungsbeitrag' },
+          { id: 4, name: 'Gasrechnungen' },
+          { id: 5, name: 'Rechnung (Auto)' },
+          { id: 6, name: 'Stromanbieter' },
+          { id: 7, name: 'Handyrechnung' },
+          { id: 8, name: 'Nachbarschaft' },
+        ],
+      });
+      await useVocabulary(
+        ['Rechnung', 'Beitrag'],
+        ['Strom', 'Gas', 'Auto', 'Versicherung']
+      );
+      useNoProvider();
+
+      const { value } = await withLog(() => service.proposeSplits());
+      assert.strictEqual(value.usedModel, false);
+      const rows = await service.listProposals();
+      const byName = new Map(rows.map((row) => [row.tagName, row]));
+
+      assert.deepStrictEqual(
+        {
+          typeName: byName.get('Rechnungen').typeName,
+          topicNames: byName.get('Rechnungen').topicNames,
+          confidence: byName.get('Rechnungen').confidence,
+          reason: byName.get('Rechnungen').reason,
+          source: byName.get('Rechnungen').source,
+        },
+        {
+          typeName: 'Rechnung',
+          topicNames: [],
+          confidence: 'high',
+          reason: 'the type itself',
+          source: 'rule',
+        },
+        'a plain type in the plural'
+      );
+      assert.deepStrictEqual(
+        [
+          byName.get('Stromrechnung').typeName,
+          byName.get('Stromrechnung').topicNames,
+          byName.get('Stromrechnung').reason,
+        ],
+        ['Rechnung', ['Strom'], 'compound of Rechnung and Strom']
+      );
+      assert.deepStrictEqual(
+        [
+          byName.get('Versicherungsbeitrag').typeName,
+          byName.get('Versicherungsbeitrag').topicNames,
+        ],
+        ['Beitrag', ['Versicherung']],
+        'the joint is taken off'
+      );
+      assert.deepStrictEqual(
+        [
+          byName.get('Gasrechnungen').typeName,
+          byName.get('Gasrechnungen').topicNames,
+        ],
+        ['Rechnung', ['Gas']],
+        'the plural of the compound'
+      );
+      assert.deepStrictEqual(
+        [
+          byName.get('Rechnung (Auto)').typeName,
+          byName.get('Rechnung (Auto)').topicNames,
+        ],
+        ['Rechnung', ['Auto']],
+        'the written-out form'
+      );
+      assert.deepStrictEqual(
+        [
+          byName.get('Stromanbieter').typeName,
+          byName.get('Stromanbieter').topicNames,
+          byName.get('Stromanbieter').confidence,
+        ],
+        [null, ['Strom'], 'low'],
+        'a topic without a type is only a guess'
+      );
+      assert.match(
+        byName.get('Stromanbieter').reason,
+        /"anbieter" is not in the vocabulary/
+      );
+      assert.deepStrictEqual(
+        [
+          byName.get('Handyrechnung').typeName,
+          byName.get('Handyrechnung').confidence,
+        ],
+        ['Rechnung', 'low'],
+        'a remainder nobody named stays low'
+      );
+      assert.ok(
+        !byName.has('Nachbarschaft'),
+        'a name the vocabulary says nothing about gets no proposal'
+      );
+      assert.strictEqual(value.byRule, rows.length);
+      assert.strictEqual(value.withoutProposal, 1);
+    });
+
+    await test('The vocabulary itself, the inbox tag and the settings are left alone', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Strom' },
+          { id: 3, name: 'Rechnung' },
+          { id: 4, name: 'Inbox', is_inbox_tag: true },
+          { id: 5, name: 'ai-processed' },
+          { id: 6, name: 'do-not-touch' },
+          { id: 7, name: 'Gasrechnung', user_can_change: false },
+        ],
+      });
+      await useVocabulary(['Rechnung'], ['Strom', 'Gas']);
+      useNoProvider();
+
+      const { value } = await withLog(() => service.proposeSplits());
+      const names = (await service.listProposals()).map((row) => row.tagName);
+      assert.deepStrictEqual(names, ['Stromrechnung']);
+      assert.strictEqual(value.skipped, 6, 'six tags never became candidates');
+      assert.strictEqual(value.candidates, 1);
+    });
+
+    await test('The model answers what the rule could not settle', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Handyvertrag' },
+          { id: 3, name: 'Nachbarschaft' },
+        ],
+      });
+      await useVocabulary(['Rechnung', 'Vertrag'], ['Strom', 'Telefon']);
+      config.simplifyTagsPerRequest = 50;
+      const { calls } = useProvider((prompt) =>
+        JSON.stringify(
+          idsInPrompt(prompt).map((id) => ({
+            id,
+            type: id === '2' ? 'Vertrag' : null,
+            topics: id === '2' ? ['Telefon'] : [],
+            confidence: 'high',
+            reason: 'a mobile phone contract',
+          }))
+        )
+      );
+
+      const { value, lines } = await withLog(() => service.proposeSplits());
+      assert.strictEqual(calls.length, 1, 'one request for the two unsettled');
+      assert.deepStrictEqual(
+        idsInPrompt(calls[0].prompt).sort(),
+        ['2', '3'],
+        'the settled compound is not asked about'
+      );
+      assert.ok(
+        calls[0].options.systemPrompt.includes(
+          'The topics you may use: Strom, Telefon.'
+        ),
+        'the vocabulary is in the prompt'
+      );
+      const rows = new Map(
+        (await service.listProposals()).map((row) => [row.tagName, row])
+      );
+      assert.deepStrictEqual(
+        [
+          rows.get('Handyvertrag').typeName,
+          rows.get('Handyvertrag').topicNames,
+          rows.get('Handyvertrag').source,
+          rows.get('Handyvertrag').reason,
+        ],
+        ['Vertrag', ['Telefon'], 'model', 'a mobile phone contract']
+      );
+      assert.strictEqual(
+        rows.get('Stromrechnung').source,
+        'rule',
+        'the rule keeps what it settled'
+      );
+      assert.strictEqual(
+        rows.get('Nachbarschaft').typeName,
+        null,
+        'the model may say "nothing"'
+      );
+      assert.strictEqual(value.byRule, 1);
+      assert.strictEqual(value.byModel, 2);
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /^\[SIMPLIFY\] proposals: 3 tag\(s\), 1 by rule, 2 by the model in 1 request\(s\), 0 without a proposal\.$/.test(
+            line
+          )
+        ),
+        `no totals line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('A name outside the vocabulary is dropped, with a note in the reason', async () => {
+      useFake({ tags: [{ id: 3, name: 'Nachbarschaft' }] });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      useProvider(() =>
+        JSON.stringify([
+          {
+            id: '3',
+            type: 'Protokoll',
+            topics: ['Strom', 'Nachbarn'],
+            confidence: 'low',
+            reason: 'minutes of the neighbourhood meeting',
+          },
+        ])
+      );
+
+      await withLog(() => service.proposeSplits());
+      const [row] = await service.listProposals();
+      assert.strictEqual(row.typeName, null, 'the invented type is dropped');
+      assert.deepStrictEqual(
+        row.topicNames,
+        ['Strom'],
+        'the invented topic is dropped, the known one stays'
+      );
+      assert.match(
+        row.reason,
+        /\(not in the vocabulary: Protokoll, Nachbarn\)/
+      );
+    });
+
+    await test('A cut-off answer keeps the proposals the model managed to write', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Nachbarschaft' },
+          { id: 2, name: 'Gartenarbeit' },
+        ],
+      });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      useProvider(() => {
+        const error = new Error('the answer hit the token limit');
+        error.code = 'ai_response_truncated';
+        error.partialText =
+          '[{"id":"1","type":"Rechnung","topics":[],"confidence":"low","reason":"an invoice"},{"id":"2","typ';
+        return error;
+      });
+
+      const { value, lines } = await withLog(() => service.proposeSplits());
+      assert.strictEqual(value.byModel, 1, 'the complete object survives');
+      const rows = await service.listProposals();
+      assert.deepStrictEqual(
+        rows.map((row) => row.tagName),
+        ['Nachbarschaft']
+      );
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /salvaged 1 proposal\(s\)/.test(line)
+        ),
+        `no salvage line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('A stop keeps the proposals that were made and stores them', async () => {
+      const tags = [];
+      for (let id = 1; id <= 6; id += 1) {
+        tags.push({ id, name: `Unknown ${id}` });
+      }
+      useFake({ tags });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      config.simplifyTagsPerRequest = 2;
+      const control = { stopped: false, stopReason: () => control.stopped };
+      useProvider((prompt) => {
+        const answer = JSON.stringify(
+          idsInPrompt(prompt).map((id) => ({
+            id,
+            type: 'Rechnung',
+            topics: [],
+            confidence: 'low',
+            reason: 'an invoice',
+          }))
+        );
+        control.stopped = true;
+        return answer;
+      });
+
+      const { value } = await withLog(() => service.proposeSplits({}, control));
+      assert.strictEqual(value.requests, 1, 'the stop ends the run');
+      assert.strictEqual(value.stopped, true);
+      const rows = await service.listProposals();
+      assert.strictEqual(rows.length, 2, 'what was made is stored');
+    });
+
+    await test('Without a provider the rule proposals are all there is', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Nachbarschaft' },
+        ],
+      });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      useNoProvider();
+
+      const { value, lines } = await withLog(() => service.proposeSplits());
+      assert.strictEqual(value.requests, 0, 'nothing was asked');
+      assert.strictEqual(value.usedModel, false);
+      assert.strictEqual(value.byModel, 0);
+      assert.strictEqual(value.byRule, 1);
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /no AI provider is configured/.test(line)
+        ),
+        `the result has to say so:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    /* --- What a split would cost ---------------------------------------- */
+
+    await test('proposalImpact counts the documents that would keep their type', async () => {
+      splitArchive();
+      await useProposal({});
+
+      const impact = await service.proposalImpact(55);
+      assert.deepStrictEqual(impact, {
+        tagId: 55,
+        tagName: 'Stromrechnung',
+        documents: 3,
+        withType: 1,
+        withDifferentType: 1,
+        typeId: 7,
+        typeSet: 2,
+        typeKept: 1,
+      });
+      await useProposal({ overwriteType: true });
+      const overwritten = await service.proposalImpact(55);
+      assert.strictEqual(overwritten.typeSet, 3, 'overwrite sets every type');
+      assert.strictEqual(overwritten.typeKept, 0, 'and keeps none');
+      const stored = await documentModel.getTagSplitProposal(55);
+      assert.strictEqual(
+        stored.documentsWithType,
+        1,
+        'the conflict count is on the row after a reload'
+      );
+      await expectRefusal(
+        () => service.proposalImpact(999),
+        404,
+        'a tag without a proposal'
+      );
+    });
+
+    /* --- Applying a split ------------------------------------------------ */
+
+    await test('A split gives the documents their tags and type and deletes the tag', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+      await documentModel.addToHistory(100, [55], 'A document', 'Someone');
+
+      const { value, lines } = await withLog(() =>
+        service.applySplits({ tagIds: [55], performedBy: 'tester' })
+      );
+
+      assert.strictEqual(value.failed.length, 0, JSON.stringify(value.failed));
+      const [applied] = value.applied;
+      assert.strictEqual(applied.tagName, 'Stromrechnung');
+      assert.strictEqual(applied.documentsUpdated, 3);
+      assert.strictEqual(applied.typeSet, 2, 'two documents had no type');
+      assert.strictEqual(applied.typeKept, 1, 'the third keeps its own');
+
+      const strom = [...fake.state.tags.values()].find(
+        (tag) => tag.name === 'Strom'
+      );
+      assert.ok(strom, 'the topic tag was created');
+      assert.strictEqual(fake.tag(55), undefined, 'the compound is gone');
+      assert.deepStrictEqual(fake.document(100).tags, [strom.id]);
+      assert.strictEqual(fake.document(100).document_type, 7);
+      assert.strictEqual(fake.document(101).document_type, 7);
+      assert.strictEqual(
+        fake.document(102).document_type,
+        3,
+        'a document with another type keeps it'
+      );
+
+      const entry = await documentModel.getEntityMergeById(applied.logId);
+      assert.strictEqual(entry.action, 'split');
+      assert.strictEqual(entry.kind, 'tags');
+      assert.strictEqual(entry.targetId, 0);
+      assert.strictEqual(entry.targetName, 'Rechnung + Strom');
+      assert.strictEqual(entry.status, 'done');
+      assert.strictEqual(entry.performedBy, 'tester');
+      assert.strictEqual(entry.sources[0].id, 55);
+      assert.strictEqual(entry.sources[0].deleted, true);
+      assert.strictEqual(entry.sources[0].snapshot.name, 'Stromrechnung');
+      assert.deepStrictEqual(entry.sources[0].documentIds, [100, 101, 102]);
+      assert.deepStrictEqual(entry.details.typeName, 'Rechnung');
+      assert.deepStrictEqual(entry.details.typeId, 7);
+      assert.deepStrictEqual(entry.details.topicTagIds, [strom.id]);
+      assert.deepStrictEqual(entry.details.createdTypeId, null);
+      assert.deepStrictEqual(entry.details.createdTagIds, [strom.id]);
+      assert.deepStrictEqual(entry.details.documents, [
+        {
+          id: 100,
+          addedTagIds: [strom.id],
+          previousTypeId: null,
+          typeSet: true,
+        },
+        {
+          id: 101,
+          addedTagIds: [strom.id],
+          previousTypeId: null,
+          typeSet: true,
+        },
+        { id: 102, addedTagIds: [strom.id], previousTypeId: 3, typeSet: false },
+      ]);
+
+      const stored = await documentModel.getTagSplitProposal(55);
+      assert.strictEqual(stored.status, 'applied');
+      const history = await documentModel.getHistoryByDocumentId(100);
+      assert.deepStrictEqual(
+        JSON.parse(history.tags),
+        [strom.id],
+        'the local rows point at a tag that exists'
+      );
+      assert.ok(
+        simplifyLines(lines).some(
+          (line) =>
+            line ===
+            '[SIMPLIFY] split tag 55 "Stromrechnung": 3 document(s) → type "Rechnung" ' +
+              '(2 set, 1 kept), tags Strom; tag deleted.'
+        ),
+        `no split line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('overwriteType sets the type on every document of the tag', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({ overwriteType: true });
+
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      assert.strictEqual(value.applied[0].typeSet, 3);
+      assert.strictEqual(value.applied[0].typeKept, 0);
+      assert.strictEqual(fake.document(102).document_type, 7);
+      const entry = await documentModel.getEntityMergeById(
+        value.applied[0].logId
+      );
+      assert.strictEqual(
+        entry.details.documents[2].previousTypeId,
+        3,
+        'what it had is written down before it is overwritten'
+      );
+    });
+
+    await test('A created document type and a created tag are recorded for the undo', async () => {
+      const fake = useFake({
+        tags: [{ id: 55, name: 'Kfz-Steuerbescheid' }],
+        documents: [{ id: 100, tags: [55], document_type: null }],
+      });
+      await useVocabulary(['Bescheid'], ['Steuer']);
+      await documentModel.replaceTagSplitProposals([
+        {
+          tagId: 55,
+          tagName: 'Kfz-Steuerbescheid',
+          documentCount: 1,
+          typeName: 'Bescheid',
+          topicNames: ['Steuer'],
+          source: 'rule',
+          confidence: 'low',
+          reason:
+            'the type Bescheid and Steuer; "Kfz" is not in the vocabulary',
+          status: 'open',
+        },
+      ]);
+
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      const entry = await documentModel.getEntityMergeById(
+        value.applied[0].logId
+      );
+      const createdType = [...fake.state.document_types.values()][0];
+      const createdTag = [...fake.state.tags.values()].find(
+        (tag) => tag.name === 'Steuer'
+      );
+      assert.strictEqual(entry.details.createdTypeId, createdType.id);
+      assert.deepStrictEqual(entry.details.createdTagIds, [createdTag.id]);
+
+      const vocabulary = await service.getVocabulary();
+      assert.strictEqual(
+        vocabulary.types[0].paperlessId,
+        createdType.id,
+        'the vocabulary remembers the object it made'
+      );
+      assert.strictEqual(vocabulary.topics[0].paperlessId, createdTag.id);
+    });
+
+    await test('A split refuses what it must not take apart', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await documentModel.replaceTagSplitProposals([
+        {
+          tagId: 60,
+          tagName: 'Inbox',
+          typeName: 'Rechnung',
+          topicNames: ['Strom'],
+          status: 'open',
+        },
+        { tagId: 55, tagName: 'Stromrechnung', topicNames: [], status: 'open' },
+        { tagId: 900, tagName: 'Gone', typeName: 'Rechnung', status: 'open' },
+      ]);
+
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [60, 55, 900, 901] })
+      );
+      assert.strictEqual(value.applied.length, 0);
+      assert.deepStrictEqual(
+        value.failed.map((entry) => entry.error),
+        [
+          'It is an inbox tag',
+          'The proposal names neither a document type nor a topic tag',
+          'It does not exist in Paperless-ngx any more',
+          'There is no proposal for tag 901',
+        ]
+      );
+      assert.ok(fake.tag(55), 'nothing was deleted');
+      await expectRefusal(
+        () => service.applySplits({ tagIds: [] }),
+        400,
+        'an empty request'
+      );
+      await expectRefusal(
+        () => service.applySplits({ tagIds: [0] }),
+        400,
+        'an id that is not one'
+      );
+    });
+
+    await test('A proposal cannot be applied twice', async () => {
+      splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+      await withLog(() => service.applySplits({ tagIds: [55] }));
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      assert.strictEqual(value.applied.length, 0);
+      assert.strictEqual(
+        value.failed[0].error,
+        'This proposal was already applied'
+      );
+    });
+
+    await test('A tag that still carries documents afterwards is not deleted', async () => {
+      const fake = useFake({
+        tags: [{ id: 55, name: 'Stromrechnung' }],
+        documents: [
+          { id: 100, tags: [55], document_type: null },
+          { id: 101, tags: [55], document_type: null },
+        ],
+        bulkEditIgnores: [101],
+      });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+
+      const { value, lines } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      const [applied] = value.applied;
+      assert.strictEqual(applied.status, 'partial');
+      assert.ok(fake.tag(55), 'the tag is still there');
+      const entry = await documentModel.getEntityMergeById(applied.logId);
+      assert.strictEqual(entry.status, 'partial');
+      assert.strictEqual(entry.sources[0].deleted, false);
+      assert.match(entry.sources[0].error, /still carry this tag/);
+      assert.ok(
+        simplifyLines(lines).some((line) => /tag kept\.$/.test(line)),
+        `the log says what happened:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('A split drops the cached scans', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+      const before = await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(before.groups.length >= 0);
+      const readsBefore = fake.calls.length;
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.strictEqual(
+        fake.calls.length,
+        readsBefore,
+        'the second scan is the cached one'
+      );
+
+      await withLog(() => service.applySplits({ tagIds: [55] }));
+      const readsAfterApply = fake.calls.length;
+      await duplicateMergeService.scan({ kind: 'tags' });
+      assert.ok(
+        fake.calls.length > readsAfterApply,
+        'the scan after a split reads the archive again'
+      );
+    });
+
+    /* --- Undoing a split -------------------------------------------------- */
+
+    await test('An undo puts the tag, the documents and the types back', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({ overwriteType: true });
+      await documentModel.addToHistory(100, [55], 'A document', 'Someone');
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      const logId = value.applied[0].logId;
+      const strom = [...fake.state.tags.values()].find(
+        (tag) => tag.name === 'Strom'
+      );
+
+      const entry = await documentModel.getEntityMergeById(logId);
+      // The type existed before the split (createdTypeId is null): the undo
+      // must not try to delete a document type, least of all number 0.
+      const liveService = require('../services/paperlessService');
+      const originalDelete = liveService.deleteDocumentType;
+      const deletedTypes = [];
+      liveService.deleteDocumentType = async (id) => {
+        deletedTypes.push(id);
+        return originalDelete.call(liveService, id);
+      };
+      let undone;
+      let lines;
+      try {
+        ({ value: undone, lines } = await withLog(() =>
+          service.undoSplit(entry, { performedBy: 'tester' })
+        ));
+      } finally {
+        liveService.deleteDocumentType = originalDelete;
+      }
+      assert.deepStrictEqual(
+        deletedTypes,
+        [],
+        'no document type is deleted when the split created none'
+      );
+
+      assert.strictEqual(undone.status, 'undone');
+      assert.strictEqual(undone.performedBy, 'tester');
+      const restoredId = undone.sources[0].restoredId;
+      assert.ok(Number.isInteger(restoredId));
+      assert.notStrictEqual(restoredId, 55, 'a re-created tag has a new id');
+      assert.strictEqual(undone.sources[0].documentsRestored, 3);
+      assert.strictEqual(fake.tag(restoredId).name, 'Stromrechnung');
+      for (const id of [100, 101, 102]) {
+        assert.deepStrictEqual(
+          fake.document(id).tags,
+          [restoredId],
+          `document ${id} carries the compound again and not the topic`
+        );
+      }
+      assert.strictEqual(fake.document(100).document_type, null);
+      assert.strictEqual(fake.document(102).document_type, 3, 'as it was');
+      assert.strictEqual(
+        fake.tag(strom.id),
+        undefined,
+        'the tag the split created is gone again'
+      );
+      assert.ok(fake.documentType(7), 'a type it did not create stays');
+
+      const after = await documentModel.getEntityMergeById(logId);
+      assert.strictEqual(after.status, 'undone');
+      assert.ok(after.undoneAt, 'the row is stamped');
+      const proposal = await documentModel.getTagSplitProposal(55);
+      assert.strictEqual(proposal.status, 'open', 'the proposal is open again');
+      const history = await documentModel.getHistoryByDocumentId(100);
+      assert.deepStrictEqual(JSON.parse(history.tags), [restoredId]);
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /^\[SIMPLIFY\] undid the split of "Stromrechnung": tag re-created as \d+, 3 document\(s\) re-tagged, 3 type\(s\) restored/.test(
+            line
+          )
+        ),
+        `no undo line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('An object the split created is kept when something uses it', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      const strom = [...fake.state.tags.values()].find(
+        (tag) => tag.name === 'Strom'
+      );
+      // Someone files another document under the new tag before the undo.
+      fake.state.documents.set(500, {
+        id: 500,
+        title: 'Another document',
+        content: '',
+        tags: [strom.id],
+        correspondent: null,
+        document_type: null,
+      });
+
+      const entry = await documentModel.getEntityMergeById(
+        value.applied[0].logId
+      );
+      const { lines } = await withLog(() => service.undoSplit(entry));
+      assert.ok(fake.tag(strom.id), 'the tag with a document stays');
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /carries 1 document\(s\) and was kept/.test(line)
+        ),
+        `the log says why:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('An undo adopts a tag of the same name instead of creating a second', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      const recreated = await paperlessService.createEntity('tags', {
+        name: 'Stromrechnung',
+      });
+
+      const entry = await documentModel.getEntityMergeById(
+        value.applied[0].logId
+      );
+      const undone = await withLog(() => service.undoSplit(entry));
+      assert.strictEqual(undone.value.sources[0].adoptedExisting, true);
+      assert.strictEqual(
+        undone.value.sources[0].restoredId,
+        Number(recreated.id)
+      );
+      assert.strictEqual(
+        fake.tagNames().filter((name) => name === 'Stromrechnung').length,
+        1,
+        'no second tag of that name'
+      );
+    });
+
+    await test('A second undo is refused', async () => {
+      splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+      const entry = await documentModel.getEntityMergeById(
+        value.applied[0].logId
+      );
+      await withLog(() => service.undoSplit(entry));
+      const again = await documentModel.getEntityMergeById(
+        value.applied[0].logId
+      );
+      await expectRefusal(() => service.undoSplit(again), 409, 'a second undo');
+      await expectRefusal(
+        () => service.undoSplit({ id: 1, action: 'merge' }),
+        400,
+        'a row that is not a split'
+      );
+    });
+
+    await test('The merge service hands a split row to this service', async () => {
+      const fake = splitArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useProposal({});
+      const { value } = await withLog(() =>
+        service.applySplits({ tagIds: [55] })
+      );
+
+      const undone = await withLog(() =>
+        duplicateMergeService.undo(value.applied[0].logId, {
+          performedBy: 'api-key',
+        })
+      );
+      assert.strictEqual(undone.value.status, 'undone');
+      assert.strictEqual(undone.value.performedBy, 'api-key');
+      assert.ok(
+        fake.tagNames().includes('Stromrechnung'),
+        'the compound is back'
+      );
+    });
+  } finally {
+    AIServiceFactory.getService = realGetService;
+    try {
+      documentModel.closeDatabase();
+    } catch {
+      // A failing case may have closed it already.
+    }
+    process.chdir(originalCwd);
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed > 0 ? 1 : 0);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

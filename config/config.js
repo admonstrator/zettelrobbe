@@ -576,6 +576,31 @@ module.exports = {
     process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
     10
   ),
+  // Model requests the AI judge keeps in flight at once. 0 means automatic:
+  // one for Ollama (a local model answers one request at a time anyway),
+  // three for every hosted endpoint. Wall time divides by it, tokens do not.
+  duplicatesAiConcurrency: parseInt(
+    process.env.DUPLICATES_AI_CONCURRENCY || '0',
+    10
+  ),
+  // How long the judge remembers a verdict about a pair of names, so the
+  // next review does not ask the model again while both names are unchanged.
+  // 0 switches the memory off.
+  duplicatesAiVerdictMemoryDays: parseInt(
+    process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS || '90',
+    10
+  ),
+  // "Simplify tags": how many tag names one model request decomposes into a
+  // document type and topic tags, and how many entries the proposed
+  // vocabulary should aim at.
+  simplifyTagsPerRequest: parseInt(
+    process.env.SIMPLIFY_TAGS_PER_REQUEST || '50',
+    10
+  ),
+  simplifyVocabularySize: parseInt(
+    process.env.SIMPLIFY_VOCABULARY_SIZE || '25',
+    10
+  ),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:

@@ -448,6 +448,75 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 13,
+    description:
+      'Duplicates round 10: split rows in the merge log, the tag vocabulary, split proposals, remembered verdicts',
+    up: (database) => {
+      // What a split did, per document, so an undo can put exactly that back:
+      // the tags it added and the document type it set. Null for merges and
+      // deletes, which carry everything in sources.
+      database.exec(
+        'ALTER TABLE entity_merges ADD COLUMN details TEXT DEFAULT NULL'
+      );
+      // The fixed price a thinking model charges per request, apart from the
+      // tokens per pair, so the batch is sized from the answer alone.
+      database.exec(
+        'ALTER TABLE ai_calibration ADD COLUMN thinking_per_request REAL DEFAULT NULL'
+      );
+      // The target vocabulary of "Simplify tags": document types (dimension
+      // 'type') and topic tags (dimension 'topic') the archive should end up
+      // with. paperless_id is filled once the object exists in Paperless-ngx.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS tag_vocabulary (
+          id INTEGER PRIMARY KEY,
+          dimension TEXT NOT NULL,
+          name TEXT NOT NULL,
+          paperless_id INTEGER DEFAULT NULL,
+          source TEXT NOT NULL DEFAULT 'user',
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (dimension, name)
+        )
+      `);
+      // One proposal per tag: which document type and which topic tags the
+      // tag stands for. Kept until the next run replaces them, so the user
+      // can work through a long list over several sessions.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS tag_split_proposals (
+          tag_id INTEGER PRIMARY KEY,
+          tag_name TEXT NOT NULL,
+          document_count INTEGER NOT NULL DEFAULT 0,
+          type_name TEXT DEFAULT NULL,
+          topic_names TEXT NOT NULL DEFAULT '[]',
+          source TEXT NOT NULL DEFAULT 'rule',
+          confidence TEXT DEFAULT NULL,
+          reason TEXT DEFAULT NULL,
+          documents_with_type INTEGER NOT NULL DEFAULT 0,
+          overwrite_type INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'open',
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      // What the AI judge decided about a pair of names, so the next review
+      // does not ask the same question again while both names are unchanged.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ai_pair_verdicts (
+          kind TEXT NOT NULL,
+          pair_key TEXT NOT NULL,
+          name_a TEXT NOT NULL,
+          name_b TEXT NOT NULL,
+          verdict TEXT NOT NULL,
+          basis TEXT DEFAULT NULL,
+          confidence TEXT DEFAULT NULL,
+          reason TEXT DEFAULT NULL,
+          model TEXT DEFAULT NULL,
+          judged_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (kind, pair_key)
+        )
+      `);
+    },
+  },
 ];
 
 /** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
@@ -528,6 +597,54 @@ function parseEntityMergeRow(row) {
     undoResult: parseJsonColumn(row.undo_result, null),
     action: row.action || 'merge',
     targetRenamedFrom: row.target_renamed_from ?? null,
+    details: parseJsonColumn(row.details, null),
+  };
+}
+
+/** Actions a merge-log row can record. */
+const ENTITY_MERGE_ACTIONS = ['merge', 'delete', 'split'];
+
+function parseTagVocabularyRow(row) {
+  return {
+    id: row.id,
+    dimension: row.dimension,
+    name: row.name,
+    paperlessId: row.paperless_id ?? null,
+    source: row.source || 'user',
+    position: Number(row.position) || 0,
+    createdAt: row.created_at,
+  };
+}
+
+function parseTagSplitProposalRow(row) {
+  return {
+    tagId: row.tag_id,
+    tagName: row.tag_name,
+    documentCount: Number(row.document_count) || 0,
+    typeName: row.type_name ?? null,
+    topicNames: parseJsonColumn(row.topic_names, []),
+    source: row.source || 'rule',
+    confidence: row.confidence ?? null,
+    reason: row.reason ?? null,
+    documentsWithType: Number(row.documents_with_type) || 0,
+    overwriteType: Boolean(row.overwrite_type),
+    status: row.status || 'open',
+    updatedAt: row.updated_at,
+  };
+}
+
+function parseAiPairVerdictRow(row) {
+  return {
+    kind: row.kind,
+    pairKey: row.pair_key,
+    nameA: row.name_a,
+    nameB: row.name_b,
+    verdict: row.verdict,
+    basis: row.basis ?? null,
+    confidence: row.confidence ?? null,
+    reason: row.reason ?? null,
+    model: row.model ?? null,
+    judgedAt: row.judged_at,
   };
 }
 
@@ -1397,7 +1514,7 @@ module.exports = {
    *
    * @param {string} model
    * @param {boolean} thinking
-   * @returns {Promise<{tokensPerPair:number|null, tokensPerSecond:number|null, largestCompletion:number, measuredAt:string}|null>}
+   * @returns {Promise<{tokensPerPair:number|null, tokensPerSecond:number|null, thinkingPerRequest:number|null, largestCompletion:number, measuredAt:string}|null>}
    */
   async getAiCalibration(model, thinking) {
     try {
@@ -1410,6 +1527,7 @@ module.exports = {
         ? {
             tokensPerPair: row.tokens_per_pair ?? null,
             tokensPerSecond: row.tokens_per_second ?? null,
+            thinkingPerRequest: row.thinking_per_request ?? null,
             largestCompletion: Number(row.largest_completion) || 0,
             measuredAt: row.measured_at,
           }
@@ -1426,17 +1544,19 @@ module.exports = {
     thinking,
     tokensPerPair = null,
     tokensPerSecond = null,
+    thinkingPerRequest = null,
     largestCompletion = 0,
   }) {
     try {
       db.prepare(
         `
         INSERT INTO ai_calibration
-          (model, thinking, tokens_per_pair, tokens_per_second, largest_completion, measured_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          (model, thinking, tokens_per_pair, tokens_per_second, thinking_per_request, largest_completion, measured_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(model, thinking) DO UPDATE SET
           tokens_per_pair = excluded.tokens_per_pair,
           tokens_per_second = excluded.tokens_per_second,
+          thinking_per_request = excluded.thinking_per_request,
           largest_completion = excluded.largest_completion,
           measured_at = CURRENT_TIMESTAMP
       `
@@ -1445,6 +1565,7 @@ module.exports = {
         thinking ? 1 : 0,
         tokensPerPair == null ? null : Number(tokensPerPair),
         tokensPerSecond == null ? null : Number(tokensPerSecond),
+        thinkingPerRequest == null ? null : Number(thinkingPerRequest),
         Math.max(0, Math.round(Number(largestCompletion) || 0))
       );
       return true;
@@ -1993,6 +2114,7 @@ module.exports = {
     performedBy = null,
     action = 'merge',
     targetRenamedFrom = null,
+    details = null,
   }) {
     try {
       const result = db
@@ -2000,8 +2122,8 @@ module.exports = {
           `
         INSERT INTO entity_merges
           (kind, target_id, target_name, target_before, sources, documents_moved,
-           copied_matching_rule, status, performed_by, action, target_renamed_from)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           copied_matching_rule, status, performed_by, action, target_renamed_from, details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
         )
         .run(
@@ -2014,13 +2136,354 @@ module.exports = {
           copiedMatchingRule ? 1 : 0,
           status,
           performedBy,
-          action === 'delete' ? 'delete' : 'merge',
-          targetRenamedFrom == null ? null : String(targetRenamedFrom)
+          ENTITY_MERGE_ACTIONS.includes(action) ? action : 'merge',
+          targetRenamedFrom == null ? null : String(targetRenamedFrom),
+          details == null ? null : JSON.stringify(details)
         );
       return Number(result.lastInsertRowid);
     } catch (error) {
       console.error('[ERROR] recording entity merge:', error);
       return null;
+    }
+  },
+
+  /* --- Simplify tags: the vocabulary ------------------------------------ */
+
+  /**
+   * The target vocabulary of "Simplify tags": document types (dimension
+   * 'type') and topic tags (dimension 'topic') in the order the user keeps
+   * them. Empty until a vocabulary was saved.
+   *
+   * @returns {Promise<Array<{id:number, dimension:string, name:string, paperlessId:number|null, source:string, position:number, createdAt:string}>>}
+   */
+  async getTagVocabulary() {
+    try {
+      return db
+        .prepare(
+          'SELECT * FROM tag_vocabulary ORDER BY dimension, position, id'
+        )
+        .all()
+        .map(parseTagVocabularyRow);
+    } catch (error) {
+      console.error('[ERROR] reading the tag vocabulary:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Replaces the whole vocabulary in one transaction. Entries keep the order
+   * given (position per dimension); a name repeated in one dimension is kept
+   * once; a paperlessId already known for a name survives when the caller
+   * does not pass one.
+   *
+   * @param {Array<{dimension:'type'|'topic', name:string, paperlessId?:number|null, source?:'model'|'user'}>} entries
+   * @returns {Promise<number>} rows stored
+   */
+  async replaceTagVocabulary(entries) {
+    const rows = Array.isArray(entries) ? entries : [];
+    try {
+      const known = new Map(
+        db
+          .prepare('SELECT dimension, name, paperless_id FROM tag_vocabulary')
+          .all()
+          .map((row) => [`${row.dimension}\u0000${row.name}`, row.paperless_id])
+      );
+      const store = db.transaction(() => {
+        db.prepare('DELETE FROM tag_vocabulary').run();
+        const insert = db.prepare(
+          'INSERT INTO tag_vocabulary (dimension, name, paperless_id, source, position) VALUES (?, ?, ?, ?, ?)'
+        );
+        const seen = new Set();
+        const positions = { type: 0, topic: 0 };
+        let stored = 0;
+        for (const entry of rows) {
+          const dimension = entry?.dimension === 'type' ? 'type' : 'topic';
+          const name = String(entry?.name ?? '').trim();
+          if (name === '') continue;
+          const key = `${dimension}\u0000${name}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const paperlessId =
+            entry.paperlessId == null
+              ? (known.get(key) ?? null)
+              : Number(entry.paperlessId);
+          insert.run(
+            dimension,
+            name,
+            paperlessId,
+            entry.source === 'model' ? 'model' : 'user',
+            positions[dimension]++
+          );
+          stored += 1;
+        }
+        return stored;
+      });
+      return store();
+    } catch (error) {
+      console.error('[ERROR] replacing the tag vocabulary:', error);
+      return 0;
+    }
+  },
+
+  /** Records the Paperless-ngx id of a vocabulary entry once the object exists. */
+  async setTagVocabularyPaperlessId(id, paperlessId) {
+    try {
+      const result = db
+        .prepare('UPDATE tag_vocabulary SET paperless_id = ? WHERE id = ?')
+        .run(paperlessId == null ? null : Number(paperlessId), Number(id));
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] updating a vocabulary entry:', error);
+      return false;
+    }
+  },
+
+  /* --- Simplify tags: split proposals ----------------------------------- */
+
+  /**
+   * Replaces every proposal with the rows of a fresh run, in one transaction.
+   *
+   * @param {Array<{tagId:number, tagName:string, documentCount?:number, typeName?:string|null, topicNames?:string[], source?:string, confidence?:string|null, reason?:string|null, documentsWithType?:number, overwriteType?:boolean, status?:string}>} rows
+   * @returns {Promise<number>} rows stored
+   */
+  async replaceTagSplitProposals(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    try {
+      const store = db.transaction(() => {
+        db.prepare('DELETE FROM tag_split_proposals').run();
+        const insert = db.prepare(
+          `INSERT INTO tag_split_proposals
+             (tag_id, tag_name, document_count, type_name, topic_names, source, confidence, reason, documents_with_type, overwrite_type, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        let stored = 0;
+        for (const row of list) {
+          const tagId = Number(row?.tagId);
+          if (!Number.isInteger(tagId) || tagId <= 0) continue;
+          insert.run(
+            tagId,
+            String(row.tagName ?? ''),
+            Number(row.documentCount) || 0,
+            row.typeName == null ? null : String(row.typeName),
+            JSON.stringify(Array.isArray(row.topicNames) ? row.topicNames : []),
+            row.source || 'rule',
+            row.confidence ?? null,
+            row.reason ?? null,
+            Number(row.documentsWithType) || 0,
+            row.overwriteType ? 1 : 0,
+            row.status || 'open'
+          );
+          stored += 1;
+        }
+        return stored;
+      });
+      return store();
+    } catch (error) {
+      console.error('[ERROR] replacing the split proposals:', error);
+      return 0;
+    }
+  },
+
+  /** @returns {Promise<object[]>} proposals, optionally of one status, by name */
+  async listTagSplitProposals({ status = null } = {}) {
+    try {
+      const where = status ? 'WHERE status = ?' : '';
+      const params = status ? [status] : [];
+      return db
+        .prepare(
+          `SELECT * FROM tag_split_proposals ${where} ORDER BY tag_name COLLATE NOCASE`
+        )
+        .all(...params)
+        .map(parseTagSplitProposalRow);
+    } catch (error) {
+      console.error('[ERROR] reading the split proposals:', error);
+      return [];
+    }
+  },
+
+  /** @returns {Promise<object|null>} */
+  async getTagSplitProposal(tagId) {
+    try {
+      const row = db
+        .prepare('SELECT * FROM tag_split_proposals WHERE tag_id = ?')
+        .get(Number(tagId));
+      return row ? parseTagSplitProposalRow(row) : null;
+    } catch (error) {
+      console.error('[ERROR] reading a split proposal:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Changes what the user edited on a proposal: the targets, the overwrite
+   * switch, the status. Fields not in the patch stay.
+   *
+   * @param {number} tagId
+   * @param {{typeName?:string|null, topicNames?:string[], overwriteType?:boolean, status?:string, source?:string, reason?:string|null, confidence?:string|null}} patch
+   * @returns {Promise<boolean>} true when a row changed
+   */
+  async updateTagSplitProposal(tagId, patch = {}) {
+    const sets = [];
+    const params = [];
+    if ('typeName' in patch) {
+      sets.push('type_name = ?');
+      params.push(patch.typeName == null ? null : String(patch.typeName));
+    }
+    if ('topicNames' in patch) {
+      sets.push('topic_names = ?');
+      params.push(
+        JSON.stringify(Array.isArray(patch.topicNames) ? patch.topicNames : [])
+      );
+    }
+    if ('overwriteType' in patch) {
+      sets.push('overwrite_type = ?');
+      params.push(patch.overwriteType ? 1 : 0);
+    }
+    if ('status' in patch) {
+      sets.push('status = ?');
+      params.push(String(patch.status));
+    }
+    if ('source' in patch) {
+      sets.push('source = ?');
+      params.push(String(patch.source));
+    }
+    if ('reason' in patch) {
+      sets.push('reason = ?');
+      params.push(patch.reason == null ? null : String(patch.reason));
+    }
+    if ('confidence' in patch) {
+      sets.push('confidence = ?');
+      params.push(patch.confidence == null ? null : String(patch.confidence));
+    }
+    if ('documentsWithType' in patch) {
+      sets.push('documents_with_type = ?');
+      params.push(
+        Math.max(0, Math.round(Number(patch.documentsWithType) || 0))
+      );
+    }
+    if (sets.length === 0) return false;
+    sets.push('updated_at = CURRENT_TIMESTAMP');
+    try {
+      const result = db
+        .prepare(
+          `UPDATE tag_split_proposals SET ${sets.join(', ')} WHERE tag_id = ?`
+        )
+        .run(...params, Number(tagId));
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] updating a split proposal:', error);
+      return false;
+    }
+  },
+
+  /** @returns {Promise<number>} rows removed */
+  async clearTagSplitProposals() {
+    try {
+      return db.prepare('DELETE FROM tag_split_proposals').run().changes;
+    } catch (error) {
+      console.error('[ERROR] clearing the split proposals:', error);
+      return 0;
+    }
+  },
+
+  /* --- The judge's memory of verdicts ----------------------------------- */
+
+  /**
+   * Stored verdicts for some pairs of one kind. Keys not stored are simply
+   * absent from the answer.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {string[]} pairKeys
+   * @returns {Promise<object[]>}
+   */
+  async getAiPairVerdicts(kind, pairKeys) {
+    const keys = Array.isArray(pairKeys) ? pairKeys.filter(Boolean) : [];
+    if (keys.length === 0) return [];
+    try {
+      const rows = [];
+      const select = db.prepare(
+        'SELECT * FROM ai_pair_verdicts WHERE kind = ? AND pair_key = ?'
+      );
+      for (const key of keys) {
+        const row = select.get(kind, String(key));
+        if (row) rows.push(parseAiPairVerdictRow(row));
+      }
+      return rows;
+    } catch (error) {
+      console.error('[ERROR] reading remembered verdicts:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Remembers one verdict; a pair asked again replaces its row.
+   *
+   * @param {{kind:string, pairKey:string, nameA:string, nameB:string, verdict:string, basis?:string|null, confidence?:string|null, reason?:string|null, model?:string|null}} entry
+   * @returns {Promise<boolean>}
+   */
+  async saveAiPairVerdict(entry) {
+    try {
+      db.prepare(
+        `INSERT INTO ai_pair_verdicts
+           (kind, pair_key, name_a, name_b, verdict, basis, confidence, reason, model, judged_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT (kind, pair_key) DO UPDATE SET
+           name_a = excluded.name_a, name_b = excluded.name_b, verdict = excluded.verdict,
+           basis = excluded.basis, confidence = excluded.confidence, reason = excluded.reason,
+           model = excluded.model, judged_at = CURRENT_TIMESTAMP`
+      ).run(
+        String(entry.kind),
+        String(entry.pairKey),
+        String(entry.nameA ?? ''),
+        String(entry.nameB ?? ''),
+        String(entry.verdict),
+        entry.basis ?? null,
+        entry.confidence ?? null,
+        entry.reason ?? null,
+        entry.model ?? null
+      );
+      return true;
+    } catch (error) {
+      console.error('[ERROR] remembering a verdict:', error);
+      return false;
+    }
+  },
+
+  /** Forgets verdicts older than the given days. @returns {Promise<number>} rows removed */
+  async pruneAiPairVerdicts(maxAgeDays) {
+    const days = Number(maxAgeDays);
+    if (!Number.isFinite(days) || days <= 0) return 0;
+    try {
+      return db
+        .prepare(
+          "DELETE FROM ai_pair_verdicts WHERE judged_at < datetime('now', ?)"
+        )
+        .run(`-${Math.floor(days)} days`).changes;
+    } catch (error) {
+      console.error('[ERROR] pruning remembered verdicts:', error);
+      return 0;
+    }
+  },
+
+  /** @returns {Promise<number>} rows removed */
+  async clearAiPairVerdicts() {
+    try {
+      return db.prepare('DELETE FROM ai_pair_verdicts').run().changes;
+    } catch (error) {
+      console.error('[ERROR] clearing remembered verdicts:', error);
+      return 0;
+    }
+  },
+
+  /** @returns {Promise<number>} */
+  async countAiPairVerdicts() {
+    try {
+      return Number(
+        db.prepare('SELECT COUNT(*) AS n FROM ai_pair_verdicts').get().n
+      );
+    } catch (error) {
+      console.error('[ERROR] counting remembered verdicts:', error);
+      return 0;
     }
   },
 

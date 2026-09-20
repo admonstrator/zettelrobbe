@@ -76,4 +76,5 @@
   <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19.5v-15M6 10.5l6-6 6 6"/></symbol>
   <symbol id="i-login" viewBox="0 0 24 24"><path d="M14 17l5-5-5-5M19 12H8"/><path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"/></symbol>
   <symbol id="i-merge" viewBox="0 0 24 24"><path d="M4 3.5V8l8 6 8-6V3.5"/><path d="M12 14v6.5"/><path d="m8.5 17 3.5 3.5 3.5-3.5"/></symbol>
+  <symbol id="i-split" viewBox="0 0 24 24"><path d="M12 20.5V14"/><path d="M12 14 6 8V3.5"/><path d="m12 14 6-6V3.5"/><path d="m3 6.5 3-3 3 3"/><path d="m15 6.5 3-3 3 3"/></symbol>
 </svg>

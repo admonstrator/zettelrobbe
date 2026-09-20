@@ -42,6 +42,11 @@
  *  20. reasoning: true switches thinking on, without the soft switch
  *  21. reasoning: null leaves every body as it was
  *  22. the Qwen soft switch is only for a Qwen model
+ *  23. the thinking is counted apart from the answer, in both dialects, in
+ *      every report and in the usage the caller reads off the service
+ *  24. reasoning: false sends reasoning_effort where the model family takes
+ *      it, and nothing where it does not
+ *  25. reasoning: true and reasoning: null never send it
  */
 
 const assert = require('assert');
@@ -442,6 +447,7 @@ async function main() {
         promptTokens: 40,
         completionTokens: 321,
         totalTokens: 361,
+        reasoningTokens: null,
       });
     });
 
@@ -467,6 +473,9 @@ async function main() {
         promptTokens: null,
         completionTokens: 8,
         totalTokens: 8,
+        // Five of the eight were the thinking, counted apart so the judge can
+        // price it per request instead of per pair.
+        reasoningTokens: 5,
         estimated: true,
       });
     });
@@ -817,6 +826,161 @@ async function main() {
         'the prompt line is a Qwen dialect, and stays out of other prompts'
       );
       config.custom.model = 'qwen3-32b-instruct';
+    });
+
+    // ------------------------------------------- what the thinking costs
+
+    await test('The thinking is counted apart from the answer', async () => {
+      // Twenty characters as reasoning_content, sixteen inside a <think>
+      // block in the content, twelve of answer: the collector strips both
+      // kinds and counts what it stripped.
+      useScript({
+        chunks: [
+          { reasoning: 'twenty chars here!!!' },
+          { content: '<think>sixteen chars</think>' },
+          { content: 'twelve chars' },
+        ],
+        usage: null,
+      });
+      const seen = recorder();
+
+      const answer = await customService.generateText('hello', {
+        onProgress: seen.onProgress,
+      });
+
+      assert.strictEqual(answer, 'twelve chars');
+      assert.strictEqual(
+        seen.last().thinkingTokens,
+        9,
+        'twenty plus sixteen characters of reasoning, four to the token'
+      );
+      assert.strictEqual(
+        seen.last().completionTokens,
+        15,
+        'and the completion is still everything the model produced, ' +
+          'thinking and markers included: that is what the budget paid for'
+      );
+      assert.strictEqual(
+        customService.lastGenerateTextUsage.reasoningTokens,
+        9
+      );
+      assert.ok(
+        seen.updates.some((update) => update.thinking === true),
+        'the model was reported as thinking while it did'
+      );
+
+      // A model that writes no reasoning has no thinking to report.
+      useScript({ chunks: [{ content: 'twelve chars' }], usage: null });
+      const quiet = recorder();
+      await customService.generateText('hello', {
+        onProgress: quiet.onProgress,
+      });
+      assert.strictEqual(quiet.last().thinkingTokens, null);
+      assert.strictEqual(
+        customService.lastGenerateTextUsage.reasoningTokens,
+        null
+      );
+    });
+
+    await test("The provider's own reasoning count wins over the estimate", async () => {
+      useScript({
+        chunks: [{ reasoning: 'twenty chars here!!!' }, { content: 'ok' }],
+        usage: {
+          prompt_tokens: 40,
+          completion_tokens: 321,
+          total_tokens: 361,
+          completion_tokens_details: { reasoning_tokens: 300 },
+        },
+      });
+
+      await openaiService.generateText('hello', { onProgress: () => {} });
+
+      assert.deepStrictEqual(openaiService.lastGenerateTextUsage, {
+        promptTokens: 40,
+        completionTokens: 321,
+        totalTokens: 361,
+        reasoningTokens: 300,
+      });
+    });
+
+    // ----------------------------------------- the switch per model family
+
+    await test('reasoning: false sends reasoning_effort where the family takes it', async () => {
+      useScript({ chunks: [{ content: 'ok' }] });
+
+      /** The body of one call with the thinking switched off. */
+      const bodyOf = async (service, model) => {
+        fakeOpenAI.reset();
+        await service.generateText('judge this', { reasoning: false, model });
+        return fakeOpenAI.last().body;
+      };
+
+      // The OpenAI-compatible endpoint serves the open reasoning models too,
+      // and they know 'low' rather than 'minimal'.
+      for (const model of ['gpt-oss-120b', 'gpt-5-mini', 'o3-mini']) {
+        assert.strictEqual(
+          (await bodyOf(customService, model)).reasoning_effort,
+          'low',
+          `custom: ${model} takes the field`
+        );
+      }
+      for (const model of ['qwen3-32b-instruct', 'llama-3.3-70b-instruct']) {
+        const body = await bodyOf(customService, model);
+        assert.strictEqual(
+          'reasoning_effort' in body,
+          false,
+          `custom: ${model} answers 400 for a field it does not know`
+        );
+        assert.deepStrictEqual(body.chat_template_kwargs, {
+          enable_thinking: false,
+        });
+      }
+
+      for (const [name, service] of [
+        ['openai', openaiService],
+        ['azure', azureService],
+      ]) {
+        assert.strictEqual(
+          (await bodyOf(service, 'gpt-5-mini')).reasoning_effort,
+          'minimal',
+          `${name}: the gpt-5 family has a minimal setting`
+        );
+        assert.strictEqual(
+          (await bodyOf(service, 'o4-mini')).reasoning_effort,
+          'low',
+          `${name}: the o-series does not`
+        );
+        for (const model of ['gpt-4o-mini', 'fake-model']) {
+          assert.strictEqual(
+            'reasoning_effort' in (await bodyOf(service, model)),
+            false,
+            `${name}: ${model} has no thinking to switch off`
+          );
+        }
+      }
+    });
+
+    await test('reasoning: true and reasoning: null never send the effort', async () => {
+      useScript({ chunks: [{ content: 'ok' }] });
+
+      for (const options of [{ reasoning: true }, {}]) {
+        fakeOpenAI.reset();
+        await openaiService.generateText('judge this', {
+          ...options,
+          model: 'gpt-5-mini',
+        });
+        assert.strictEqual(
+          'reasoning_effort' in fakeOpenAI.last().body,
+          false,
+          'the field is the off switch, and nothing else'
+        );
+        fakeOpenAI.reset();
+        await customService.generateText('judge this', {
+          ...options,
+          model: 'gpt-oss-120b',
+        });
+        assert.strictEqual('reasoning_effort' in fakeOpenAI.last().body, false);
+      }
     });
   } finally {
     config.custom.model = defaults.customModel;

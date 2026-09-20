@@ -16,6 +16,8 @@ const {
   modelOverride,
   progressHandler,
   readCompletionUsage,
+  reasoningEffortForOpenAi,
+  reasoningEnabled,
   runChatCompletionStream,
   stripReasoningText,
 } = require('./aiGenerateOptions');
@@ -597,8 +599,9 @@ class OpenAIService {
    * @param {AbortSignal} [options.signal] - Cancels the request in flight
    * @param {Function} [options.onProgress] - Streams the answer and reports it
    *   as it grows; see GenerateTextProgress in aiGenerateOptions
-   * @param {boolean} [options.reasoning] - Read and deliberately ignored: the
-   *   OpenAI API has no thinking switch on the models this talks to
+   * @param {boolean} [options.reasoning] - false sends reasoning_effort on the
+   *   model families that take it and nothing on the others, which have no
+   *   thinking switch; true and null send nothing
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
@@ -635,6 +638,14 @@ class OpenAIService {
       // which is what every caller before the AI review wanted.
       if (hasNumber(options.maxTokens) && options.maxTokens > 0) {
         request.max_tokens = Math.floor(options.maxTokens);
+      }
+      // The one thinking switch this API has, and it exists on the reasoning
+      // families only: an ordinary model answers 400 for the field, so it is
+      // sent for those names and for no others, and only when the caller
+      // asked for no thinking.
+      if (reasoningEnabled(options) === false) {
+        const effort = reasoningEffortForOpenAi(model);
+        if (effort) request.reasoning_effort = effort;
       }
 
       this.lastGenerateTextUsage = null;

@@ -1154,6 +1154,10 @@ class DuplicateMergeService {
       throw new MergeValidationError('This merge was already undone', 409);
     }
     this._assertScanIdle();
+    if (entry.action === 'split') {
+      // A split is undone by the service that made it; the log row is shared.
+      return require('./tagSimplifyService').undoSplit(entry, { performedBy });
+    }
 
     const kind = entry.kind;
     const isDelete = entry.action === 'delete';
@@ -1526,6 +1530,41 @@ class DuplicateMergeService {
       // so the same instance always answers in the same order.
       return byName !== 0 ? byName : Number(a?.id) - Number(b?.id);
     });
+  }
+
+  /**
+   * The tag names the Zettelrobbe settings refer to, and whether one of them
+   * is meant by a given name.
+   *
+   * The same two questions the scan asks itself, in public: "Simplify tags"
+   * must not offer to split a tag a setting names, for the same reason the
+   * Duplicates page must not offer to merge or delete one.
+   *
+   * @returns {string[]}
+   */
+  configuredTagNames() {
+    return this._configuredTagNames();
+  }
+
+  /**
+   * @param {string[]} configuredTagNames  what configuredTagNames() returned
+   * @param {string} name
+   * @returns {boolean}
+   */
+  isConfiguredTagName(configuredTagNames, name) {
+    return this._isConfiguredTagName(configuredTagNames, name);
+  }
+
+  /**
+   * What every write to Paperless-ngx has to do afterwards: drop the entity
+   * caches and the cached scans now, and ask for the dashboard numbers once
+   * the writes have stopped. Public because "Simplify tags" writes through
+   * its own service and must not leave a stale scan behind either.
+   *
+   * @param {string} what  'split' or 'undo', for the error message
+   */
+  afterWrite(what) {
+    this._afterWrite(what);
   }
 }
 

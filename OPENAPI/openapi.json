@@ -1038,9 +1038,67 @@
             "type": "string",
             "enum": [
               "merge",
-              "delete"
+              "delete",
+              "split"
             ],
             "description": "what the row records; a delete row lists the removed objects as its sources and can be undone like a merge"
+          },
+          "details": {
+            "type": "object",
+            "nullable": true,
+            "description": "What a split did, per document, so an undo can put exactly that\nback: the topic tags it added and the document type it set.\nNull for merges and deletes.\n",
+            "properties": {
+              "typeName": {
+                "type": "string",
+                "nullable": true
+              },
+              "typeId": {
+                "type": "integer",
+                "nullable": true
+              },
+              "topicTagIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "createdTypeId": {
+                "type": "integer",
+                "nullable": true,
+                "description": "a document type the split created, deleted again by the undo"
+              },
+              "createdTagIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "topic tags the split created, deleted again by the undo"
+              },
+              "documents": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "addedTagIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "previousTypeId": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "typeSet": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
           },
           "targetRenamedFrom": {
             "type": "string",
@@ -1143,6 +1201,11 @@
               "spelling-rule"
             ],
             "description": "spelling-rule when the matcher's hard tier settled the pair and the model was not asked"
+          },
+          "remembered": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "true when the verdict came from the judge's memory of an earlier review instead of a request"
           }
         }
       },
@@ -1294,6 +1357,14 @@
                   "sweepProposals": {
                     "type": "integer",
                     "description": "pairs the sweep proposed that the string matcher had not; they were judged with evidence like any candidate"
+                  },
+                  "verdictsReused": {
+                    "type": "integer",
+                    "description": "pairs answered from the judge's memory of earlier verdicts instead of a model request"
+                  },
+                  "concurrency": {
+                    "type": "integer",
+                    "description": "model requests the review kept in flight at once"
                   }
                 }
               }
@@ -1411,6 +1482,24 @@
           "calibrated": {
             "type": "boolean",
             "description": "true once the batch size and the answer cap come from a measurement of this model rather than from defaults"
+          },
+          "concurrency": {
+            "type": "integer",
+            "nullable": true,
+            "description": "model requests kept in flight at once"
+          },
+          "inFlight": {
+            "type": "integer",
+            "description": "model requests waiting for an answer right now"
+          },
+          "verdictsReused": {
+            "type": "integer",
+            "description": "pairs answered from remembered verdicts so far"
+          },
+          "thinkingTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "reasoning tokens of the current request so far, estimated from the reasoning text; null when the model wrote none"
           }
         }
       },
@@ -1418,6 +1507,15 @@
         "type": "object",
         "description": "One AI review running on the server, or the last one that finished. There is at most one at a time.",
         "properties": {
+          "task": {
+            "type": "string",
+            "enum": [
+              "review",
+              "vocabulary",
+              "splits"
+            ],
+            "description": "what the job runs; the Simplify tags page starts the vocabulary and splits tasks through the same runner"
+          },
           "id": {
             "type": "string"
           },
@@ -1595,6 +1693,269 @@
           },
           "createdAt": {
             "type": "string"
+          }
+        }
+      },
+      "TagVocabularyEntry": {
+        "type": "object",
+        "description": "One entry of the target vocabulary of \"Simplify tags\"",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "type",
+              "topic"
+            ],
+            "description": "type is a document type, topic is a tag"
+          },
+          "name": {
+            "type": "string"
+          },
+          "paperlessId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the document type or tag in Paperless-ngx once it exists"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "model",
+              "user"
+            ]
+          },
+          "position": {
+            "type": "integer"
+          }
+        }
+      },
+      "TagVocabulary": {
+        "type": "object",
+        "description": "The vocabulary the archive should end up with, by dimension",
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagVocabularyEntry"
+            }
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagVocabularyEntry"
+            }
+          }
+        }
+      },
+      "TagVocabularyRequest": {
+        "type": "object",
+        "description": "The vocabulary as the user saves it; names only, order kept",
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TagSplitProposal": {
+        "type": "object",
+        "description": "What one tag stands for, as proposed by a rule, the model or the user",
+        "properties": {
+          "tagId": {
+            "type": "integer"
+          },
+          "tagName": {
+            "type": "string"
+          },
+          "documentCount": {
+            "type": "integer"
+          },
+          "typeName": {
+            "type": "string",
+            "nullable": true,
+            "description": "the document type the tag encodes, null when it encodes none"
+          },
+          "topicNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "model",
+              "user"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "high",
+              "low"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "documentsWithType": {
+            "type": "integer",
+            "description": "documents of the tag that already carry a different document type; they keep it unless overwriteType is set"
+          },
+          "overwriteType": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "applied",
+              "skipped"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "TagSplitProposalPatch": {
+        "type": "object",
+        "description": "What the user may change on a proposal",
+        "properties": {
+          "typeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "topicNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "overwriteType": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "skipped"
+            ]
+          }
+        }
+      },
+      "TagSplitImpact": {
+        "type": "object",
+        "description": "What applying one proposal would do to the documents of the tag",
+        "properties": {
+          "tagId": {
+            "type": "integer"
+          },
+          "tagName": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "integer",
+            "description": "documents that carry the tag and would get the topics"
+          },
+          "withType": {
+            "type": "integer",
+            "description": "documents that carry any document type today"
+          },
+          "withDifferentType": {
+            "type": "integer",
+            "description": "documents whose type differs from the proposed one"
+          },
+          "typeId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the proposed type's id in Paperless-ngx, null when it does not exist yet"
+          },
+          "typeSet": {
+            "type": "integer",
+            "description": "documents whose document type the apply would set"
+          },
+          "typeKept": {
+            "type": "integer",
+            "description": "documents that would keep a differing type (0 with overwriteType)"
+          }
+        }
+      },
+      "TagSplitApplyRequest": {
+        "type": "object",
+        "required": [
+          "tagIds"
+        ],
+        "properties": {
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "proposals to apply, by tag id; at most 200 per call"
+          }
+        }
+      },
+      "TagSplitApplyResult": {
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tagId": {
+                  "type": "integer"
+                },
+                "tagName": {
+                  "type": "string"
+                },
+                "logId": {
+                  "type": "integer"
+                },
+                "documentsUpdated": {
+                  "type": "integer"
+                },
+                "typeSet": {
+                  "type": "integer",
+                  "description": "documents whose document type was set"
+                },
+                "typeKept": {
+                  "type": "integer",
+                  "description": "documents that kept a differing document type"
+                }
+              }
+            }
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tagId": {
+                  "type": "integer"
+                },
+                "tagName": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -5166,6 +5527,20 @@
                     "description": "How long one model request should take (5-300 seconds, default 30). The judge measures the model on a small first request and then sizes every later one to fit. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
                     "example": 30
                   },
+                  "duplicatesAiConcurrency": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8,
+                    "description": "Model requests the judge keeps in flight at once (0-8, default 0). 0 lets the judge choose: one for Ollama, three for a hosted endpoint. Wall time divides by it, tokens do not. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 0
+                  },
+                  "duplicatesAiVerdictMemoryDays": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 365,
+                    "description": "How long a verdict about a pair of names is remembered (0-365 days, default 90). A pair the model judged is not asked again while both names are unchanged; 0 switches the memory off. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 90
+                  },
                   "duplicatesGuardNewNames": {
                     "type": "string",
                     "enum": [
@@ -5181,6 +5556,20 @@
                     "maximum": 1000,
                     "description": "How many names the model sees per request when the semantic sweep looks at the whole list (50-1000, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
                     "example": 300
+                  },
+                  "simplifyTagsPerRequest": {
+                    "type": "integer",
+                    "minimum": 10,
+                    "maximum": 200,
+                    "description": "How many tag names one model request of \"Simplify tags\" decomposes into a document type and topic tags (10-200, default 50). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 50
+                  },
+                  "simplifyVocabularySize": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 100,
+                    "description": "How many entries the vocabulary proposed from the tag names should aim at, types and topics together (5-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 25
                   },
                   "ocrAutoProcessEnabled": {
                     "type": "string",
@@ -7182,6 +7571,67 @@
         }
       }
     },
+    "/api/duplicates/ai-review/jobs/{id}/result": {
+      "get": {
+        "summary": "The result of a finished job, on its own",
+        "description": "What the stream delivered with its `done` (or partial `stopped`)\nevent, without the job around it. The Duplicates page reads the review\nresult off the stream; this is for the Simplify tags page, whose two\ntasks answer with something small — a proposed vocabulary, the counts\nof a proposal run — that is worth asking for again after a reload.\n\nA job that is still running has no result yet and answers 409.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the job returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "description": "the DuplicateAiReviewResult of a review, or what a Simplify tags task returned",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          },
+          "409": {
+            "description": "The job is still running"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
     "/api/duplicates/ai-review/jobs/{id}/events": {
       "get": {
         "summary": "Follow an AI review as server-sent events",
@@ -7283,6 +7733,59 @@
           },
           "404": {
             "description": "No job with that id"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/memory": {
+      "delete": {
+        "summary": "Forget every remembered verdict of the AI judge",
+        "description": "The judge remembers what it decided about a pair of names for\nDUPLICATES_AI_VERDICT_MEMORY_DAYS, so the next review only asks about\nwhat is new. This empties that memory, which makes the next review ask\nabout everything again — the thing to do after the model changed or\nafter a verdict turned out to be wrong.\n\nLocal only: nothing in Paperless-ngx is touched, and no merge is\nundone or repeated.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The memory is empty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "removed": {
+                          "type": "integer",
+                          "description": "verdicts that were forgotten"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
           },
           "500": {
             "description": "Server error"
@@ -7706,6 +8209,19 @@
                 "correspondents"
               ]
             }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "description": "Keeps only the rows that record this action. The local model pages\nthe log by kind alone, so the action is applied in the route over\nthe newest 2000 rows; `recordsTotal` counts what matched inside\nthat window.\n",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "merge",
+                "delete",
+                "split"
+              ]
+            }
           }
         ],
         "responses": {
@@ -7734,7 +8250,7 @@
             }
           },
           "400": {
-            "description": "Unknown kind"
+            "description": "Unknown kind or action"
           },
           "401": {
             "description": "Not authenticated"
@@ -7896,6 +8412,527 @@
           },
           "401": {
             "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/simplify": {
+      "get": {
+        "summary": "Simplify tags page",
+        "description": "Renders the page that turns compound tags such as \"Stromrechnung\" into\na document type (\"Rechnung\") and topic tags (\"Strom\"). The vocabulary\nand the proposals are read through `/api/simplify/*`; nothing runs\nautomatically and no split happens without a confirmation.\n",
+        "tags": [
+          "Navigation",
+          "Simplify"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Simplify tags page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/vocabulary": {
+      "get": {
+        "summary": "The target vocabulary of document types and topic tags",
+        "description": "The couple of dozen concepts the archive should end up with, in the\norder the user put them in. Local only: these are names, not objects\nin Paperless-ngx — an entry gets its `paperlessId` when a split first\nneeds the object.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored vocabulary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagVocabulary"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace the target vocabulary",
+        "description": "Stores the vocabulary as the user edited it: names only, the order\nkept, blanks and repeats dropped. The ids a name already has in\nPaperless-ngx survive the save. A list that is not a list of at most\n200 names of at most 128 characters each is refused with 400.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagVocabularyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagVocabulary"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A list is too long, or holds something that is not a name"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/vocabulary/propose": {
+      "post": {
+        "summary": "Let the model propose a vocabulary from the tag names",
+        "description": "Starts a job that shows the model every tag name and asks for the\ncouple of dozen document types and topics the archive really has. The\nroute answers at once with the job; the page follows it through\n`/api/duplicates/ai-review/jobs/{id}/events` and reads the proposal\nfrom `/api/duplicates/ai-review/jobs/{id}/result`.\n\nThe proposal is not saved: it is shown for editing, and only\n`PUT /api/simplify/vocabulary` stores anything.\n\nThere is one job at a time for the whole app, shared with the AI\nreview; while one runs this answers 409 and carries it.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The proposal was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals": {
+      "get": {
+        "summary": "What every tag stands for, as proposed",
+        "description": "One row per tag the last run looked at, by name. Read-only; the rows\nsurvive a reload and are edited one by one through the PATCH below.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "skipped",
+                "applied"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored proposals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TagSplitProposal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown status"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals/run": {
+      "post": {
+        "summary": "Propose for every tag what it stands for",
+        "description": "Starts a job that decomposes every tag against the saved vocabulary —\nfirst by rule, which needs no model at all, then by the model for what\nthe rule could not settle. The stored proposals are replaced.\n\nAnswers like the vocabulary proposal: 202 with the job, or 409 with\nthe job that is already running.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fresh": {
+                    "type": "boolean",
+                    "description": "ask the model again for tags a rule already settled"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The run was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals/{tagId}": {
+      "patch": {
+        "summary": "Change one proposal",
+        "description": "Only the fields the body names are changed. A changed target marks the\nproposal as the user's, and `status` may only move between open and\nskipped — applying is what the apply route does.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tagId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagSplitProposalPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The proposal as it is stored now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitProposal"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field of the patch is of the wrong kind"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no proposal for that tag"
+          },
+          "409": {
+            "description": "The proposal was already applied"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals/{tagId}/impact": {
+      "get": {
+        "summary": "What applying one proposal would do to the documents",
+        "description": "Read-only: it asks Paperless-ngx how many documents of the tag would\nget the topics, how many would get the document type, and how many\nalready carry a different one and would keep it. The page asks for\nevery selected tag before it shows the one confirmation of an apply.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tagId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the split would touch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitImpact"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tag id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no proposal for that tag"
+          },
+          "501": {
+            "description": "The impact preview is not available on this build"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/simplify/apply": {
+      "post": {
+        "summary": "Apply the proposals of the named tags",
+        "description": "One tag after the other: the vocabulary objects are created in\nPaperless-ngx where they are missing, the documents of the tag get the\ntopic tags and — where they carry no document type, or always with\n`overwriteType` — the document type, the compound tag is deleted, and\none merge-log row with `action: split` records what happened per\ndocument so an undo can play it back.\n\nThe answer carries `success: false` with status 200 when at least one\ntag failed; what was applied is in `data.applied` either way, and each\nfailure names its reason.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagSplitApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The run finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitApplyResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "tagIds is missing, empty, too long or not a list of ids"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A document scan is running"
+          },
+          "501": {
+            "description": "Applying splits is not available on this build"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
           }
         }
       }

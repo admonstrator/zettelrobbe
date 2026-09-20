@@ -17,6 +17,7 @@ const {
   modelOverride,
   progressHandler,
   readCompletionUsage,
+  reasoningEffortForCompatible,
   reasoningEnabled,
   runChatCompletionStream,
   stripReasoningText,
@@ -656,7 +657,8 @@ class CustomOpenAIService {
    * @param {Function} [options.onProgress] - Streams the answer and reports it
    *   as it grows; see GenerateTextProgress in aiGenerateOptions
    * @param {boolean} [options.reasoning] - Switches the model's thinking off
-   *   or on for this one call; nothing new is sent when the caller says nothing
+   *   or on for this one call; nothing new is sent when the caller says
+   *   nothing. Off also sends reasoning_effort where the model family takes it
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
@@ -723,6 +725,14 @@ class CustomOpenAIService {
       // model decides for itself, as it did before.
       if (reasoning !== null) {
         request.chat_template_kwargs = { enable_thinking: reasoning };
+      }
+      // A hosted reasoning model reads neither of the two above and thinks
+      // anyway; the families that take reasoning_effort are told in their own
+      // dialect. Only when the caller asked for no thinking, and only for
+      // those names — another model answers 400 for the field.
+      if (reasoning === false) {
+        const effort = reasoningEffortForCompatible(model);
+        if (effort) request.reasoning_effort = effort;
       }
 
       this.lastGenerateTextUsage = null;
