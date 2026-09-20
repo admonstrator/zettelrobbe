@@ -459,6 +459,11 @@ const MIGRATIONS = [
       database.exec(
         'ALTER TABLE entity_merges ADD COLUMN details TEXT DEFAULT NULL'
       );
+      // The fixed price a thinking model charges per request, apart from the
+      // tokens per pair, so the batch is sized from the answer alone.
+      database.exec(
+        'ALTER TABLE ai_calibration ADD COLUMN thinking_per_request REAL DEFAULT NULL'
+      );
       // The target vocabulary of "Simplify tags": document types (dimension
       // 'type') and topic tags (dimension 'topic') the archive should end up
       // with. paperless_id is filled once the object exists in Paperless-ngx.
@@ -1509,7 +1514,7 @@ module.exports = {
    *
    * @param {string} model
    * @param {boolean} thinking
-   * @returns {Promise<{tokensPerPair:number|null, tokensPerSecond:number|null, largestCompletion:number, measuredAt:string}|null>}
+   * @returns {Promise<{tokensPerPair:number|null, tokensPerSecond:number|null, thinkingPerRequest:number|null, largestCompletion:number, measuredAt:string}|null>}
    */
   async getAiCalibration(model, thinking) {
     try {
@@ -1522,6 +1527,7 @@ module.exports = {
         ? {
             tokensPerPair: row.tokens_per_pair ?? null,
             tokensPerSecond: row.tokens_per_second ?? null,
+            thinkingPerRequest: row.thinking_per_request ?? null,
             largestCompletion: Number(row.largest_completion) || 0,
             measuredAt: row.measured_at,
           }
@@ -1538,17 +1544,19 @@ module.exports = {
     thinking,
     tokensPerPair = null,
     tokensPerSecond = null,
+    thinkingPerRequest = null,
     largestCompletion = 0,
   }) {
     try {
       db.prepare(
         `
         INSERT INTO ai_calibration
-          (model, thinking, tokens_per_pair, tokens_per_second, largest_completion, measured_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          (model, thinking, tokens_per_pair, tokens_per_second, thinking_per_request, largest_completion, measured_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(model, thinking) DO UPDATE SET
           tokens_per_pair = excluded.tokens_per_pair,
           tokens_per_second = excluded.tokens_per_second,
+          thinking_per_request = excluded.thinking_per_request,
           largest_completion = excluded.largest_completion,
           measured_at = CURRENT_TIMESTAMP
       `
@@ -1557,6 +1565,7 @@ module.exports = {
         thinking ? 1 : 0,
         tokensPerPair == null ? null : Number(tokensPerPair),
         tokensPerSecond == null ? null : Number(tokensPerSecond),
+        thinkingPerRequest == null ? null : Number(thinkingPerRequest),
         Math.max(0, Math.round(Number(largestCompletion) || 0))
       );
       return true;

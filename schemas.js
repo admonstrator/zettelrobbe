@@ -887,6 +887,10 @@
  *           nullable: true
  *           enum: [model, spelling-rule]
  *           description: spelling-rule when the matcher's hard tier settled the pair and the model was not asked
+ *         remembered:
+ *           type: boolean
+ *           nullable: true
+ *           description: true when the verdict came from the judge's memory of an earlier review instead of a request
  *
  *     DuplicateAiReviewRequest:
  *       type: object

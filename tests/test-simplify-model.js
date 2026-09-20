@@ -15,6 +15,7 @@
  * 5. A proposal patch changes only what it names
  * 6. Verdicts are upserted, read by key, pruned by age, cleared
  * 7. The simplify service's thin methods sit on the model
+ * 8. The calibration round-trips the thinking cost per request
  */
 
 'use strict';
@@ -339,6 +340,42 @@ async function main() {
       () => service.proposeVocabulary(),
       (error) => error.status === 501
     );
+  });
+
+  await test('The calibration round-trips the thinking cost per request', async () => {
+    const columns = raw
+      .prepare('PRAGMA table_info(ai_calibration)')
+      .all()
+      .map((c) => c.name);
+    assert.ok(
+      columns.includes('thinking_per_request'),
+      'ai_calibration.thinking_per_request missing'
+    );
+    await documentModel.saveAiCalibration({
+      model: 'contract-model',
+      thinking: false,
+      tokensPerPair: 40,
+      tokensPerSecond: 60,
+      thinkingPerRequest: 620,
+      largestCompletion: 900,
+    });
+    const stored = await documentModel.getAiCalibration(
+      'contract-model',
+      false
+    );
+    assert.strictEqual(stored.tokensPerPair, 40);
+    assert.strictEqual(stored.thinkingPerRequest, 620);
+    assert.strictEqual(stored.largestCompletion, 900);
+    // A save that leaves the cost out means "none measured", not "unchanged".
+    await documentModel.saveAiCalibration({
+      model: 'contract-model',
+      thinking: false,
+      tokensPerPair: 40,
+      tokensPerSecond: 60,
+      largestCompletion: 900,
+    });
+    const reset = await documentModel.getAiCalibration('contract-model', false);
+    assert.strictEqual(reset.thinkingPerRequest, null);
   });
 
   raw.close();
