@@ -199,6 +199,32 @@
           }
         }
       },
+      "TagVocabularyDocumentType": {
+        "type": "object",
+        "description": "One document type of the Paperless-ngx instance, as the picker on\nthe \"Simplify tags\" page offers it.\n",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The id in Paperless-ngx",
+            "example": 7
+          },
+          "name": {
+            "type": "string",
+            "description": "The name, exactly as Paperless-ngx spells it",
+            "example": "Rechnung"
+          },
+          "documentCount": {
+            "type": "integer",
+            "description": "How many documents carry this type",
+            "example": 128
+          },
+          "inVocabulary": {
+            "type": "boolean",
+            "description": "True when the saved vocabulary holds a document type of exactly\nthis name. Names in Paperless-ngx are case sensitive, so the\ncomparison is too.\n",
+            "example": true
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -8547,6 +8573,80 @@
           },
           "500": {
             "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/document-types": {
+      "get": {
+        "summary": "The document types Paperless-ngx already has",
+        "description": "What the \"Document type\" field of the vocabulary offers. Read-only and\ncached: the list is refreshed when it is empty, when it is older than\nTAG_CACHE_TTL_SECONDS or when `fresh` asks for it, and every write\nthat creates or deletes a document type empties it, so a type a split\njust created is listed at once.\n\n`inVocabulary` says which of them the saved vocabulary already holds;\nthe page marks those rows and does not add them a second time.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "fresh",
+            "required": false,
+            "description": "1, true or yes reads past the cache",
+            "schema": {
+              "type": "string",
+              "example": "1"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document types, sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "types": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TagVocabularyDocumentType"
+                          }
+                        },
+                        "total": {
+                          "type": "integer",
+                          "example": 8
+                        },
+                        "cachedAt": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time",
+                          "description": "When the cached list was built; null while nothing was read yet"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
           }
         }
       }
