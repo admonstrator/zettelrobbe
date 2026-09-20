@@ -1978,8 +1978,11 @@ class TagSimplifyService {
       }
     }
 
-    const typeId = Number(details.createdTypeId);
-    if (Number.isInteger(typeId)) {
+    // Null when the type existed before the split: Number(null) is 0, which
+    // is an integer and not a document type.
+    const typeId =
+      details.createdTypeId == null ? null : Number(details.createdTypeId);
+    if (Number.isInteger(typeId) && typeId > 0) {
       try {
         const documents =
           await paperlessService.getDocumentIdsByDocumentType(typeId);

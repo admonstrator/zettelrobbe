@@ -976,8 +976,28 @@ async function main() {
       );
 
       const entry = await documentModel.getEntityMergeById(logId);
-      const { value: undone, lines } = await withLog(() =>
-        service.undoSplit(entry, { performedBy: 'tester' })
+      // The type existed before the split (createdTypeId is null): the undo
+      // must not try to delete a document type, least of all number 0.
+      const liveService = require('../services/paperlessService');
+      const originalDelete = liveService.deleteDocumentType;
+      const deletedTypes = [];
+      liveService.deleteDocumentType = async (id) => {
+        deletedTypes.push(id);
+        return originalDelete.call(liveService, id);
+      };
+      let undone;
+      let lines;
+      try {
+        ({ value: undone, lines } = await withLog(() =>
+          service.undoSplit(entry, { performedBy: 'tester' })
+        ));
+      } finally {
+        liveService.deleteDocumentType = originalDelete;
+      }
+      assert.deepStrictEqual(
+        deletedTypes,
+        [],
+        'no document type is deleted when the split created none'
       );
 
       assert.strictEqual(undone.status, 'undone');
