@@ -2355,6 +2355,12 @@ module.exports = {
       sets.push('confidence = ?');
       params.push(patch.confidence == null ? null : String(patch.confidence));
     }
+    if ('documentsWithType' in patch) {
+      sets.push('documents_with_type = ?');
+      params.push(
+        Math.max(0, Math.round(Number(patch.documentsWithType) || 0))
+      );
+    }
     if (sets.length === 0) return false;
     sets.push('updated_at = CURRENT_TIMESTAMP');
     try {

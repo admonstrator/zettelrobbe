@@ -244,6 +244,12 @@ async function main() {
       (await documentModel.getTagSplitProposal(9)).status,
       'applied'
     );
+    await documentModel.updateTagSplitProposal(9, { documentsWithType: 3 });
+    assert.strictEqual(
+      (await documentModel.getTagSplitProposal(9)).documentsWithType,
+      3,
+      'the conflict count is patched on its own'
+    );
     assert.strictEqual(
       await documentModel.updateTagSplitProposal(999, { status: 'open' }),
       false

@@ -1320,27 +1320,11 @@ class TagSimplifyService {
     }
   }
 
-  /**
-   * Stores the conflict count on the proposal row.
-   *
-   * updateTagSplitProposal() of the round-10 contract takes the targets, the
-   * switch and the status but not documentsWithType, so the row is written
-   * back through replaceTagSplitProposals() when the patch left it unchanged.
-   * The table holds one row per tag and is rewritten in one transaction; the
-   * fallback disappears the moment the model patch takes the field.
-   */
+  /** Stores the conflict count on the proposal row. */
   async _storeDocumentsWithType(tagId, count) {
     await documentModel.updateTagSplitProposal(tagId, {
       documentsWithType: count,
     });
-    const stored = await documentModel.getTagSplitProposal(tagId);
-    if (!stored || stored.documentsWithType === count) return;
-    const rows = await documentModel.listTagSplitProposals();
-    await documentModel.replaceTagSplitProposals(
-      rows.map((row) =>
-        row.tagId === tagId ? { ...row, documentsWithType: count } : row
-      )
-    );
   }
 
   /* --- Applying a split -------------------------------------------------- */
