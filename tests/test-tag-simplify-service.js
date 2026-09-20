@@ -145,6 +145,9 @@ async function main() {
   delete process.env.TAGS;
 
   const config = require('../config/config');
+  // The cases below count requests one after the other; the lane cases set
+  // their own concurrency and restore this.
+  config.duplicatesAiConcurrency = 1;
   const documentModel = require('../models/document');
   const paperlessService = require('../services/paperlessService');
   const dashboardStatsService = require('../services/dashboardStatsService');
@@ -955,6 +958,102 @@ async function main() {
         );
       } finally {
         service._observedThinking = 0;
+        config.simplifyTagsPerRequest = 50;
+      }
+    });
+
+    await test('The vocabulary request streams so the gateway sees a live connection', async () => {
+      useFake({ tags: [{ id: 1, name: 'Stromrechnung' }] });
+      const { calls } = useProvider(() =>
+        JSON.stringify({ types: ['Rechnung'], topics: ['Strom'] })
+      );
+      await service.proposeVocabulary({}, { onProgress: () => {} });
+      assert.strictEqual(
+        typeof calls[0].options.onProgress,
+        'function',
+        'the request asks for a stream when the job can take progress'
+      );
+    });
+
+    await test('Vocabulary chunks run in lanes', async () => {
+      const tags = [];
+      for (let id = 1; id <= 150; id += 1)
+        tags.push({ id, name: `Name ${id}` });
+      useFake({ tags });
+      config.duplicatesAiSweepNames = 50;
+      config.duplicatesAiConcurrency = 3;
+      let inFlight = 0;
+      let peak = 0;
+      const { calls } = useProvider(async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        inFlight -= 1;
+        return JSON.stringify({ types: ['Rechnung'], topics: ['Strom'] });
+      });
+      try {
+        const value = await service.proposeVocabulary(
+          {},
+          { onProgress: () => {} }
+        );
+        assert.strictEqual(calls.length, 3, 'three chunks of fifty names');
+        assert.ok(
+          peak >= 2,
+          `at most ${peak} request(s) were in flight at once`
+        );
+        assert.strictEqual(value.requests, 3);
+        assert.deepStrictEqual(value.types, ['Rechnung']);
+      } finally {
+        config.duplicatesAiConcurrency = 1;
+        config.duplicatesAiSweepNames = 300;
+      }
+    });
+
+    await test('Order chunks run in lanes', async () => {
+      // Each tag carries a document; a tag without one is a delete by rule
+      // and never reaches the model.
+      const tags = [];
+      const documents = [];
+      for (let id = 1; id <= 6; id += 1) {
+        tags.push({ id, name: `Unknown ${id}` });
+        documents.push({ id: 100 + id, tags: [id], document_type: null });
+      }
+      useFake({ tags, documents });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      config.simplifyTagsPerRequest = 2;
+      config.duplicatesAiConcurrency = 3;
+      let inFlight = 0;
+      let peak = 0;
+      const { calls } = useProvider(async (prompt) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        inFlight -= 1;
+        return JSON.stringify(
+          idsInPrompt(prompt).map((id) => ({
+            id,
+            action: 'keep',
+            type: null,
+            topics: [],
+            mergeInto: null,
+            confidence: 'low',
+            reason: 'a plain subject',
+          }))
+        );
+      });
+      try {
+        const value = await service.proposeOrder(
+          { vocabulary: 'keep' },
+          { onProgress: () => {} }
+        );
+        assert.strictEqual(calls.length, 3, 'three chunks of two tags');
+        assert.ok(
+          peak >= 2,
+          `at most ${peak} request(s) were in flight at once`
+        );
+        assert.strictEqual(value.byModel, 6);
+      } finally {
+        config.duplicatesAiConcurrency = 1;
         config.simplifyTagsPerRequest = 50;
       }
     });

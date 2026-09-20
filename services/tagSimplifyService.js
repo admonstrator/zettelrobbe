@@ -151,6 +151,35 @@ class SimplifyError extends Error {
 }
 
 /** Splits a list into chunks of at most `size`. */
+/**
+ * Runs `worker` over `items` with at most `limit` in flight, in order of
+ * start; the judge does the same for its requests. Results keep the items'
+ * order.
+ *
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} worker
+ * @returns {Promise<R[]>}
+ */
+async function runInLanes(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  const runner = async () => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index], index);
+    }
+  };
+  const runners = [];
+  const lanes = Math.max(1, Math.min(limit, items.length));
+  for (let index = 0; index < lanes; index += 1) runners.push(runner());
+  await Promise.all(runners);
+  return results;
+}
+
 function chunkList(items, size) {
   const chunks = [];
   const step = Math.max(1, Number(size) || 1);
@@ -505,6 +534,26 @@ class TagSimplifyService {
   }
 
   /**
+   * How many model requests this service keeps in flight: the judge's
+   * setting (DUPLICATES_AI_CONCURRENCY, automatic per provider). A model that
+   * thinks for a minute per request answers a vocabulary of 27 chunks in a
+   * third of the time in three lanes.
+   *
+   * @returns {number}
+   */
+  _lanes() {
+    try {
+      const judge = require('./entityMatchAiService');
+      const lanes = Number(judge.concurrency());
+      return Number.isFinite(lanes) && lanes > 0
+        ? Math.min(8, Math.floor(lanes))
+        : 1;
+    } catch {
+      return 1;
+    }
+  }
+
+  /**
    * The ceiling any raised cap stops at: the operator's Response Tokens, but
    * never below what a thinking model needs for one answer.
    *
@@ -758,21 +807,24 @@ class TagSimplifyService {
       message: `Reading ${names.length} tag names for a vocabulary in ${chunks.length} request(s)…`,
     });
 
-    for (let index = 0; index < chunks.length; index += 1) {
-      if (this._stopped(control)) break;
+    const lanes = Math.min(this._lanes(), chunks.length);
+    const laneNote = lanes > 1 ? ` in ${lanes} lanes` : '';
+    let started = 0;
+    let done = 0;
+    await runInLanes(chunks, lanes, async (chunk) => {
+      if (this._stopped(control)) return;
+      started += 1;
       this._report(control, {
         phase: PHASES.VOCABULARY,
-        message: `Reading ${names.length} tag names for a vocabulary, request ${
-          index + 1
-        } of ${chunks.length}…`,
-        requestsDone: usage.requests,
+        message: `Reading ${names.length} tag names for a vocabulary, request ${started} of ${chunks.length}${laneNote}…`,
+        requestsDone: done,
         requestsPlanned: chunks.length,
         tokens: usage.tokens,
       });
       const proposed = await this._vocabularyChunk(
         service,
         systemPrompt,
-        chunks[index],
+        chunk,
         size,
         usage,
         control
@@ -782,15 +834,16 @@ class TagSimplifyService {
           this._vote(votes[dimension], name);
         }
       }
+      done += 1;
       this._report(control, {
         phase: PHASES.VOCABULARY,
-        requestsDone: usage.requests,
+        requestsDone: done,
         requestsPlanned: chunks.length,
         tokens: usage.tokens,
         failedRequests: usage.failedRequests,
       });
       this._checkTokenBudget(control, usage);
-    }
+    });
 
     const merged = this._mergeVocabularyVotes(votes, size);
     this._log(
@@ -832,9 +885,12 @@ class TagSimplifyService {
     let answer;
     let truncated = false;
     try {
+      // Streamed like the judge's requests: a gateway drops a silent
+      // connection while a thinking model deliberates for minutes, and the
+      // stream is where the thinking gets counted.
       answer = await service.generateText(
         userPrompt,
-        this._requestOptions(systemPrompt, cap, control)
+        this._requestOptions(systemPrompt, cap, control, () => {})
       );
     } catch (error) {
       if (this._stopped(control)) return { types: [], topics: [] };
@@ -1098,8 +1154,12 @@ class TagSimplifyService {
     if (chunks.length > 0) {
       const service = this._provider();
       const systemPrompt = this.buildSplitSystemPrompt(vocabulary);
-      for (let index = 0; index < chunks.length; index += 1) {
-        if (this._stopped(control)) break;
+      const lanes = Math.min(this._lanes(), chunks.length);
+      let started = 0;
+      let done = 0;
+      await runInLanes(chunks, lanes, async (chunk) => {
+        if (this._stopped(control)) return;
+        started += 1;
         this._report(control, {
           phase: PHASES.SPLITTING,
           message: this._splitMessage(
@@ -1107,16 +1167,16 @@ class TagSimplifyService {
             candidates.length,
             unsettled.length,
             chunks.length,
-            index + 1
+            started
           ),
-          requestsDone: usage.requests,
+          requestsDone: done,
           requestsPlanned: chunks.length,
           tokens: usage.tokens,
         });
         const answered = await this._splitChunk(
           service,
           systemPrompt,
-          chunks[index],
+          chunk,
           vocabulary,
           usage,
           control
@@ -1124,16 +1184,17 @@ class TagSimplifyService {
         for (const row of answered) {
           proposals.set(row.tagId, row);
         }
+        done += 1;
         this._report(control, {
           phase: PHASES.SPLITTING,
-          requestsDone: usage.requests,
+          requestsDone: done,
           requestsPlanned: chunks.length,
           pairsJudged: proposals.size,
           tokens: usage.tokens,
           failedRequests: usage.failedRequests,
         });
         this._checkTokenBudget(control, usage);
-      }
+      });
     }
 
     const rows = [...proposals.values()].sort((a, b) =>
@@ -2420,8 +2481,12 @@ class TagSimplifyService {
         const key = normalizedTagKey(tag.name);
         if (key !== '' && !index.has(key)) index.set(key, tag);
       }
-      for (let request = 0; request < chunks.length; request += 1) {
-        if (this._stopped(control)) break;
+      const lanes = Math.min(this._lanes(), chunks.length);
+      let started = 0;
+      let done = baseRequests;
+      await runInLanes(chunks, lanes, async (chunk) => {
+        if (this._stopped(control)) return;
+        started += 1;
         this._report(control, {
           phase: PHASES.ORDERING,
           message: this._splitMessage(
@@ -2429,37 +2494,38 @@ class TagSimplifyService {
             named.length,
             unsettled.length,
             chunks.length,
-            request + 1
+            started
           ),
-          requestsDone: usage.requests,
+          requestsDone: done,
           requestsPlanned: planned,
           tokens: usage.tokens,
         });
         const answered = await this._splitChunk(
           service,
           systemPrompt,
-          chunks[request],
+          chunk,
           vocabulary,
           usage,
           control,
           {
             label: 'order',
-            prompt: (chunk) => this.buildOrderUserPrompt(chunk),
-            build: (items, chunk, vocab) =>
-              this._orderProposals(items, chunk, vocab, index),
+            prompt: (part) => this.buildOrderUserPrompt(part),
+            build: (items, part, vocab) =>
+              this._orderProposals(items, part, vocab, index),
           }
         );
         for (const row of answered) proposals.set(row.tagId, row);
+        done += 1;
         this._report(control, {
           phase: PHASES.ORDERING,
-          requestsDone: usage.requests,
+          requestsDone: done,
           requestsPlanned: planned,
           pairsJudged: proposals.size,
           tokens: usage.tokens,
           failedRequests: usage.failedRequests,
         });
         this._checkTokenBudget(control, usage);
-      }
+      });
     }
 
     // Every tag ends up with an action. What neither the rule nor the model

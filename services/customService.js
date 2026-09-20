@@ -784,7 +784,14 @@ class CustomOpenAIService {
       );
 
       if (!generatedText) {
-        throw new Error('Invalid API response structure');
+        // Say what came back: a gateway that timed out behind a 200, a
+        // model that stopped after its reasoning without an answer, or an
+        // empty choices array all end here and need telling apart.
+        const finishReason = response?.choices?.[0]?.finish_reason ?? 'unknown';
+        const head = JSON.stringify(response ?? null).slice(0, 200);
+        throw new Error(
+          `Invalid API response structure: the answer carried no text (finish_reason ${finishReason}; the response begins ${head})`
+        );
       }
 
       return generatedText;
