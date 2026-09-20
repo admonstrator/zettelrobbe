@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="<%= theme || 'light' %>">
+<%- include('partials/shell/head-start', { pageTitle: 'Simplify tags - Zettelrobbe' }) %>
+<%- include('partials/shell/head-end') %>
+<%- include('partials/shell/body-open', {
+    pageTitle: 'Simplify tags',
+    version: typeof version !== 'undefined' ? version : ''
+}) %>
+<%
+/* The two model-backed proposals are only offered when the route says a
+   provider is configured and the AI review is switched on. Everything else on
+   this page — editing the vocabulary, the rule pass, every edit of a proposal
+   and the apply itself — works without a model, so nothing below depends on
+   this local except the two buttons that talk to one. */
+const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled === true;
+-%>
+            <div>
+                <div class="zr-viewhead">
+                    <p class="zr-viewhead__sub">
+                        Turn compound tags into a document type and topic tags. Nothing here runs on its own.
+                    </p>
+                </div>
+
+                <!-- The target vocabulary: the couple of dozen concepts the
+                     archive should end up with. Local names, not objects in
+                     Paperless-ngx — a split creates the object it needs. -->
+                <section class="zr-module" id="simVocabulary">
+                    <div class="zr-module__head">
+                        <h2 class="zr-module__title">Vocabulary</h2>
+                        <span class="zr-module__meta" id="simVocabularyMeta"></span>
+                    </div>
+                    <div class="zr-module__body zr-col zr-col--loose">
+                        <p class="zr-sm zr-faint">
+                            A document type is the kind of document (Rechnung, Brief, Vertrag). A topic is what it is about (Strom, Auto). "Stromrechnung" is the type "Rechnung" plus the topic "Strom".
+                        </p>
+                        <div class="sim-notice" id="simVocabularyNotice"></div>
+                        <div class="sim-vocab">
+                            <div class="sim-vocab__col">
+                                <span class="zr-label" id="simTypesLabel">Document types</span>
+                                <div class="zr-chips sim-chips" id="simTypes" role="list" aria-labelledby="simTypesLabel"></div>
+                                <input class="zr-input sim-vocab__input" id="simTypeInput" type="text"
+                                       autocomplete="off" placeholder="Add a document type, then press Enter"
+                                       aria-label="Add a document type">
+                            </div>
+                            <div class="sim-vocab__col">
+                                <span class="zr-label" id="simTopicsLabel">Topics</span>
+                                <div class="zr-chips sim-chips" id="simTopics" role="list" aria-labelledby="simTopicsLabel"></div>
+                                <input class="zr-input sim-vocab__input" id="simTopicInput" type="text"
+                                       autocomplete="off" placeholder="Add a topic, then press Enter"
+                                       aria-label="Add a topic">
+                            </div>
+                        </div>
+                        <div class="sim-actions">
+<% if (simAiEnabled) { -%>
+                            <button class="zr-btn" id="simProposeVocabularyBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" id="simProposeVocabularyIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                                Propose from my tags
+                            </button>
+<% } -%>
+                            <button class="zr-btn zr-btn--primary" id="simSaveVocabularyBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
+                                Save vocabulary
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- What every tag stands for. The rule pass alone needs no
+                     model; the model only answers what the rule could not. -->
+                <section class="zr-module" id="simProposals">
+                    <div class="zr-module__head">
+                        <h2 class="zr-module__title">Proposals</h2>
+                        <span class="zr-module__meta" id="simProposalsMeta"></span>
+                    </div>
+                    <div class="zr-module__body zr-col zr-col--loose">
+                        <div class="sim-actions">
+                            <button class="zr-btn zr-btn--primary" id="simProposeSplitsBtn" type="button" disabled>
+                                <svg class="zr-icon zr-icon--sm" id="simProposeSplitsIcon" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                Propose splits
+                            </button>
+                            <span class="zr-sm zr-faint" id="simProposeSplitsHint">Save a vocabulary first</span>
+                        </div>
+
+                        <!-- The same panel the Duplicates page uses for a
+                             review: both jobs run through the one job service,
+                             so a reloaded page can attach to either. -->
+                        <div class="sim-progress hidden" id="simProgress" role="status" aria-live="polite">
+                            <div class="sim-progress__bar" id="simProgressBar" role="progressbar" aria-label="Job progress">
+                                <div class="sim-progress__fill" id="simProgressFill"></div>
+                            </div>
+                            <div class="sim-progress__text">
+                                <span class="zr-sm" id="simProgressMessage"></span>
+                                <span class="zr-sm zr-faint zr-mono" id="simProgressCounts"></span>
+                                <span class="zr-sm zr-faint" id="simProgressEta"></span>
+                            </div>
+                            <div class="sim-progress__actions">
+                                <button class="zr-btn zr-btn--ghost" id="simStopBtn" type="button">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
+                                    <span class="sim-progress__stop-label">Stop</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <section class="zr-stats sim-stats hidden" id="simStats" aria-label="Proposal counts">
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
+                                    Proposals
+                                </span>
+                                <span class="zr-stat__value" id="simStatProposals">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-inbox"/></svg>
+                                    Open
+                                </span>
+                                <span class="zr-stat__value" id="simStatOpen">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                                    By rule
+                                </span>
+                                <span class="zr-stat__value" id="simStatRule">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                                    By model
+                                </span>
+                                <span class="zr-stat__value" id="simStatModel">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                    Applied
+                                </span>
+                                <span class="zr-stat__value" id="simStatApplied">0</span>
+                            </div>
+                        </section>
+
+                        <div class="sim-filters" id="simFilters">
+                            <div class="sim-filters__field">
+                                <span class="zr-label" id="simStatusLabel">Show</span>
+                                <div class="zr-segment" id="simStatusFilter" role="group" aria-labelledby="simStatusLabel">
+                                    <button type="button" data-status="open" aria-selected="true">Open</button>
+                                    <button type="button" data-status="skipped" aria-selected="false">Skipped</button>
+                                    <button type="button" data-status="applied" aria-selected="false">Applied</button>
+                                </div>
+                            </div>
+                            <div class="sim-filters__field zr-grow">
+                                <label class="zr-label" for="simSearch">Search</label>
+                                <input class="zr-input" id="simSearch" type="search" autocomplete="off" placeholder="Filter by tag name">
+                            </div>
+                        </div>
+
+                        <div class="sim-proposals__alert" id="simProposalsAlert"></div>
+
+                        <!-- The topics of the vocabulary, offered to every
+                             topic input of the table below. One list for all
+                             rows; the page script fills it after the load. -->
+                        <datalist id="simTopicOptions"></datalist>
+
+                        <div class="zr-table-wrap">
+                            <table class="zr-table zr-table--stack sim-proposals__table" id="simProposalsTable">
+                                <thead>
+                                    <tr>
+                                        <th class="sim-proposals__pickcol">Apply</th>
+                                        <th>Tag</th>
+                                        <th>Documents</th>
+                                        <th class="sim-proposals__typecol">&rarr; Type</th>
+                                        <th class="sim-proposals__topicscol">&rarr; Topics</th>
+                                        <th>Source</th>
+                                        <th class="sim-proposals__reasoncol">Reason</th>
+                                        <th class="sim-proposals__statuscol">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="simProposalsBody"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="sim-apply">
+                            <span class="zr-sm sim-apply__status hidden" id="simApplyStatus" aria-live="polite"></span>
+                            <div class="sim-apply__actions">
+                                <button class="zr-btn zr-btn--ghost" id="simSelectOpenBtn" type="button">Select all open</button>
+                                <button class="zr-btn zr-btn--ghost" id="simClearSelectionBtn" type="button">Clear</button>
+                                <button class="zr-btn" id="simSkipBtn" type="button" disabled>
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>
+                                    Skip
+                                </button>
+                                <button class="zr-btn zr-btn--primary" id="simApplyBtn" type="button" disabled>
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                    Apply selected
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+    <script type="module" src="/js/simplify.js"></script>
+    <%- include('partials/shell/body-close') %>

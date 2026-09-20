@@ -39,6 +39,9 @@
  * 16. the log rows a delete and a rename write
  * 17. the names the creation guard mapped, their rule and the document link
  * 18. the semantic sweep: its checkbox, what it sends and what it counts
+ * 19. round 10: the log rows the Simplify tags page writes and how they are
+ *     undone, the chip of a remembered verdict, what memory and lanes add to
+ *     the two AI tiles, and the button that empties the judge's memory
  */
 
 'use strict';
@@ -920,8 +923,8 @@ test('The batch dialog asks once, with one copy-rule checkbox', () => {
   );
   assert.strictEqual(
     (SCRIPT.match(/confirmDialog\(\{/g) || []).length,
-    7,
-    'one dialog for a group, one for a batch, one for the review, one for the proposal, one for undo, one for deleting unused objects, one for clearing the mappings'
+    8,
+    'one dialog for a group, one for a batch, one for the review, one for the proposal, one for undo, one for deleting unused objects, one for clearing the mappings, one for forgetting the remembered verdicts'
   );
 });
 
@@ -2713,8 +2716,14 @@ test('The delete goes to its own endpoint, one request per kind', () => {
 
 test('The log tells a delete from a merge and shows what a merge renamed', () => {
   const { isDeleteEntry, logSourceNames, htmlLogTargetCell } = helpers(
-    ['isDeleteEntry', 'logSourceNames', 'htmlLogTargetCell'],
-    { globals: { esc: escForTest, LOG_ACTION_DELETE: 'delete' } }
+    ['isDeleteEntry', 'isSplitEntry', 'logSourceNames', 'htmlLogTargetCell'],
+    {
+      globals: {
+        esc: escForTest,
+        LOG_ACTION_DELETE: 'delete',
+        LOG_ACTION_SPLIT: 'split',
+      },
+    }
   );
   assert.match(
     SCRIPT,
@@ -3084,6 +3093,248 @@ test('The stylesheet carries the unused, mapping and log classes', () => {
     CSS,
     /@media \(max-width: 720px\) \{\n\s+\.dup-unused__table \.dup-unused__pickcol \{\n\s+width: auto;/,
     'the pick column does not stack on a phone'
+  );
+});
+
+/* ── 19. round 10: splits in the log, a remembered verdict, the memory ────── */
+/* The Simplify tags page writes its own rows into this log and this page shows
+   and undoes them; the judge remembers verdicts and asks in several lanes, and
+   both have to be visible where the numbers they change are. */
+
+test('The log row of a split names what the tag became', () => {
+  const { isSplitEntry, htmlLogTargetCell } = helpers(
+    ['isDeleteEntry', 'isSplitEntry', 'logSourceNames', 'htmlLogTargetCell'],
+    {
+      globals: {
+        esc: escForTest,
+        LOG_ACTION_DELETE: 'delete',
+        LOG_ACTION_SPLIT: 'split',
+      },
+    }
+  );
+  assert.match(
+    SCRIPT,
+    /const LOG_ACTION_SPLIT = 'split';/,
+    'the action value is contract with the log and must not drift'
+  );
+  assert.strictEqual(isSplitEntry({}), false);
+  assert.strictEqual(isSplitEntry({ action: 'merge' }), false);
+  assert.strictEqual(isSplitEntry({ action: 'delete' }), false);
+  assert.strictEqual(isSplitEntry({ action: 'split' }), true);
+
+  const cell = htmlLogTargetCell({
+    action: 'split',
+    targetName: 'Rechnung + Strom',
+    sources: [{ name: 'Stromrechnung' }],
+  });
+  assert.ok(
+    cell.includes('<span class="zr-badge zr-badge--info">split</span>'),
+    'a split row must be recognisable as one, and not wear the delete tone'
+  );
+  assert.ok(
+    cell.includes('Rechnung + Strom'),
+    'the cell names the type and the topics the tag became'
+  );
+  assert.ok(
+    !cell.includes('renamed from'),
+    'a split renamed nothing, it removed a tag'
+  );
+
+  const nasty = htmlLogTargetCell({
+    action: 'split',
+    targetName: 'Rechnung + <b>Strom</b>',
+    sources: [],
+  });
+  assert.ok(
+    nasty.includes('Rechnung + &lt;b&gt;Strom&lt;/b&gt;'),
+    'the target text of a split is model and user data, so it is escaped'
+  );
+
+  // The row carries the action as an attribute, like a delete row does, so it
+  // can be found by what it records.
+  assert.match(
+    SCRIPT,
+    /data-log-action="split"/,
+    'a split row must be findable by what it recorded'
+  );
+  // A split moved documents and lists the tag it removed, so neither cell
+  // reads as a dash the way a delete's do.
+  const rows = functionBody('htmlLogRows');
+  assert.ok(
+    rows.includes('const deleteRow = isDeleteEntry(entry);'),
+    'only a delete blanks the two number cells'
+  );
+});
+
+test('The undo of a split says what it takes back', () => {
+  const undo = functionBody('undoMerge');
+  assert.ok(
+    undo.includes(
+      'Undo this split? The tag is re-created with a new id, its documents get it back, the topics and the document type this split set are removed again.'
+    ),
+    'the confirmation must name everything the undo reverses'
+  );
+  assert.ok(
+    undo.includes("'Undo this split'"),
+    'the dialog title must say what is being undone'
+  );
+  assert.ok(
+    undo.indexOf('isSplitEntry(entry)') < undo.indexOf('isDeleteEntry(entry)'),
+    'a split is decided before the delete branch, or it reads as a merge'
+  );
+});
+
+test('A remembered verdict says so on its chip', () => {
+  const { htmlVerdictChip, htmlMemberVerdict } = helpers(
+    [
+      'basisLabel',
+      'isRuleVerdict',
+      'confidenceLabel',
+      'shortReason',
+      'verdictTitle',
+      'htmlConfidenceSuffix',
+      'htmlRememberedSuffix',
+      'htmlVerdictChip',
+      'htmlMemberVerdict',
+    ],
+    {
+      constants: [
+        'AI_VERDICT_LABELS',
+        'AI_VERDICT_TONES',
+        'AI_BASIS_LABELS',
+        'AI_CONFIDENCE_LABELS',
+        'htmlVerdictIcons',
+      ],
+      globals: {
+        esc: escForTest,
+        AI_SOURCE_RULE: 'spelling-rule',
+        AI_RULE_LABEL: 'Spelling rule',
+        AI_RULE_TONE: 'dup-verdict--rule',
+        AI_REASON_MAX: 200,
+      },
+    }
+  );
+
+  const fresh = htmlVerdictChip({
+    verdict: 'same',
+    confidence: 'high',
+    reason: 'plural',
+  });
+  assert.ok(
+    !fresh.includes('remembered'),
+    'a verdict the model just gave must not claim to be remembered'
+  );
+
+  const remembered = htmlVerdictChip({
+    verdict: 'same',
+    confidence: 'high',
+    reason: 'plural',
+    remembered: true,
+  });
+  assert.ok(
+    remembered.includes('· remembered'),
+    'a remembered verdict must say where it came from'
+  );
+  assert.ok(
+    remembered.includes('dup-verdict__remembered'),
+    'the suffix needs a class of its own so it can be dimmed'
+  );
+  assert.ok(
+    remembered.indexOf('high') < remembered.indexOf('remembered'),
+    'the confidence comes first: how sure, then where from'
+  );
+
+  // The member line under a name says the same thing, or a group reads as
+  // freshly judged because one of its rows does.
+  const member = htmlMemberVerdict({
+    aiVerdict: { verdict: 'different', remembered: true },
+  });
+  assert.ok(member.includes('· remembered'));
+});
+
+test('The AI tiles say what memory and lanes saved', () => {
+  const stats = SCRIPT.slice(
+    SCRIPT.indexOf('function renderAiStats('),
+    SCRIPT.indexOf('/** Registers a group and returns its card')
+  );
+  assert.match(
+    stats,
+    /if \(num\(review\.verdictsReused\) > 0\) \{\n\s+parts\.push\(`\$\{num\(review\.verdictsReused\)\} from memory`\);/,
+    'the judged tile must say how many pairs never reached the model'
+  );
+  assert.ok(
+    stats.indexOf('verdictsReused') > stats.indexOf('sweepProposals'),
+    'the memory count closes the evidence line'
+  );
+  // One lane is the normal case and reads as no word at all; more than one is
+  // the whole explanation of why a review took the time it did.
+  assert.match(
+    stats,
+    /const lanes = Number\(review\.concurrency\);\n\s+if \(Number\.isFinite\(lanes\) && lanes > 1\) \{\n\s+costParts\.push\(`\$\{lanes\} lanes`\);/,
+    'the request tile must say how many requests waited at once'
+  );
+  assert.ok(
+    stats.indexOf('lanes') > stats.indexOf('per request'),
+    'the lane count follows the batch size it multiplies'
+  );
+});
+
+test('The AI row offers to forget the remembered verdicts', () => {
+  const offered = renderSync(
+    'duplicates.ejs',
+    Object.assign({}, LOCALS, { aiReviewEnabled: true })
+  );
+  assert.ok(
+    offered.includes('id="dupAiForgetBtn"'),
+    'the button is missing although the review is offered'
+  );
+  assert.match(
+    offered,
+    /class="zr-btn zr-btn--ghost dup-ai-forget" id="dupAiForgetBtn"/,
+    'forgetting is a ghost button, never a third way to start a review'
+  );
+  assert.ok(
+    offered.includes('Forget remembered verdicts'),
+    'the button is not labelled'
+  );
+
+  // Without the AI there is no memory to forget, so nothing of it renders.
+  const plain = renderSync('duplicates.ejs', LOCALS);
+  ['dupAiForgetBtn', 'Forget remembered verdicts'].forEach((needle) => {
+    assert.ok(
+      !plain.includes(needle),
+      `"${needle}" must not be rendered without aiReviewEnabled`
+    );
+  });
+
+  const forget = functionBody('forgetVerdicts');
+  assert.ok(
+    forget.includes("'/api/duplicates/ai-review/memory'") &&
+      forget.includes("method: 'DELETE'"),
+    'the button must call the one route that empties the memory'
+  );
+  assert.ok(
+    forget.includes('confirmDialog({'),
+    'emptying the memory is a decision and gets a confirmation'
+  );
+  assert.ok(
+    /Nothing in Paperless-ngx changes and no merge is undone/.test(forget),
+    'the confirmation must say what it does not touch'
+  );
+  assert.match(
+    CSS,
+    /\.dup-ai-forget \{/,
+    'the button has no rule of its own in the page stylesheet'
+  );
+  assert.match(
+    CSS,
+    /\.dup-verdict__remembered \{/,
+    'the remembered suffix has no rule of its own'
+  );
+  assert.match(
+    CSS,
+    /\.dup-log__deleted,\n\s+\.dup-log__split \{/,
+    'the split cell must lay out like the delete cell it sits beside'
   );
 });
 

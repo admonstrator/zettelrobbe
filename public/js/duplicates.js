@@ -158,6 +158,13 @@ const STATUS_BADGES = {
  */
 const LOG_ACTION_DELETE = 'delete';
 
+/**
+ * A row the Simplify tags page wrote: one compound tag became a document type
+ * and topic tags. It is undone from here like a merge — the service plays the
+ * split back — so only its cells differ.
+ */
+const LOG_ACTION_SPLIT = 'split';
+
 const htmlIcons = {
   tags: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>',
   correspondents:
@@ -266,6 +273,7 @@ const el = {
   aiProgressNote: document.getElementById('dupAiProgressNote'),
   aiProgressEta: document.getElementById('dupAiProgressEta'),
   aiStopBtn: document.getElementById('dupAiStopBtn'),
+  aiForgetBtn: document.getElementById('dupAiForgetBtn'),
   stats: document.getElementById('dupStats'),
   statTags: document.getElementById('dupStatTags'),
   statCorrespondents: document.getElementById('dupStatCorrespondents'),
@@ -552,6 +560,17 @@ function htmlConfidenceSuffix(verdict) {
 }
 
 /**
+ * '· remembered', or '' for a verdict the model gave in this review. The judge
+ * keeps its verdicts for DUPLICATES_AI_VERDICT_MEMORY_DAYS, so a chip has to
+ * say when it is quoting an earlier review rather than this one.
+ */
+function htmlRememberedSuffix(verdict) {
+  return verdict && verdict.remembered === true
+    ? `<span class="dup-verdict__remembered">· ${esc('remembered')}</span>`
+    : '';
+}
+
+/**
  * The verdict a group carries, as a chip beside its reason chips. A pair a
  * spelling rule settled says so instead of quoting a model that never saw it;
  * it is as sure as this page gets, which is why it wears the "same" tone.
@@ -563,7 +582,7 @@ function htmlVerdictChip(verdict) {
     return `<span class="zr-chip dup-verdict ${esc(AI_RULE_TONE)}" title="${esc(shortReason(verdict.reason))}">${htmlVerdictIcons.same}${esc(AI_RULE_LABEL)}</span>`;
   }
   const htmlIcon = htmlVerdictIcons[value];
-  return `<span class="zr-chip dup-verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(verdictTitle(verdict))}">${htmlIcon}${esc(AI_VERDICT_LABELS[value])}${htmlConfidenceSuffix(verdict)}</span>`;
+  return `<span class="zr-chip dup-verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(verdictTitle(verdict))}">${htmlIcon}${esc(AI_VERDICT_LABELS[value])}${htmlConfidenceSuffix(verdict)}${htmlRememberedSuffix(verdict)}</span>`;
 }
 
 /** The rule the model applied, as a badge of its own in the two dialogs. */
@@ -582,7 +601,7 @@ function htmlMemberVerdict(member) {
   if (isRuleVerdict(verdict)) {
     return `<span class="zr-sm dup-member__verdict ${esc(AI_RULE_TONE)}" title="${esc(shortReason(verdict.reason))}">${esc(AI_RULE_LABEL)}</span>`;
   }
-  return `<span class="zr-sm dup-member__verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(verdictTitle(verdict))}">${esc(AI_VERDICT_LABELS[value])}${htmlConfidenceSuffix(verdict)}</span>`;
+  return `<span class="zr-sm dup-member__verdict ${esc(AI_VERDICT_TONES[value])}" title="${esc(verdictTitle(verdict))}">${esc(AI_VERDICT_LABELS[value])}${htmlConfidenceSuffix(verdict)}${htmlRememberedSuffix(verdict)}</span>`;
 }
 
 function htmlDocumentsLink(kind, member) {
@@ -944,6 +963,11 @@ function renderAiStats(review) {
   if (num(review.sweepProposals) > 0) {
     parts.push(`${num(review.sweepProposals)} from the sweep`);
   }
+  // Pairs the judge did not have to ask about at all, because it still
+  // remembered what it decided about them.
+  if (num(review.verdictsReused) > 0) {
+    parts.push(`${num(review.verdictsReused)} from memory`);
+  }
   el.statAiCandidates.textContent = parts.join(' · ');
   // `requests` is every request the review made, the sweep's own ones
   // (`sweepRequests`) among them; the tile counts the whole bill.
@@ -958,6 +982,12 @@ function renderAiStats(review) {
   const size = Number(review.batchSize);
   if (review.batchSize != null && Number.isFinite(size) && size > 0) {
     costParts.push(`${size} ${plural(size, 'pair', 'pairs')} per request`);
+  }
+  // How many of those requests waited for an answer at the same time. One
+  // lane is the normal case and says nothing worth a word.
+  const lanes = Number(review.concurrency);
+  if (Number.isFinite(lanes) && lanes > 1) {
+    costParts.push(`${lanes} lanes`);
   }
   el.statAiTokens.textContent = costParts.join(' · ');
   // The model name belongs on the request count, not in a tile of its own.
@@ -1949,6 +1979,39 @@ function htmlFailedRequests(review) {
         `${failed} ${plural(failed, 'request', 'requests')} failed; the pairs they covered are marked as unsure.`
       )
     : '';
+}
+
+/**
+ * Empties the judge's memory of earlier verdicts. Local only: nothing in
+ * Paperless-ngx is touched and no merge is undone — the next review simply
+ * asks the model about every pair again.
+ */
+async function forgetVerdicts() {
+  if (!el.aiForgetBtn) return;
+  const confirmed = await confirmDialog({
+    title: 'Forget remembered verdicts',
+    body: 'The judge asks the model about every pair again from now on. Nothing in Paperless-ngx changes and no merge is undone.',
+    confirmLabel: 'Forget',
+    cancelLabel: 'Cancel',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
+  el.aiForgetBtn.disabled = true;
+  try {
+    const payload = await requestJson('/api/duplicates/ai-review/memory', {
+      method: 'DELETE',
+    });
+    const removed = num(payload.data && payload.data.removed);
+    toast(
+      payload.message ||
+        `${removed} remembered ${plural(removed, 'verdict', 'verdicts')} forgotten`,
+      { tone: 'ok' }
+    );
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+  } finally {
+    el.aiForgetBtn.disabled = false;
+  }
 }
 
 async function runAiReview() {
@@ -3950,6 +4013,11 @@ function isDeleteEntry(entry) {
   return String(entry && entry.action) === LOG_ACTION_DELETE;
 }
 
+/** True for a row the Simplify tags page wrote. */
+function isSplitEntry(entry) {
+  return String(entry && entry.action) === LOG_ACTION_SPLIT;
+}
+
 /** The names a row is about, in the order the log stored them. */
 function logSourceNames(entry) {
   return (entry.sources || [])
@@ -3967,6 +4035,12 @@ function htmlLogTargetCell(entry) {
     const names = logSourceNames(entry);
     const title = `Deleted: ${names}`;
     return `<td data-label="Target" class="dup-log__deleted" title="${esc(title)}"><span class="zr-badge zr-badge--warn">${esc(LOG_ACTION_DELETE)}</span><span class="zr-truncate">${esc(title)}</span></td>`;
+  }
+  if (isSplitEntry(entry)) {
+    // The split has no survivor either: what it names is the pair of things
+    // the compound tag turned into, "Rechnung + Strom".
+    const into = String(entry.targetName == null ? '' : entry.targetName);
+    return `<td data-label="Target" class="dup-log__split" title="${esc(into)}"><span class="zr-badge zr-badge--info">${esc(LOG_ACTION_SPLIT)}</span><span class="zr-truncate">${esc(into)}</span></td>`;
   }
   const name = String(entry.targetName == null ? '' : entry.targetName);
   const before = String(
@@ -4010,7 +4084,11 @@ function htmlLogRows(entries) {
         : `<td data-label="Documents" class="zr-mono">${num(entry.documentsMoved)}</td>`;
       // An attribute fragment, not a value, so the row can be found by what
       // it records without a second class.
-      const htmlAction = deleteRow ? ' data-log-action="delete"' : '';
+      const htmlAction = deleteRow
+        ? ' data-log-action="delete"'
+        : isSplitEntry(entry)
+          ? ' data-log-action="split"'
+          : '';
       return `<tr data-log-id="${num(entry.id)}"${htmlAction}>
         <td data-label="Date" class="zr-sm zr-faint zr-table__date" title="${esc(dateTitle)}">${esc(date)}</td>
         <td data-label="Kind"><span class="zr-badge">${htmlIcons[kind]}${esc(KIND_LABELS[kind])}</span></td>
@@ -4081,11 +4159,19 @@ async function undoMerge(id) {
   const target = String(entry.targetName == null ? '' : entry.targetName);
   // A delete row has no target and moved no document, so promising to move
   // documents back would be a promise about nothing.
-  const sentence = isDeleteEntry(entry)
-    ? `Re-creates ${names} in Paperless-ngx with new ids. They carried no document when they were deleted, so nothing is moved.`
-    : `Re-creates ${names} in Paperless-ngx with new ids and moves the documents back. Documents that no longer carry ${target} are left alone.`;
+  // A split has no target either, and it did more than move documents: the
+  // sentence has to name everything an undo takes back.
+  const sentence = isSplitEntry(entry)
+    ? 'Undo this split? The tag is re-created with a new id, its documents get it back, the topics and the document type this split set are removed again.'
+    : isDeleteEntry(entry)
+      ? `Re-creates ${names} in Paperless-ngx with new ids. They carried no document when they were deleted, so nothing is moved.`
+      : `Re-creates ${names} in Paperless-ngx with new ids and moves the documents back. Documents that no longer carry ${target} are left alone.`;
   const confirmed = await confirmDialog({
-    title: isDeleteEntry(entry) ? 'Undo this delete' : 'Undo this merge',
+    title: isSplitEntry(entry)
+      ? 'Undo this split'
+      : isDeleteEntry(entry)
+        ? 'Undo this delete'
+        : 'Undo this merge',
     body: sentence,
     confirmLabel: 'Undo',
     cancelLabel: 'Cancel',
@@ -4224,6 +4310,10 @@ function init() {
       if (!button) return;
       restoreDismissal(button.dataset.id, button.closest('.dup-hidden__row'));
     });
+  }
+
+  if (el.aiForgetBtn) {
+    el.aiForgetBtn.addEventListener('click', forgetVerdicts);
   }
 
   if (el.aiSweep) {
