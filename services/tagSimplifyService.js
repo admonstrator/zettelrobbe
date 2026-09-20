@@ -122,7 +122,18 @@ const TOKENS_PER_TAG = 60;
 /** Smallest completion cap any request is sent with. */
 const MIN_COMPLETION_CAP = 160;
 /** How often a cut-off answer may be asked again with a raised cap. */
-const MAX_CAP_RAISES = 1;
+const MAX_CAP_RAISES = 2;
+/**
+ * The smallest cap a cut-off answer is asked again with. A model that thinks
+ * although it was asked not to spends the whole first cap on its thinking and
+ * answers nothing; doubling 400 would not get past that, so the first raise
+ * jumps to a size a thinking model needs.
+ */
+const RAISED_CAP_MIN = 2048;
+/** The ceiling a raise may reach when RESPONSE_TOKENS is set lower. */
+const CAP_CEILING_MIN = 4096;
+/** How much of the measured thinking a cap reserves on top of the answer. */
+const THINKING_CAP_FACTOR = 1.25;
 /** What the provider services set on an answer that hit the token limit. */
 const TRUNCATION_ERROR_CODE = 'ai_response_truncated';
 /** How much of an unreadable answer reaches the app log. */
@@ -494,6 +505,82 @@ class TagSimplifyService {
   }
 
   /**
+   * The ceiling any raised cap stops at: the operator's Response Tokens, but
+   * never below what a thinking model needs for one answer.
+   *
+   * @returns {number}
+   */
+  _capCeiling() {
+    const config = require('../config/config');
+    return Math.max(CAP_CEILING_MIN, Number(config.responseTokens) || 0);
+  }
+
+  /**
+   * Tokens a cap reserves for the model's thinking, on top of the answer: the
+   * larger of what the judge measured for this model (its calibration,
+   * loaded from the table when a review has not run yet) and what this
+   * process has already seen in an answer. Zero for a model that does not
+   * think.
+   *
+   * @returns {Promise<number>}
+   */
+  async _thinkingAllowance() {
+    let measured;
+    try {
+      const judge = require('./entityMatchAiService');
+      const model =
+        typeof judge.modelName === 'function' ? judge.modelName() || '' : '';
+      if (
+        judge.calibration &&
+        !judge.calibration.has(model) &&
+        typeof judge._loadCalibration === 'function'
+      ) {
+        await judge._loadCalibration();
+      }
+      const calibration = judge.calibration
+        ? judge.calibration.get(model)
+        : null;
+      measured = Number(calibration?.thinkingPerRequest) || 0;
+    } catch {
+      measured = 0;
+    }
+    const seen = Number(this._observedThinking) || 0;
+    return Math.ceil(Math.max(measured, seen) * THINKING_CAP_FACTOR);
+  }
+
+  /**
+   * Remembers the thinking the last answer cost, so every later cap of this
+   * process reserves it without asking twice.
+   *
+   * @param {object} service
+   */
+  _noteThinking(service) {
+    const thought = Number(service?.lastGenerateTextUsage?.reasoningTokens);
+    if (!Number.isFinite(thought) || thought <= 0) return;
+    if (thought > (Number(this._observedThinking) || 0)) {
+      this._observedThinking = thought;
+    }
+  }
+
+  /**
+   * The cap a cut-off answer is asked again with: at least four times the
+   * last one and never below RAISED_CAP_MIN, bounded by the ceiling; null
+   * when the ceiling leaves no room.
+   *
+   * @param {number} cap
+   * @param {number} base  what the answer alone needs
+   * @returns {Promise<number|null>}
+   */
+  async _raisedCap(cap, base) {
+    const allowance = await this._thinkingAllowance();
+    const raised = Math.min(
+      this._capCeiling(),
+      Math.max(cap * 4, RAISED_CAP_MIN, base + allowance)
+    );
+    return raised > cap ? raised : null;
+  }
+
+  /**
    * The options one request is sent with: the judge's shape, so both jobs
    * behave the same way on the same endpoint.
    *
@@ -726,13 +813,24 @@ class TagSimplifyService {
    *
    * @returns {Promise<{types: string[], topics: string[]}>}
    */
-  async _vocabularyChunk(service, systemPrompt, names, size, usage, control) {
+  async _vocabularyChunk(
+    service,
+    systemPrompt,
+    names,
+    size,
+    usage,
+    control,
+    { cap: wanted = null, raises = 0 } = {}
+  ) {
     const userPrompt = this.buildNameListPrompt(names);
-    const cap = Math.max(MIN_COMPLETION_CAP, size * 16);
+    const base = Math.max(MIN_COMPLETION_CAP, size * 16);
+    const cap =
+      wanted == null ? base + (await this._thinkingAllowance()) : wanted;
     usage.requests += 1;
     const head = () => `vocabulary: ${names.length} name(s), cap ${cap}`;
 
     let answer;
+    let truncated = false;
     try {
       answer = await service.generateText(
         userPrompt,
@@ -741,6 +839,7 @@ class TagSimplifyService {
     } catch (error) {
       if (this._stopped(control)) return { types: [], topics: [] };
       if (error?.code === TRUNCATION_ERROR_CODE) {
+        truncated = true;
         answer = this._partialAnswerOf(error);
       } else {
         usage.failedRequests += 1;
@@ -759,14 +858,41 @@ class TagSimplifyService {
       `${systemPrompt}\n${userPrompt}`,
       answer
     );
+    this._noteThinking(service);
 
     let parsed;
     try {
       parsed = parseJsonObject(answer);
     } catch (error) {
+      // A cut-off answer with nothing usable in it is what a thinking model
+      // leaves behind when the cap covered its thinking and not its answer:
+      // ask once more with room for both.
+      const raised =
+        truncated && raises < MAX_CAP_RAISES
+          ? await this._raisedCap(cap, base)
+          : null;
+      if (raised != null) {
+        this._log(
+          `${head()} — the answer hit the token limit with nothing usable in it ` +
+            `(a thinking model spends the cap before it answers), raising the cap to ${raised} and asking again.`
+        );
+        return this._vocabularyChunk(
+          service,
+          systemPrompt,
+          names,
+          size,
+          usage,
+          control,
+          { cap: raised, raises: raises + 1 }
+        );
+      }
       usage.failedRequests += 1;
       console.warn(
-        `${LOG_PREFIX} ${head()} — failed: ${error.message}. Raw answer: ` +
+        `${LOG_PREFIX} ${head()} — failed: ${
+          truncated
+            ? 'the answer was cut off with nothing usable in it'
+            : error.message
+        }. Raw answer: ` +
           `${String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'}`
       );
       return { types: [], topics: [] };
@@ -1132,10 +1258,9 @@ class TagSimplifyService {
       typeof prompt === 'function'
         ? prompt(tags)
         : this.buildSplitUserPrompt(tags);
+    const base = Math.max(MIN_COMPLETION_CAP, tags.length * TOKENS_PER_TAG);
     const cap =
-      wanted == null
-        ? Math.max(MIN_COMPLETION_CAP, tags.length * TOKENS_PER_TAG)
-        : wanted;
+      wanted == null ? base + (await this._thinkingAllowance()) : wanted;
     usage.requests += 1;
     const head = () => `${label}: ${tags.length} tag(s), cap ${cap}`;
 
@@ -1167,6 +1292,7 @@ class TagSimplifyService {
       `${systemPrompt}\n${userPrompt}`,
       answer
     );
+    this._noteThinking(service);
 
     let items = null;
     let parseError = null;
@@ -1179,10 +1305,14 @@ class TagSimplifyService {
     }
     if (items === null) {
       const salvaged = salvageObjects(answer);
-      if (salvaged.length === 0 && truncated && raises < MAX_CAP_RAISES) {
+      const raised =
+        salvaged.length === 0 && truncated && raises < MAX_CAP_RAISES
+          ? await this._raisedCap(cap, base)
+          : null;
+      if (raised != null) {
         this._log(
-          `${head()} — the answer hit the token limit and salvaged nothing, ` +
-            `raising the cap to ${cap * 2} and reading the same tags again.`
+          `${head()} — the answer hit the token limit and salvaged nothing ` +
+            `(a thinking model spends the cap before it answers), raising the cap to ${raised} and reading the same tags again.`
         );
         return this._splitChunk(
           service,
@@ -1191,7 +1321,7 @@ class TagSimplifyService {
           vocabulary,
           usage,
           control,
-          { cap: cap * 2, raises: raises + 1, label, prompt, build }
+          { cap: raised, raises: raises + 1, label, prompt, build }
         );
       }
       if (salvaged.length === 0) {

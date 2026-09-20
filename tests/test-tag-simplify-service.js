@@ -833,6 +833,132 @@ async function main() {
       );
     });
 
+    await test('A vocabulary answer cut off by thinking is asked again with a raised cap', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Autorechnung' },
+        ],
+      });
+      service._observedThinking = 0;
+      const { calls } = useProvider((prompt, options, call) => {
+        if (call === 1) {
+          // What a model that thinks despite the switch leaves behind: the
+          // cap spent, nothing usable in the answer.
+          const error = new Error('the answer hit the token limit');
+          error.code = 'ai_response_truncated';
+          error.partialText = '';
+          return error;
+        }
+        return JSON.stringify({
+          types: ['Rechnung'],
+          topics: ['Strom', 'Auto'],
+        });
+      });
+
+      const { value, lines } = await withLog(() => service.proposeVocabulary());
+      assert.strictEqual(calls.length, 2, 'asked once more');
+      assert.strictEqual(
+        calls[0].options.maxTokens,
+        Math.max(160, Number(config.simplifyVocabularySize) * 16),
+        'the first cap is the plain one'
+      );
+      assert.ok(
+        calls[1].options.maxTokens >= 2048,
+        `the raised cap is ${calls[1].options.maxTokens}`
+      );
+      assert.deepStrictEqual(value.types, ['Rechnung']);
+      assert.deepStrictEqual(value.topics, ['Strom', 'Auto']);
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /cap \d+ — the answer hit the token limit with nothing usable in it .*raising the cap to \d+ and asking again/.test(
+            line
+          )
+        ),
+        `no raise line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('The thinking the judge measured widens every cap of this service', async () => {
+      useFake({ tags: [{ id: 1, name: 'Stromrechnung' }] });
+      const judge = require('../services/entityMatchAiService');
+      const model = judge.modelName() || '';
+      service._observedThinking = 0;
+      judge.calibration.set(model, {
+        tokensPerPair: 40,
+        tokensPerSecond: 60,
+        thinkingPerRequest: 600,
+        largestCompletion: 0,
+        thinking: judge.thinkingEnabled(),
+        measuredAt: Date.now(),
+      });
+      try {
+        const { calls } = useProvider(() =>
+          JSON.stringify({ types: ['Rechnung'], topics: ['Strom'] })
+        );
+        await service.proposeVocabulary();
+        assert.strictEqual(
+          calls[0].options.maxTokens,
+          Math.max(160, Number(config.simplifyVocabularySize) * 16) + 750,
+          'the plain cap plus 1.25 times the measured thinking'
+        );
+      } finally {
+        judge.calibration.delete(model);
+      }
+    });
+
+    await test('Thinking seen in one answer widens the next cap', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Nachbarschaft' },
+          { id: 2, name: 'Gartenarbeit' },
+        ],
+      });
+      await useVocabulary(['Rechnung'], ['Strom', 'Auto']);
+      config.simplifyTagsPerRequest = 1;
+      service._observedThinking = 0;
+      const calls = [];
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText(prompt, options) {
+          calls.push({ prompt, options });
+          // The first answer reports 900 tokens of reasoning next to it.
+          provider.lastGenerateTextUsage = {
+            totalTokens: 100,
+            reasoningTokens: calls.length === 1 ? 900 : 0,
+          };
+          return JSON.stringify(
+            idsInPrompt(prompt).map((id) => ({
+              id,
+              type: 'Rechnung',
+              topics: [],
+              confidence: 'high',
+              reason: 'an invoice',
+            }))
+          );
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+      try {
+        await service.proposeSplits();
+        assert.strictEqual(calls.length, 2, 'one tag per request');
+        assert.strictEqual(
+          calls[0].options.maxTokens,
+          160,
+          'nothing known yet'
+        );
+        assert.strictEqual(
+          calls[1].options.maxTokens,
+          160 + 1125,
+          'the second cap reserves 1.25 times the thinking the first answer cost'
+        );
+      } finally {
+        service._observedThinking = 0;
+        config.simplifyTagsPerRequest = 50;
+      }
+    });
+
     await test('A stop keeps the proposals that were made and stores them', async () => {
       const tags = [];
       for (let id = 1; id <= 6; id += 1) {
