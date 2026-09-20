@@ -554,6 +554,196 @@ async function main() {
       assert.strictEqual(mappings[199].proposedName, 'Proposal 6');
       await clearMappings();
     });
+
+    /* --- The guard decomposes against the vocabulary --------------------- */
+
+    /** Saves the vocabulary of "Simplify tags" the guard reads. */
+    async function useVocabulary(types, topics) {
+      await documentModel.replaceTagVocabulary([
+        ...types.map((name) => ({ dimension: 'type', name })),
+        ...topics.map((name) => ({ dimension: 'topic', name })),
+      ]);
+    }
+
+    await test('A compound is decomposed into its topic tags, and is not created', async () => {
+      const fake = useFake({ tags: [{ id: 21, name: 'Gas' }] });
+      await clearMappings();
+      await useVocabulary(['Rechnung'], ['Gas', 'Strom']);
+
+      const { value, lines } = await withLog(() =>
+        paperlessService.processTags(['Gasrechnung'], { documentId: 77 })
+      );
+
+      assert.deepStrictEqual(
+        value.tagIds,
+        [21],
+        'the topic tag is used instead of the compound'
+      );
+      assert.deepStrictEqual(
+        fake.tagNames(),
+        ['Gas'],
+        'the compound was never created'
+      );
+      const mappings = await documentModel.listEntityNameMappings();
+      assert.strictEqual(mappings.length, 1, 'one row per topic');
+      assert.deepStrictEqual(
+        {
+          proposedName: mappings[0].proposedName,
+          targetId: mappings[0].targetId,
+          targetName: mappings[0].targetName,
+          reason: mappings[0].reason,
+          score: mappings[0].score,
+          documentId: mappings[0].documentId,
+        },
+        {
+          proposedName: 'Gasrechnung',
+          targetId: 21,
+          targetName: 'Gas',
+          reason: 'compound',
+          score: 1,
+          documentId: 77,
+        }
+      );
+      assert.ok(
+        duplicateLines(lines).some(
+          (line) =>
+            line ===
+            '[DUPLICATES] decomposed tag "Gasrechnung" into Gas ' +
+              "(the type Rechnung is the analysis' business); not created."
+        ),
+        `no decomposition line:\n${duplicateLines(lines).join('\n')}`
+      );
+      await useVocabulary([], []);
+    });
+
+    await test('A topic tag the vocabulary does not have yet is created once', async () => {
+      const fake = useFake({ tags: [{ id: 9, name: 'Rechnung' }] });
+      await clearMappings();
+      await useVocabulary(['Rechnung'], ['Strom']);
+
+      const { value } = await withLog(() =>
+        paperlessService.processTags(['Stromrechnung', 'Stromrechnungen'], {
+          documentId: 78,
+        })
+      );
+
+      assert.ok(fake.tagNames().includes('Strom'), 'the topic tag was created');
+      assert.ok(
+        !fake.tagNames().includes('Stromrechnung'),
+        'the compound was not'
+      );
+      assert.strictEqual(
+        new Set(value.tagIds).size,
+        1,
+        'both spellings map onto the one topic tag'
+      );
+      await useVocabulary([], []);
+    });
+
+    await test('A name that is only the document type is dropped, not created', async () => {
+      const fake = useFake({ tags: [{ id: 5, name: 'Bank' }] });
+      await clearMappings();
+      await useVocabulary(['Rechnung'], ['Strom']);
+
+      const { value, lines } = await withLog(() =>
+        paperlessService.processTags(['Rechnungen'], { documentId: 79 })
+      );
+
+      assert.deepStrictEqual(value.tagIds, [], 'no tag at all');
+      assert.deepStrictEqual(
+        fake.tagNames(),
+        ['Bank'],
+        'nothing was created for it'
+      );
+      assert.deepStrictEqual(
+        await documentModel.listEntityNameMappings(),
+        [],
+        'a dropped name maps onto nothing'
+      );
+      assert.ok(
+        duplicateLines(lines).some(
+          (line) =>
+            line ===
+            '[DUPLICATES] dropped tag "Rechnungen" in favour of the document type ' +
+              '"Rechnung" for document 79.'
+        ),
+        `no drop line:\n${duplicateLines(lines).join('\n')}`
+      );
+      await useVocabulary([], []);
+    });
+
+    await test('A remainder the vocabulary does not know is created, with a hint', async () => {
+      const fake = useFake({ tags: [] });
+      await clearMappings();
+      await useVocabulary(['Rechnung'], ['Strom']);
+
+      const { value, lines } = await withLog(() =>
+        paperlessService.processTags(['Handyrechnung'], { documentId: 80 })
+      );
+
+      assert.strictEqual(value.tagIds.length, 1);
+      assert.deepStrictEqual(
+        fake.tagNames(),
+        ['Handyrechnung'],
+        'the old behaviour: the name is created'
+      );
+      assert.deepStrictEqual(
+        await documentModel.listEntityNameMappings(),
+        [],
+        'a hint is not a mapping'
+      );
+      assert.ok(
+        duplicateLines(lines).some((line) =>
+          /^\[DUPLICATES\] created tag "Handyrechnung" although the vocabulary accounts for the type Rechnung but not "Handy"; not decomposed\.$/.test(
+            line
+          )
+        ),
+        `no hint line:\n${duplicateLines(lines).join('\n')}`
+      );
+      await useVocabulary([], []);
+    });
+
+    await test('Without a vocabulary the guard behaves exactly as before', async () => {
+      const fake = useFake({ tags: [{ id: 21, name: 'Gas' }] });
+      await clearMappings();
+      await useVocabulary([], []);
+
+      const { value } = await withLog(() =>
+        paperlessService.processTags(['Gasrechnung'], { documentId: 81 })
+      );
+
+      assert.strictEqual(value.tagIds.length, 1);
+      assert.ok(
+        fake.tagNames().includes('Gasrechnung'),
+        'the compound is created as it always was'
+      );
+      assert.deepStrictEqual(
+        await documentModel.listEntityNameMappings(),
+        [],
+        'and nothing is recorded'
+      );
+    });
+
+    await test('With the guard off the vocabulary is not read at all', async () => {
+      const fake = useFake({ tags: [{ id: 21, name: 'Gas' }] });
+      await clearMappings();
+      await useVocabulary(['Rechnung'], ['Gas']);
+      config.duplicatesGuardNewNames = 'no';
+
+      try {
+        const { value } = await withLog(() =>
+          paperlessService.processTags(['Gasrechnung'], { documentId: 82 })
+        );
+        assert.strictEqual(value.tagIds.length, 1);
+        assert.ok(
+          fake.tagNames().includes('Gasrechnung'),
+          'the compound is created'
+        );
+      } finally {
+        config.duplicatesGuardNewNames = 'yes';
+        await useVocabulary([], []);
+      }
+    });
   } finally {
     try {
       documentModel.closeDatabase();

@@ -68,6 +68,17 @@ function forDocument(documentId) {
   return documentId == null ? 'for no document' : `for document ${documentId}`;
 }
 
+/** What the vocabulary made of a proposed name, for the guard's hint line. */
+function describeDecomposition(decomposed) {
+  const parts = [];
+  if (decomposed?.type) parts.push(`the type ${decomposed.type}`);
+  if (decomposed?.topics?.length > 0) {
+    parts.push(`the topic(s) ${decomposed.topics.join(', ')}`);
+  }
+  const found = parts.length > 0 ? parts.join(' and ') : 'nothing of it';
+  return decomposed?.rest ? `${found} but not "${decomposed.rest}"` : found;
+}
+
 /** How much of a Paperless-ngx error body may reach a log line. */
 const ERROR_BODY_LOG_LIMIT = 500;
 
@@ -782,6 +793,24 @@ class PaperlessService {
               options
             );
             if (mapped) tag = mapped;
+          }
+
+          // A name that is two dimensions in one word ("Gasrechnung") becomes
+          // the topic tags of the vocabulary; the kind of the document goes
+          // into the document type, which analysis sets itself. One proposal
+          // can therefore stand for several tags, or for none at all.
+          if (!tag) {
+            const decomposed = await this.decomposeProposedTagName(tagName, {
+              documentId: options?.documentId ?? null,
+              restrictToExistingTags,
+            });
+            if (decomposed) {
+              for (const decomposedId of decomposed.tagIds) {
+                tagIds.push(decomposedId);
+              }
+              processedTags.add(normalizedName);
+              continue;
+            }
           }
 
           // If no existing tag found and restrictions are not enabled, create new one
@@ -3557,6 +3586,387 @@ class PaperlessService {
       );
       return [];
     }
+  }
+
+  // ── Document types ────────────────────────────────────────────────────────
+  // "Simplify tags" writes the kind of a document (Rechnung, Brief) into the
+  // field Paperless-ngx has for it and leaves the tags for what the document
+  // is about. The methods below are the entity API of the Duplicates feature
+  // for that third object kind: they read, create and delete document types
+  // and they throw where the tag methods throw, because a split that cannot
+  // read its types must stop rather than invent one.
+
+  /**
+   * Every document type of the instance, as EntityRecord objects.
+   *
+   * @returns {Promise<object[]>}
+   * @throws on a network error, an HTTP error or an unreadable answer
+   */
+  async listDocumentTypes() {
+    const client = this._requireClient('listing document types');
+    const records = [];
+    let page = 1;
+    let hasNextPage = true;
+
+    while (hasNextPage) {
+      let response;
+      try {
+        response = await client.get('/document_types/', {
+          params: {
+            page,
+            page_size: this.ENTITY_PAGE_SIZE,
+            ordering: 'name',
+          },
+        });
+      } catch (error) {
+        console.error(
+          `[ERROR] listing document types (page ${page}):`,
+          describeHttpError(error)
+        );
+        throw error;
+      }
+      const results = response?.data?.results;
+      if (!Array.isArray(results)) {
+        throw new Error(
+          `Unexpected answer while listing document types on page ${page}`
+        );
+      }
+      for (const raw of results) {
+        records.push(this._toDocumentTypeRecord(raw));
+      }
+      hasNextPage = response.data.next != null;
+      page += 1;
+      if (hasNextPage) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    return records;
+  }
+
+  /**
+   * One raw document type in the EntityRecord shape the matcher and the
+   * simplify service read.
+   *
+   * @param {object} raw
+   * @returns {object}
+   */
+  _toDocumentTypeRecord(raw) {
+    return {
+      id: Number(raw?.id),
+      name: String(raw?.name ?? ''),
+      documentCount: Number(raw?.document_count) || 0,
+      matchingAlgorithm: Number(raw?.matching_algorithm) || 0,
+      match: raw?.match == null ? '' : String(raw.match),
+      isInsensitive: Boolean(raw?.is_insensitive),
+      owner: raw?.owner == null ? null : Number(raw.owner),
+      // Absent on older Paperless-ngx versions; absent means "allowed".
+      userCanChange: raw?.user_can_change !== false,
+    };
+  }
+
+  /**
+   * One document type as Paperless-ngx returns it.
+   *
+   * @param {number} id
+   * @returns {Promise<object|null>} null when it is gone (404)
+   */
+  async getDocumentType(id) {
+    const client = this._requireClient(`reading document type ${id}`);
+    try {
+      const response = await client.get(`/document_types/${id}/`);
+      return response?.data ?? null;
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return null;
+      }
+      console.error(
+        `[ERROR] reading document type ${id}:`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * The document type of exactly this name, or null. Names are unique per
+   * owner but case sensitive, so an exact hit wins and a differently cased
+   * one is the fallback — the same rule findEntityByExactName() follows.
+   *
+   * @param {string} name
+   * @returns {Promise<object|null>} EntityRecord
+   */
+  async findDocumentTypeByExactName(name) {
+    const wanted = String(name ?? '').trim();
+    if (wanted === '') return null;
+    const client = this._requireClient(`looking up document type "${wanted}"`);
+    try {
+      const response = await client.get('/document_types/', {
+        params: {
+          name__iexact: wanted,
+          page: 1,
+          page_size: this.ENTITY_PAGE_SIZE,
+        },
+      });
+      const results = Array.isArray(response?.data?.results)
+        ? response.data.results
+        : [];
+      const found =
+        results.find((entry) => String(entry?.name) === wanted) ||
+        results.find(
+          (entry) => String(entry?.name).toLowerCase() === wanted.toLowerCase()
+        ) ||
+        null;
+      return found ? this._toDocumentTypeRecord(found) : null;
+    } catch (error) {
+      console.error(
+        `[ERROR] looking up document type "${wanted}":`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Creates a document type.
+   *
+   * Unlike getOrCreateDocumentType() this one is never subject to
+   * RESTRICT_TO_EXISTING_DOCUMENT_TYPES: that setting is about what document
+   * analysis may invent, and the user confirming a split on the Simplify tags
+   * page has decided this type themselves.
+   *
+   * @param {string} name
+   * @returns {Promise<object>} EntityRecord of the created type
+   */
+  async createDocumentType(name) {
+    const wanted = String(name ?? '').trim();
+    const client = this._requireClient(`creating document type "${wanted}"`);
+    try {
+      const response = await client.post('/document_types/', { name: wanted });
+      return this._toDocumentTypeRecord(response?.data ?? null);
+    } catch (error) {
+      console.error(
+        `[ERROR] creating document type "${wanted}":`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * @param {number} id
+   * @returns {Promise<boolean>} true when deleted, false when it was gone
+   */
+  async deleteDocumentType(id) {
+    const client = this._requireClient(`deleting document type ${id}`);
+    try {
+      await client.delete(`/document_types/${id}/`);
+      return true;
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return false;
+      }
+      console.error(
+        `[ERROR] deleting document type ${id}:`,
+        describeHttpError(error)
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Ids of every document carrying a document type.
+   *
+   * @param {number} id
+   * @returns {Promise<number[]>}
+   */
+  async getDocumentIdsByDocumentType(id) {
+    const client = this._requireClient(
+      `listing documents of document type ${id}`
+    );
+    const documentIds = [];
+    let page = 1;
+    let hasNextPage = true;
+
+    while (hasNextPage) {
+      let response;
+      try {
+        response = await client.get('/documents/', {
+          params: {
+            document_type__id: id,
+            fields: 'id',
+            ordering: 'id',
+            page,
+            page_size: this.ENTITY_PAGE_SIZE,
+          },
+        });
+      } catch (error) {
+        console.error(
+          `[ERROR] listing documents of document type ${id} (page ${page}):`,
+          describeHttpError(error)
+        );
+        throw error;
+      }
+      const results = response?.data?.results;
+      if (!Array.isArray(results)) {
+        throw new Error(
+          `Unexpected answer while listing documents of document type ${id}`
+        );
+      }
+      for (const document of results) {
+        const documentId = Number(document?.id);
+        if (Number.isInteger(documentId)) {
+          documentIds.push(documentId);
+        }
+      }
+      hasNextPage = response.data.next != null;
+      page += 1;
+      if (hasNextPage) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    return documentIds;
+  }
+
+  /**
+   * Sets (or clears, with null) the document type of many documents, in the
+   * batches bulkEditDocuments() uses.
+   *
+   * @param {number[]} documentIds
+   * @param {number|null} typeId
+   * @returns {Promise<{edited:number}>}
+   */
+  async setDocumentTypeOnDocuments(documentIds, typeId) {
+    return this.bulkEditDocuments(documentIds, 'set_document_type', {
+      document_type: typeId == null ? null : Number(typeId),
+    });
+  }
+
+  /**
+   * The tags a proposed name stands for once the vocabulary of "Simplify
+   * tags" is taken into account, or null when the guard leaves the name
+   * alone.
+   *
+   * This is the creation guard of round 9 one step further up: the guard maps
+   * a name that is another spelling of an existing tag, and this maps a name
+   * that is two dimensions in one word. "Gasrechnung" proposed for a document
+   * whose vocabulary knows the type "Rechnung" and the topic "Gas" becomes
+   * the tag "Gas" — the kind of the document is the analysis' own business
+   * and is written into the document type, not into a tag. A name the
+   * vocabulary only half accounts for ("Handyrechnung" without a topic
+   * "Handy") is created as before, with a line saying so.
+   *
+   * Never throws, for the same reason _mapProposedName() never does: the
+   * guard improves what document analysis does, it is not a precondition for
+   * it.
+   *
+   * @param {string} proposedName
+   * @param {{documentId?: number|null, restrictToExistingTags?: boolean}} [options]
+   * @returns {Promise<{tagIds: number[]}|null>} null = leave the name alone
+   */
+  async decomposeProposedTagName(proposedName, options = {}) {
+    const runtimeConfig = require('../config/config');
+    if (!switchedOn(runtimeConfig.duplicatesGuardNewNames)) {
+      return null;
+    }
+    const name = String(proposedName ?? '').trim();
+    if (name === '') return null;
+
+    let decomposed;
+    let vocabulary;
+    try {
+      const documentModel = require('../models/document');
+      const rows = await documentModel.getTagVocabulary();
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      vocabulary = {
+        types: rows.filter((row) => row.dimension === 'type'),
+        topics: rows.filter((row) => row.dimension === 'topic'),
+      };
+      decomposed = entityNameMatcher.decomposeCompound(name, vocabulary);
+    } catch (error) {
+      console.warn(
+        `[DUPLICATES] the creation guard could not read the vocabulary: ${
+          error?.message || error
+        }`
+      );
+      return null;
+    }
+    if (!decomposed || decomposed.score < 1) {
+      if (decomposed) {
+        console.log(
+          `[DUPLICATES] created tag "${name}" although the vocabulary accounts for ` +
+            `${describeDecomposition(decomposed)}; not decomposed.`
+        );
+      }
+      return null;
+    }
+
+    const documentId =
+      options?.documentId == null ? null : Number(options.documentId);
+
+    // A name that is only the document type: the kind of the document belongs
+    // in the document type, so nothing is created and no tag is used.
+    if (decomposed.topics.length === 0) {
+      console.log(
+        `[DUPLICATES] dropped tag "${name}" in favour of the document type ` +
+          `"${decomposed.type}" ${forDocument(documentId)}.`
+      );
+      return { tagIds: [] };
+    }
+
+    const tagIds = [];
+    const used = [];
+    for (const topic of decomposed.topics) {
+      const entry = vocabulary.topics.find((row) => row.name === topic) || null;
+      let tag;
+      try {
+        if (entry?.paperlessId != null) {
+          tag = { id: Number(entry.paperlessId), name: topic };
+        } else {
+          tag = await this.findExistingTag(topic);
+          if (!tag && options?.restrictToExistingTags !== true) {
+            tag = await this.createTagSafely(topic);
+            this._rememberGuardEntity('tags', tag);
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `[DUPLICATES] the topic tag "${topic}" of "${name}" was not used: ${
+            error?.message || error
+          }`
+        );
+        tag = null;
+      }
+      if (!tag?.id) continue;
+      tagIds.push(Number(tag.id));
+      used.push(topic);
+      try {
+        const documentModel = require('../models/document');
+        await documentModel.addEntityNameMapping({
+          kind: 'tags',
+          proposedName: name,
+          targetId: Number(tag.id),
+          targetName: topic,
+          reason: 'compound',
+          score: 1,
+          documentId,
+        });
+      } catch (error) {
+        console.warn(
+          `[DUPLICATES] the mapping of tag "${name}" was not recorded: ${
+            error?.message || error
+          }`
+        );
+      }
+    }
+
+    if (tagIds.length === 0) return null;
+    console.log(
+      `[DUPLICATES] decomposed tag "${name}" into ${used.join(', ')} ` +
+        `(the type ${decomposed.type} is the analysis' business); not created.`
+    );
+    return { tagIds };
   }
 }
 
