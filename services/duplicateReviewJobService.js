@@ -470,6 +470,12 @@ class DuplicateReviewJobService {
    * streamed in during the current request count), because the batch size
    * may change after the warm-up and a request is then no fixed amount of
    * work; requests are the fallback. Null until something is done.
+   *
+   * What is done counts answers that have arrived, and a review with several
+   * requests in flight has as many more nearly done at the same moment — so
+   * the time the rest takes is divided by the lanes it is asked in. Without
+   * them (or on a review that never reported a concurrency) that is one and
+   * the estimate is what it always was.
    */
   _eta(job, progress) {
     if (job.judgingSinceMs === null) return null;
@@ -490,7 +496,9 @@ class DuplicateReviewJobService {
     if (fraction === null || fraction <= 0) return null;
     if (fraction >= 1) return 0;
     const elapsed = Date.now() - job.judgingSinceMs;
-    return Math.round((elapsed * (1 - fraction)) / fraction);
+    const lanes = Number(progress.concurrency);
+    const inParallel = Number.isFinite(lanes) && lanes > 1 ? lanes : 1;
+    return Math.round((elapsed * (1 - fraction)) / fraction / inParallel);
   }
 
   _elapsed(job) {

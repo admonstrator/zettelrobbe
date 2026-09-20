@@ -22,6 +22,7 @@
  *  9. the budget and the idle seconds come from the settings
  * 10. the control tells the judge why it is stopping, so the judge can write
  *     the one log line that says so
+ * 11. the estimate divides the time left by the lanes the review asks in
  */
 
 const assert = require('assert');
@@ -426,6 +427,56 @@ function gate() {
     assert.strictEqual(stopped.job.stopReason, 'token-budget');
   });
 
+  await test('the estimate divides by the lanes the review asks in', async () => {
+    /**
+     * A judge that reports a quarter of the work done after a moment, with
+     * or without saying how many requests it keeps in flight.
+     */
+    const quarterDone = (concurrency) => async (options, given) => {
+      given.onProgress({
+        phase: 'judging',
+        kind: 'tags',
+        requestsPlanned: 4,
+        pairsTotal: 40,
+        ...(concurrency === null ? {} : { concurrency }),
+      });
+      await sleep(20);
+      given.onProgress({ requestsDone: 1, pairsJudged: 10, tokens: 700 });
+      return result();
+    };
+
+    judge.reviewScan = quarterDone(null);
+    const single = jobs.start({ kind: 'tags' });
+    const singleEvents = [];
+    jobs.subscribe(single.id, (event) => singleEvents.push(event));
+    await jobs.wait(single.id);
+    const serial = singleEvents[singleEvents.length - 2].job.progress;
+
+    jobs.reset();
+    judge.reviewScan = quarterDone(3);
+    const parallel = jobs.start({ kind: 'tags' });
+    const parallelEvents = [];
+    jobs.subscribe(parallel.id, (event) => parallelEvents.push(event));
+    await jobs.wait(parallel.id);
+    const lanes = parallelEvents[parallelEvents.length - 2].job.progress;
+
+    // A quarter of the pairs are answered, so three quarters are left: three
+    // times what has been spent so far on one lane.
+    assert.strictEqual(serial.concurrency, null);
+    assert.ok(
+      serial.etaMs > serial.elapsedMs * 2,
+      `one lane extrapolates the whole rest: ${serial.etaMs} after ${serial.elapsedMs}ms`
+    );
+    assert.strictEqual(lanes.concurrency, 3);
+    assert.ok(
+      lanes.etaMs > 0 && lanes.etaMs < serial.etaMs,
+      `three lanes answer three at a time: ${lanes.etaMs} against ${serial.etaMs}`
+    );
+    assert.ok(
+      lanes.etaMs < lanes.elapsedMs * 1.6,
+      `which is about what it has already taken: ${lanes.etaMs} after ${lanes.elapsedMs}ms`
+    );
+  });
   console.log = quiet;
   console.log(`\n${passed} passed, ${failed} failed`);
   fs.rmSync(tmpDir, { recursive: true, force: true });
