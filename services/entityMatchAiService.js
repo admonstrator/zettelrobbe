@@ -3068,12 +3068,16 @@ class EntityMatchAiService {
         tracker.requestsDone,
         tracker.requestsPlanned - Math.max(0, saved)
       );
+      const left = list.length - remembered.size;
       this._report(tracker, {
         kind,
         verdictsReused: tracker.verdictsReused,
         pairsJudged: tracker.pairsJudged,
         requestsPlanned: tracker.requestsPlanned,
-        message: this._requestMessage(tracker),
+        message:
+          left > 0
+            ? `${remembered.size} pair(s) answered from an earlier review, ${left} to ask about…`
+            : `${remembered.size} pair(s) answered from an earlier review; nothing left to ask.`,
       });
     }
     return remembered.size;
