@@ -9002,6 +9002,7 @@
               "type": "string",
               "enum": [
                 "open",
+                "accepted",
                 "skipped",
                 "applied"
               ]
@@ -9113,7 +9114,7 @@
     "/api/simplify/proposals/{tagId}": {
       "patch": {
         "summary": "Change one proposal",
-        "description": "Only the fields the body names are changed. A changed target marks the\nproposal as the user's, and `status` may only move between open and\nskipped — applying is what the apply route does.\n",
+        "description": "Only the fields the body names are changed. A changed target marks the\nproposal as the user's, and `status` may only move between open,\naccepted and skipped — applying is what an apply route does.\n\n`action` says what the proposed order does with the tag (split, merge,\nkeep or delete) and `mergeInto` names the tag a merge goes into; both\nmark the proposal as the user's, exactly as a changed target does.\n",
         "tags": [
           "Simplify",
           "API"
@@ -9308,6 +9309,361 @@
           },
           "502": {
             "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/simplify/order/propose": {
+      "post": {
+        "summary": "Propose the whole order as one job",
+        "description": "Starts the one job that proposes the new order of the archive: it\nreads every tag and every document type, proposes the vocabulary\nitself unless `vocabulary` is `keep`, and gives every tag one action —\nsplit it into a document type and topics, merge it into another tag,\nkeep it, or delete it. The stored proposals are replaced.\n\nThe route answers at once with the job; the page follows it through\n`/api/duplicates/ai-review/jobs/{id}/events` and reads the groups from\n`GET /api/simplify/groups` when it is done. Nothing is written to\nPaperless-ngx here — a proposal is a proposal until it is accepted and\napplied.\n\nThere is one job at a time for the whole app, shared with the AI\nreview; while one runs this answers 409 and carries it.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagOrderProposeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The proposal was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "vocabulary is neither propose nor keep"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "The order proposal is not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/groups": {
+      "get": {
+        "summary": "The proposed order, as groups",
+        "description": "The stored proposals seen from the other side: one group per document\ntype (`type:Rechnung`), one per topic (`topic:Strom`), one per merge\ntarget (`merge:Amazon`), and the two buckets `keep` and `delete`. A\ntag with a type and two topics is a member of three groups, so the\nnumbers of the groups add up to more than the number of tags — the\ntotals next to `groups` are the ones per tag.\n\nRead-only, local and instant: this is the same SQLite table the\nproposals route lists, no request leaves the machine.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The groups of the proposed order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagOrderGroups"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "The group view is not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/groups/{key}/decision": {
+      "post": {
+        "summary": "Accept, skip or reopen one group",
+        "description": "One decision for every open member of the group: `accept` marks them\nas accepted so an apply picks them up, `skip` puts them aside, and\n`reopen` takes either back. Members that were already applied are left\nalone — a decision never undoes anything.\n\nThe key is the one the group carries (`type:Rechnung`, `topic:Strom`,\n`merge:Amazon`, `keep` or `delete`), URL-encoded in the path. The\nanswer says how many proposals changed and hands the group back as it\nstands now.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "description": "The group key, URL-encoded",
+            "schema": {
+              "type": "string",
+              "example": "type%3ARechnung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagGroupDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the decision changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "changed": {
+                          "type": "integer",
+                          "description": "proposals whose status the decision moved"
+                        },
+                        "group": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/TagOrderGroup"
+                            }
+                          ],
+                          "nullable": true,
+                          "description": "the group as it stands now; null once it holds nothing"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The key is missing or too long, or the decision is unknown"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no group of that key"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "Group decisions are not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/groups/{key}/members/{tagId}": {
+      "delete": {
+        "summary": "Take one tag out of a group",
+        "description": "The exception to the group decision: one tag does not belong here, the\nrest of the group does. Out of a type group the tag loses its document\ntype, out of a topic group that one topic, out of a merge group it\nbecomes `keep`, and out of `delete` it becomes `keep` as well. A tag\nthat is left with nothing to do becomes `keep`.\n\nNothing is deleted in Paperless-ngx: this edits the proposal, which is\na local row, and hands it back as it now stands.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "description": "The group key, URL-encoded",
+            "schema": {
+              "type": "string",
+              "example": "topic%3AStrom"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tagId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The proposal as it is stored now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitProposal"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The key is missing or too long, or the tag id is not one"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no such group, or the tag is not a member of it"
+          },
+          "409": {
+            "description": "The proposal was already applied"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "Group edits are not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/order/apply": {
+      "post": {
+        "summary": "Apply what was accepted, as one job",
+        "description": "Writes the accepted proposals to Paperless-ngx, one tag after the\nother: a split creates the vocabulary objects where they are missing,\ngives the documents their topic tags and document type and deletes the\ncompound tag; a merge goes through the same merge the Duplicates page\nuses; a delete takes the tag off its documents. Every one of them\nwrites a merge-log row, so every one of them can be taken back.\n\n`groupKey` narrows the run to the accepted members of one group;\nwithout it every accepted proposal is applied. A tag that fails is\nlisted in `failed` with its reason and the run goes on, so the job\nfinishes as `done` with a partial result rather than failing.\n\nAnswers like the other jobs: 202 with the job, or 409 with the job\nthat is already running. The result of the job\n(`/api/duplicates/ai-review/jobs/{id}/result`) is a TagOrderApplyResult.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagOrderApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The run was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "groupKey is there but not a non-empty string"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "Applying the order is not available on this build"
           }
         }
       }
