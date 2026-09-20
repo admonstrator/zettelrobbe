@@ -111,6 +111,50 @@ function reasoningEnabled(options) {
 }
 
 /**
+ * The model families whose OpenAI-compatible endpoint takes `reasoning_effort`.
+ *
+ * `chat_template_kwargs` and `/no_think` are for the servers that apply a chat
+ * template themselves; a hosted reasoning model reads neither and thinks on,
+ * which is what cost the Duplicates review its batch size. These three
+ * families take the field instead — and a model that does not know it answers
+ * 400, so it is sent for these names and for no others.
+ */
+const GPT_5_MODEL_PATTERN = /gpt-?5/i;
+const O_SERIES_MODEL_PATTERN = /(?:^|[/:_\s-])o[1-4](?:$|[-_.])/i;
+const GPT_OSS_MODEL_PATTERN = /gpt-?oss/i;
+
+/**
+ * The `reasoning_effort` the OpenAI and Azure APIs take for this model when
+ * the caller wants no thinking, or null when that model has no such field.
+ *
+ * @param {unknown} model
+ * @returns {'minimal'|'low'|null}
+ */
+function reasoningEffortForOpenAi(model) {
+  const name = String(model ?? '').trim();
+  if (name === '') return null;
+  if (GPT_5_MODEL_PATTERN.test(name)) return 'minimal';
+  return O_SERIES_MODEL_PATTERN.test(name) ? 'low' : null;
+}
+
+/**
+ * The same field for an OpenAI-compatible endpoint, which serves the open
+ * reasoning models as well. They know 'low' and not 'minimal'.
+ *
+ * @param {unknown} model
+ * @returns {'low'|null}
+ */
+function reasoningEffortForCompatible(model) {
+  const name = String(model ?? '').trim();
+  if (name === '') return null;
+  return GPT_OSS_MODEL_PATTERN.test(name) ||
+    GPT_5_MODEL_PATTERN.test(name) ||
+    O_SERIES_MODEL_PATTERN.test(name)
+    ? 'low'
+    : null;
+}
+
+/**
  * @typedef {object} GenerateTextProgress
  * @property {string} text               the answer so far, reasoning stripped
  * @property {boolean} thinking          the model is writing reasoning now
@@ -316,6 +360,10 @@ function createProgressCollector(options = {}) {
 
   const splitter = createReasoningSplitter();
   let producedChars = 0;
+  // Characters the API delivered as reasoning of its own. What a model wrote
+  // between <think> markers is counted by the splitter instead, so both
+  // dialects end up in the same number.
+  let separateReasoningChars = 0;
   let separateReasoning = false;
   let started = false;
   let finished = false;
@@ -331,6 +379,20 @@ function createProgressCollector(options = {}) {
     return started ? estimateTokenCount(producedChars) : null;
   };
 
+  /**
+   * What the model spent on thinking rather than on answering: the reasoning
+   * the collector strips, in both dialects, estimated the way every other
+   * count without a provider number is. Null when it wrote none, because
+   * "the model did not think" and "it thought for zero tokens" are the same
+   * thing and the page shows neither.
+   */
+  const reasoningChars = () =>
+    separateReasoningChars + splitter.reasoning().length;
+  const thinkingTokens = () => {
+    const chars = reasoningChars();
+    return chars > 0 ? estimateTokenCount(chars) : null;
+  };
+
   const emit = (done) => {
     if (!handler) return;
     try {
@@ -338,6 +400,7 @@ function createProgressCollector(options = {}) {
         text: splitter.text().trim(),
         thinking: thinking(),
         completionTokens: completionTokens(),
+        thinkingTokens: thinkingTokens(),
         done,
       });
     } catch (error) {
@@ -360,6 +423,7 @@ function createProgressCollector(options = {}) {
     pushReasoning(delta) {
       if (typeof delta !== 'string' || delta === '') return;
       producedChars += delta.length;
+      separateReasoningChars += delta.length;
       started = true;
       separateReasoning = true;
     },
@@ -394,6 +458,10 @@ function createProgressCollector(options = {}) {
     reasoning() {
       return splitter.reasoning();
     },
+    /** Tokens of reasoning so far, null when the model wrote none. */
+    thinkingTokens() {
+      return thinkingTokens();
+    },
     finishReason() {
       return finishReason;
     },
@@ -406,13 +474,22 @@ function createProgressCollector(options = {}) {
     },
     /** What lastGenerateTextUsage becomes after a streamed request. */
     usageSummary() {
+      const thought = thinkingTokens();
       const reported = readCompletionUsage({ usage });
-      if (reported) return reported;
+      if (reported) {
+        // A server that counts its reasoning tokens is the truth; one that
+        // only streams the text gets the count off the text it streamed, so
+        // the judge can size its requests around the thinking either way.
+        return reported.reasoningTokens == null
+          ? { ...reported, reasoningTokens: thought }
+          : reported;
+      }
       const estimate = estimateTokenCount(producedChars);
       return {
         promptTokens: null,
         completionTokens: estimate,
         totalTokens: estimate,
+        reasoningTokens: thought,
         estimated: true,
       };
     },
@@ -572,6 +649,8 @@ async function runChatCompletionStream({
 
 module.exports = {
   reasoningEnabled,
+  reasoningEffortForOpenAi,
+  reasoningEffortForCompatible,
   progressHandler,
   abortSignal,
   hasNumber,

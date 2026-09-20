@@ -16,6 +16,8 @@ const {
   modelOverride,
   progressHandler,
   readCompletionUsage,
+  reasoningEffortForOpenAi,
+  reasoningEnabled,
   runChatCompletionStream,
   stripReasoningText,
 } = require('./aiGenerateOptions');
@@ -565,8 +567,9 @@ class AzureOpenAIService {
    * @param {AbortSignal} [options.signal] - Cancels the request in flight
    * @param {Function} [options.onProgress] - Streams the answer and reports it
    *   as it grows; see GenerateTextProgress in aiGenerateOptions
-   * @param {boolean} [options.reasoning] - Read and deliberately ignored: the
-   *   Azure API has no thinking switch on the deployments this talks to
+   * @param {boolean} [options.reasoning] - false sends reasoning_effort on the
+   *   deployments that take it and nothing on the others, which have no
+   *   thinking switch; true and null send nothing
    * @returns {Promise<string>} - The generated text
    */
   async generateText(prompt, options = {}) {
@@ -603,6 +606,13 @@ class AzureOpenAIService {
             ? Math.floor(options.maxTokens)
             : Number(config.responseTokens),
       };
+      // As on OpenAI: the reasoning deployments take reasoning_effort, every
+      // other one answers 400 for it, so it is sent for those names only and
+      // only when the caller asked for no thinking.
+      if (reasoningEnabled(options) === false) {
+        const effort = reasoningEffortForOpenAi(model);
+        if (effort) request.reasoning_effort = effort;
+      }
 
       this.lastGenerateTextUsage = null;
       // The second argument is the SDK's request option bag; a caller that
