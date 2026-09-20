@@ -332,13 +332,21 @@ async function main() {
       /open or skipped/
     );
     await assert.rejects(() => service.updateProposal(123, {}), /no proposal/);
-    await assert.rejects(
-      () => service.applySplits({ tagIds: [9] }),
-      (error) => error.status === 501
-    );
+    // The two long-running methods are implemented since round 10: applying
+    // refuses per tag instead of throwing, and the vocabulary proposal needs
+    // a provider, which this test does not configure.
+    const applyResult = await service.applySplits({ tagIds: [9] });
+    assert.deepStrictEqual(applyResult.applied, []);
+    assert.deepStrictEqual(applyResult.failed, [
+      {
+        tagId: 9,
+        tagName: 'Stromrechnung',
+        error: 'This proposal is not open',
+      },
+    ]);
     await assert.rejects(
       () => service.proposeVocabulary(),
-      (error) => error.status === 501
+      (error) => error.status === 409
     );
   });
 
