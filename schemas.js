@@ -1103,8 +1103,8 @@
  *       properties:
  *         task:
  *           type: string
- *           enum: [review, vocabulary, splits]
- *           description: what the job runs; the Simplify tags page starts the vocabulary and splits tasks through the same runner
+ *           enum: [review, vocabulary, splits, order, apply]
+ *           description: what the job runs; the Simplify tags page starts the vocabulary, splits, order and apply tasks through the same runner
  *         id:
  *           type: string
  *         status:
@@ -1275,6 +1275,14 @@
  *           type: string
  *         documentCount:
  *           type: integer
+ *         action:
+ *           type: string
+ *           enum: [split, merge, keep, delete]
+ *           description: what the proposed order does with the tag; split covers a type, topics or both
+ *         mergeInto:
+ *           type: string
+ *           nullable: true
+ *           description: the name of the tag this one merges into; only with action merge
  *         typeName:
  *           type: string
  *           nullable: true
@@ -1300,7 +1308,7 @@
  *           type: boolean
  *         status:
  *           type: string
- *           enum: [open, applied, skipped]
+ *           enum: [open, accepted, applied, skipped]
  *         updatedAt:
  *           type: string
  *     TagSplitProposalPatch:
@@ -1316,9 +1324,162 @@
  *             type: string
  *         overwriteType:
  *           type: boolean
+ *         action:
+ *           type: string
+ *           enum: [split, merge, keep, delete]
+ *         mergeInto:
+ *           type: string
+ *           nullable: true
  *         status:
  *           type: string
- *           enum: [open, skipped]
+ *           enum: [open, accepted, skipped]
+ *     TagOrderGroupMember:
+ *       type: object
+ *       description: One tag inside a group of the proposed order
+ *       properties:
+ *         tagId:
+ *           type: integer
+ *         tagName:
+ *           type: string
+ *         documentCount:
+ *           type: integer
+ *         action:
+ *           type: string
+ *           enum: [split, merge, keep, delete]
+ *         typeName:
+ *           type: string
+ *           nullable: true
+ *         topicNames:
+ *           type: array
+ *           items:
+ *             type: string
+ *         mergeInto:
+ *           type: string
+ *           nullable: true
+ *         source:
+ *           type: string
+ *           enum: [rule, model, user]
+ *         confidence:
+ *           type: string
+ *           nullable: true
+ *           enum: [high, low]
+ *         reason:
+ *           type: string
+ *           nullable: true
+ *         status:
+ *           type: string
+ *           enum: [open, accepted, applied, skipped]
+ *     TagOrderGroup:
+ *       type: object
+ *       description: One group of the proposed order, the unit the user accepts or skips
+ *       properties:
+ *         key:
+ *           type: string
+ *           description: type:Rechnung, topic:Strom, merge:Amazon, keep or delete
+ *         kind:
+ *           type: string
+ *           enum: [type, topic, merge, keep, delete]
+ *         name:
+ *           type: string
+ *           nullable: true
+ *           description: the document type, topic or merge target; null for keep and delete
+ *         tags:
+ *           type: integer
+ *           description: member tags
+ *         documents:
+ *           type: integer
+ *           description: documents the members carry, summed
+ *         open:
+ *           type: integer
+ *         accepted:
+ *           type: integer
+ *         applied:
+ *           type: integer
+ *         skipped:
+ *           type: integer
+ *         members:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TagOrderGroupMember'
+ *     TagOrderGroups:
+ *       type: object
+ *       properties:
+ *         groups:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TagOrderGroup'
+ *         tags:
+ *           type: integer
+ *           description: proposals in total
+ *         open:
+ *           type: integer
+ *         accepted:
+ *           type: integer
+ *         applied:
+ *           type: integer
+ *         skipped:
+ *           type: integer
+ *     TagOrderProposeRequest:
+ *       type: object
+ *       properties:
+ *         vocabulary:
+ *           type: string
+ *           enum: [propose, keep]
+ *           default: propose
+ *           description: propose lets the model build the vocabulary from the tag names; keep uses the saved one
+ *     TagGroupDecisionRequest:
+ *       type: object
+ *       required:
+ *         - decision
+ *       properties:
+ *         decision:
+ *           type: string
+ *           enum: [accept, skip, reopen]
+ *     TagOrderApplyRequest:
+ *       type: object
+ *       properties:
+ *         groupKey:
+ *           type: string
+ *           nullable: true
+ *           description: apply the accepted members of one group; omitted, every accepted proposal is applied
+ *     TagOrderApplyResult:
+ *       type: object
+ *       properties:
+ *         applied:
+ *           type: array
+ *           description: splits and deletes, as TagSplitApplyResult.applied lists them
+ *           items:
+ *             type: object
+ *         merged:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               tagId:
+ *                 type: integer
+ *               tagName:
+ *                 type: string
+ *               targetId:
+ *                 type: integer
+ *               targetName:
+ *                 type: string
+ *               logId:
+ *                 type: integer
+ *               documentsUpdated:
+ *                 type: integer
+ *         failed:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               tagId:
+ *                 type: integer
+ *               tagName:
+ *                 type: string
+ *               error:
+ *                 type: string
+ *         stopped:
+ *           type: boolean
  *     TagSplitImpact:
  *       type: object
  *       description: What applying one proposal would do to the documents of the tag
@@ -1368,6 +1529,10 @@
  *                 type: integer
  *               tagName:
  *                 type: string
+ *               action:
+ *                 type: string
+ *                 enum: [split, delete]
+ *                 description: a delete is a split with no targets; the documents lose the tag
  *               logId:
  *                 type: integer
  *               documentsUpdated:

@@ -12822,7 +12822,22 @@ const MAX_VOCABULARY_NAME_LENGTH = 128;
 const MAX_SPLIT_APPLY_IDS = 200;
 
 /** What `status` may ask for when the proposals are listed. */
-const SPLIT_PROPOSAL_STATUSES = ['open', 'applied', 'skipped'];
+const SPLIT_PROPOSAL_STATUSES = ['open', 'accepted', 'applied', 'skipped'];
+
+/** What a proposal's `action` may be; the service keeps the same list. */
+const SPLIT_PROPOSAL_ACTIONS = ['split', 'merge', 'keep', 'delete'];
+
+/** What `status` may be set to by hand; applying is what an apply route does. */
+const SPLIT_PROPOSAL_SETTABLE_STATUSES = ['open', 'accepted', 'skipped'];
+
+/** How the order proposal may treat the vocabulary. */
+const ORDER_VOCABULARY_MODES = ['propose', 'keep'];
+
+/** What a decision on a group may be. */
+const ORDER_GROUP_DECISIONS = ['accept', 'skip', 'reopen'];
+
+/** A group key is 'type:Rechnung', 'topic:Strom', 'merge:Amazon', 'keep' or 'delete'. */
+const MAX_GROUP_KEY_LENGTH = MAX_VOCABULARY_NAME_LENGTH + 16;
 
 /** The route's own 400, worded like the ones of the Duplicates block. */
 function simplifyBadRequest(message) {
@@ -12900,10 +12915,33 @@ function readSplitProposalPatch(body) {
     }
     patch.overwriteType = source.overwriteType;
   }
+  if ('action' in source) {
+    if (!SPLIT_PROPOSAL_ACTIONS.includes(source.action)) {
+      throw simplifyBadRequest(
+        `action must be one of ${SPLIT_PROPOSAL_ACTIONS.join(', ')}`
+      );
+    }
+    patch.action = source.action;
+  }
+  if ('mergeInto' in source) {
+    const value = source.mergeInto;
+    if (value !== null && typeof value !== 'string') {
+      throw simplifyBadRequest('mergeInto must be a string or null');
+    }
+    if (
+      typeof value === 'string' &&
+      value.trim().length > MAX_VOCABULARY_NAME_LENGTH
+    ) {
+      throw simplifyBadRequest(
+        `mergeInto must be at most ${MAX_VOCABULARY_NAME_LENGTH} characters`
+      );
+    }
+    patch.mergeInto = value;
+  }
   if ('status' in source) {
     // 'applied' is not a state the user may set: applying is the apply route.
-    if (source.status !== 'open' && source.status !== 'skipped') {
-      throw simplifyBadRequest('status must be open or skipped');
+    if (!SPLIT_PROPOSAL_SETTABLE_STATUSES.includes(source.status)) {
+      throw simplifyBadRequest('status must be open, accepted or skipped');
     }
     patch.status = source.status;
   }
@@ -12950,14 +12988,14 @@ function readSplitApplyIds(value) {
 }
 
 /**
- * Starts one of the two Simplify tags jobs through the review job service and
+ * Starts one of the Simplify tags jobs through the review job service and
  * answers exactly as the review's own start route does — 202 with the job, or
  * 409 carrying the job that is already running, so a second tab attaches to it
  * instead of failing.
  *
  * @param {object} res
  * @param {string} route  what a failure logs
- * @param {string} task   JOB_TASKS.VOCABULARY or JOB_TASKS.SPLITS
+ * @param {string} task   JOB_TASKS.VOCABULARY, SPLITS, ORDER or APPLY
  * @param {object} options  what the runner is called with, besides the task
  * @param {(options: object, control: object) => Promise<object>} runner
  */
@@ -13344,7 +13382,7 @@ router.post(
  *         name: status
  *         schema:
  *           type: string
- *           enum: [open, skipped, applied]
+ *           enum: [open, accepted, skipped, applied]
  *     responses:
  *       200:
  *         description: The stored proposals
@@ -13450,8 +13488,12 @@ router.post('/api/simplify/proposals/run', isAuthenticated, async (req, res) =>
  *     summary: Change one proposal
  *     description: |
  *       Only the fields the body names are changed. A changed target marks the
- *       proposal as the user's, and `status` may only move between open and
- *       skipped — applying is what the apply route does.
+ *       proposal as the user's, and `status` may only move between open,
+ *       accepted and skipped — applying is what an apply route does.
+ *
+ *       `action` says what the proposed order does with the tag (split, merge,
+ *       keep or delete) and `mergeInto` names the tag a merge goes into; both
+ *       mark the proposal as the user's, exactly as a changed target does.
  *     tags:
  *       - Simplify
  *       - API
@@ -13655,6 +13697,471 @@ router.post('/api/simplify/apply', isAuthenticated, async (req, res) => {
     return res.json({ success: failed === 0, data, message });
   } catch (error) {
     return respondDuplicatesError(res, 'POST /api/simplify/apply', error);
+  }
+});
+
+// ── The proposed order: one job, groups to decide on, apply as a job ────────
+// Round 12. The routes above work one tag at a time, which does not scale to
+// an archive of 1300 tags. These five show the same proposals as groups — one
+// per document type, topic and merge target, plus the two buckets — and let a
+// whole group be accepted or skipped at once. Both long steps (proposing the
+// order, applying what was accepted) run through the one review job, so the
+// page watches and stops them exactly as it watches a review.
+
+/**
+ * Reads the one option of a TagOrderProposeRequest: whether the run lets the
+ * model propose the vocabulary from the tag names, or keeps the saved one.
+ * Absent means `propose`, which is what a first run needs.
+ *
+ * @param {unknown} value
+ * @returns {'propose'|'keep'}
+ */
+function readOrderVocabularyMode(value) {
+  if (value === undefined || value === null || value === '') return 'propose';
+  // A string, not something that stringifies into one: this body is written
+  // by the page, and ['propose'] here would hide a real mistake.
+  if (typeof value !== 'string' || !ORDER_VOCABULARY_MODES.includes(value)) {
+    throw simplifyBadRequest(
+      `vocabulary must be one of ${ORDER_VOCABULARY_MODES.join(', ')}`
+    );
+  }
+  return value;
+}
+
+/**
+ * Reads a group key out of the path.
+ *
+ * Express decodes a path segment itself, so `topic:W%C3%A4rme` arrives as
+ * `topic:Wärme` and a segment that is not valid percent-encoding never
+ * reaches the route at all. What is left to do here is to make sure a key is
+ * there and is short enough to be one — the colon inside it is ordinary text,
+ * the service splits the kind off it.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function readGroupKey(value) {
+  const key = value === undefined || value === null ? '' : String(value).trim();
+  if (key === '') {
+    throw simplifyBadRequest('A group key is required');
+  }
+  if (key.length > MAX_GROUP_KEY_LENGTH) {
+    throw simplifyBadRequest(
+      `A group key must be at most ${MAX_GROUP_KEY_LENGTH} characters`
+    );
+  }
+  return key;
+}
+
+/** Reads the `decision` of a TagGroupDecisionRequest. */
+function readGroupDecision(value) {
+  if (!ORDER_GROUP_DECISIONS.includes(value)) {
+    throw simplifyBadRequest(
+      `decision must be one of ${ORDER_GROUP_DECISIONS.join(', ')}`
+    );
+  }
+  return value;
+}
+
+/**
+ * Reads the optional `groupKey` of a TagOrderApplyRequest: absent or null
+ * applies every accepted proposal, a non-empty string only the accepted
+ * members of that one group.
+ *
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function readOrderApplyGroupKey(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw simplifyBadRequest('groupKey must be a non-empty string or absent');
+  }
+  return readGroupKey(value);
+}
+
+/** What a finished decision says it did, worded for the page's toast. */
+const ORDER_DECISION_DONE = Object.freeze({
+  accept: 'accepted',
+  skip: 'skipped',
+  reopen: 'reopened',
+});
+
+/**
+ * @swagger
+ * /api/simplify/order/propose:
+ *   post:
+ *     summary: Propose the whole order as one job
+ *     description: |
+ *       Starts the one job that proposes the new order of the archive: it
+ *       reads every tag and every document type, proposes the vocabulary
+ *       itself unless `vocabulary` is `keep`, and gives every tag one action —
+ *       split it into a document type and topics, merge it into another tag,
+ *       keep it, or delete it. The stored proposals are replaced.
+ *
+ *       The route answers at once with the job; the page follows it through
+ *       `/api/duplicates/ai-review/jobs/{id}/events` and reads the groups from
+ *       `GET /api/simplify/groups` when it is done. Nothing is written to
+ *       Paperless-ngx here — a proposal is a proposal until it is accepted and
+ *       applied.
+ *
+ *       There is one job at a time for the whole app, shared with the AI
+ *       review; while one runs this answers 409 and carries it.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagOrderProposeRequest'
+ *     responses:
+ *       202:
+ *         description: The proposal was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       400:
+ *         description: vocabulary is neither propose nor keep
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A job is already running; `data.job` is that one
+ *       501:
+ *         description: The order proposal is not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/simplify/order/propose',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const vocabulary = readOrderVocabularyMode((req.body || {}).vocabulary);
+      return startSimplifyJob(
+        res,
+        'POST /api/simplify/order/propose',
+        duplicateReviewJobService.JOB_TASKS.ORDER,
+        { vocabulary },
+        (options, control) =>
+          tagSimplifyService.proposeOrder({ vocabulary }, control)
+      );
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/simplify/order/propose',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/groups:
+ *   get:
+ *     summary: The proposed order, as groups
+ *     description: |
+ *       The stored proposals seen from the other side: one group per document
+ *       type (`type:Rechnung`), one per topic (`topic:Strom`), one per merge
+ *       target (`merge:Amazon`), and the two buckets `keep` and `delete`. A
+ *       tag with a type and two topics is a member of three groups, so the
+ *       numbers of the groups add up to more than the number of tags — the
+ *       totals next to `groups` are the ones per tag.
+ *
+ *       Read-only, local and instant: this is the same SQLite table the
+ *       proposals route lists, no request leaves the machine.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The groups of the proposed order
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagOrderGroups'
+ *       401:
+ *         description: Not authenticated
+ *       501:
+ *         description: The group view is not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.get('/api/simplify/groups', isAuthenticated, async (req, res) => {
+  try {
+    const data = await tagSimplifyService.listGroups();
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/simplify/groups', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/simplify/groups/{key}/decision:
+ *   post:
+ *     summary: Accept, skip or reopen one group
+ *     description: |
+ *       One decision for every open member of the group: `accept` marks them
+ *       as accepted so an apply picks them up, `skip` puts them aside, and
+ *       `reopen` takes either back. Members that were already applied are left
+ *       alone — a decision never undoes anything.
+ *
+ *       The key is the one the group carries (`type:Rechnung`, `topic:Strom`,
+ *       `merge:Amazon`, `keep` or `delete`), URL-encoded in the path. The
+ *       answer says how many proposals changed and hands the group back as it
+ *       stands now.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         description: The group key, URL-encoded
+ *         schema:
+ *           type: string
+ *           example: type%3ARechnung
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagGroupDecisionRequest'
+ *     responses:
+ *       200:
+ *         description: What the decision changed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     key:
+ *                       type: string
+ *                     changed:
+ *                       type: integer
+ *                       description: proposals whose status the decision moved
+ *                     group:
+ *                       allOf:
+ *                         - $ref: '#/components/schemas/TagOrderGroup'
+ *                       nullable: true
+ *                       description: the group as it stands now; null once it holds nothing
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: The key is missing or too long, or the decision is unknown
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: There is no group of that key
+ *       501:
+ *         description: Group decisions are not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/simplify/groups/:key/decision',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const key = readGroupKey(req.params.key);
+      const decision = readGroupDecision((req.body || {}).decision);
+      const data = await tagSimplifyService.decideGroup(key, decision);
+      const changed = Number(data?.changed) || 0;
+      return res.json({
+        success: true,
+        data,
+        message: `${changed} tag(s) ${ORDER_DECISION_DONE[decision]}.`,
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/simplify/groups/:key/decision',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/groups/{key}/members/{tagId}:
+ *   delete:
+ *     summary: Take one tag out of a group
+ *     description: |
+ *       The exception to the group decision: one tag does not belong here, the
+ *       rest of the group does. Out of a type group the tag loses its document
+ *       type, out of a topic group that one topic, out of a merge group it
+ *       becomes `keep`, and out of `delete` it becomes `keep` as well. A tag
+ *       that is left with nothing to do becomes `keep`.
+ *
+ *       Nothing is deleted in Paperless-ngx: this edits the proposal, which is
+ *       a local row, and hands it back as it now stands.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         description: The group key, URL-encoded
+ *         schema:
+ *           type: string
+ *           example: topic%3AStrom
+ *       - in: path
+ *         name: tagId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: The proposal as it is stored now
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagSplitProposal'
+ *       400:
+ *         description: The key is missing or too long, or the tag id is not one
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: There is no such group, or the tag is not a member of it
+ *       409:
+ *         description: The proposal was already applied
+ *       501:
+ *         description: Group edits are not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.delete(
+  '/api/simplify/groups/:key/members/:tagId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const key = readGroupKey(req.params.key);
+      const tagId = readSplitTagId(req.params.tagId);
+      const data = await tagSimplifyService.removeGroupMember(key, tagId);
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'DELETE /api/simplify/groups/:key/members/:tagId',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/order/apply:
+ *   post:
+ *     summary: Apply what was accepted, as one job
+ *     description: |
+ *       Writes the accepted proposals to Paperless-ngx, one tag after the
+ *       other: a split creates the vocabulary objects where they are missing,
+ *       gives the documents their topic tags and document type and deletes the
+ *       compound tag; a merge goes through the same merge the Duplicates page
+ *       uses; a delete takes the tag off its documents. Every one of them
+ *       writes a merge-log row, so every one of them can be taken back.
+ *
+ *       `groupKey` narrows the run to the accepted members of one group;
+ *       without it every accepted proposal is applied. A tag that fails is
+ *       listed in `failed` with its reason and the run goes on, so the job
+ *       finishes as `done` with a partial result rather than failing.
+ *
+ *       Answers like the other jobs: 202 with the job, or 409 with the job
+ *       that is already running. The result of the job
+ *       (`/api/duplicates/ai-review/jobs/{id}/result`) is a TagOrderApplyResult.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagOrderApplyRequest'
+ *     responses:
+ *       202:
+ *         description: The run was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       400:
+ *         description: groupKey is there but not a non-empty string
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A job is already running; `data.job` is that one
+ *       501:
+ *         description: Applying the order is not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.post('/api/simplify/order/apply', isAuthenticated, async (req, res) => {
+  try {
+    const groupKey = readOrderApplyGroupKey((req.body || {}).groupKey);
+    const performedBy = duplicatesPerformedBy(req);
+    return startSimplifyJob(
+      res,
+      'POST /api/simplify/order/apply',
+      duplicateReviewJobService.JOB_TASKS.APPLY,
+      { groupKey },
+      (options, control) =>
+        tagSimplifyService.applyAccepted({ groupKey, performedBy }, control)
+    );
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/simplify/order/apply', error);
   }
 });
 

@@ -16,6 +16,7 @@
  * 6. Verdicts are upserted, read by key, pruned by age, cleared
  * 7. The simplify service's thin methods sit on the model
  * 8. The calibration round-trips the thinking cost per request
+ * 9. A proposal carries its action and merge target; a status is set on many rows at once
  */
 
 'use strict';
@@ -335,7 +336,7 @@ async function main() {
     assert.strictEqual(patched.source, 'user');
     await assert.rejects(
       () => service.updateProposal(9, { status: 'applied' }),
-      /open or skipped/
+      /open, accepted or skipped/
     );
     await assert.rejects(() => service.updateProposal(123, {}), /no proposal/);
     // The two long-running methods are implemented since round 10: applying
@@ -390,6 +391,56 @@ async function main() {
     });
     const reset = await documentModel.getAiCalibration('contract-model', false);
     assert.strictEqual(reset.thinkingPerRequest, null);
+  });
+
+  await test('A proposal carries its action and merge target; a status is set on many rows', async () => {
+    const columns = raw
+      .prepare('PRAGMA table_info(tag_split_proposals)')
+      .all()
+      .map((c) => c.name);
+    assert.ok(columns.includes('action') && columns.includes('merge_into'));
+    await documentModel.replaceTagSplitProposals([
+      {
+        tagId: 21,
+        tagName: 'Stromrechnung',
+        typeName: 'Rechnung',
+        topicNames: ['Strom'],
+      },
+      { tagId: 22, tagName: 'amazon', action: 'merge', mergeInto: 'Amazon' },
+      { tagId: 23, tagName: 'Kontoauszug', action: 'keep' },
+      { tagId: 24, tagName: 'Altlast', action: 'delete', status: 'skipped' },
+    ]);
+    const rows = await documentModel.listTagSplitProposals();
+    const byId = Object.fromEntries(rows.map((row) => [row.tagId, row]));
+    assert.strictEqual(byId[21].action, 'split', 'split is the default');
+    assert.strictEqual(byId[21].mergeInto, null);
+    assert.strictEqual(byId[22].action, 'merge');
+    assert.strictEqual(byId[22].mergeInto, 'Amazon');
+    assert.strictEqual(byId[23].action, 'keep');
+    assert.strictEqual(byId[24].action, 'delete');
+    await documentModel.updateTagSplitProposal(23, {
+      action: 'merge',
+      mergeInto: 'Bank',
+    });
+    const patched = await documentModel.getTagSplitProposal(23);
+    assert.strictEqual(patched.action, 'merge');
+    assert.strictEqual(patched.mergeInto, 'Bank');
+    assert.strictEqual(
+      await documentModel.setTagSplitProposalStatus([21, 22, 999], 'accepted'),
+      2,
+      'two rows exist'
+    );
+    assert.deepStrictEqual(
+      (await documentModel.listTagSplitProposals({ status: 'accepted' })).map(
+        (row) => row.tagId
+      ),
+      [22, 21]
+    );
+    assert.strictEqual(
+      await documentModel.setTagSplitProposalStatus([], 'open'),
+      0
+    );
+    assert.strictEqual(await documentModel.clearTagSplitProposals(), 4);
   });
 
   raw.close();

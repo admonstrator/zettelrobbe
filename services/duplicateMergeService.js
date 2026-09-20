@@ -1158,6 +1158,13 @@ class DuplicateMergeService {
       // A split is undone by the service that made it; the log row is shared.
       return require('./tagSimplifyService').undoSplit(entry, { performedBy });
     }
+    if (entry.action === 'delete' && entry.details) {
+      // A delete of the proposed order took the tag off documents before it
+      // went; those documents are in `details` and get it back. A delete of
+      // unused objects carries no details and takes the path below, where
+      // there is nothing to re-attach.
+      return this._undoDeleteWithDocuments(entry, { performedBy });
+    }
 
     const kind = entry.kind;
     const isDelete = entry.action === 'delete';
@@ -1244,6 +1251,8 @@ class DuplicateMergeService {
     this._afterWrite('undo');
 
     await documentModel.updateEntityMergeUndo(id, { status, undoResult });
+    // A merge the proposed order applied is a decision again once it is undone.
+    await this._reopenSimplifyProposal(entry);
     this._log(
       `undo finished: status ${status}, matching rule ${
         revertedMatchingRule ? 'reverted' : 'left alone'
@@ -1565,6 +1574,199 @@ class DuplicateMergeService {
    */
   afterWrite(what) {
     this._afterWrite(what);
+  }
+
+  /**
+   * Undoes a delete that took its documents with it: the tag is re-created
+   * (new id, or an existing one of the same name is adopted) and every
+   * document the row wrote down gets it back.
+   *
+   * The delete of unused objects cannot use this and does not need to — it
+   * only ever removes what carries nothing. "Simplify tags" deletes a tag
+   * *because* its documents should lose it, so its log row lists them, and
+   * without this branch an undo would put an empty tag back.
+   *
+   * @param {object} entry  the log row with action 'delete' and details
+   * @param {{performedBy?: string|null}} [options]
+   * @returns {Promise<object>} EntityMergeUndoResult
+   */
+  async _undoDeleteWithDocuments(entry, { performedBy = null } = {}) {
+    const kind = entry.kind;
+    const details = entry.details || {};
+    const recorded = Array.isArray(details.documents) ? details.documents : [];
+    const deletedSources = (
+      Array.isArray(entry.sources) ? entry.sources : []
+    ).filter((source) => source.deleted);
+    const startedAt = Date.now();
+    this._log(
+      `undo started: delete ${entry.id}, ${kind}, ${deletedSources.length} deleted object(s) ` +
+        `with ${recorded.length} document(s) to give back.`
+    );
+
+    const sources = [];
+    for (const source of deletedSources) {
+      const restored = {
+        originalId: Number(source.id),
+        name: String(source?.snapshot?.name ?? source.name ?? ''),
+        restoredId: null,
+        adoptedExisting: false,
+        documentsRestored: 0,
+        documentsSkipped: 0,
+        error: null,
+      };
+      sources.push(restored);
+
+      // The documents the row wrote down belong to the one object it is
+      // about; with more than one, only what the source itself carries is
+      // safe to hand back.
+      const documentIds = [
+        ...new Set(
+          [
+            ...(Array.isArray(source.documentIds) ? source.documentIds : []),
+            ...(deletedSources.length === 1
+              ? recorded.map((document) => document.id)
+              : []),
+          ].map(Number)
+        ),
+      ].filter(isPositiveInteger);
+
+      try {
+        const existing = await paperlessService.findEntityByExactName(
+          kind,
+          restored.name
+        );
+        if (existing) {
+          restored.restoredId = Number(existing.id);
+          restored.adoptedExisting = true;
+        } else {
+          const payload = createPayloadFrom(kind, source.snapshot);
+          let created;
+          try {
+            created = await paperlessService.createEntity(kind, payload);
+          } catch (error) {
+            const status = error?.response?.status;
+            if (payload.owner != null && (status === 400 || status === 403)) {
+              // Setting the owner is refused for some tokens; the object
+              // itself matters more than who owns it.
+              const { owner, ...withoutOwner } = payload;
+              void owner;
+              created = await paperlessService.createEntity(kind, withoutOwner);
+            } else {
+              throw error;
+            }
+          }
+          restored.restoredId = Number(created?.id);
+        }
+      } catch (error) {
+        restored.error = `could not restore: ${
+          error?.message || 'unknown error'
+        }`;
+        restored.documentsSkipped = documentIds.length;
+        this._log(`undo ${kind} "${restored.name}": ${restored.error}.`);
+        continue;
+      }
+      if (!isPositiveInteger(restored.restoredId)) {
+        restored.error = 'Paperless-ngx did not return an id for the new entry';
+        restored.restoredId = null;
+        restored.documentsSkipped = documentIds.length;
+        continue;
+      }
+
+      try {
+        // Only documents that still exist; everything else was changed after
+        // the delete and is left alone.
+        const alive =
+          documentIds.length > 0
+            ? (await paperlessService.getDocumentsByIds(documentIds, 'id')).map(
+                (document) => Number(document.id)
+              )
+            : [];
+        restored.documentsRestored = alive.length;
+        restored.documentsSkipped = documentIds.length - alive.length;
+        if (alive.length > 0) {
+          if (kind === KINDS.TAGS) {
+            await paperlessService.bulkEditDocuments(alive, 'modify_tags', {
+              add_tags: [restored.restoredId],
+              remove_tags: [],
+            });
+          } else {
+            await paperlessService.bulkEditDocuments(
+              alive,
+              'set_correspondent',
+              { correspondent: restored.restoredId }
+            );
+          }
+          await documentModel.replaceEntityInLocalRecords(kind, {
+            fromId: Number(source.id),
+            toId: restored.restoredId,
+            fromName: restored.name,
+            toName: restored.name,
+            documentIds: alive,
+          });
+        }
+      } catch (error) {
+        restored.error = `documents were not moved back: ${
+          error?.message || 'unknown error'
+        }`;
+      }
+      this._log(
+        restored.error
+          ? `undo ${kind} "${restored.name}": ${restored.error}.`
+          : `undo ${kind} "${restored.name}": restored as ${restored.restoredId} ` +
+              `(${restored.adoptedExisting ? 'adopted an existing entry' : 'created'}), ` +
+              `${restored.documentsRestored} document(s) restored, ${restored.documentsSkipped} skipped.`
+      );
+    }
+
+    const status = sources.every(
+      (source) => source.restoredId != null && source.error == null
+    )
+      ? 'undone'
+      : 'undo_failed';
+    const undoResult = {
+      status,
+      revertedMatchingRule: false,
+      performedBy,
+      sources,
+    };
+
+    this._afterWrite('undo');
+    await documentModel.updateEntityMergeUndo(entry.id, { status, undoResult });
+    await this._reopenSimplifyProposal(entry);
+    this._log(
+      `undo finished: status ${status}, ` +
+        `${sources.reduce((sum, source) => sum + source.documentsRestored, 0)} document(s) ` +
+        `given back, in ${Date.now() - startedAt}ms.`
+    );
+    return undoResult;
+  }
+
+  /**
+   * A merge or a delete the proposed order applied leaves a proposal that
+   * says "applied" behind; an undo makes it a decision again. The name has to
+   * match too: Paperless-ngx hands out ids again, and a proposal for another
+   * tag of that id is none of this row's business.
+   *
+   * @param {object} entry  the log row that was just undone
+   */
+  async _reopenSimplifyProposal(entry) {
+    if (entry?.kind !== KINDS.TAGS) return;
+    for (const source of Array.isArray(entry.sources) ? entry.sources : []) {
+      const id = Number(source?.id);
+      if (!isPositiveInteger(id)) continue;
+      const name = String(source?.snapshot?.name ?? source?.name ?? '');
+      try {
+        const proposal = await documentModel.getTagSplitProposal(id);
+        if (!proposal || proposal.status !== 'applied') continue;
+        if (name !== '' && String(proposal.tagName) !== name) continue;
+        await documentModel.updateTagSplitProposal(id, { status: 'open' });
+      } catch (error) {
+        console.error(
+          `[ERROR] reopening the split proposal of tag ${id}:`,
+          error?.message || error
+        );
+      }
+    }
   }
 }
 

@@ -45,6 +45,21 @@
  * 22. undoSplit adopts a tag of the same name instead of creating a second
  * 23. A second undo is refused
  * 24. duplicateMergeService.undo() hands a split row to undoSplit
+ *
+ * Round 12, the proposed order:
+ * 25. The rule gives every tag one of the four actions, in its own order
+ * 26. A plural or another spelling merges into the tag with more documents
+ * 27. The model settles the rest, with all four actions
+ * 28. What the model may not say turns into keep, with a note
+ * 29. Without a vocabulary there is nothing to keep
+ * 30. The two phases, the counts and the log line of a run
+ * 31. The apply works through merges, then splits, then deletes
+ * 32. A deleted tag gives its documents back when the delete is undone
+ * 33. A merge goes through the merge service and can be undone
+ * 34. A merge target that is gone is a failure entry
+ * 35. A stop between two tags leaves the rest accepted
+ * 36. An apply with nothing accepted is not an error
+ * 37. One group applies without touching the rest
  */
 
 'use strict';
@@ -1340,6 +1355,747 @@ async function main() {
       assert.ok(
         fake.tagNames().includes('Stromrechnung'),
         'the compound is back'
+      );
+    });
+    /* --- The proposed order (round 12) ---------------------------------- */
+
+    /** The archive the order cases start from. */
+    function orderArchive() {
+      return useFake({
+        tags: [
+          { id: 20, name: 'Stromrechnung' },
+          { id: 21, name: 'rechnungen' },
+          { id: 22, name: 'Rechnungen' },
+          { id: 23, name: 'todo' },
+        ],
+        documentTypes: [{ id: 7, name: 'Rechnung' }],
+        documents: [
+          { id: 200, tags: [20], document_type: null },
+          { id: 201, tags: [20], document_type: null },
+          { id: 202, tags: [21], document_type: null },
+          { id: 203, tags: [23], document_type: null },
+          { id: 204, tags: [22], document_type: null },
+        ],
+      });
+    }
+
+    /** The order proposals the apply cases work on, all accepted. */
+    async function useOrderProposals(rows) {
+      await documentModel.replaceTagSplitProposals(
+        rows.map((row) => ({
+          documentCount: 1,
+          action: 'split',
+          mergeInto: null,
+          typeName: null,
+          topicNames: [],
+          source: 'model',
+          confidence: 'high',
+          reason: 'because',
+          documentsWithType: 0,
+          overwriteType: false,
+          status: 'accepted',
+          ...row,
+        }))
+      );
+    }
+
+    /** The provider a run of the order uses: two questions, two answers. */
+    function useOrderProvider(order) {
+      return useProvider((prompt, options) => {
+        if (
+          options.systemPrompt.includes('Give every tag exactly one action')
+        ) {
+          return JSON.stringify(order(idsInPrompt(prompt), prompt));
+        }
+        return JSON.stringify({ types: ['Rechnung'], topics: ['Strom'] });
+      });
+    }
+
+    await test('The rule gives every tag one of the four actions', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Handyrechnung' },
+          { id: 3, name: 'Strom' },
+          { id: 4, name: 'Inbox', is_inbox_tag: true },
+          { id: 5, name: 'ai-processed' },
+          { id: 6, name: 'do-not-touch' },
+          { id: 7, name: 'Leerlauf' },
+          { id: 8, name: 'Gesperrt', user_can_change: false },
+          { id: 9, name: 'Nachbarschaft' },
+        ],
+        documents: [
+          { id: 100, tags: [1, 3] },
+          { id: 101, tags: [1, 2] },
+          { id: 102, tags: [4, 5, 6, 8, 9] },
+        ],
+      });
+      await useVocabulary(['Rechnung'], ['Strom', 'Auto']);
+      useNoProvider();
+
+      const { value } = await withLog(() => service.proposeOrder());
+      assert.strictEqual(value.proposals, 9, 'every tag gets a row');
+      const rows = new Map(
+        (await service.listProposals()).map((row) => [row.tagName, row])
+      );
+      const seen = (name) => ({
+        action: rows.get(name).action,
+        typeName: rows.get(name).typeName,
+        topicNames: rows.get(name).topicNames,
+        confidence: rows.get(name).confidence,
+        reason: rows.get(name).reason,
+        source: rows.get(name).source,
+      });
+
+      assert.deepStrictEqual(seen('Stromrechnung'), {
+        action: 'split',
+        typeName: 'Rechnung',
+        topicNames: ['Strom'],
+        confidence: 'high',
+        reason: 'compound of Rechnung and Strom',
+        source: 'rule',
+      });
+      assert.deepStrictEqual(
+        [seen('Handyrechnung').action, seen('Handyrechnung').confidence],
+        ['split', 'low'],
+        'a remainder nobody named is a proposal with a doubt'
+      );
+      assert.deepStrictEqual(seen('Strom'), {
+        action: 'keep',
+        typeName: null,
+        topicNames: [],
+        confidence: 'high',
+        reason: 'a topic of the vocabulary',
+        source: 'rule',
+      });
+      assert.strictEqual(seen('Inbox').reason, 'the inbox tag');
+      assert.strictEqual(
+        seen('ai-processed').reason,
+        'the settings refer to this tag'
+      );
+      assert.strictEqual(
+        seen('do-not-touch').reason,
+        'the settings refer to this tag'
+      );
+      assert.strictEqual(
+        seen('Gesperrt').reason,
+        'the API token may not change it'
+      );
+      assert.deepStrictEqual(
+        [seen('Leerlauf').action, seen('Leerlauf').reason],
+        ['delete', 'no documents'],
+        'a tag nothing carries is the one proposal that costs nothing'
+      );
+      assert.deepStrictEqual(
+        [seen('Nachbarschaft').action, seen('Nachbarschaft').reason],
+        ['keep', 'nothing in the vocabulary accounts for this name'],
+        'without a model the rest is left alone rather than dropped'
+      );
+      assert.strictEqual(
+        rows.get('Inbox').action,
+        'keep',
+        'the inbox tag carries no document here and is still not deleted'
+      );
+      assert.strictEqual(value.byModel, 0);
+      assert.strictEqual(value.byRule, 9);
+    });
+
+    await test('A plural or another spelling merges into the tag with more documents', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Nachbarschaft' },
+          { id: 2, name: 'Nachbarschaften' },
+          { id: 3, name: 'Ärzte' },
+          { id: 4, name: 'Aerzte' },
+        ],
+        documents: [
+          { id: 100, tags: [1, 3] },
+          { id: 101, tags: [1, 4] },
+          { id: 102, tags: [1] },
+          { id: 103, tags: [2] },
+        ],
+      });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      useNoProvider();
+
+      await withLog(() => service.proposeOrder());
+      const rows = new Map(
+        (await service.listProposals()).map((row) => [row.tagName, row])
+      );
+      assert.deepStrictEqual(
+        [
+          rows.get('Nachbarschaften').action,
+          rows.get('Nachbarschaften').mergeInto,
+        ],
+        ['merge', 'Nachbarschaft'],
+        'three documents against one decides which spelling survives'
+      );
+      assert.match(
+        rows.get('Nachbarschaften').reason,
+        /another spelling of "Nachbarschaft" \(plural\)/
+      );
+      assert.strictEqual(
+        rows.get('Nachbarschaft').action,
+        'keep',
+        'the survivor is not merged into anything'
+      );
+      assert.deepStrictEqual(
+        [rows.get('Aerzte').action, rows.get('Aerzte').mergeInto],
+        ['merge', 'Ärzte'],
+        'one document each: the shorter name wins'
+      );
+      assert.strictEqual(rows.get('Ärzte').action, 'keep');
+    });
+
+    await test('The model settles what the rule could not, with four actions', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Mobilfunkabo' },
+          { id: 3, name: 'Krempel' },
+          { id: 4, name: 'Nachbarschaft' },
+          { id: 5, name: 'Nachbarn' },
+        ],
+        documents: [
+          { id: 100, tags: [1, 2] },
+          { id: 101, tags: [3, 4] },
+          { id: 102, tags: [5] },
+        ],
+      });
+      await useVocabulary(['Rechnung', 'Vertrag'], ['Strom', 'Telefon']);
+      config.simplifyTagsPerRequest = 50;
+      const answers = {
+        2: {
+          action: 'split',
+          type: 'Vertrag',
+          topics: ['Telefon'],
+          confidence: 'high',
+          reason: 'a mobile phone contract',
+        },
+        3: { action: 'delete', confidence: 'high', reason: 'says nothing' },
+        4: {
+          action: 'keep',
+          confidence: 'high',
+          reason: 'a subject of its own',
+        },
+        5: {
+          action: 'merge',
+          mergeInto: 'Nachbarschaft',
+          confidence: 'low',
+          reason: 'the same people',
+        },
+      };
+      const { calls } = useProvider((prompt, options) => {
+        if (
+          options.systemPrompt.includes('Give every tag exactly one action')
+        ) {
+          return JSON.stringify(
+            idsInPrompt(prompt).map((id) => ({ id, ...answers[id] }))
+          );
+        }
+        return JSON.stringify({ types: [], topics: [] });
+      });
+
+      const { value } = await withLog(() =>
+        service.proposeOrder({ vocabulary: 'keep' })
+      );
+      assert.strictEqual(calls.length, 1, 'the vocabulary was not asked for');
+      assert.deepStrictEqual(
+        idsInPrompt(calls[0].prompt).sort(),
+        ['2', '3', '4', '5'],
+        'the compound the rule settled is not asked about'
+      );
+      assert.ok(
+        calls[0].options.systemPrompt.includes(
+          'The topics you may use: Strom, Telefon.'
+        ),
+        'the vocabulary is in the prompt'
+      );
+      assert.ok(
+        calls[0].options.systemPrompt.includes(
+          'Judge by the name, and never guess what is inside a document.'
+        ),
+        'and the model is told it is looking at names'
+      );
+      assert.match(
+        calls[0].prompt,
+        /"name":"Mobilfunkabo","documents":1/,
+        'the names of the request carry what they are worth'
+      );
+
+      const rows = new Map(
+        (await service.listProposals()).map((row) => [row.tagName, row])
+      );
+      assert.deepStrictEqual(
+        [
+          rows.get('Mobilfunkabo').action,
+          rows.get('Mobilfunkabo').typeName,
+          rows.get('Mobilfunkabo').topicNames,
+          rows.get('Mobilfunkabo').source,
+          rows.get('Mobilfunkabo').reason,
+        ],
+        ['split', 'Vertrag', ['Telefon'], 'model', 'a mobile phone contract']
+      );
+      assert.strictEqual(rows.get('Krempel').action, 'delete');
+      assert.strictEqual(rows.get('Nachbarschaft').action, 'keep');
+      assert.deepStrictEqual(
+        [rows.get('Nachbarn').action, rows.get('Nachbarn').mergeInto],
+        ['merge', 'Nachbarschaft'],
+        'the model may name another tag of the request'
+      );
+      assert.strictEqual(rows.get('Stromrechnung').source, 'rule');
+      assert.strictEqual(value.byRule, 1);
+      assert.strictEqual(value.byModel, 4);
+    });
+
+    await test('What the model may not say turns into keep, with a note', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Wohnung' },
+          { id: 2, name: 'Garage' },
+          { id: 3, name: 'Keller' },
+          { id: 4, name: 'Dachboden' },
+        ],
+        documents: [{ id: 100, tags: [1, 2, 3, 4] }],
+      });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      const answers = {
+        1: { action: 'split', type: 'Mietvertrag', topics: ['Wohnen'] },
+        2: { action: 'merge', mergeInto: 'Autogarage' },
+        3: { action: 'archive' },
+        4: { action: 'split', topics: [] },
+      };
+      useOrderProvider((ids) => ids.map((id) => ({ id, ...answers[id] })));
+
+      await withLog(() => service.proposeOrder({ vocabulary: 'keep' }));
+      const rows = new Map(
+        (await service.listProposals()).map((row) => [row.tagName, row])
+      );
+      for (const name of ['Wohnung', 'Garage', 'Keller', 'Dachboden']) {
+        assert.strictEqual(
+          rows.get(name).action,
+          'keep',
+          `${name} must not reach Paperless-ngx`
+        );
+      }
+      assert.match(
+        rows.get('Wohnung').reason,
+        /not in the vocabulary: Mietvertrag, Wohnen/
+      );
+      assert.match(rows.get('Wohnung').reason, /nothing to split it into/);
+      assert.strictEqual(rows.get('Wohnung').typeName, null);
+      assert.match(
+        rows.get('Garage').reason,
+        /no other tag is called "Autogarage"/
+      );
+      assert.strictEqual(rows.get('Garage').mergeInto, null);
+      assert.match(rows.get('Keller').reason, /unknown action "archive"/);
+      assert.match(rows.get('Dachboden').reason, /nothing to split it into/);
+    });
+
+    await test('Without a vocabulary the order cannot keep one', async () => {
+      useFake({ tags: [{ id: 1, name: 'Stromrechnung' }] });
+      await documentModel.replaceTagVocabulary([]);
+      useNoProvider();
+      await expectRefusal(
+        () => service.proposeOrder({ vocabulary: 'keep' }),
+        409,
+        'nothing to order the tags by'
+      );
+      await expectRefusal(
+        () => service.proposeOrder(),
+        409,
+        'and without a provider there is nothing to propose one with'
+      );
+    });
+
+    await test('The order reports its two phases and says what it decided', async () => {
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Krempel' },
+          { id: 3, name: 'Leerlauf' },
+        ],
+        documents: [{ id: 100, tags: [1, 2] }],
+      });
+      await useVocabulary(['Rechnung'], ['Strom']);
+      config.duplicatesAiSweepNames = 50;
+      config.simplifyVocabularySize = 6;
+      useOrderProvider((ids) =>
+        ids.map((id) => ({ id, action: 'delete', reason: 'says nothing' }))
+      );
+
+      const progress = [];
+      const { value, lines } = await withLog(() =>
+        service.proposeOrder(
+          {},
+          { onProgress: (patch) => progress.push(patch) }
+        )
+      );
+      assert.deepStrictEqual(
+        {
+          proposals: value.proposals,
+          byRule: value.byRule,
+          byModel: value.byModel,
+          requests: value.requests,
+          groups: value.groups,
+          stopped: value.stopped,
+        },
+        {
+          proposals: 3,
+          byRule: 2,
+          byModel: 1,
+          requests: 2,
+          groups: 3,
+          stopped: false,
+        },
+        'one vocabulary request and one order request'
+      );
+      assert.deepStrictEqual(
+        value.vocabulary.types.map((entry) => entry.name),
+        ['Rechnung'],
+        'the saved vocabulary comes back with the result'
+      );
+      assert.ok(
+        lines.some(
+          (line) =>
+            line ===
+            '[SIMPLIFY] order proposed: 3 tag(s): 1 split, 0 merge, 0 keep, 2 delete; ' +
+              '2 by rule, 1 by the model in 2 request(s).'
+        ),
+        `no order line:\n${simplifyLines(lines).join('\n')}`
+      );
+
+      const phases = [...new Set(progress.map((patch) => patch.phase))];
+      assert.deepStrictEqual(phases, ['vocabulary', 'ordering']);
+      const ordering = progress.filter((patch) => patch.phase === 'ordering');
+      assert.strictEqual(ordering[0].pairsTotal, 3, 'tags are the total');
+      assert.strictEqual(ordering[0].pairsJudged, 2, 'settled by rule');
+      assert.strictEqual(
+        ordering[0].requestsPlanned,
+        2,
+        'the vocabulary request counts towards the same bar'
+      );
+      assert.strictEqual(
+        ordering[ordering.length - 1].pairsJudged,
+        3,
+        'and every tag is settled at the end'
+      );
+    });
+
+    await test('The apply works through merges, then splits, then deletes', async () => {
+      const fake = orderArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useOrderProposals([
+        {
+          tagId: 20,
+          tagName: 'Stromrechnung',
+          documentCount: 2,
+          action: 'split',
+          typeName: 'Rechnung',
+          topicNames: ['Strom'],
+        },
+        {
+          tagId: 21,
+          tagName: 'rechnungen',
+          action: 'merge',
+          mergeInto: 'Rechnungen',
+        },
+        { tagId: 22, tagName: 'Rechnungen', action: 'keep' },
+        { tagId: 23, tagName: 'todo', action: 'delete' },
+      ]);
+
+      const { value, lines } = await withLog(() =>
+        service.applyAccepted({ performedBy: 'tester' })
+      );
+      assert.deepStrictEqual(
+        value.failed,
+        [],
+        `nothing may fail: ${JSON.stringify(value.failed)}`
+      );
+      assert.deepStrictEqual(
+        value.applied.map((entry) => [entry.tagName, entry.action]),
+        [
+          ['Stromrechnung', 'split'],
+          ['todo', 'delete'],
+        ],
+        'a keep is never applied'
+      );
+      assert.strictEqual(value.merged.length, 1);
+      assert.deepStrictEqual(
+        {
+          tagId: value.merged[0].tagId,
+          tagName: value.merged[0].tagName,
+          targetId: value.merged[0].targetId,
+          targetName: value.merged[0].targetName,
+          documentsUpdated: value.merged[0].documentsUpdated,
+        },
+        {
+          tagId: 21,
+          tagName: 'rechnungen',
+          targetId: 22,
+          targetName: 'Rechnungen',
+          documentsUpdated: 1,
+        }
+      );
+      assert.strictEqual(value.stopped, false);
+
+      const order = simplifyLines(lines)
+        .filter((line) => /merged tag|split tag|deleted tag/.test(line))
+        .map((line) => line.split(' ')[1]);
+      assert.deepStrictEqual(
+        order,
+        ['merged', 'split', 'deleted'],
+        'a merge first: a tag a split needs must still be there'
+      );
+
+      assert.strictEqual(fake.tag(20), undefined, 'the compound is gone');
+      assert.strictEqual(fake.tag(21), undefined, 'the other spelling is gone');
+      assert.strictEqual(fake.tag(23), undefined, 'the note to self is gone');
+      assert.ok(fake.tag(22), 'the survivor of the merge stays');
+      assert.deepStrictEqual(
+        fake.document(202).tags,
+        [22],
+        'the merged documents carry the survivor'
+      );
+      assert.deepStrictEqual(
+        fake.document(203).tags,
+        [],
+        'the deleted tag left its document behind'
+      );
+      assert.strictEqual(fake.document(200).document_type, 7);
+      for (const tagId of [20, 21, 23]) {
+        assert.strictEqual(
+          (await documentModel.getTagSplitProposal(tagId)).status,
+          'applied'
+        );
+      }
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(22)).status,
+        'accepted',
+        'a keep stays what it was'
+      );
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /^\[SIMPLIFY\] order applied: 1 split, 1 merged, 1 deleted, 0 failed, in \d+\.\d+s\.$/.test(
+            line
+          )
+        ),
+        `no apply line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('A deleted tag gives its documents back when the delete is undone', async () => {
+      const fake = orderArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await documentModel.addToHistory(203, [23], 'A document', 'Someone');
+      await useOrderProposals([
+        { tagId: 23, tagName: 'todo', action: 'delete' },
+      ]);
+
+      const { value } = await withLog(() =>
+        service.applyAccepted({ performedBy: 'tester' })
+      );
+      const logId = value.applied[0].logId;
+      const entry = await documentModel.getEntityMergeById(logId);
+      assert.strictEqual(entry.action, 'delete');
+      assert.strictEqual(entry.targetName, '', 'a delete has no target');
+      assert.deepStrictEqual(entry.sources[0].documentIds, [203]);
+      assert.deepStrictEqual(
+        entry.details.documents.map((document) => document.id),
+        [203],
+        'the documents are written down before the tag goes'
+      );
+
+      const undone = await withLog(() =>
+        duplicateMergeService.undo(logId, { performedBy: 'tester' })
+      );
+      assert.strictEqual(undone.value.status, 'undone');
+      const restoredId = undone.value.sources[0].restoredId;
+      assert.ok(Number.isInteger(restoredId));
+      assert.strictEqual(fake.tag(restoredId).name, 'todo');
+      assert.deepStrictEqual(
+        fake.document(203).tags,
+        [restoredId],
+        'the document carries it again'
+      );
+      assert.strictEqual(undone.value.sources[0].documentsRestored, 1);
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(23)).status,
+        'open',
+        'and the proposal is a decision again'
+      );
+      const history = await documentModel.getHistoryByDocumentId(203);
+      assert.deepStrictEqual(
+        JSON.parse(history.tags),
+        [restoredId],
+        'the local rows point at the tag that exists'
+      );
+    });
+
+    await test('A merge of the order goes through the merge service and can be undone', async () => {
+      const fake = orderArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useOrderProposals([
+        {
+          tagId: 21,
+          tagName: 'rechnungen',
+          action: 'merge',
+          mergeInto: 'Rechnungen',
+        },
+      ]);
+
+      const { value } = await withLog(() => service.applyAccepted({}));
+      const logId = value.merged[0].logId;
+      const entry = await documentModel.getEntityMergeById(logId);
+      assert.strictEqual(
+        entry.action,
+        'merge',
+        'the row the log already knows'
+      );
+      assert.strictEqual(entry.targetId, 22);
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(21)).status,
+        'applied'
+      );
+
+      const undone = await withLog(() => duplicateMergeService.undo(logId));
+      assert.strictEqual(undone.value.status, 'undone');
+      assert.ok(
+        fake.tagNames().includes('rechnungen'),
+        'the merged tag is back'
+      );
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(21)).status,
+        'open',
+        'an undone merge is a decision again'
+      );
+    });
+
+    await test('A merge target that is gone is a failure, not a crash', async () => {
+      orderArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useOrderProposals([
+        {
+          tagId: 21,
+          tagName: 'rechnungen',
+          action: 'merge',
+          mergeInto: 'Quittungen',
+        },
+        {
+          tagId: 20,
+          tagName: 'Stromrechnung',
+          action: 'merge',
+          mergeInto: 'Stromrechnung',
+        },
+      ]);
+
+      const { value } = await withLog(() => service.applyAccepted({}));
+      assert.strictEqual(value.merged.length, 0);
+      assert.strictEqual(value.failed.length, 2);
+      assert.match(
+        value.failed.find((entry) => entry.tagId === 21).error,
+        /There is no tag called "Quittungen"/
+      );
+      assert.match(
+        value.failed.find((entry) => entry.tagId === 20).error,
+        /cannot be merged into itself/
+      );
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(21)).status,
+        'accepted',
+        'what failed stays a decision'
+      );
+    });
+
+    await test('A stop between two tags leaves the rest accepted', async () => {
+      const fake = orderArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useOrderProposals([
+        {
+          tagId: 20,
+          tagName: 'Stromrechnung',
+          documentCount: 2,
+          action: 'split',
+          typeName: 'Rechnung',
+          topicNames: ['Strom'],
+        },
+        { tagId: 23, tagName: 'todo', action: 'delete' },
+      ]);
+
+      let stopped = false;
+      const control = {
+        stopReason: () => (stopped ? 'user' : null),
+        onProgress: () => {
+          stopped = true;
+        },
+      };
+      const { value } = await withLog(() => service.applyAccepted({}, control));
+      assert.strictEqual(value.stopped, true);
+      assert.deepStrictEqual(value.applied, []);
+      assert.ok(fake.tag(20), 'nothing was written after the stop');
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(20)).status,
+        'accepted',
+        'the rest waits for the next run'
+      );
+    });
+
+    await test('An apply with nothing accepted is not an error', async () => {
+      orderArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useOrderProposals([
+        { tagId: 23, tagName: 'todo', action: 'delete', status: 'open' },
+      ]);
+
+      const { value, lines } = await withLog(() => service.applyAccepted({}));
+      assert.deepStrictEqual(value, {
+        applied: [],
+        merged: [],
+        failed: [],
+        stopped: false,
+      });
+      assert.ok(
+        simplifyLines(lines).some((line) =>
+          /^\[SIMPLIFY\] order applied: 0 split, 0 merged, 0 deleted, 0 failed, in \d+\.\d+s\.$/.test(
+            line
+          )
+        ),
+        `no apply line:\n${simplifyLines(lines).join('\n')}`
+      );
+    });
+
+    await test('One group applies without touching what is accepted elsewhere', async () => {
+      const fake = orderArchive();
+      await useVocabulary(['Rechnung'], ['Strom']);
+      await useOrderProposals([
+        {
+          tagId: 20,
+          tagName: 'Stromrechnung',
+          documentCount: 2,
+          action: 'split',
+          typeName: 'Rechnung',
+          topicNames: ['Strom'],
+        },
+        { tagId: 23, tagName: 'todo', action: 'delete' },
+      ]);
+
+      const { value } = await withLog(() =>
+        service.applyAccepted({ groupKey: 'delete' })
+      );
+      assert.deepStrictEqual(
+        value.applied.map((entry) => entry.tagName),
+        ['todo']
+      );
+      assert.ok(fake.tag(20), 'the split group was not touched');
+      assert.strictEqual(
+        (await documentModel.getTagSplitProposal(20)).status,
+        'accepted'
+      );
+      await expectRefusal(
+        () => service.applyAccepted({ groupKey: 'type:Quittung' }),
+        404,
+        'a group nobody proposed'
       );
     });
   } finally {
