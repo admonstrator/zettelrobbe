@@ -1849,15 +1849,9 @@ class TagSimplifyService {
     let createdTypeId = null;
     if (typeName) {
       try {
-        const existing =
-          await paperlessService.findDocumentTypeByExactName(typeName);
-        if (existing) {
-          typeId = Number(existing.id);
-        } else {
-          const created = await paperlessService.createDocumentType(typeName);
-          typeId = Number(created?.id);
-          createdTypeId = typeId;
-        }
+        const found = await this._typeIdFor(typeName, context);
+        typeId = found.id;
+        if (found.created) createdTypeId = typeId;
       } catch (error) {
         throw this._refusal(
           `the document type "${typeName}" could not be prepared: ${
@@ -1885,7 +1879,7 @@ class TagSimplifyService {
     for (const topicName of topicNames) {
       let id;
       try {
-        id = await this._topicTagId(topicName, vocabulary, createdTagIds);
+        id = await this._topicTagIdFor(topicName, context, createdTagIds);
       } catch (error) {
         throw this._refusal(
           `the topic tag "${topicName}" could not be prepared: ${
@@ -2110,6 +2104,75 @@ class TagSimplifyService {
   }
 
   /** Writes the Paperless-ngx id of an object onto its vocabulary entry. */
+  /**
+   * The id of a document type, found or created once per apply run:
+   * proposals applied side by side share the lookup, so two splits into the
+   * same type never create it twice. `created` is true for the one caller
+   * whose lookup created it; that caller's undo owns the type.
+   *
+   * @param {string} typeName
+   * @param {object} context - the run's context; the memo lives on it
+   * @returns {Promise<{ id: number, created: boolean }>}
+   */
+  async _typeIdFor(typeName, context) {
+    const memo = (context.typeIds ||= new Map());
+    const key = typeName.toLowerCase();
+    let first = false;
+    if (!memo.has(key)) {
+      first = true;
+      memo.set(
+        key,
+        (async () => {
+          const existing =
+            await paperlessService.findDocumentTypeByExactName(typeName);
+          if (existing) return { id: Number(existing.id), created: false };
+          const created = await paperlessService.createDocumentType(typeName);
+          return { id: Number(created?.id), created: true };
+        })().catch((error) => {
+          // The next proposal with this type asks again.
+          memo.delete(key);
+          throw error;
+        })
+      );
+    }
+    const found = await memo.get(key);
+    return { id: found.id, created: first && found.created };
+  }
+
+  /**
+   * The id of a topic tag the same way: one lookup per name and run, and the
+   * tag counts as created for the first caller only.
+   *
+   * @param {string} topicName
+   * @param {object} context
+   * @param {number[]} createdTagIds - this proposal's list, appended to when
+   *   the lookup created the tag for it
+   * @returns {Promise<number|null>}
+   */
+  async _topicTagIdFor(topicName, context, createdTagIds) {
+    const memo = (context.topicIds ||= new Map());
+    const key = normalizedTagKey(topicName);
+    let first = false;
+    if (!memo.has(key)) {
+      first = true;
+      const own = [];
+      memo.set(
+        key,
+        this._topicTagId(topicName, context.vocabulary, own)
+          .then((id) => ({ id, created: own.length > 0 }))
+          .catch((error) => {
+            memo.delete(key);
+            throw error;
+          })
+      );
+    }
+    const found = await memo.get(key);
+    if (first && found.created && Number.isInteger(found.id)) {
+      createdTagIds.push(found.id);
+    }
+    return found.id;
+  }
+
   async _rememberVocabularyId(dimension, name, paperlessId, vocabulary) {
     const list =
       dimension === DIMENSIONS.TYPE ? vocabulary?.types : vocabulary?.topics;
@@ -3228,6 +3291,7 @@ class TagSimplifyService {
       mergeService,
       statuses: ['accepted'],
       tags: null,
+      tagsLoading: null,
     };
     const startedAt = Date.now();
     this._log(
@@ -3253,16 +3317,19 @@ class TagSimplifyService {
     const failed = [];
     let stopped = false;
     let done = 0;
-    for (const proposal of todo) {
-      if (this._stopped(control)) {
+    let started = 0;
+    /** Applies one proposal and books what came of it; never throws. */
+    const applyOne = async (proposal) => {
+      if (stopped || this._stopped(control)) {
         stopped = true;
-        break;
+        return;
       }
+      started += 1;
       this._report(control, {
         phase: PHASES.APPLYING,
         pairsTotal: todo.length,
         pairsJudged: done,
-        message: `Applying ${done + 1} of ${todo.length}: ${proposal.tagName}…`,
+        message: `Applying ${started} of ${todo.length}: ${proposal.tagName}…`,
       });
       try {
         if (proposal.action === 'merge') {
@@ -3286,6 +3353,29 @@ class TagSimplifyService {
         phase: PHASES.APPLYING,
         pairsTotal: todo.length,
         pairsJudged: done,
+      });
+    };
+
+    // Merges, then splits, then deletes, as sorted above. Inside a phase the
+    // proposals run side by side, as many at once as the model requests do,
+    // where that changes nothing: deletes always, merges unless one feeds
+    // another, splits unless two touch the same document. A split reads the
+    // type a document had for its undo; two at once would both read none,
+    // and the second undo would put back nothing where the first set a type.
+    const lanes = this._lanes();
+    for (const action of ['merge', 'split', 'delete']) {
+      if (stopped) break;
+      const batch = todo.filter((proposal) => proposal.action === action);
+      if (batch.length === 0) continue;
+      if (action === 'split' && batch.length > 1) {
+        this._report(control, {
+          phase: PHASES.APPLYING,
+          message: `Reading the documents of ${batch.length} splits…`,
+        });
+      }
+      const strands = await this._applyStrands(action, batch);
+      await runInLanes(strands, lanes, async (strand) => {
+        for (const proposal of strand) await applyOne(proposal);
       });
     }
 
@@ -3314,6 +3404,72 @@ class TagSimplifyService {
    *
    * @returns {Promise<{tagId:number, tagName:string, targetId:number, targetName:string, logId:number|null, documentsUpdated:number}>}
    */
+  /**
+   * The proposals of one apply phase in strands: the proposals of a strand
+   * run one after the other, strands run side by side. A delete is a strand
+   * of its own. Merges are one strand when any of them feeds another (its
+   * target is another one's source), else one each. Splits that share a
+   * document share a strand, found by reading each split tag's documents;
+   * a tag whose documents cannot be read gets a strand of its own and
+   * reports the error when it is applied.
+   *
+   * @param {'merge'|'split'|'delete'} action
+   * @param {object[]} batch - the proposals of that action, in apply order
+   * @returns {Promise<object[][]>}
+   */
+  async _applyStrands(action, batch) {
+    if (action === 'merge') {
+      const sources = new Set(
+        batch.map((proposal) => normalizedTagKey(proposal.tagName))
+      );
+      const chained = batch.some((proposal) =>
+        sources.has(normalizedTagKey(String(proposal.mergeInto ?? '')))
+      );
+      return chained ? [batch] : batch.map((proposal) => [proposal]);
+    }
+    if (action !== 'split') return batch.map((proposal) => [proposal]);
+
+    // Union-find over the documents: the root is always the earliest index,
+    // so the strands keep the apply order among and within themselves.
+    const parent = batch.map((_, index) => index);
+    const find = (index) => {
+      let root = index;
+      while (parent[root] !== root) root = parent[root];
+      parent[index] = root;
+      return root;
+    };
+    const union = (a, b) => {
+      const rootA = find(a);
+      const rootB = find(b);
+      if (rootA !== rootB)
+        parent[Math.max(rootA, rootB)] = Math.min(rootA, rootB);
+    };
+    const firstWith = new Map();
+    for (const [index, proposal] of batch.entries()) {
+      let documentIds = [];
+      try {
+        documentIds = await paperlessService.getDocumentIdsByEntity(
+          'tags',
+          proposal.tagId
+        );
+      } catch {
+        // _applyOne reads them again and refuses in its own words.
+      }
+      for (const id of documentIds) {
+        const other = firstWith.get(Number(id));
+        if (other == null) firstWith.set(Number(id), index);
+        else union(other, index);
+      }
+    }
+    const strands = new Map();
+    for (const [index, proposal] of batch.entries()) {
+      const root = find(index);
+      if (!strands.has(root)) strands.set(root, []);
+      strands.get(root).push(proposal);
+    }
+    return [...strands.values()];
+  }
+
   async _applyMerge(proposal, context) {
     const name = String(proposal.mergeInto ?? '').trim();
     if (name === '') {
@@ -3324,8 +3480,12 @@ class TagSimplifyService {
     }
     if (context.tags === null) {
       try {
-        context.tags = await context.mergeService.listEntities('tags');
+        // One read for the run, shared by merges applied side by side.
+        context.tagsLoading ||= context.mergeService.listEntities('tags');
+        const loaded = await context.tagsLoading;
+        if (context.tags === null) context.tags = loaded;
       } catch (error) {
+        context.tagsLoading = null;
         throw this._refusal(
           `the tags could not be read: ${error?.message || 'unknown error'}`,
           proposal.tagName
