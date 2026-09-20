@@ -1075,9 +1075,10 @@ class TagSimplifyService {
       '"topics" is an empty list when the name is about nothing in the list.',
       'A name that is neither gets "type": null and an empty "topics".',
       '"confidence" is "high" when the name plainly says it and "low" when you had to guess.',
+      '"reason" is at most six words.',
       '',
       'Answer with a JSON array and nothing else — no prose, no explanation, no code fence:',
-      '[{"id": "12", "type": "Rechnung", "topics": ["Strom"], "confidence": "high", "reason": "<at most twelve words>"}]',
+      '[{"id": "12", "type": "Rechnung", "topics": ["Strom"], "confidence": "high", "reason": "<at most six words>"}]',
       'Answer every tag you were given exactly once, with the id copied as it was given.',
     ].join('\n');
   }
@@ -2421,10 +2422,14 @@ class TagSimplifyService {
       '"mergeInto" is the name of another tag of this request, copied exactly; never a type and never a topic.',
       'You are given names and document counts, not documents. Judge by the name, and never guess what is inside a document.',
       '"confidence" is "high" when the name plainly says it and "low" when you had to guess.',
-      '"reason" is at most twelve words.',
+      '"type" and "topics" belong to "split" only and "mergeInto" to "merge" only; leave out every field that does not apply to the action.',
+      '"reason" is at most six words; a "keep" needs none.',
       '',
       'Answer with a JSON array and nothing else — no prose, no explanation, no code fence:',
-      '[{"id": "12", "action": "split", "type": "Rechnung", "topics": ["Strom"], "mergeInto": null, "confidence": "high", "reason": "<at most twelve words>"}]',
+      '[{"id": "12", "action": "split", "type": "Rechnung", "topics": ["Strom"], "confidence": "high", "reason": "<at most six words>"}, ' +
+        '{"id": "13", "action": "merge", "mergeInto": "<another tag of this request>", "confidence": "high", "reason": "<at most six words>"}, ' +
+        '{"id": "14", "action": "keep", "confidence": "high"}, ' +
+        '{"id": "15", "action": "delete", "confidence": "low", "reason": "<at most six words>"}]',
       'Answer every tag you were given exactly once, with the id copied as it was given.',
     ].join('\n');
   }

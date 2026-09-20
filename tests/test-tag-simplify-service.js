@@ -1733,6 +1733,109 @@ async function main() {
       });
     }
 
+    await test('The order asks for short answers and reads one like a full one', async () => {
+      // Every answered tag costs output tokens, and the output is where a
+      // hosted model spends its time: the prompt asks for the fields that
+      // apply and six words of reason, none for a keep, and the parser takes
+      // such an answer as it took the full one.
+      useFake({
+        tags: [
+          { id: 1, name: 'Stromrechnung' },
+          { id: 2, name: 'Garten' },
+          { id: 3, name: 'Gärten' },
+          { id: 4, name: 'asdf' },
+          { id: 5, name: 'Hobby' },
+        ],
+        documentTypes: [{ id: 7, name: 'Rechnung' }],
+        documents: [
+          { id: 100, tags: [1], document_type: null },
+          { id: 101, tags: [2], document_type: null },
+          { id: 102, tags: [3], document_type: null },
+          { id: 103, tags: [4], document_type: null },
+          { id: 104, tags: [5], document_type: null },
+        ],
+      });
+      await useVocabulary(['Rechnung'], ['Strom', 'Garten']);
+      const { calls } = useOrderProvider(() => [
+        {
+          id: '1',
+          action: 'split',
+          type: 'Rechnung',
+          topics: ['Strom'],
+          confidence: 'high',
+          reason: 'invoice for electricity',
+        },
+        { id: '3', action: 'merge', mergeInto: 'Garten', confidence: 'high' },
+        {
+          id: '4',
+          action: 'delete',
+          confidence: 'low',
+          reason: 'says nothing',
+        },
+        { id: '5', action: 'keep', confidence: 'high' },
+      ]);
+
+      await withLog(() => service.proposeOrder({ vocabulary: 'keep' }));
+
+      const system = calls[0].options.systemPrompt;
+      assert.ok(
+        system.includes('"reason" is at most six words; a "keep" needs none.'),
+        'the prompt asks for short reasons and none for a keep'
+      );
+      assert.ok(
+        system.includes(
+          'leave out every field that does not apply to the action.'
+        ),
+        'and for the fields that apply, no others'
+      );
+      assert.ok(
+        system.includes('{"id": "14", "action": "keep", "confidence": "high"}'),
+        'the example shows a keep without a reason'
+      );
+      assert.ok(
+        !system.includes('"mergeInto": null'),
+        'the example carries no null fields'
+      );
+
+      const rows = new Map(
+        (await service.listProposals()).map((row) => [row.tagName, row])
+      );
+      assert.deepStrictEqual(
+        [
+          rows.get('Stromrechnung').action,
+          rows.get('Stromrechnung').typeName,
+          rows.get('Stromrechnung').topicNames,
+          rows.get('Stromrechnung').mergeInto,
+        ],
+        ['split', 'Rechnung', ['Strom'], null],
+        'a split without a mergeInto field is a split'
+      );
+      assert.deepStrictEqual(
+        [
+          rows.get('Gärten').action,
+          rows.get('Gärten').mergeInto,
+          rows.get('Gärten').typeName,
+          rows.get('Gärten').reason,
+        ],
+        ['merge', 'Garten', null, 'proposed by the model'],
+        'a merge without type, topics or reason is a merge'
+      );
+      assert.deepStrictEqual(
+        [rows.get('asdf').action, rows.get('asdf').reason],
+        ['delete', 'says nothing']
+      );
+      assert.deepStrictEqual(
+        [
+          rows.get('Hobby').action,
+          rows.get('Hobby').confidence,
+          rows.get('Hobby').reason,
+          rows.get('Hobby').source,
+        ],
+        ['keep', 'high', 'proposed by the model', 'model'],
+        'a keep of id, action and confidence alone is a keep by the model'
+      );
+    });
+
     await test('The rule gives every tag one of the four actions', async () => {
       useFake({
         tags: [
