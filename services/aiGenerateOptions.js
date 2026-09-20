@@ -116,6 +116,9 @@ function reasoningEnabled(options) {
  * @property {boolean} thinking          the model is writing reasoning now
  * @property {number|null} completionTokens  tokens produced so far: reported
  *   by the provider when it streams usage, else estimated from the text
+ * @property {number|null} thinkingTokens tokens of reasoning so far, estimated
+ *   from the reasoning text the model wrote (null when it wrote none). Part of
+ *   completionTokens, never in addition to it.
  * @property {boolean} done              the last report of this request
  */
 
@@ -143,7 +146,9 @@ function progressHandler(options) {
  * care read `service.lastGenerateTextUsage` after the call.
  *
  * @param {object} response
- * @returns {{promptTokens:number|null, completionTokens:number|null, totalTokens:number}|null}
+ * @returns {{promptTokens:number|null, completionTokens:number|null, totalTokens:number, reasoningTokens:number|null}|null}
+ *   reasoningTokens is what the provider itself reported as reasoning
+ *   (completion_tokens_details.reasoning_tokens), null when it reported none
  */
 function readCompletionUsage(response) {
   const usage = response?.usage;
@@ -151,6 +156,9 @@ function readCompletionUsage(response) {
   const promptTokens = Number(usage.prompt_tokens);
   const completionTokens = Number(usage.completion_tokens);
   const totalTokens = Number(usage.total_tokens);
+  const reasoningTokens = Number(
+    usage.completion_tokens_details?.reasoning_tokens
+  );
   if (
     !Number.isFinite(promptTokens) &&
     !Number.isFinite(completionTokens) &&
@@ -167,6 +175,7 @@ function readCompletionUsage(response) {
       ? totalTokens
       : (Number.isFinite(promptTokens) ? promptTokens : 0) +
         (Number.isFinite(completionTokens) ? completionTokens : 0),
+    reasoningTokens: Number.isFinite(reasoningTokens) ? reasoningTokens : null,
   };
 }
 

@@ -66,6 +66,16 @@ const PHASES = Object.freeze({
   JUDGING: 'judging',
   ESCALATING: 'escalating',
   FINISHING: 'finishing',
+  // The tasks of the Simplify tags page, run through the same job.
+  VOCABULARY: 'vocabulary',
+  SPLITTING: 'splitting',
+});
+
+/** What a job runs; the review is the default, the other two belong to Simplify tags. */
+const JOB_TASKS = Object.freeze({
+  REVIEW: 'review',
+  VOCABULARY: 'vocabulary',
+  SPLITS: 'splits',
 });
 
 /** How long a finished job stays reachable through current() and get(). */
@@ -133,6 +143,10 @@ function freshProgress(tokenBudget) {
     thinking: false,
     batchSize: null,
     calibrated: false,
+    concurrency: null,
+    inFlight: 0,
+    verdictsReused: 0,
+    thinkingTokens: null,
   };
 }
 
@@ -164,11 +178,16 @@ class DuplicateReviewJobService {
   /**
    * Starts a review as a job and returns at once.
    *
-   * @param {object} options  what reviewScan() takes
+   * @param {object} options  what reviewScan() takes; `options.task` names
+   *   another task (JOB_TASKS) when a runner is given
+   * @param {(function(object, object): Promise<object>)|null} [runner]  what to
+   *   run instead of the judge's reviewScan: called with (options, control),
+   *   reports through control.onProgress, honours control.signal. The
+   *   Simplify tags page runs its vocabulary and split proposals this way.
    * @returns {object} the job (see toJSON() for what leaves the process)
-   * @throws {Error} status 409 while another review is running
+   * @throws {Error} status 409 while another job is running
    */
-  start(options) {
+  start(options, runner = null) {
     if (this.isRunning()) {
       const error = new Error('An AI review is already running');
       error.status = 409;
@@ -181,6 +200,11 @@ class DuplicateReviewJobService {
       id: crypto.randomUUID(),
       status: JOB_STATUS.RUNNING,
       options: { ...(options || {}) },
+      task:
+        typeof runner === 'function' && options?.task
+          ? String(options.task)
+          : JOB_TASKS.REVIEW,
+      runner: typeof runner === 'function' ? runner : null,
       startedAt: new Date().toISOString(),
       startedMs: Date.now(),
       judgingSinceMs: null,
@@ -315,6 +339,7 @@ class DuplicateReviewJobService {
     return {
       id: job.id,
       status: job.status,
+      task: job.task || JOB_TASKS.REVIEW,
       options: job.options,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
@@ -351,7 +376,10 @@ class DuplicateReviewJobService {
       stopReason: () => job.stopReason,
     };
     try {
-      const data = await this._judge().reviewScan(job.options, control);
+      const run =
+        job.runner ||
+        ((options, ctl) => this._judge().reviewScan(options, ctl));
+      const data = await run(job.options, control);
       job.result = data || null;
       const stoppedEarly =
         job.stopReason !== null || Boolean(data?.aiReview?.stopped);
@@ -531,6 +559,7 @@ class DuplicateReviewJobService {
 
 const duplicateReviewJobService = new DuplicateReviewJobService();
 duplicateReviewJobService.JOB_STATUS = JOB_STATUS;
+duplicateReviewJobService.JOB_TASKS = JOB_TASKS;
 duplicateReviewJobService.STOP_REASONS = STOP_REASONS;
 duplicateReviewJobService.EVENT_TYPES = EVENT_TYPES;
 duplicateReviewJobService.PHASES = PHASES;

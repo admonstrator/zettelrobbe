@@ -1154,6 +1154,10 @@ class DuplicateMergeService {
       throw new MergeValidationError('This merge was already undone', 409);
     }
     this._assertScanIdle();
+    if (entry.action === 'split') {
+      // A split is undone by the service that made it; the log row is shared.
+      return require('./tagSimplifyService').undoSplit(entry, { performedBy });
+    }
 
     const kind = entry.kind;
     const isDelete = entry.action === 'delete';

@@ -774,8 +774,51 @@
  *           $ref: '#/components/schemas/EntityMergeUndoResult'
  *         action:
  *           type: string
- *           enum: [merge, delete]
+ *           enum: [merge, delete, split]
  *           description: what the row records; a delete row lists the removed objects as its sources and can be undone like a merge
+ *         details:
+ *           type: object
+ *           nullable: true
+ *           description: |
+ *             What a split did, per document, so an undo can put exactly that
+ *             back: the topic tags it added and the document type it set.
+ *             Null for merges and deletes.
+ *           properties:
+ *             typeName:
+ *               type: string
+ *               nullable: true
+ *             typeId:
+ *               type: integer
+ *               nullable: true
+ *             topicTagIds:
+ *               type: array
+ *               items:
+ *                 type: integer
+ *             createdTypeId:
+ *               type: integer
+ *               nullable: true
+ *               description: a document type the split created, deleted again by the undo
+ *             createdTagIds:
+ *               type: array
+ *               items:
+ *                 type: integer
+ *               description: topic tags the split created, deleted again by the undo
+ *             documents:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   addedTagIds:
+ *                     type: array
+ *                     items:
+ *                       type: integer
+ *                   previousTypeId:
+ *                     type: integer
+ *                     nullable: true
+ *                   typeSet:
+ *                     type: boolean
  *         targetRenamedFrom:
  *           type: string
  *           nullable: true
@@ -952,6 +995,12 @@
  *                 sweepProposals:
  *                   type: integer
  *                   description: pairs the sweep proposed that the string matcher had not; they were judged with evidence like any candidate
+ *                 verdictsReused:
+ *                   type: integer
+ *                   description: pairs answered from the judge's memory of earlier verdicts instead of a model request
+ *                 concurrency:
+ *                   type: integer
+ *                   description: model requests the review kept in flight at once
  *
  *     AiReviewProgress:
  *       type: object
@@ -1029,11 +1078,29 @@
  *         calibrated:
  *           type: boolean
  *           description: true once the batch size and the answer cap come from a measurement of this model rather than from defaults
+ *         concurrency:
+ *           type: integer
+ *           nullable: true
+ *           description: model requests kept in flight at once
+ *         inFlight:
+ *           type: integer
+ *           description: model requests waiting for an answer right now
+ *         verdictsReused:
+ *           type: integer
+ *           description: pairs answered from remembered verdicts so far
+ *         thinkingTokens:
+ *           type: integer
+ *           nullable: true
+ *           description: reasoning tokens of the current request so far, estimated from the reasoning text; null when the model wrote none
  *
  *     AiReviewJob:
  *       type: object
  *       description: One AI review running on the server, or the last one that finished. There is at most one at a time.
  *       properties:
+ *         task:
+ *           type: string
+ *           enum: [review, vocabulary, splits]
+ *           description: what the job runs; the Simplify tags page starts the vocabulary and splits tasks through the same runner
  *         id:
  *           type: string
  *         status:
@@ -1149,6 +1216,147 @@
  *         createdAt:
  *           type: string
  *
+ *     TagVocabularyEntry:
+ *       type: object
+ *       description: One entry of the target vocabulary of "Simplify tags"
+ *       properties:
+ *         id:
+ *           type: integer
+ *         dimension:
+ *           type: string
+ *           enum: [type, topic]
+ *           description: type is a document type, topic is a tag
+ *         name:
+ *           type: string
+ *         paperlessId:
+ *           type: integer
+ *           nullable: true
+ *           description: the document type or tag in Paperless-ngx once it exists
+ *         source:
+ *           type: string
+ *           enum: [model, user]
+ *         position:
+ *           type: integer
+ *     TagVocabulary:
+ *       type: object
+ *       description: The vocabulary the archive should end up with, by dimension
+ *       properties:
+ *         types:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TagVocabularyEntry'
+ *         topics:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TagVocabularyEntry'
+ *     TagVocabularyRequest:
+ *       type: object
+ *       description: The vocabulary as the user saves it; names only, order kept
+ *       properties:
+ *         types:
+ *           type: array
+ *           items:
+ *             type: string
+ *         topics:
+ *           type: array
+ *           items:
+ *             type: string
+ *     TagSplitProposal:
+ *       type: object
+ *       description: What one tag stands for, as proposed by a rule, the model or the user
+ *       properties:
+ *         tagId:
+ *           type: integer
+ *         tagName:
+ *           type: string
+ *         documentCount:
+ *           type: integer
+ *         typeName:
+ *           type: string
+ *           nullable: true
+ *           description: the document type the tag encodes, null when it encodes none
+ *         topicNames:
+ *           type: array
+ *           items:
+ *             type: string
+ *         source:
+ *           type: string
+ *           enum: [rule, model, user]
+ *         confidence:
+ *           type: string
+ *           nullable: true
+ *           enum: [high, low]
+ *         reason:
+ *           type: string
+ *           nullable: true
+ *         documentsWithType:
+ *           type: integer
+ *           description: documents of the tag that already carry a different document type; they keep it unless overwriteType is set
+ *         overwriteType:
+ *           type: boolean
+ *         status:
+ *           type: string
+ *           enum: [open, applied, skipped]
+ *         updatedAt:
+ *           type: string
+ *     TagSplitProposalPatch:
+ *       type: object
+ *       description: What the user may change on a proposal
+ *       properties:
+ *         typeName:
+ *           type: string
+ *           nullable: true
+ *         topicNames:
+ *           type: array
+ *           items:
+ *             type: string
+ *         overwriteType:
+ *           type: boolean
+ *         status:
+ *           type: string
+ *           enum: [open, skipped]
+ *     TagSplitApplyRequest:
+ *       type: object
+ *       required: [tagIds]
+ *       properties:
+ *         tagIds:
+ *           type: array
+ *           items:
+ *             type: integer
+ *           description: proposals to apply, by tag id; at most 200 per call
+ *     TagSplitApplyResult:
+ *       type: object
+ *       properties:
+ *         applied:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               tagId:
+ *                 type: integer
+ *               tagName:
+ *                 type: string
+ *               logId:
+ *                 type: integer
+ *               documentsUpdated:
+ *                 type: integer
+ *               typeSet:
+ *                 type: integer
+ *                 description: documents whose document type was set
+ *               typeKept:
+ *                 type: integer
+ *                 description: documents that kept a differing document type
+ *         failed:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               tagId:
+ *                 type: integer
+ *               tagName:
+ *                 type: string
+ *               error:
+ *                 type: string
  *     EntityMergeDismissRequest:
  *       type: object
  *       required:

@@ -124,6 +124,7 @@ function gate() {
       'startedAt',
       'status',
       'stopReason',
+      'task',
     ]);
     assert.deepStrictEqual(shape.options, { kind: 'tags', threshold: 0.9 });
     assert.strictEqual(shape.progress.phase, 'starting');

@@ -442,6 +442,7 @@ async function main() {
         promptTokens: 40,
         completionTokens: 321,
         totalTokens: 361,
+        reasoningTokens: null,
       });
     });
 

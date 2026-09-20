@@ -1386,7 +1386,29 @@ function bestMatch(name, entities, options = {}) {
     : null;
 }
 
+/**
+ * Splits a compound tag name against the vocabulary of "Simplify tags": the
+ * head of the compound names the document type, what precedes it names a
+ * topic. "Stromrechnung" with type "Rechnung" and topic "Strom" in the
+ * vocabulary gives { type: 'Rechnung', topics: ['Strom'], rest: '' }; a name
+ * whose head is in the vocabulary but whose remainder is not gives the type
+ * and the remainder as `rest`, for the model or the user to name.
+ *
+ * Contract of round 10; the implementation lands with the simplify service.
+ *
+ * @param {string} name
+ * @param {{types: string[], topics: string[]}} vocabulary
+ * @returns {{type: string|null, topics: string[], rest: string, score: number}|null}
+ *   null when nothing in the vocabulary matches the name
+ */
+function decomposeCompound(name, vocabulary) {
+  void name;
+  void vocabulary;
+  return null;
+}
+
 module.exports = {
+  decomposeCompound,
   KINDS,
   HARD_REASONS,
   bestMatch,

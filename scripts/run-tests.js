@@ -139,6 +139,10 @@ const TESTS = {
   'duplicate-review-job': 'test-duplicate-review-job.js',
   'ai-provider-streaming': 'test-ai-provider-streaming.js',
   'entity-creation-guard': 'test-entity-creation-guard.js',
+  'simplify-model': 'test-simplify-model.js',
+  'tag-simplify-service': 'test-tag-simplify-service.js',
+  'simplify-endpoints': 'test-simplify-endpoints.js',
+  'simplify-ui': 'test-simplify-ui.js',
 };
 
 const AREAS = {
@@ -255,6 +259,12 @@ const AREAS = {
     'duplicate-review-job',
     'ai-provider-streaming',
     'entity-creation-guard',
+  ],
+  simplify: [
+    'simplify-model',
+    'tag-simplify-service',
+    'simplify-endpoints',
+    'simplify-ui',
   ],
 };
 
