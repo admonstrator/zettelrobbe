@@ -106,6 +106,18 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 Let the AI look at the whole list for synonyms and translations (more requests)
                             </label>
                             <span class="zr-sm zr-faint dup-ai-hint" id="dupAiHint">Most useful at Strict sensitivity: the near-misses below the threshold are what the model gets to judge.</span>
+                            <!-- The judge remembers what it decided about a
+                                 pair of names, so the next review only asks
+                                 about what is new. This empties that memory;
+                                 nothing in Paperless-ngx is touched. A row of
+                                 its own, under the options, so it never reads
+                                 as a third way to start a review. -->
+                            <div class="dup-ai-forget-row">
+                                <button class="zr-btn zr-btn--ghost dup-ai-forget" id="dupAiForgetBtn" type="button">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                    Forget remembered verdicts
+                                </button>
+                            </div>
                         </div>
                         <!-- What the one-click path does, and what it is doing
                              right now. The status stays empty until it runs. -->

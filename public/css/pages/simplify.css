@@ -1,0 +1,343 @@
+/* ==========================================================================
+   The Simplify tags page: the vocabulary editor, the progress panel of the
+   two jobs it can start, and the table of split proposals.
+   @layer pages: above the framework layers, below utilities.
+
+   Only what the framework does not already carry lives here — the two-column
+   vocabulary editor, the chip that carries a remove button, the progress
+   panel (the Duplicates one, under this page's own names), the column widths
+   of the proposal table on a wide screen, and the muted look of a row that has
+   been applied. Everything else is a framework class.
+   ========================================================================== */
+
+@layer pages {
+  /* --- the vocabulary editor -------------------------------------------- */
+  /* Two lists side by side on a desktop, stacked on a phone: the document
+     types and the topics are edited the same way, so they look the same. */
+  .sim-vocab {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-3);
+  }
+
+  .sim-vocab__col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  /* The list keeps its height when it is empty, so the input below it does
+     not jump up the moment the last chip is removed. */
+  .sim-chips {
+    align-content: flex-start;
+    min-height: 28px;
+  }
+
+  .sim-chip {
+    max-width: 100%;
+  }
+
+  .sim-chip__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sim-vocab__input {
+    width: 100%;
+  }
+
+  .sim-vocab__empty {
+    color: var(--zr-text-faint);
+    font-size: var(--zr-fs-sm);
+  }
+
+  .sim-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  /* Where a notice about the vocabulary goes: a model proposal that is not
+     saved yet, or the reason a save failed. Empty means no row at all. */
+  .sim-notice:empty {
+    display: none;
+  }
+
+  @media (max-width: 720px) {
+    .sim-vocab {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sim-actions .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+  }
+
+  /* --- the progress panel of a running job ------------------------------ */
+  /* The same panel the Duplicates page shows for a review, under this page's
+     own names: both pages watch the one job service, so both say where it is
+     the same way. A bar over three lines of text, and the button that ends
+     it; the lines keep their height so the table below does not move. */
+  .sim-progress {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--zr-2) var(--zr-3);
+    width: 100%;
+    padding-top: var(--zr-3);
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .sim-progress__bar {
+    grid-column: 1 / -1;
+    height: 6px;
+    background: var(--zr-surface-sunken);
+    border-radius: var(--zr-r-full);
+    overflow: hidden;
+  }
+
+  .sim-progress__fill {
+    width: 0;
+    height: 100%;
+    background: var(--zr-brand);
+    border-radius: inherit;
+    transition: width 200ms var(--zr-ease);
+  }
+
+  /* Before the plan knows how many requests it needs there is no share to
+     show, so the bar says "working" instead of lying about a percentage. */
+  .sim-progress__fill--indeterminate {
+    width: 32%;
+    transition: none;
+    animation: simProgressSlide 1.4s ease-in-out infinite;
+  }
+
+  @keyframes simProgressSlide {
+    from {
+      transform: translateX(-110%);
+    }
+
+    to {
+      transform: translateX(320%);
+    }
+  }
+
+  .sim-progress__text {
+    display: grid;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  .sim-progress__text > span {
+    min-height: 1.15em;
+    overflow-wrap: anywhere;
+  }
+
+  .sim-progress__text > span:empty {
+    min-height: 0;
+  }
+
+  .sim-progress__actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sim-progress__fill--indeterminate {
+      animation: none;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .sim-progress {
+      grid-template-columns: 1fr;
+    }
+
+    .sim-progress__actions {
+      justify-content: flex-start;
+    }
+  }
+
+  /* --- filters ---------------------------------------------------------- */
+  .sim-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--zr-3);
+  }
+
+  .sim-filters__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  @media (max-width: 720px) {
+    .sim-filters__field {
+      width: 100%;
+    }
+
+    .sim-filters__field .zr-segment {
+      display: flex;
+    }
+
+    .sim-filters__field .zr-segment button {
+      flex: 1;
+    }
+  }
+
+  /* --- the proposal table ----------------------------------------------- */
+  .sim-proposals__alert:empty {
+    display: none;
+  }
+
+  .sim-proposals__pickcol {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  /* The two editable cells carry a control each, so they need room the text
+     columns do not, and the reason must not squeeze them out. A table lays
+     itself out by content, so the widths go on the header row. */
+  @media (min-width: 900px) {
+    .sim-proposals__table .sim-proposals__typecol {
+      width: 200px;
+    }
+
+    .sim-proposals__table .sim-proposals__topicscol {
+      width: 220px;
+    }
+
+    .sim-proposals__table .sim-proposals__reasoncol {
+      width: 26ch;
+    }
+  }
+
+  /* An applied row carries the link back to the log under its badge. A table
+     lays itself out by content, so the column only gets the room the link
+     needs if the link refuses to be broken. */
+  .sim-proposals__statuscol {
+    white-space: nowrap;
+  }
+
+  .sim-row--applied .zr-link {
+    display: block;
+    margin-top: 4px;
+    white-space: nowrap;
+  }
+
+  /* The select and the overwrite switch are one thing, so the cell holds one
+     box rather than two: a stacked table lays a cell out as a flex row, and
+     two items would sit side by side on a phone. */
+  .sim-typecell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  .sim-type {
+    width: 100%;
+    min-width: 8rem;
+    max-width: 200px;
+  }
+
+  .sim-topics {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  .sim-topics__input {
+    width: 100%;
+    max-width: 240px;
+  }
+
+  /* The switch that sets the document type even where one is set, with the
+     number of documents that would otherwise keep theirs. Under the select,
+     never beside it: the two belong together and a narrow column would break
+     the sentence in the middle. */
+  .sim-overwrite-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: var(--zr-2);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .sim-overwrite-row .sim-overwrite {
+    flex: 0 0 auto;
+  }
+
+  /* A reason is one sentence from a rule or from the model; it may be long,
+     and it must not push the actions off the row. */
+  .sim-reason {
+    display: block;
+    min-width: 16ch;
+    max-width: 32ch;
+    overflow-wrap: break-word;
+  }
+
+  /* An applied row is history: it stays visible with its numbers, dimmed, and
+     carries the one link that can take it back. */
+  .sim-row--applied {
+    opacity: 0.65;
+  }
+
+  .sim-row--failed .sim-error {
+    display: block;
+    margin-top: var(--zr-1);
+    color: var(--zr-danger);
+    font-size: var(--zr-fs-sm);
+  }
+
+  /* --- the apply bar ---------------------------------------------------- */
+  .sim-apply {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-2);
+  }
+
+  .sim-apply__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+    margin-left: auto;
+  }
+
+  .sim-apply__status {
+    color: var(--zr-text-faint);
+  }
+
+  @media (max-width: 720px) {
+    .sim-apply__actions {
+      width: 100%;
+      margin-left: 0;
+    }
+
+    .sim-apply__actions .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+  }
+
+  /* --- the confirmation of an apply ------------------------------------- */
+  /* The dialog lists what the run will do in full sentences; the list needs
+     the same spacing the Duplicates dialogs use. */
+  .sim-dialog__list {
+    margin: var(--zr-2) 0 0;
+    padding-left: var(--zr-4);
+    display: grid;
+    gap: 4px;
+  }
+}

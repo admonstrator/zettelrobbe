@@ -29,6 +29,10 @@
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
                             Duplicates
                         </a>
+                        <a href="#simplify-tab">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                            Simplify tags
+                        </a>
                         <a href="#ocr-tab">
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-scan"/></svg>
                             OCR
@@ -53,6 +57,7 @@
                     <a href="#mfa-tab">Security</a>
                     <a href="#ai-tab">AI</a>
                     <a href="#duplicates-tab">Duplicates</a>
+                    <a href="#simplify-tab">Simplify tags</a>
                     <a href="#ocr-tab">OCR</a>
                     <a href="#troubleshooting-tab">Maintenance</a>
                     <a href="#env-tab">Environment</a>
@@ -847,6 +852,16 @@ const quickstartKeyStored =
                                     <input type="number" id="duplicatesAiRequestSeconds" name="duplicatesAiRequestSeconds" min="5" max="300" step="5" value="<%= config.DUPLICATES_AI_REQUEST_SECONDS || 30 %>" class="zr-input">
                                     <p class="zr-field__hint">The judge measures your model on a small first request and then asks about as many pairs per request as fit into this many seconds. Shorter means more, smaller requests and more frequent progress. Default: 30 · Restart required.</p>
                                 </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiConcurrency" class="zr-field__name">Model requests at once</label>
+                                    <input type="number" id="duplicatesAiConcurrency" name="duplicatesAiConcurrency" min="0" max="8" step="1" value="<%= config.DUPLICATES_AI_CONCURRENCY || 0 %>" class="zr-input">
+                                    <p class="zr-field__hint">0 lets the judge choose: one for Ollama, three for a hosted endpoint. Wall time divides by it, tokens do not. Default: 0 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiVerdictMemoryDays" class="zr-field__name">Remember verdicts for (days)</label>
+                                    <input type="number" id="duplicatesAiVerdictMemoryDays" name="duplicatesAiVerdictMemoryDays" min="0" max="365" step="1" value="<%= config.DUPLICATES_AI_VERDICT_MEMORY_DAYS || 90 %>" class="zr-input">
+                                    <p class="zr-field__hint">A pair the model judged is not asked again while both names are unchanged; 0 switches the memory off. Default: 90 · Restart required</p>
+                                </div>
                                 <%- include('partials/settings-switch', {
                                     id: 'duplicatesGuardNewNames',
                                     label: 'Reuse an existing name instead of creating a near-duplicate',
@@ -857,6 +872,31 @@ const quickstartKeyStored =
                                     <label for="duplicatesAiSweepNames" class="zr-field__name">Names per request for the semantic sweep</label>
                                     <input type="number" id="duplicatesAiSweepNames" name="duplicatesAiSweepNames" min="50" max="1000" step="50" value="<%= config.DUPLICATES_AI_SWEEP_NAMES || 300 %>" class="zr-input">
                                     <p class="zr-field__hint">How many names the model sees per request when it looks at the whole list. Default: 300 · Restart required.</p>
+                                </div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div id="simplify-tab" class="zr-col zr-col--loose">
+                            <section class="zr-module" id="sec-simplify">
+                                <div class="zr-module__head">
+                                    <h2 class="zr-module__title">Simplify tags</h2>
+                                </div>
+                                <div class="zr-module__body zr-col zr-col--loose">
+                                <p class="zr-sm zr-muted">
+                                    The Simplify tags page turns a compound tag such as "Stromrechnung" into a document type
+                                    ("Rechnung") and topic tags ("Strom"). Decomposing against a saved vocabulary is a rule and
+                                    needs no model; these two settings only govern the optional proposals the model makes.
+                                </p>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="simplifyTagsPerRequest" class="zr-field__name">Tags per model request</label>
+                                    <input type="number" id="simplifyTagsPerRequest" name="simplifyTagsPerRequest" min="10" max="200" step="10" value="<%= config.SIMPLIFY_TAGS_PER_REQUEST || 50 %>" class="zr-input">
+                                    <p class="zr-field__hint">How many tag names one request asks the model to decompose; fewer names mean more requests (10-200) · Default: 50 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="simplifyVocabularySize" class="zr-field__name">Vocabulary size</label>
+                                    <input type="number" id="simplifyVocabularySize" name="simplifyVocabularySize" min="5" max="100" step="5" value="<%= config.SIMPLIFY_VOCABULARY_SIZE || 25 %>" class="zr-input">
+                                    <p class="zr-field__hint">How many entries the proposed vocabulary should aim at, document types and topics together (5-100) · Default: 25 · Restart required</p>
                                 </div>
                                 </div>
                             </section>

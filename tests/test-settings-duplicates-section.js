@@ -5,10 +5,16 @@
  *
  * Every DUPLICATES_* variable used to be reachable only by editing the
  * container environment, which is exactly the kind of setting the settings
- * page exists for. The section makes the thirteen of them editable, so this
+ * page exists for. The section makes the fifteen of them editable, so this
  * test holds the whole path together: the rendered fields, the nav entry that
  * reaches them, the POST that stores them, the "Managed by ENV" marking that
  * greys them out, and the .env export that lists them.
+ *
+ * Round 10 added two of those fifteen — how many model requests may wait for
+ * an answer at once, and how long a verdict about a pair of names is
+ * remembered — and a section of its own after Duplicates for the two settings
+ * of "Simplify tags". Every assertion about the Duplicates section therefore
+ * slices the page between the two sections, not between Duplicates and OCR.
  *
  * Two behaviours are deliberate and therefore pinned here. A number outside
  * its range is clamped rather than rejected — the ranges are guard rails, not
@@ -101,8 +107,12 @@ const START_ENV = {
   DUPLICATES_AI_IDLE_STOP_SECONDS: '90',
   DUPLICATES_AI_THINKING: 'yes',
   DUPLICATES_AI_REQUEST_SECONDS: '45',
+  DUPLICATES_AI_CONCURRENCY: '4',
+  DUPLICATES_AI_VERDICT_MEMORY_DAYS: '30',
   DUPLICATES_GUARD_NEW_NAMES: 'no',
   DUPLICATES_AI_SWEEP_NAMES: '450',
+  SIMPLIFY_TAGS_PER_REQUEST: '80',
+  SIMPLIFY_VOCABULARY_SIZE: '40',
 };
 
 const ENV_KEYS = Object.keys(START_ENV);
@@ -135,8 +145,21 @@ const FIELDS = [
     input: 'duplicatesAiRequestSeconds',
     envKey: 'DUPLICATES_AI_REQUEST_SECONDS',
   },
+  { input: 'duplicatesAiConcurrency', envKey: 'DUPLICATES_AI_CONCURRENCY' },
+  {
+    input: 'duplicatesAiVerdictMemoryDays',
+    envKey: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
+  },
   { input: 'duplicatesGuardNewNames', envKey: 'DUPLICATES_GUARD_NEW_NAMES' },
   { input: 'duplicatesAiSweepNames', envKey: 'DUPLICATES_AI_SWEEP_NAMES' },
+];
+
+// The body keys of the section that follows the Duplicates one. They are a
+// list of their own because every assertion about the Duplicates section
+// slices the page between the two.
+const SIMPLIFY_FIELDS = [
+  { input: 'simplifyTagsPerRequest', envKey: 'SIMPLIFY_TAGS_PER_REQUEST' },
+  { input: 'simplifyVocabularySize', envKey: 'SIMPLIFY_VOCABULARY_SIZE' },
 ];
 
 let passed = 0;
@@ -275,7 +298,11 @@ function sliceBetween(source, from, to) {
 
     await test('every field is rendered with the value that is configured now', async () => {
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
 
       FIELDS.forEach(({ input, envKey }) => {
         assert.ok(
@@ -309,14 +336,18 @@ function sliceBetween(source, from, to) {
 
       assert.strictEqual(
         countOccurrences(section, 'class="zr-field__hint"'),
-        13,
-        'each of the thirteen fields says what it does and what its default is'
+        15,
+        'each of the fifteen fields says what it does and what its default is'
       );
     });
 
     await test('the two request settings render with their hints and close the section', async () => {
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
 
       const thinking = sliceBetween(
         section,
@@ -372,7 +403,11 @@ function sliceBetween(source, from, to) {
     // ── The two settings that outlive a single review ──────────────────────
     await test('the creation guard renders as a switch that is on by default', async () => {
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
 
       const guard = sliceBetween(
         section,
@@ -414,7 +449,11 @@ function sliceBetween(source, from, to) {
 
     await test('the sweep size renders as a number field in steps of fifty', async () => {
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
 
       const sweep = sliceBetween(
         section,
@@ -449,7 +488,11 @@ function sliceBetween(source, from, to) {
 
     await test('the two brakes render as number fields with a range that starts at zero', async () => {
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
 
       const budget = sliceBetween(
         section,
@@ -509,7 +552,7 @@ function sliceBetween(source, from, to) {
         'utf8'
       );
 
-      FIELDS.forEach(({ input, envKey }) => {
+      [...FIELDS, ...SIMPLIFY_FIELDS].forEach(({ input, envKey }) => {
         const entry = new RegExp(
           `selector:\\s*'#${input}',\\s*envKey:\\s*'${envKey}'`
         );
@@ -662,7 +705,11 @@ function sliceBetween(source, from, to) {
       assert.strictEqual(response.status, 200, await response.text());
 
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
       assert.ok(
         section.includes('data-switch-target="duplicatesAiThinking" checked'),
         'a saved switch must come back on, or the page lies about what is configured'
@@ -816,7 +863,11 @@ function sliceBetween(source, from, to) {
       );
 
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="duplicates-tab"', 'id="ocr-tab"');
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
       assert.ok(
         section.includes(
           'data-switch-target="duplicatesGuardNewNames" checked'
@@ -871,6 +922,289 @@ function sliceBetween(source, from, to) {
           env.indexOf('DUPLICATES_GUARD_NEW_NAMES=') <
             env.indexOf('DUPLICATES_AI_SWEEP_NAMES='),
         'the guard and the sweep size close the group, in the order the page shows them'
+      );
+    });
+    // ── The two settings round 10 added to the section ─────────────────────
+    await test('the concurrency and the verdict memory render with their ranges', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+
+      const lanes = sliceBetween(
+        section,
+        'id="duplicatesAiConcurrency"',
+        '</div>'
+      );
+      assert.ok(
+        lanes.includes('min="0"') &&
+          lanes.includes('max="8"') &&
+          lanes.includes('step="1"'),
+        'the lane count spans 0 to 8 in single steps'
+      );
+      assert.ok(
+        lanes.includes('value="4"'),
+        'it must show the configured DUPLICATES_AI_CONCURRENCY'
+      );
+      assert.ok(
+        /0 lets the judge choose/.test(lanes) && /Default: 0/.test(lanes),
+        'its hint must say what zero means and what the default is'
+      );
+      assert.ok(
+        /Wall time divides by it, tokens do not/.test(lanes),
+        'the hint must say what more lanes do and do not save'
+      );
+      assert.ok(
+        section.includes('Model requests at once'),
+        'the field must be labelled'
+      );
+
+      const memory = sliceBetween(
+        section,
+        'id="duplicatesAiVerdictMemoryDays"',
+        '</div>'
+      );
+      assert.ok(
+        memory.includes('min="0"') &&
+          memory.includes('max="365"') &&
+          memory.includes('step="1"'),
+        'the memory spans 0 to 365 days'
+      );
+      assert.ok(
+        memory.includes('value="30"'),
+        'it must show the configured DUPLICATES_AI_VERDICT_MEMORY_DAYS'
+      );
+      assert.ok(
+        /0 switches the memory off/.test(memory) && /Default: 90/.test(memory),
+        'its hint must say what zero means and what the default is'
+      );
+      assert.ok(
+        section.includes('Remember verdicts for (days)'),
+        'the field must be labelled'
+      );
+
+      // Both describe one review, so they sit with the settings that do and
+      // before the two that belong to the archive.
+      assert.ok(
+        section.indexOf('id="duplicatesAiRequestSeconds"') <
+          section.indexOf('id="duplicatesAiConcurrency"') &&
+          section.indexOf('id="duplicatesAiConcurrency"') <
+            section.indexOf('id="duplicatesAiVerdictMemoryDays"') &&
+          section.indexOf('id="duplicatesAiVerdictMemoryDays"') <
+            section.indexOf('id="duplicatesGuardNewNames"'),
+        'the lanes and the memory follow the request length, in that order'
+      );
+    });
+
+    // ── The section of its own that round 10 added ─────────────────────────
+    await test('GET /settings renders the Simplify tags section and its nav entry', async () => {
+      const html = await getSettingsPage();
+
+      assert.ok(
+        html.includes('id="sec-simplify"'),
+        'the section itself must be rendered'
+      );
+      assert.ok(
+        html.includes('id="simplify-tab"'),
+        'the nav entry needs a target block'
+      );
+
+      const desktopNav = sliceBetween(
+        html,
+        '<nav class="zr-sectionnav" data-module="section-nav">',
+        '</nav>'
+      );
+      const mobileNav = sliceBetween(
+        html,
+        '<nav class="zr-sectionnav zr-only-mobile">',
+        '</nav>'
+      );
+
+      [
+        ['desktop', desktopNav],
+        ['mobile', mobileNav],
+      ].forEach(([label, nav]) => {
+        assert.ok(
+          nav.includes('href="#simplify-tab"'),
+          `the ${label} nav must link the section`
+        );
+        assert.ok(
+          nav.indexOf('href="#duplicates-tab"') <
+            nav.indexOf('href="#simplify-tab"') &&
+            nav.indexOf('href="#simplify-tab"') <
+              nav.indexOf('href="#ocr-tab"'),
+          `the ${label} nav must list Simplify tags after Duplicates and before OCR`
+        );
+      });
+
+      assert.ok(
+        desktopNav.includes('/icons.svg#i-split'),
+        'the desktop entry carries the i-split icon the page uses'
+      );
+      assert.ok(
+        html.indexOf('id="duplicates-tab"') <
+          html.indexOf('id="simplify-tab"') &&
+          html.indexOf('id="simplify-tab"') < html.indexOf('id="ocr-tab"'),
+        'the section itself sits between Duplicates and OCR'
+      );
+    });
+
+    await test('both Simplify tags fields render with the value configured now', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(html, 'id="simplify-tab"', 'id="ocr-tab"');
+
+      SIMPLIFY_FIELDS.forEach(({ input, envKey }) => {
+        assert.ok(
+          section.includes(`name="${input}"`),
+          `${input} must be part of the settings form, or it is never submitted`
+        );
+        assert.ok(
+          section.includes(`value="${START_ENV[envKey]}"`),
+          `${input} must show the configured ${envKey} (${START_ENV[envKey]})`
+        );
+      });
+
+      const perRequest = sliceBetween(
+        section,
+        'id="simplifyTagsPerRequest"',
+        '</div>'
+      );
+      assert.ok(
+        perRequest.includes('min="10"') &&
+          perRequest.includes('max="200"') &&
+          perRequest.includes('step="10"'),
+        'the batch spans 10 to 200 tags in steps of ten'
+      );
+      assert.ok(
+        /Default: 50/.test(perRequest),
+        'its hint must say what the default is'
+      );
+
+      const size = sliceBetween(
+        section,
+        'id="simplifyVocabularySize"',
+        '</div>'
+      );
+      assert.ok(
+        size.includes('min="5"') &&
+          size.includes('max="100"') &&
+          size.includes('step="5"'),
+        'the vocabulary size spans 5 to 100 entries in steps of five'
+      );
+      assert.ok(
+        /Default: 25/.test(size),
+        'its hint must say what the default is'
+      );
+
+      assert.strictEqual(
+        countOccurrences(section, 'class="zr-field__hint"'),
+        2,
+        'both fields say what they do and what their default is'
+      );
+      // The section says in one sentence that the model is optional here;
+      // the whole feature works on the rule alone.
+      assert.ok(
+        /needs no model/.test(section),
+        'the section must say that decomposing works without a model'
+      );
+    });
+
+    await test('POST /settings stores and clamps the four settings of round 10', async () => {
+      const stored = await postSettings({
+        duplicatesAiConcurrency: '3',
+        duplicatesAiVerdictMemoryDays: '120',
+        simplifyTagsPerRequest: '40',
+        simplifyVocabularySize: '30',
+      });
+      assert.strictEqual(stored.status, 200, await stored.text());
+      const saved = lastSaved();
+      assert.strictEqual(saved.DUPLICATES_AI_CONCURRENCY, '3');
+      assert.strictEqual(saved.DUPLICATES_AI_VERDICT_MEMORY_DAYS, '120');
+      assert.strictEqual(saved.SIMPLIFY_TAGS_PER_REQUEST, '40');
+      assert.strictEqual(saved.SIMPLIFY_VOCABULARY_SIZE, '30');
+
+      const clamped = await postSettings({
+        duplicatesAiConcurrency: '99',
+        duplicatesAiVerdictMemoryDays: '-7',
+        simplifyTagsPerRequest: '1',
+        simplifyVocabularySize: '900',
+      });
+      assert.strictEqual(clamped.status, 200, await clamped.text());
+      const bounds = lastSaved();
+      assert.strictEqual(
+        bounds.DUPLICATES_AI_CONCURRENCY,
+        '8',
+        'more lanes than the ceiling are capped, not rejected'
+      );
+      assert.strictEqual(
+        bounds.DUPLICATES_AI_VERDICT_MEMORY_DAYS,
+        '0',
+        'a negative memory lands on zero, which means "no memory"'
+      );
+      assert.strictEqual(bounds.SIMPLIFY_TAGS_PER_REQUEST, '10');
+      assert.strictEqual(bounds.SIMPLIFY_VOCABULARY_SIZE, '100');
+
+      // Zero is a value for both of the Duplicates ones: the judge picks the
+      // lane count itself, and no verdict is remembered at all.
+      const zero = await postSettings({
+        duplicatesAiConcurrency: '0',
+        duplicatesAiVerdictMemoryDays: '0',
+      });
+      assert.strictEqual(zero.status, 200, await zero.text());
+      assert.strictEqual(lastSaved().DUPLICATES_AI_CONCURRENCY, '0');
+      assert.strictEqual(lastSaved().DUPLICATES_AI_VERDICT_MEMORY_DAYS, '0');
+
+      const cleared = await postSettings({
+        duplicatesAiConcurrency: '',
+        simplifyVocabularySize: 'lots',
+      });
+      assert.strictEqual(cleared.status, 200, await cleared.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_CONCURRENCY,
+        '0',
+        'a cleared field keeps what the last save stored, not the default'
+      );
+      assert.strictEqual(
+        lastSaved().SIMPLIFY_VOCABULARY_SIZE,
+        '100',
+        'a value that is not a number keeps what the last save stored'
+      );
+    });
+
+    await test('the .env export carries a Simplify tags group of its own', async () => {
+      const response = await fetch(harness.base + '/api/settings/env-file', {
+        headers: { 'x-api-key': API_KEY },
+      });
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      const env = payload.data.env;
+
+      assert.ok(
+        env.includes('# Simplify tags'),
+        'the two Simplify keys get a heading of their own, not the Duplicates one'
+      );
+      SIMPLIFY_FIELDS.forEach(({ envKey }) => {
+        assert.ok(
+          env.includes(`${envKey}=`),
+          `${envKey} must be part of the exported configuration`
+        );
+      });
+      // The two round-10 review settings belong to the Duplicates group, in
+      // the order the page shows them.
+      assert.ok(
+        env.indexOf('DUPLICATES_AI_REQUEST_SECONDS=') <
+          env.indexOf('DUPLICATES_AI_CONCURRENCY=') &&
+          env.indexOf('DUPLICATES_AI_CONCURRENCY=') <
+            env.indexOf('DUPLICATES_AI_VERDICT_MEMORY_DAYS=') &&
+          env.indexOf('DUPLICATES_AI_VERDICT_MEMORY_DAYS=') <
+            env.indexOf('DUPLICATES_GUARD_NEW_NAMES='),
+        'the lanes and the memory sit between the request length and the guard'
+      );
+      assert.ok(
+        env.indexOf('# Duplicates') < env.indexOf('# Simplify tags'),
+        'the Simplify group follows the Duplicates group, as the page does'
       );
     });
   } finally {

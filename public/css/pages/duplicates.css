@@ -84,6 +84,18 @@
     min-width: 0;
   }
 
+  /* The one button of the AI row that touches no model and no document: it
+     empties the judge's memory. Its row takes the whole width under the
+     options, so it never reads as a third way to start a review. */
+  .dup-ai-forget-row {
+    display: flex;
+    flex: 1 0 100%;
+  }
+
+  .dup-ai-forget {
+    flex: 0 0 auto;
+  }
+
   /* The one-click path speaks in the line under the buttons: what it does
      while it is idle, what it is doing while it runs. A line of its own,
      because the row above it is already four controls wide. */
@@ -718,6 +730,15 @@
     opacity: 0.8;
   }
 
+  /* A verdict the judge remembered rather than asked for. Fainter than the
+     confidence beside it: it says where the answer came from, not how sure
+     it is. */
+  .dup-verdict__remembered {
+    margin-left: 4px;
+    font-weight: 400;
+    opacity: 0.65;
+  }
+
   /* The rule the model says it applied. Two words at most, and never broken
      over two lines in a table cell. */
   .dup-basis {
@@ -986,7 +1007,8 @@
   /* The target cell carries two lines in both cases: what survived and the
      name it had before, or the delete badge and what it removed. */
   .dup-log__target,
-  .dup-log__deleted {
+  .dup-log__deleted,
+  .dup-log__split {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;

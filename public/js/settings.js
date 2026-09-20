@@ -2855,12 +2855,28 @@ function initializeRuntimeOverridePills() {
       envKey: 'DUPLICATES_AI_REQUEST_SECONDS',
     },
     {
+      selector: '#duplicatesAiConcurrency',
+      envKey: 'DUPLICATES_AI_CONCURRENCY',
+    },
+    {
+      selector: '#duplicatesAiVerdictMemoryDays',
+      envKey: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
+    },
+    {
       selector: '#duplicatesGuardNewNames',
       envKey: 'DUPLICATES_GUARD_NEW_NAMES',
     },
     {
       selector: '#duplicatesAiSweepNames',
       envKey: 'DUPLICATES_AI_SWEEP_NAMES',
+    },
+    {
+      selector: '#simplifyTagsPerRequest',
+      envKey: 'SIMPLIFY_TAGS_PER_REQUEST',
+    },
+    {
+      selector: '#simplifyVocabularySize',
+      envKey: 'SIMPLIFY_VOCABULARY_SIZE',
     },
     { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
     { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
