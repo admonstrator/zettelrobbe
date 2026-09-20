@@ -554,6 +554,19 @@ class TagSimplifyService {
   }
 
   /**
+   * The floor of every cap: the operator's Response Tokens. Document analysis
+   * sends no cap at all and so never noticed a model that reasons before it
+   * answers; a cap below what the operator allows for an answer starves that
+   * model for no gain, since a cap is a ceiling, not a cost.
+   *
+   * @returns {number}
+   */
+  _capFloor() {
+    const config = require('../config/config');
+    return Math.max(0, Number(config.responseTokens) || 0);
+  }
+
+  /**
    * The ceiling any raised cap stops at: the operator's Response Tokens, but
    * never below what a thinking model needs for one answer.
    *
@@ -878,7 +891,9 @@ class TagSimplifyService {
     const userPrompt = this.buildNameListPrompt(names);
     const base = Math.max(MIN_COMPLETION_CAP, size * 16);
     const cap =
-      wanted == null ? base + (await this._thinkingAllowance()) : wanted;
+      wanted == null
+        ? Math.max(base + (await this._thinkingAllowance()), this._capFloor())
+        : wanted;
     usage.requests += 1;
     const head = () => `vocabulary: ${names.length} name(s), cap ${cap}`;
 
@@ -1321,7 +1336,9 @@ class TagSimplifyService {
         : this.buildSplitUserPrompt(tags);
     const base = Math.max(MIN_COMPLETION_CAP, tags.length * TOKENS_PER_TAG);
     const cap =
-      wanted == null ? base + (await this._thinkingAllowance()) : wanted;
+      wanted == null
+        ? Math.max(base + (await this._thinkingAllowance()), this._capFloor())
+        : wanted;
     usage.requests += 1;
     const head = () => `${label}: ${tags.length} tag(s), cap ${cap}`;
 
