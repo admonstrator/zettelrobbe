@@ -116,6 +116,47 @@
  *   warm-up that does not fit either way ends the review with a message
  *   naming the two switches that can fix it.
  *
+ * ## Thinking is a price per request, not per pair
+ *
+ * The first review of a real archive — 1300 tags, a hosted model — took
+ * seventeen minutes. The model thought although it had been asked not to, and
+ * every one of those thoughts was counted as the cost of a verdict: four
+ * pairs and 600 tokens of reasoning read as 150 tokens per pair, the next
+ * request was sized smaller, its reasoning cost the same, and the review
+ * ended at one pair per request.
+ *
+ * So the two are measured apart. `reasoningTokens` comes off the provider's
+ * usage or off the reasoning text the collector stripped;
+ * `answerTokens = completionTokens − reasoningTokens` is what a verdict
+ * costs, and the reasoning is a fixed price per request:
+ *
+ *   batch = (requestSeconds × tokensPerSecond − thinkingPerRequest) ÷ tokensPerPair
+ *   cap   = tokensPerPair × batch × 1.5 + thinkingPerRequest × 1.25 + overhead
+ *
+ * With 40 tokens a verdict, 600 tokens of thought and 60 tokens a second, a
+ * thirty-second request is thirty pairs instead of one. The cost is kept per
+ * model in `ai_calibration.thinking_per_request`, and a model that thinks
+ * although the switch says otherwise is said so once per review.
+ *
+ * ## Several requests at once
+ *
+ * DUPLICATES_AI_CONCURRENCY is how many requests a review keeps in flight: 1
+ * for Ollama, which answers one at a time anyway, 3 for a hosted endpoint,
+ * which answers three in the time of one. The warm-up runs alone — everything
+ * after it is sized by what it measured — and from then on a lane that frees
+ * takes the next batch off the queue at the size the last answer says is
+ * right. A stop leaves the queue; the requests in flight abort and what they
+ * still brought is kept.
+ *
+ * ## A verdict is asked once
+ *
+ * What the model said about two names is kept in `ai_pair_verdicts` for
+ * DUPLICATES_AI_VERDICT_MEMORY_DAYS days. The next review answers those pairs
+ * from the table and asks only about what is new — while both names are
+ * unchanged, because a rename is a different question. "unsure" is never
+ * remembered: it is the answer a second look should get another chance at.
+ * `forgetVerdicts()` empties the table.
+ *
  * ## The semantic sweep, for the names spelling will never link
  *
  * The matcher links names by how they are written. "Kontoauszug" and "Bank
@@ -305,8 +346,20 @@ const CAP_SAFETY_FACTOR = 1.5;
  * request, however few pairs it is asked about, so a cap sized by pairs
  * alone starves a small batch after a big one; a cap costs nothing unless
  * the model uses it, so the floor is free.
+ *
+ * The same quarter is the headroom on the measured thinking cost: what the
+ * model spent on its thoughts last time, plus a quarter, is what its next
+ * request is given for them.
  */
 const CAP_FLOOR_FACTOR = 1.25;
+/**
+ * Model requests in flight at once when the setting says "automatic", and the
+ * most an operator may ask for. One for Ollama: a local model answers one
+ * request at a time whatever is sent to it, so more lanes only queue.
+ */
+const DEFAULT_CONCURRENCY = 3;
+const OLLAMA_CONCURRENCY = 1;
+const MAX_CONCURRENCY = 8;
 /** The least a request is ever given to answer in, whatever was measured. */
 const MIN_COMPLETION_CAP = 256;
 /**
@@ -491,6 +544,14 @@ const WARMUP_IMPOSSIBLE_MESSAGE = (pairs) =>
   `The model's answers do not fit the token limit even for ${pairs} pair(s). ` +
   'Switch thinking off for the judge (DUPLICATES_AI_THINKING) or raise TOKEN_LIMIT.';
 
+/**
+ * What a review says once when the model writes reasoning although it was
+ * asked not to. It is not an error: the requests are sized around the cost
+ * instead, and the line says what that cost turned out to be.
+ */
+const UNREQUESTED_THINKING_MESSAGE = (tokens) =>
+  `the model thinks although it was asked not to; requests are sized around ${tokens} tokens of thinking each.`;
+
 /** The only stop the judge asks for itself. */
 const STOP_REASON_TOKEN_BUDGET = 'token-budget';
 /** What a stop is called when nobody said which one it was. */
@@ -505,6 +566,8 @@ const STOP_REASON_FALLBACK = 'user';
  * @property {'high'|'low'|null} confidence  how sure the model says it is
  * @property {'model'|'spelling-rule'} source  who decided: the provider, or a
  *   matcher tier a rule settles without asking anybody
+ * @property {true} [remembered]  present only on a verdict the judge took from
+ *   its memory of an earlier review instead of asking again
  */
 
 /**
@@ -587,6 +650,9 @@ const STOP_REASON_FALLBACK = 'user';
  * @property {number} pairsNotJudged  pairs that were due and never answered
  * @property {number} sweepRequests   requests the semantic sweep made
  * @property {number} sweepProposals  pairs the sweep added to the review
+ * @property {number} verdictsReused  pairs a remembered verdict answered, so
+ *                                    the model was not asked about them
+ * @property {number} concurrency     model requests the review kept in flight
  */
 
 /**
@@ -695,6 +761,9 @@ function aggregateVerdict(verdicts) {
       basis: deciding[0]?.basis ?? null,
       confidence: combineConfidence(deciding),
       source: deciding[0]?.source || VERDICT_SOURCES.MODEL,
+      // Only when the member that decided it came from the memory; a group
+      // that was really asked about says nothing about remembering.
+      ...(deciding[0]?.remembered ? { remembered: true } : {}),
     };
   };
   if (list.some((v) => v.verdict === AI_VERDICTS.DIFFERENT)) {
@@ -726,6 +795,21 @@ function toConfidence(value) {
     .trim()
     .toLowerCase();
   return CONFIDENCE_SET.has(confidence) ? confidence : null;
+}
+
+/**
+ * Whether a remembered verdict is still about the pair in front of us: both
+ * names as they were, in either order. The pair key is a pair of ids, and an
+ * id that was renamed is a different question about the same two objects.
+ *
+ * @param {{nameA:string, nameB:string}} row
+ * @param {AiReviewPair} pair
+ * @returns {boolean}
+ */
+function namesUnchanged(row, pair) {
+  const stored = [String(row?.nameA ?? ''), String(row?.nameB ?? '')].sort();
+  const now = [String(pair?.a?.name ?? ''), String(pair?.b?.name ?? '')].sort();
+  return stored[0] === now[0] && stored[1] === now[1];
 }
 
 /** Splits a list into two halves, the first one the larger of the two. */
@@ -919,6 +1003,16 @@ class EntityMatchAiService {
     this.lastCalibrationSave = Promise.resolve();
     /** One warning is enough when the table cannot be written. */
     this._calibrationWarned = false;
+    /**
+     * The last write to the ai_pair_verdicts table. Detached like the
+     * calibration; a test that wants to read a remembered verdict back has
+     * something to await.
+     *
+     * @type {Promise<unknown>}
+     */
+    this.lastVerdictSave = Promise.resolve();
+    /** One warning is enough when that table cannot be read or written. */
+    this._verdictMemoryWarned = false;
   }
 
   /**
@@ -1235,6 +1329,61 @@ class EntityMatchAiService {
     return Math.max(MIN_REQUEST_SECONDS, Math.floor(seconds));
   }
 
+  /**
+   * How many model requests a review keeps in flight at once
+   * (DUPLICATES_AI_CONCURRENCY). 0 is automatic: one for Ollama, where a
+   * local model answers one request at a time whatever is sent to it, three
+   * for a hosted endpoint, which answers three as fast as one. Read at the
+   * start of a review, so a change on the settings page counts on the next
+   * review rather than on the next restart.
+   *
+   * @returns {number} between 1 and MAX_CONCURRENCY
+   */
+  concurrency() {
+    const runtimeConfig = require('../config/config');
+    const configured = Number(runtimeConfig.duplicatesAiConcurrency);
+    if (Number.isFinite(configured) && configured > 0) {
+      return Math.max(1, Math.min(Math.floor(configured), MAX_CONCURRENCY));
+    }
+    return runtimeConfig.aiProvider === 'ollama'
+      ? OLLAMA_CONCURRENCY
+      : DEFAULT_CONCURRENCY;
+  }
+
+  /**
+   * How long a verdict about a pair of names is remembered
+   * (DUPLICATES_AI_VERDICT_MEMORY_DAYS), 0 when the memory is switched off.
+   * Nothing is read and nothing is written then.
+   *
+   * @returns {number}
+   */
+  verdictMemoryDays() {
+    const runtimeConfig = require('../config/config');
+    const days = Number(runtimeConfig.duplicatesAiVerdictMemoryDays);
+    return Number.isFinite(days) && days > 0 ? Math.floor(days) : 0;
+  }
+
+  /**
+   * Forgets every remembered verdict, so the next review asks about every
+   * pair again. The page offers this next to the calibration reset: the
+   * memory is keyed by the two names, so it goes stale only when the user
+   * disagrees with what the model said, and then all of it should go.
+   *
+   * @returns {Promise<number>} verdicts forgotten
+   */
+  async forgetVerdicts() {
+    const documentModel = require('../models/document');
+    if (typeof documentModel.clearAiPairVerdicts !== 'function') return 0;
+    try {
+      return Number(await documentModel.clearAiPairVerdicts()) || 0;
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} the remembered verdicts could not be cleared: ${error?.message || error}`
+      );
+      return 0;
+    }
+  }
+
   /** What the provider is configured to spend on one answer (RESPONSE_TOKENS). */
   _responseTokens() {
     const runtimeConfig = require('../config/config');
@@ -1297,6 +1446,7 @@ class EntityMatchAiService {
             thinking,
             tokensPerPair: null,
             tokensPerSecond: null,
+            thinkingPerRequest: null,
             largestCompletion: 0,
           })
         );
@@ -1340,6 +1490,9 @@ class EntityMatchAiService {
     this.calibration.set(model, {
       tokensPerPair: Number(stored.tokensPerPair),
       tokensPerSecond: Number(stored.tokensPerSecond),
+      // Null in a row written before the thinking was measured apart; the
+      // next answer of this model measures it.
+      thinkingPerRequest: Number(stored.thinkingPerRequest) || 0,
       largestCompletion: Number(stored.largestCompletion) || 0,
       thinking,
       measuredAt: Date.parse(stored.measuredAt) || Date.now(),
@@ -1409,6 +1562,14 @@ class EntityMatchAiService {
       thinking,
       tokensPerPair: usable ? usable.tokensPerPair : null,
       tokensPerSecond: usable ? usable.tokensPerSecond : null,
+      /**
+       * What this model spends on thinking per request, whatever the switch
+       * says: a fixed price, not a price per pair. `thinking` above is the
+       * wish the request carries; this is what the answers cost.
+       */
+      thinkingPerRequest: usable ? usable.thinkingPerRequest || 0 : null,
+      /** One line per review is enough when the model thinks regardless. */
+      unrequestedThinkingLogged: false,
       /** The largest completion one request produced, the floor of the cap. */
       largestCompletion: usable ? usable.largestCompletion || 0 : 0,
       /** True once size and cap come from a measurement rather than defaults. */
@@ -1435,6 +1596,13 @@ class EntityMatchAiService {
    * answer within the configured request seconds, never more than the
    * operator's batch size and never more than the context window allows.
    *
+   * The thinking is paid before the first verdict and once per request,
+   * however many pairs the request carries, so it is taken off the seconds
+   * rather than divided into the pairs. That is the whole of round 10's
+   * speed-up: a model that thinks for 600 tokens and writes 40 per verdict
+   * was sized at one pair per request while its thoughts were counted as the
+   * cost of a verdict; with the same numbers it now gets thirty.
+   *
    * @param {object} sizer
    * @param {number} bound  the context-safe ceiling for this kind
    * @returns {number}
@@ -1448,8 +1616,11 @@ class EntityMatchAiService {
     ) {
       return ceiling;
     }
+    // What the model writes in the seconds one request may take, minus what
+    // it spends on thinking before it writes the first verdict.
+    const inTheTime = this.requestSeconds() * sizer.tokensPerSecond;
     const affordable = Math.floor(
-      (this.requestSeconds() * sizer.tokensPerSecond) / sizer.tokensPerPair
+      (inTheTime - (sizer.thinkingPerRequest || 0)) / sizer.tokensPerPair
     );
     return Math.max(1, Math.min(affordable, ceiling));
   }
@@ -1475,8 +1646,12 @@ class EntityMatchAiService {
     if (!sizer || sizer.tokensPerPair == null) {
       return this._completionCap(pairCount);
     }
+    // The verdicts by the pair, the thinking once — the same split the batch
+    // size is derived from, so a small batch is not starved of the room its
+    // thoughts need and a large one is not paid for them twice.
     const byPairs =
       Math.ceil(sizer.tokensPerPair * pairCount * CAP_SAFETY_FACTOR) +
+      Math.ceil((sizer.thinkingPerRequest || 0) * CAP_FLOOR_FACTOR) +
       TOKENS_OVERHEAD;
     const floor = Math.ceil((sizer.largestCompletion || 0) * CAP_FLOOR_FACTOR);
     return Math.max(byPairs, floor);
@@ -1513,18 +1688,24 @@ class EntityMatchAiService {
    * Takes one answered request into the sizing and returns true when the
    * batch size changed because of it.
    *
-   * Two numbers come out of every request: what a verdict costs this model
-   * (completion tokens ÷ pairs, thinking included — it is part of the bill
-   * and part of the wait) and how fast it writes them (completion tokens ÷
-   * seconds). Both are smoothed against the measurement before them, so one
-   * slow minute on a busy server does not halve the batch for the rest of the
-   * review.
+   * Three numbers come out of every request. What a verdict costs this model
+   * (the *answer* tokens ÷ pairs), what its thinking costs (the reasoning
+   * tokens, per request, because that is how they are paid) and how fast it
+   * writes both (completion tokens ÷ seconds). All three are smoothed against
+   * the measurement before them, so one slow minute on a busy server does not
+   * halve the batch for the rest of the review.
+   *
+   * Separating the two is what round 10 is about: while the thoughts counted
+   * as the cost of a verdict, a model that thought for 600 tokens before
+   * answering four pairs looked like 150 tokens a pair, then like 300 on the
+   * batch of two that followed, and a review of 1300 tags ended at one pair
+   * per request.
    *
    * A truncated answer measures only the speed: it stopped at the cap, so its
    * tokens per pair say nothing except that the cap was too small.
    *
    * @param {object} context
-   * @param {{pairs:number, completionTokens:number|null, elapsedMs:number, truncated:boolean, warmingUp:boolean}} measurement
+   * @param {{pairs:number, completionTokens:number|null, reasoningTokens:number|null, elapsedMs:number, truncated:boolean, warmingUp:boolean}} measurement
    * @returns {boolean} true when the next request will be a different size
    */
   _measure(context, measurement) {
@@ -1538,19 +1719,36 @@ class EntityMatchAiService {
         ? fresh
         : previous * (1 - CALIBRATION_WEIGHT) + fresh * CALIBRATION_WEIGHT;
     const pairs = Math.max(1, Number(measurement.pairs) || 1);
+    // What the provider or the collector reported as reasoning, bounded by
+    // the completion it is part of; a model that wrote none costs none.
+    const reasoning = Number(measurement.reasoningTokens);
+    const thinking = Number.isFinite(reasoning)
+      ? Math.max(0, Math.min(reasoning, tokens))
+      : 0;
+    const answerTokens = tokens - thinking;
 
     sizer.tokensPerSecond = blend(sizer.tokensPerSecond, tokens / seconds);
     sizer.largestCompletion = Math.max(sizer.largestCompletion || 0, tokens);
-    if (!measurement.truncated) {
-      sizer.tokensPerPair = blend(sizer.tokensPerPair, tokens / pairs);
+    sizer.thinkingPerRequest = blend(sizer.thinkingPerRequest, thinking);
+    if (!measurement.truncated && answerTokens > 0) {
+      sizer.tokensPerPair = blend(sizer.tokensPerPair, answerTokens / pairs);
     }
     sizer.measurements += 1;
+    // A model that was asked not to think and thinks anyway is worth saying
+    // once: the review does not fight it, it pays for it in every request.
+    if (thinking > 0 && !sizer.thinking && !sizer.unrequestedThinkingLogged) {
+      sizer.unrequestedThinkingLogged = true;
+      this._log(
+        UNREQUESTED_THINKING_MESSAGE(Math.round(sizer.thinkingPerRequest))
+      );
+    }
     if (sizer.tokensPerPair == null) return false;
 
     sizer.calibrated = true;
     this.calibration.set(sizer.model, {
       tokensPerPair: sizer.tokensPerPair,
       tokensPerSecond: sizer.tokensPerSecond,
+      thinkingPerRequest: sizer.thinkingPerRequest || 0,
       largestCompletion: sizer.largestCompletion,
       thinking: sizer.thinking,
       measuredAt: Date.now(),
@@ -1561,6 +1759,7 @@ class EntityMatchAiService {
       thinking: sizer.thinking,
       tokensPerPair: sizer.tokensPerPair,
       tokensPerSecond: sizer.tokensPerSecond,
+      thinkingPerRequest: sizer.thinkingPerRequest || 0,
       largestCompletion: sizer.largestCompletion,
     });
 
@@ -1569,15 +1768,18 @@ class EntityMatchAiService {
     const cap = this._capFor(sizer, sizer.batchSize);
     const perPair = Math.round(sizer.tokensPerPair);
     const perSecond = Math.round(sizer.tokensPerSecond);
+    const perRequest = Math.round(sizer.thinkingPerRequest || 0);
     if (measurement.warmingUp) {
       this._log(
-        `warm-up: ${pairs} pair(s), ${tokens} completion tokens (${perPair} per pair), ` +
+        `warm-up: ${pairs} pair(s), ${tokens} completion tokens (${perPair} per pair, ` +
+          `${perRequest} thinking per request), ` +
           `${perSecond} tokens/s, thinking ${sizer.thinking ? 'on' : 'off'} ` +
           `→ batch size ${sizer.batchSize}, cap ${cap}.`
       );
     } else if (sizer.batchSize !== before) {
       this._log(
         `re-sized after ${sizer.measurements} measurement(s): ${perPair} tokens per pair, ` +
+          `${perRequest} thinking per request, ` +
           `${perSecond} tokens/s → batch size ${before} becomes ${sizer.batchSize}, cap ${cap}.`
       );
     }
@@ -1597,8 +1799,13 @@ class EntityMatchAiService {
     if (!tracker || !sizer || !sizer.calibrated || !sizer.batchSize) return;
     const remaining = Math.max(0, tracker.pairsTotal - tracker.pairsAsked);
     const batches = Math.ceil(remaining / sizer.batchSize);
+    // The requests the other lanes are still working on: their pairs have
+    // left `remaining` and their answers have not reached requestsDone, so
+    // without them the denominator would drop by one per busy lane. One of
+    // the busy lanes is the one this replan runs in.
+    const otherLanes = Math.max(0, tracker.lanesBusy || 0);
     tracker.requestsPlanned =
-      tracker.requestsDone + tracker.pendingRequests + batches;
+      tracker.requestsDone + otherLanes + tracker.pendingRequests + batches;
     const promptPerPair = sizer.lastPromptTokens / Math.max(1, sizer.lastPairs);
     const perRequest =
       Math.round(promptPerPair * sizer.batchSize) +
@@ -1697,10 +1904,20 @@ class EntityMatchAiService {
    * Takes the verdicts of one answer into the result map. Anything the batch
    * did not ask about, and anything already answered, is dropped.
    *
+   * @param {object[]} items
+   * @param {Set<string>} keys
+   * @param {Map<string, AiVerdict>} verdicts
+   * @param {((key: string, verdict: AiVerdict) => void)|null} [onRecorded]
+   *   told about every verdict that came from this answer; that is what the
+   *   judge's memory is written from
    * @returns {{same:number, different:number, unsure:number, recorded:number}}
    */
-  _recordVerdicts(items, keys, verdicts) {
+  _recordVerdicts(items, keys, verdicts, onRecorded = null) {
     const tally = { same: 0, different: 0, unsure: 0, recorded: 0 };
+    const record = (id, given) => {
+      verdicts.set(id, given);
+      if (onRecorded) onRecorded(id, given);
+    };
     for (const item of Array.isArray(items) ? items : []) {
       const id = typeof item?.id === 'string' ? item.id.trim() : '';
       if (!keys.has(id) || verdicts.has(id)) continue;
@@ -1709,7 +1926,7 @@ class EntityMatchAiService {
         .toLowerCase();
       tally.recorded += 1;
       if (!AI_VERDICT_LIST.includes(verdict)) {
-        verdicts.set(id, {
+        record(id, {
           verdict: AI_VERDICTS.UNSURE,
           reason: UNKNOWN_VERDICT_REASON,
           basis: null,
@@ -1719,7 +1936,7 @@ class EntityMatchAiService {
         tally.unsure += 1;
         continue;
       }
-      verdicts.set(id, {
+      record(id, {
         verdict,
         reason: toReason(item?.reason),
         basis: toBasis(item?.basis),
@@ -1729,6 +1946,144 @@ class EntityMatchAiService {
       tally[verdict] += 1;
     }
     return tally;
+  }
+
+  /**
+   * The judge's memory of what it decided about a pair of names, or null when
+   * the operator switched it off (DUPLICATES_AI_VERDICT_MEMORY_DAYS = 0).
+   *
+   * Opened once per review: the old rows are pruned here, so a review is the
+   * only thing that ever cleans the table, and the memory carries the model
+   * the review runs on into every row it writes.
+   *
+   * @returns {Promise<{days:number, model:string|null}|null>}
+   */
+  async _openVerdictMemory() {
+    const days = this.verdictMemoryDays();
+    if (days === 0) return null;
+    const documentModel = require('../models/document');
+    if (
+      typeof documentModel.getAiPairVerdicts !== 'function' ||
+      typeof documentModel.saveAiPairVerdict !== 'function'
+    ) {
+      return null;
+    }
+    try {
+      const forgotten = await documentModel.pruneAiPairVerdicts(days);
+      if (forgotten > 0) {
+        this._log(
+          `${forgotten} remembered verdict(s) older than ${days} day(s) were forgotten.`
+        );
+      }
+    } catch (error) {
+      this._warnVerdictMemory('read', error);
+      return null;
+    }
+    return { days, model: this.modelName() };
+  }
+
+  /**
+   * The pairs of a list an earlier review already answered, by pair key.
+   *
+   * A row counts only while both names are what they were: a rename is a new
+   * question, and the two names are stored so nothing but the model's own
+   * answer is reused. "unsure" is never stored, so it is never reused.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {AiReviewPair[]} pairs
+   * @param {{days:number, model:string|null}|null} memory
+   * @returns {Promise<Map<string, AiVerdict>>}
+   */
+  async _rememberedVerdicts(kind, pairs, memory) {
+    const answered = new Map();
+    if (!memory || pairs.length === 0) return answered;
+    const documentModel = require('../models/document');
+    let rows;
+    try {
+      rows = await documentModel.getAiPairVerdicts(
+        kind,
+        pairs.map((pair) => pair.key)
+      );
+    } catch (error) {
+      this._warnVerdictMemory('read', error);
+      return answered;
+    }
+    const byKey = new Map(
+      (Array.isArray(rows) ? rows : []).map((row) => [row.pairKey, row])
+    );
+    for (const pair of pairs) {
+      const row = byKey.get(pair.key);
+      if (!row || !namesUnchanged(row, pair)) continue;
+      const verdict = String(row.verdict ?? '')
+        .trim()
+        .toLowerCase();
+      if (verdict !== AI_VERDICTS.SAME && verdict !== AI_VERDICTS.DIFFERENT) {
+        continue;
+      }
+      answered.set(pair.key, {
+        verdict,
+        reason: toReason(row.reason),
+        basis: toBasis(row.basis),
+        confidence: toConfidence(row.confidence),
+        source: VERDICT_SOURCES.MODEL,
+        remembered: true,
+      });
+    }
+    return answered;
+  }
+
+  /**
+   * Remembers one verdict the model just gave. Only "same" and "different"
+   * are worth keeping: "unsure" and the reasons a failed request fills in are
+   * the answers a later review should get another chance at.
+   *
+   * Detached like the calibration — a review must not wait for a disk write
+   * between two requests — with `lastVerdictSave` for a test that wants to
+   * read the row back.
+   *
+   * @param {object} context
+   * @param {AiReviewPair|undefined} pair
+   * @param {AiVerdict} verdict
+   */
+  _rememberVerdict(context, pair, verdict) {
+    const { memory, kind } = context;
+    if (!memory || !pair) return;
+    if (
+      verdict.verdict !== AI_VERDICTS.SAME &&
+      verdict.verdict !== AI_VERDICTS.DIFFERENT
+    ) {
+      return;
+    }
+    const documentModel = require('../models/document');
+    const write = Promise.resolve()
+      .then(() =>
+        documentModel.saveAiPairVerdict({
+          kind,
+          pairKey: pair.key,
+          nameA: String(pair.a?.name ?? ''),
+          nameB: String(pair.b?.name ?? ''),
+          verdict: verdict.verdict,
+          basis: verdict.basis,
+          confidence: verdict.confidence,
+          reason: verdict.reason,
+          model: memory.model,
+        })
+      )
+      .catch((error) => {
+        this._warnVerdictMemory('save', error);
+        return false;
+      });
+    this.lastVerdictSave = Promise.all([this.lastVerdictSave, write]);
+  }
+
+  /** The one line a broken verdict table is worth. */
+  _warnVerdictMemory(what, error) {
+    if (this._verdictMemoryWarned) return;
+    this._verdictMemoryWarned = true;
+    console.warn(
+      `${LOG_PREFIX} the remembered verdicts could not be ${what === 'read' ? 'read' : 'saved'}: ` +
+        `${error?.message || error}. The judge asks the model instead.`
+    );
   }
 
   /**
@@ -1809,6 +2164,13 @@ class EntityMatchAiService {
       excerpts: 0,
       escalated: 0,
       spellingRules: 0,
+      // Pairs an earlier review already answered, so this one did not ask.
+      verdictsReused: 0,
+      // Requests this review keeps in flight at once, and the lanes that are
+      // busy right now; the second one is what the plan and the page need
+      // while several answers are still on their way.
+      concurrency: 1,
+      lanesBusy: 0,
     };
   }
 
@@ -1941,10 +2303,14 @@ class EntityMatchAiService {
       retries: tracker.retries,
       batchSize: sizer ? sizer.batchSize : null,
       calibrated: Boolean(sizer && sizer.calibrated),
+      concurrency: tracker.concurrency,
+      inFlight: state ? state.inFlight : 0,
+      verdictsReused: tracker.verdictsReused,
       // The request is over; nothing about it is in flight any more.
       requestPairs: null,
       requestAnswers: 0,
       requestTokens: null,
+      thinkingTokens: null,
       thinking: false,
       message: this._requestMessage(tracker),
     };
@@ -1992,6 +2358,8 @@ class EntityMatchAiService {
     const thinking = update?.thinking === true;
     const produced = Number(update?.completionTokens);
     const requestTokens = Number.isFinite(produced) ? produced : null;
+    const thought = Number(update?.thinkingTokens);
+    const thinkingTokens = Number.isFinite(thought) ? thought : null;
     const answers = thinking ? 0 : countCompleteVerdicts(update?.text);
     const answered =
       answers > 0 ? ` · ${answers} of ${batch.length} answers` : '';
@@ -2004,6 +2372,8 @@ class EntityMatchAiService {
       requestPairs: batch.length,
       requestAnswers: answers,
       requestTokens,
+      thinkingTokens,
+      inFlight: state.inFlight,
       thinking,
       tokens: (tracker.tokens || 0) + (requestTokens || 0),
       message: thinking
@@ -2028,6 +2398,8 @@ class EntityMatchAiService {
       requestPairs: null,
       requestAnswers: 0,
       requestTokens: null,
+      thinkingTokens: null,
+      inFlight: state.inFlight,
       thinking: false,
       message: this._requestMessage(tracker),
     });
@@ -2093,13 +2465,18 @@ class EntityMatchAiService {
   /**
    * One model request, and everything that can come back from it.
    *
-   * Recursive on two paths. An answer that was cut off with nothing usable in
-   * it is asked again with twice the cap, because on a model that thinks the
-   * cut is the thinking rather than the pairs, and halving the batch would
-   * only buy the same truncation at half the value. Once the cap has reached
-   * what the context window allows, or MAX_CAP_RAISES raises have bought
-   * nothing, the batch itself is split in two — each half strictly smaller,
-   * so the recursion ends at single pairs.
+   * Two paths ask again. An answer that was cut off with nothing usable in it
+   * is asked again with twice the cap, because on a model that thinks the cut
+   * is the thinking rather than the pairs, and halving the batch would only
+   * buy the same truncation at half the value. Once the cap has reached what
+   * the context window allows, or MAX_CAP_RAISES raises have bought nothing,
+   * the batch itself is split in two — each half strictly smaller, so the
+   * splitting ends at single pairs.
+   *
+   * Neither path asks again from here: both put the work back at the *front*
+   * of the queue the scheduler in reviewPairs() takes batches from. With one
+   * lane that is the request that would have been the recursion; with several
+   * it is a half that goes to whichever lane frees first.
    *
    * Two things a stopped review needs from here: nothing is asked once the
    * signal is aborted, and a request that dies on the signal while it is in
@@ -2107,15 +2484,24 @@ class EntityMatchAiService {
    *
    * @param {AiReviewPair[]} batch
    * @param {object} context  kind, systemPrompt, service, verdicts, usage,
-   *   state, tracker, sizer
-   * @param {{isRetry?: boolean, cap?: number|null, raises?: number, warmup?: boolean}} [options]
+   *   state, tracker, sizer, memory, enqueue
+   * @param {{isRetry?: boolean, cap?: number|null, raises?: number, warmup?: boolean, lane?: function}} [options]
    *   `cap` is the budget a raised retry asks for; without one the sizing
    *   decides. `warmup` keeps a raised retry of the warm-up the warm-up.
+   *   `lane` is what the scheduler gave this request; it is closed the moment
+   *   the request is counted as done, so the plan knows how many of the other
+   *   lanes are still out.
    */
   async _judgeBatch(
     batch,
     context,
-    { isRetry = false, cap: wanted = null, raises = 0, warmup = false } = {}
+    {
+      isRetry = false,
+      cap: wanted = null,
+      raises = 0,
+      warmup = false,
+      lane = null,
+    } = {}
   ) {
     const {
       kind,
@@ -2130,7 +2516,14 @@ class EntityMatchAiService {
     // Between two requests is where a stop costs nothing at all.
     if (this._stopped(tracker)) return;
 
+    // Numbered when it is dispatched rather than when its prompt is counted,
+    // so the numbers in the log follow the order the requests went out in
+    // even when several lanes are counting prompts at the same time.
+    state.requestNumber += 1;
+    const requestNumber = state.requestNumber;
+
     const keys = new Set(batch.map((pair) => pair.key));
+    const byKey = new Map(batch.map((pair) => [pair.key, pair]));
     const userPrompt = this.buildUserPrompt(kind, batch);
     const promptTokens = await this._promptTokens(systemPrompt, userPrompt);
     // The first request of an unmeasured review is the warm-up: few pairs, a
@@ -2142,8 +2535,6 @@ class EntityMatchAiService {
     });
     const cap = budget.cap;
 
-    state.requestNumber += 1;
-    const requestNumber = state.requestNumber;
     state.lastStreamMs = 0;
     state.streamed = false;
     state.warmingUp = warmingUp;
@@ -2193,8 +2584,13 @@ class EntityMatchAiService {
     const head = () =>
       `${kind}: request ${requestNumber}, ${batch.length} pair(s)${evidence}, ~${promptTokens} prompt tokens, cap ${cap}, ${Date.now() - startedAt}ms`;
     // Every path that answered something reports it; `splits` says how many
-    // requests a cut-off answer added to the plan.
-    const report = (splits = 0) => this._afterRequest(context, batch, splits);
+    // requests a cut-off answer added to the plan. The lane is closed first:
+    // this request is counted from here on, and the plan counts the lanes
+    // that are still out.
+    const report = (splits = 0) => {
+      if (typeof lane === 'function') lane();
+      return this._afterRequest(context, batch, splits);
+    };
 
     let answer;
     let truncated = false;
@@ -2218,9 +2614,22 @@ class EntityMatchAiService {
       requestOptions.onProgress = (update) =>
         this._onStream(context, batch, update);
     }
+    // Waiting for an answer from here until it arrives, whichever way it
+    // ends: this is what the page shows as `inFlight`. The lanes the plan
+    // counts are the scheduler's, and they stay busy until the answer has
+    // been read as well.
+    state.inFlight += 1;
+    let settled = false;
+    const landed = () => {
+      if (settled) return;
+      settled = true;
+      state.inFlight = Math.max(0, state.inFlight - 1);
+    };
     try {
       answer = await service.generateText(userPrompt, requestOptions);
+      landed();
     } catch (error) {
+      landed();
       if (this._stopped(tracker)) {
         // A stop, not a failure: no failed request, no retry, and above all
         // no "unsure" for pairs nobody answered.
@@ -2253,8 +2662,16 @@ class EntityMatchAiService {
     const completionTokens = Number(
       service.lastGenerateTextUsage?.completionTokens
     );
+    // What of that was the model thinking rather than answering: the
+    // provider's own number where it reports one, the collector's estimate
+    // off the reasoning text otherwise.
+    const reasoningTokens = Number(
+      service.lastGenerateTextUsage?.reasoningTokens
+    );
+    const thought = Number.isFinite(reasoningTokens) ? reasoningTokens : 0;
     const spent = Number.isFinite(completionTokens)
-      ? `, ${completionTokens} completion tokens`
+      ? `, ${completionTokens} completion tokens` +
+        (thought > 0 ? ` (${thought} of them thinking)` : '')
       : '';
 
     let items = null;
@@ -2273,16 +2690,22 @@ class EntityMatchAiService {
     this._measure(context, {
       pairs: batch.length,
       completionTokens,
+      reasoningTokens: thought,
       elapsedMs,
       truncated: truncated || items === null,
       warmingUp,
     });
     if (sizer) sizer.warmedUp = true;
 
+    // Every verdict this request produced goes into the judge's memory, so
+    // the next review asks only about what is new.
+    const remember = (key, verdict) =>
+      this._rememberVerdict(context, byKey.get(key), verdict);
+
     // The ordinary case: an answer that parses. Gaps in it are the model's
     // business, not a failure of the request.
     if (items) {
-      const tally = this._recordVerdicts(items, keys, verdicts);
+      const tally = this._recordVerdicts(items, keys, verdicts, remember);
       const missing = this._fillMissing(keys, verdicts, NO_ANSWER_REASON);
       this._log(
         `${head()}${spent}, ${tally.same} same / ${tally.different} different / ${tally.unsure + missing} unsure.`
@@ -2295,7 +2718,8 @@ class EntityMatchAiService {
     const salvaged = this._recordVerdicts(
       salvageVerdictObjects(answer),
       keys,
-      verdicts
+      verdicts,
+      remember
     );
     const missing = batch.filter((pair) => !verdicts.has(pair.key));
 
@@ -2335,12 +2759,16 @@ class EntityMatchAiService {
           `raising the cap from ${cap} to ${raised} and asking the same ${batch.length} pair(s) again.`
       );
       report(1);
-      return this._judgeBatch(batch, context, {
+      // Back to the front of the queue rather than straight on: with one
+      // lane that is the very next request either way, and with several the
+      // lane this ran in is free for the batch behind it.
+      context.enqueue(batch, {
         isRetry: true,
         cap: raised,
         raises: raises + 1,
         warmup: warmingUp,
       });
+      return;
     }
 
     if (warmingUp && salvaged.recorded === 0 && budget.atBound) {
@@ -2366,8 +2794,10 @@ class EntityMatchAiService {
         : `${head()}${spent} — the answer hit the token limit and a raised cap did not help, halving into ${halves.map((half) => half.length).join(' + ')}.`
     );
     report(halves.length);
-    for (const half of halves) {
-      await this._judgeBatch(half, context, { isRetry: true });
+    // In order, at the front: the first half is the next request, so a
+    // review with one lane asks in exactly the order it always did.
+    for (const half of [...halves].reverse()) {
+      context.enqueue(half, { isRetry: true });
     }
   }
 
@@ -2380,12 +2810,21 @@ class EntityMatchAiService {
    * review rather than to one round of it, and the model is measured once for
    * the review and not once per kind.
    *
-   * The batch is taken off the front of the queue rather than chunked up
-   * front, because the size changes: the warm-up asks WARMUP_PAIRS, and every
-   * answer may resize the requests after it. A caller that brings no sizer —
-   * the tests, and nothing else today — gets plan-sized batches from the
-   * first request on, because a warm-up is a property of a review, not of one
-   * list of pairs.
+   * The batch is taken off the front of a live queue rather than chunked up
+   * front, because the size changes: the warm-up asks WARMUP_PAIRS, every
+   * answer may resize the requests after it, and a cut-off answer puts its
+   * two halves back at the front. A caller that brings no sizer — the tests,
+   * and nothing else today — gets plan-sized batches from the first request
+   * on, because a warm-up is a property of a review, not of one list of
+   * pairs.
+   *
+   * `concurrency` is how many of those batches may be in flight at once. The
+   * warm-up always runs alone, because it is the measurement everything
+   * after it is sized by; from the answer that settles the measurement on,
+   * a lane that frees takes the next batch at the size that is right then.
+   * A stop leaves the queue and lets the requests in flight abort, and the
+   * token budget is looked at before every dispatch — what is already out
+   * finishes and counts.
    *
    * @param {AiReviewPair[]} pairs
    * @param {object} options
@@ -2394,7 +2833,12 @@ class EntityMatchAiService {
    * @param {string} [options.systemPrompt]
    * @param {object|null} [options.tracker]  the review's bookkeeping
    * @param {object|null} [options.sizer]    the review's measurement of the model
-   * @returns {Promise<AiReviewPairsResult>}
+   * @param {number} [options.concurrency]   requests in flight at once, 1 by
+   *   default: parallel lanes are a property of a review, and reviewScan()
+   *   reads the setting once and hands the number down
+   * @param {{days:number, model:string|null}|null} [options.memory]  the
+   *   judge's memory of earlier verdicts, null when it is switched off
+   * @returns {Promise<AiReviewPairsResult & {verdictsReused:number}>}
    */
   async reviewPairs(pairs, options = {}) {
     const kind = KIND_WORDS[options.kind]
@@ -2414,7 +2858,7 @@ class EntityMatchAiService {
     };
     const model = this.modelName();
     if (list.length === 0) {
-      return { verdicts, model, usage };
+      return { verdicts, model, usage, verdictsReused: 0 };
     }
 
     const service = this._provider();
@@ -2442,6 +2886,8 @@ class EntityMatchAiService {
           : ' — provisional, the model has not been measured yet.')
     );
 
+    /** What the scheduler below takes its next request off. */
+    const queue = [];
     const context = {
       kind,
       systemPrompt,
@@ -2454,21 +2900,183 @@ class EntityMatchAiService {
         streamed: false,
         warmingUp: false,
         warmupReported: false,
+        inFlight: 0,
       },
       tracker: options.tracker || null,
       sizer,
+      memory: options.memory || null,
+      /** A cut-off answer puts what it could not answer back at the front. */
+      enqueue: (batch, batchOptions) =>
+        queue.unshift({ batch, options: batchOptions }),
     };
-    // Taken off the front rather than chunked: the warm-up is small and every
-    // answer may change what the next request is worth asking for.
-    const queue = [...list];
-    while (queue.length > 0) {
-      if (this._stopped(context.tracker)) break;
-      const batch = queue.splice(0, this._nextBatchSize(context, plan.size));
-      await this._judgeBatch(batch, context);
-      usage.batchSize = sizer ? sizer.batchSize || usage.batchSize : plan.size;
+
+    // What an earlier review already decided about these names: answered
+    // here, never asked again. The band and the sweep pairs come through
+    // this same list, so both are covered.
+    const verdictsReused = await this._answerFromMemory(context, list, plan);
+    const toAsk = list.filter((pair) => !verdicts.has(pair.key));
+    for (let index = 0; index < toAsk.length; index += 1) {
+      // One entry per pair; the scheduler takes as many as a request holds.
+      queue.push({ pair: toAsk[index] });
     }
 
-    return { verdicts, model, usage };
+    const lanes = Math.max(
+      1,
+      Math.min(MAX_CONCURRENCY, Math.floor(Number(options.concurrency)) || 1)
+    );
+    await this._runQueue(context, queue, { lanes, plan });
+
+    return { verdicts, model, usage, verdictsReused };
+  }
+
+  /**
+   * The scheduler: takes batches off the queue and keeps `lanes` of them in
+   * flight until the queue is empty and the last answer is in.
+   *
+   * A queue entry is either one pair waiting to be batched with its
+   * neighbours or a whole batch a cut-off answer put back; the second kind is
+   * asked exactly as it was handed over, because its size and its cap were
+   * decided when the answer was cut off.
+   *
+   * @param {object} context
+   * @param {Array<{pair?: AiReviewPair, batch?: AiReviewPair[], options?: object}>} queue
+   * @param {{lanes:number, plan:object}} options
+   * @returns {Promise<void>}
+   */
+  async _runQueue(context, queue, { lanes, plan }) {
+    const { usage, sizer, tracker, state } = context;
+    const inFlight = new Set();
+    let failure = null;
+
+    /** The batch the next request asks about, and how to ask it. */
+    const next = () => {
+      if (queue[0]?.batch) return queue.shift();
+      const size = this._nextBatchSize(context, plan.size);
+      const batch = [];
+      while (batch.length < size && queue[0]?.pair) {
+        batch.push(queue.shift().pair);
+      }
+      return batch.length > 0 ? { batch, options: undefined } : null;
+    };
+
+    /** How many requests may be out at once right now. */
+    const lanesNow = () =>
+      sizer && (!sizer.warmedUp || !sizer.calibrated) ? 1 : lanes;
+
+    while (!failure && (queue.length > 0 || inFlight.size > 0)) {
+      while (
+        !failure &&
+        queue.length > 0 &&
+        inFlight.size < lanesNow() &&
+        // A stop and a spent token budget both land here: what is in flight
+        // finishes and counts, nothing new goes out.
+        !this._stopped(tracker)
+      ) {
+        const item = next();
+        if (!item) break;
+        // A lane is busy from the dispatch until its request is counted as
+        // done: its pairs have left the queue and its answer has not reached
+        // requestsDone, which is exactly what the plan has to know about the
+        // other lanes. A request that never reports — a stop in flight —
+        // frees its lane when its task ends.
+        const lane = this._openLane(tracker);
+        const task = this._judgeBatch(item.batch, context, {
+          ...(item.options || {}),
+          lane,
+        }).then(
+          () => {},
+          (error) => {
+            failure = failure || error;
+          }
+        );
+        // The set holds what is awaited, and the entry removes itself.
+        const tracked = task.finally(() => {
+          inFlight.delete(tracked);
+          lane();
+        });
+        inFlight.add(tracked);
+        usage.batchSize = sizer
+          ? sizer.batchSize || usage.batchSize
+          : plan.size;
+      }
+      if (inFlight.size === 0) break;
+      // One answer at a time: the lane it frees is filled with a batch sized
+      // by what that answer measured.
+      await Promise.race(inFlight);
+    }
+
+    // A stop or a failure leaves requests out; they are waited for, so the
+    // review reports the verdicts they still brought and nothing keeps
+    // running after it returned.
+    if (inFlight.size > 0) await Promise.all(inFlight);
+    state.inFlight = 0;
+    if (failure) throw failure;
+  }
+
+  /**
+   * One lane of the scheduler, as a function that closes it. Closing twice
+   * is closing once: the request closes its own lane when it is counted, and
+   * the task closes whatever is left when it ends.
+   *
+   * @param {object|null} tracker
+   * @returns {() => void}
+   */
+  _openLane(tracker) {
+    if (!tracker) return () => {};
+    tracker.lanesBusy += 1;
+    let open = true;
+    return () => {
+      if (!open) return;
+      open = false;
+      tracker.lanesBusy = Math.max(0, tracker.lanesBusy - 1);
+    };
+  }
+
+  /**
+   * Answers what the judge already knows and says so.
+   *
+   * The pairs an earlier review decided about — same names, a verdict that
+   * was not "unsure" — never reach the queue. The plan is corrected in the
+   * same breath: those requests will not be made, so the page's denominator
+   * must not keep counting them.
+   *
+   * @param {object} context
+   * @param {AiReviewPair[]} list
+   * @param {{size:number}} plan
+   * @returns {Promise<number>} pairs answered from memory
+   */
+  async _answerFromMemory(context, list, plan) {
+    const { kind, memory, verdicts, tracker, sizer } = context;
+    if (!memory) return 0;
+    const remembered = await this._rememberedVerdicts(kind, list, memory);
+    if (remembered.size === 0) return 0;
+    for (const [key, verdict] of remembered) verdicts.set(key, verdict);
+    this._log(
+      `${kind}: ${remembered.size} pair(s) answered from memory, ` +
+        `${list.length - remembered.size} asked.`
+    );
+    if (tracker) {
+      const size = Math.max(1, this._sizeFor(sizer, plan.size));
+      const saved =
+        Math.ceil(list.length / size) -
+        Math.ceil((list.length - remembered.size) / size);
+      tracker.verdictsReused += remembered.size;
+      // Answered, and never asked: both ends of the bar know it.
+      tracker.pairsJudged += remembered.size;
+      tracker.pairsAsked += remembered.size;
+      tracker.requestsPlanned = Math.max(
+        tracker.requestsDone,
+        tracker.requestsPlanned - Math.max(0, saved)
+      );
+      this._report(tracker, {
+        kind,
+        verdictsReused: tracker.verdictsReused,
+        pairsJudged: tracker.pairsJudged,
+        requestsPlanned: tracker.requestsPlanned,
+        message: this._requestMessage(tracker),
+      });
+    }
+    return remembered.size;
   }
 
   /**
@@ -3219,6 +3827,14 @@ class EntityMatchAiService {
           `${Math.round(sizer.tokensPerSecond)} tokens/s, thinking ${sizer.thinking ? 'on' : 'off'}.`
       );
     }
+    // What the judge already decided about a pair of names, pruned to what
+    // the operator still wants remembered. Null switches the memory off for
+    // the whole review: nothing is read and nothing is written.
+    const memory = await this._openVerdictMemory();
+    // How many requests this review keeps in flight. One while the model is
+    // being measured, whatever this says.
+    const concurrency = this.concurrency();
+    if (tracker) tracker.concurrency = concurrency;
     const requested = options.kind || 'all';
     const kinds =
       requested === 'all' ? [...entityNameMatcher.KIND_LIST] : [requested];
@@ -3300,6 +3916,7 @@ class EntityMatchAiService {
     let pairsNotJudged = 0;
     let sweepRequests = 0;
     let sweepProposals = 0;
+    let verdictsReused = 0;
     let model = this.modelName();
 
     /** Folds the usage of one round of requests into the totals above. */
@@ -3502,6 +4119,7 @@ class EntityMatchAiService {
           ? this._sizeFor(sizer, firstSize)
           : Math.max(1, Math.min(WARMUP_PAIRS, firstSize)),
         calibrated: sizer.calibrated,
+        concurrency,
         message: sizer.calibrated
           ? `Asking the model, request 1 of ${tracker.requestsPlanned}`
           : WARMUP_MESSAGE,
@@ -3540,8 +4158,11 @@ class EntityMatchAiService {
         systemPrompt,
         tracker,
         sizer,
+        concurrency,
+        memory,
       });
       foldUsage(review.usage);
+      verdictsReused += review.verdictsReused || 0;
       model = review.model || model;
 
       // Second round: a pair the model could not decide and had no excerpts
@@ -3614,8 +4235,11 @@ class EntityMatchAiService {
             systemPrompt,
             tracker,
             sizer,
+            concurrency,
+            memory,
           });
           foldUsage(second.usage);
+          verdictsReused += second.verdictsReused || 0;
           for (const [key, verdict] of second.verdicts) {
             review.verdicts.set(key, verdict);
           }
@@ -3692,7 +4316,8 @@ class EntityMatchAiService {
         (targeted
           ? `, ${groupsJudged} group(s) judged, ${groupsSkipped} skipped`
           : '') +
-        `, in ${Date.now() - startedAt}ms.`
+        (verdictsReused > 0 ? `, ${verdictsReused} answered from memory` : '') +
+        `, in ${Date.now() - startedAt}ms in ${concurrency} lane(s).`
     );
 
     return {
@@ -3723,6 +4348,10 @@ class EntityMatchAiService {
         // no sweep request and proposed no pair.
         sweepRequests,
         sweepProposals,
+        // Pairs an earlier review had already decided, and the lanes this
+        // one asked the rest in.
+        verdictsReused,
+        concurrency,
       },
     };
   }
@@ -3781,6 +4410,8 @@ entityMatchAiService.WARMUP_MIN_CAP = WARMUP_MIN_CAP;
 entityMatchAiService.CALIBRATION_WEIGHT = CALIBRATION_WEIGHT;
 entityMatchAiService.CAP_SAFETY_FACTOR = CAP_SAFETY_FACTOR;
 entityMatchAiService.CAP_FLOOR_FACTOR = CAP_FLOOR_FACTOR;
+entityMatchAiService.DEFAULT_CONCURRENCY = DEFAULT_CONCURRENCY;
+entityMatchAiService.MAX_CONCURRENCY = MAX_CONCURRENCY;
 entityMatchAiService.MIN_COMPLETION_CAP = MIN_COMPLETION_CAP;
 entityMatchAiService.PROGRESS_INTERVAL_MS = PROGRESS_INTERVAL_MS;
 entityMatchAiService.WARMUP_MESSAGE = WARMUP_MESSAGE;

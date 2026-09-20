@@ -121,6 +121,17 @@
  * 67. The calibration survives a restart: it is loaded from ai_calibration
  *     into a fresh review, saved after every measurement, and resetCalibration
  *     and forgetCalibration clear memory and table alike
+ * 68. The thinking is measured apart from the answer and priced per request:
+ *     the batch is sized from the answer tokens, the cap carries the fixed
+ *     cost, and both are remembered in memory and in the table
+ * 69. A model that thinks although it was asked not to is said so once
+ * 70. The lanes: the setting, the provider's default, the bounds, three
+ *     requests in flight, the warm-up alone, a verdict that belongs to its
+ *     pair whenever it arrives, a stop that lets what is out go, and a spent
+ *     token budget that dispatches nothing more
+ * 71. The memory: a remembered verdict answers without a request and says
+ *     so, a renamed pair is asked again, "unsure" is never remembered, 0
+ *     days reads and writes nothing, forgetVerdicts empties it
  */
 
 'use strict';
@@ -202,6 +213,9 @@ async function main() {
   process.env.PAPERLESS_API_URL = 'http://127.0.0.1:9';
   process.env.PAPERLESS_API_TOKEN = 'test-token';
   process.env.DUPLICATES_AI_REVIEW = 'yes';
+  // The judge's memory is switched on per case: a verdict remembered by one
+  // case would answer the next one's pairs without a request.
+  process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS = '0';
   process.env.AI_PROVIDER = 'openai';
   process.env.OPENAI_API_KEY = 'test';
   process.env.OPENAI_MODEL = 'test-model';
@@ -1073,6 +1087,10 @@ async function main() {
         // no pair; both numbers are on every result all the same.
         sweepRequests: 0,
         sweepProposals: 0,
+        // Nothing was remembered from an earlier review here, and the lanes
+        // are what DUPLICATES_AI_CONCURRENCY works out to for this provider.
+        verdictsReused: 0,
+        concurrency: 3,
       });
       assert.strictEqual(result.threshold, 0.95, 'the scan result is kept');
       assert.strictEqual(result.paperlessUrl, 'https://paperless.example');
@@ -1211,7 +1229,7 @@ async function main() {
         /correspondents: request 1, 3 pair\(s\), ~\d+ prompt tokens, cap 1500, \d+ms, 2 same \/ 1 different \/ 0 unsure\./
       );
       has(
-        /review finished: 1 request\(s\) \(0 retry\/retries, 0 failed\), 100 token\(s\), 3 pair\(s\) planned, 3 candidate\(s\), 3 group\(s\) confirmed, in \d+ms\./
+        /review finished: 1 request\(s\) \(0 retry\/retries, 0 failed\), 100 token\(s\), 3 pair\(s\) planned, 3 candidate\(s\), 3 group\(s\) confirmed, in \d+ms in 3 lane\(s\)\./
       );
       assert.ok(
         !lines.some((line) => /Amazon order|refund|contract change/.test(line)),
@@ -1584,7 +1602,7 @@ async function main() {
         /correspondents: threshold 0\.85, judging 1 of 4 group\(s\) \(min confidence 0\.95, 3 ids\), band skipped, 1 pair\(s\) settled by a spelling rule, 0 pair\(s\) to judge, titles off, excerpts on for 0 spelling-only pair\(s\), 0 entity\/entities fetched, model test-model\./
       );
       has(/1 of 3 group id\(s\) are not in this scan and were ignored\./);
-      has(/1 group\(s\) judged, 3 skipped, in \d+ms\./);
+      has(/1 group\(s\) judged, 3 skipped, in \d+ms in 3 lane\(s\)\./);
     });
 
     await test('Without any of the three options the counters say "not targeted"', async () => {
@@ -3172,6 +3190,10 @@ async function main() {
         truncateWhen = () => false,
         partialText = null,
         respond = null,
+        // What the provider reports as reasoning in its usage, which is what
+        // the judge sizes the thinking by. Null is a provider that reports
+        // none, which is every case written before round 10.
+        usageReasoning = null,
       } = options;
       const calls = [];
       service.resetCalibration();
@@ -3215,6 +3237,7 @@ async function main() {
             promptTokens: 100,
             completionTokens,
             totalTokens: 100 + completionTokens,
+            reasoningTokens: usageReasoning,
           };
           if (truncateWhen(callNumber, ids.length)) {
             const error = new Error('the answer hit a token limit');
@@ -3355,6 +3378,7 @@ async function main() {
         {
           tokensPerPair: 150,
           tokensPerSecond: 30,
+          thinkingPerRequest: 0,
           largestCompletion: 600,
           thinking: false,
           measuredAt: null,
@@ -4687,6 +4711,573 @@ async function main() {
         config.duplicatesAiExcerpts = previous.excerpts;
         config.duplicatesAiThinking = previous.thinking;
       }
+    });
+
+    // ---------------- round 10: the thinking, the lanes and the memory
+
+    /** Runs `fn` with a given DUPLICATES_AI_CONCURRENCY. */
+    function withConcurrencySync(value, fn) {
+      const previous = config.duplicatesAiConcurrency;
+      config.duplicatesAiConcurrency = value;
+      try {
+        return fn();
+      } finally {
+        config.duplicatesAiConcurrency = previous;
+      }
+    }
+
+    /** The same for a review, which is asynchronous. */
+    async function withConcurrency(value, fn) {
+      const previous = config.duplicatesAiConcurrency;
+      config.duplicatesAiConcurrency = value;
+      try {
+        return await fn();
+      } finally {
+        config.duplicatesAiConcurrency = previous;
+      }
+    }
+
+    /**
+     * Runs `fn` with the judge's memory of verdicts switched on for so many
+     * days, on an empty table.
+     */
+    async function withVerdictMemory(days, fn) {
+      const previous = config.duplicatesAiVerdictMemoryDays;
+      config.duplicatesAiVerdictMemoryDays = days;
+      await documentModel.clearAiPairVerdicts();
+      try {
+        return await fn();
+      } finally {
+        config.duplicatesAiVerdictMemoryDays = previous;
+        await documentModel.clearAiPairVerdicts();
+      }
+    }
+
+    /**
+     * A provider that takes its time and says how many requests were in
+     * flight at once while it did.
+     *
+     * @param {object} [options] `delayFor(callNumber)` in milliseconds, and
+     *   `respond` as useProvider takes it
+     */
+    function useSlowProvider(options = {}) {
+      const { delayFor = () => 5, respond = answerFromTable() } = options;
+      const calls = [];
+      const seen = { inFlight: 0, most: 0 };
+      service.resetCalibration();
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText(prompt, requestOptions) {
+          const callNumber = calls.length + 1;
+          const call = {
+            prompt,
+            options: requestOptions,
+            startedAt: Date.now(),
+            endedAt: null,
+          };
+          calls.push(call);
+          seen.inFlight += 1;
+          seen.most = Math.max(seen.most, seen.inFlight);
+          try {
+            await new Promise((resolve) =>
+              setTimeout(resolve, delayFor(callNumber))
+            );
+            provider.lastGenerateTextUsage = {
+              promptTokens: 100,
+              completionTokens: 200,
+              totalTokens: 300,
+              reasoningTokens: null,
+            };
+            return respond(prompt, requestOptions, callNumber);
+          } finally {
+            seen.inFlight -= 1;
+            call.endedAt = Date.now();
+          }
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+      return { provider, calls, seen };
+    }
+
+    await test('The thinking is measured apart and sizes the request as a fixed cost', () => {
+      service.resetCalibration();
+      const sizer = service._sizer();
+      sizer.maxSize = 100;
+      // 600 tokens of thought, then 160 tokens of verdicts for four pairs,
+      // in ten seconds: 40 tokens a pair, 600 a request, 76 a second.
+      service._measure(
+        { sizer },
+        {
+          pairs: 4,
+          completionTokens: 760,
+          reasoningTokens: 600,
+          elapsedMs: 10000,
+          truncated: false,
+          warmingUp: true,
+        }
+      );
+      assert.strictEqual(sizer.tokensPerPair, 40, '160 answer tokens, 4 pairs');
+      assert.strictEqual(sizer.thinkingPerRequest, 600, 'paid per request');
+      assert.strictEqual(sizer.tokensPerSecond, 76, 'everything it produced');
+
+      // The user's case, in numbers: at 60 tokens a second a thirty-second
+      // request is thirty pairs. Counted the old way — the thoughts as the
+      // cost of a verdict, 190 a pair — it would have been nine, and every
+      // request after it fewer again, down to the one pair they ended at.
+      sizer.tokensPerSecond = 60;
+      const previousBatchSize = config.duplicatesAiReviewBatchSize;
+      config.duplicatesAiReviewBatchSize = 100;
+      try {
+        assert.strictEqual(
+          withRequestSecondsSync(30, () => service._sizeFor(sizer, 100)),
+          30,
+          '(30 s × 60 tokens/s − 600 thinking) ÷ 40 per pair'
+        );
+      } finally {
+        config.duplicatesAiReviewBatchSize = previousBatchSize;
+      }
+      assert.strictEqual(
+        Math.floor((30 * 60) / 190),
+        9,
+        'which is what counting the thinking per pair would have bought'
+      );
+
+      // The cap carries the same split: the verdicts by the pair, the
+      // thinking once, and a small batch is not starved of its thoughts.
+      assert.strictEqual(
+        service._capFor(sizer, 30),
+        Math.ceil(40 * 30 * service.CAP_SAFETY_FACTOR) +
+          Math.ceil(600 * service.CAP_FLOOR_FACTOR) +
+          service.TOKENS_OVERHEAD
+      );
+      assert.strictEqual(service._capFor(sizer, 30), 2750);
+      assert.strictEqual(
+        service._capFor(sizer, 1),
+        Math.ceil(40 * 1.5) + 750 + service.TOKENS_OVERHEAD,
+        'one pair still gets the whole fixed price'
+      );
+      service.resetCalibration();
+    });
+
+    await test('The thinking cost is remembered, in memory and in the table', async () => {
+      service.resetCalibration();
+      seedArchive();
+      useStreamingProvider({ completionTokens: 900, usageReasoning: 600 });
+
+      await withBatchSize(2, () => service.reviewScan(BAND_REVIEW));
+      await service.lastCalibrationSave;
+
+      const measured = service.calibration.get('test-model');
+      assert.ok(measured.thinkingPerRequest > 0, 'the review measured it');
+      const stored = await documentModel.getAiCalibration('test-model', false);
+      assert.strictEqual(
+        stored.thinkingPerRequest,
+        measured.thinkingPerRequest,
+        'and wrote it to the table'
+      );
+      assert.ok(
+        measured.tokensPerPair < 900 / 2,
+        'what a verdict costs is the answer alone'
+      );
+
+      // Which is where the next review starts, restart or no restart.
+      service.calibration.clear();
+      await service._loadCalibration();
+      const next = service._sizer();
+      assert.strictEqual(next.thinkingPerRequest, measured.thinkingPerRequest);
+      assert.strictEqual(next.calibrated, true);
+      service.resetCalibration();
+    });
+
+    await test('A model that thinks although it was asked not to says so once', async () => {
+      service.resetCalibration();
+      seedArchive();
+      useStreamingProvider({ completionTokens: 900, usageReasoning: 600 });
+      const lines = [];
+      const realLog = console.log;
+      console.log = (...args) => lines.push(args.join(' '));
+      try {
+        await withBatchSize(1, () => service.reviewScan(BAND_REVIEW));
+      } finally {
+        console.log = realLog;
+      }
+
+      const said = lines.filter((line) =>
+        /thinks although it was asked not to/.test(line)
+      );
+      assert.strictEqual(
+        said.length,
+        1,
+        `once per review:\n${said.join('\n')}`
+      );
+      assert.match(said[0], /requests are sized around \d+ tokens of thinking/);
+      assert.ok(
+        lines.some((line) => /thinking per request/.test(line)),
+        'and the warm-up line names what it costs'
+      );
+      service.resetCalibration();
+    });
+
+    await test('The lanes come from the setting, the provider and the bounds', () => {
+      const previousProvider = config.aiProvider;
+      try {
+        assert.strictEqual(
+          withConcurrencySync(0, () => service.concurrency()),
+          3,
+          'automatic on a hosted endpoint'
+        );
+        config.aiProvider = 'ollama';
+        assert.strictEqual(
+          withConcurrencySync(0, () => service.concurrency()),
+          1,
+          'and one for a local model, which answers one at a time anyway'
+        );
+        assert.strictEqual(
+          withConcurrencySync(4, () => service.concurrency()),
+          4,
+          'the operator overrules the automatic number'
+        );
+        config.aiProvider = previousProvider;
+        assert.strictEqual(
+          withConcurrencySync(99, () => service.concurrency()),
+          service.MAX_CONCURRENCY,
+          'and cannot ask for more than the bound'
+        );
+        assert.strictEqual(
+          withConcurrencySync(-2, () => service.concurrency()),
+          3,
+          'nonsense is the automatic number again'
+        );
+      } finally {
+        config.aiProvider = previousProvider;
+      }
+    });
+
+    await test('Three lanes keep three requests in flight', async () => {
+      seedArchive();
+      const { calls, seen } = useSlowProvider({ delayFor: () => 20 });
+      const watch = useControl();
+
+      const result = await withConcurrency(3, () =>
+        withCalibration({}, () =>
+          withBatchSize(1, () => service.reviewScan(BAND_REVIEW, watch.control))
+        )
+      );
+
+      assert.strictEqual(calls.length, 3, 'three pairs, one per request');
+      assert.strictEqual(seen.most, 3, 'and all three were out at once');
+      assert.strictEqual(result.aiReview.concurrency, 3);
+      assert.strictEqual(result.aiReview.pairsNotJudged, 0);
+      const answered = watch.requests();
+      assert.deepStrictEqual(
+        answered.map((patch) => patch.concurrency),
+        [3, 3, 3]
+      );
+      assert.strictEqual(
+        answered[answered.length - 1].inFlight,
+        0,
+        'and nothing is out any more when the last answer is in'
+      );
+    });
+
+    await test('The warm-up has the lanes to itself', async () => {
+      seedArchive();
+      const { calls, seen } = useSlowProvider({ delayFor: () => 20 });
+
+      await withConcurrency(3, () =>
+        withBatchSize(1, () => service.reviewScan(BAND_REVIEW))
+      );
+
+      assert.strictEqual(calls.length, 3, 'three pairs, one per request');
+      assert.ok(
+        calls[1].startedAt >= calls[0].endedAt,
+        'the warm-up is the measurement every later request is sized by, ' +
+          'so nothing is asked beside it'
+      );
+      assert.ok(
+        calls[2].startedAt < calls[1].endedAt,
+        'and once it has answered, the lanes are open'
+      );
+      assert.strictEqual(seen.most, 2, 'two pairs were left to share them');
+      service.resetCalibration();
+    });
+
+    await test('A verdict is the pair it answered, whenever it arrives', async () => {
+      seedArchive();
+      // The last request answers first, the first one last.
+      const { calls } = useSlowProvider({
+        delayFor: (callNumber) => 40 - callNumber * 10,
+      });
+
+      const result = await withConcurrency(3, () =>
+        withCalibration({}, () =>
+          withBatchSize(1, () => service.reviewScan(BAND_REVIEW))
+        )
+      );
+
+      assert.strictEqual(calls.length, 3);
+      assert.deepStrictEqual(
+        calls.map((call) => idsInPrompt(call.prompt)[0]).sort(),
+        ['correspondents:3-4', 'correspondents:5-6', 'correspondents:7-8'],
+        'every pair of the band was asked exactly once'
+      );
+      const named = result.groups
+        .filter((group) => group.source === 'ai-candidate')
+        .flatMap((group) => group.members.map((member) => member.name));
+      assert.ok(
+        named.includes('Vodafone Kundenservice'),
+        'the "same" of the table became a group'
+      );
+      assert.strictEqual(
+        named.includes('Techniker Krankenkasse'),
+        false,
+        'and the "different" did not, however early its answer arrived'
+      );
+    });
+
+    await test('A stop lets the requests in flight go and asks nothing more', async () => {
+      seedArchive();
+      const watch = useControl();
+      const calls = [];
+      service.resetCalibration();
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText(prompt, requestOptions) {
+          calls.push({ prompt, options: requestOptions });
+          // Waits for the stop, the way a provider waits for a slow model.
+          await new Promise((resolve) => {
+            requestOptions.signal?.addEventListener('abort', resolve, {
+              once: true,
+            });
+          });
+          const error = new Error('The request was aborted');
+          error.name = 'AbortError';
+          error.code = 'ai_request_aborted';
+          throw error;
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+
+      const review = withConcurrency(3, () =>
+        withCalibration({}, () =>
+          withBatchSize(1, () => service.reviewScan(BAND_REVIEW, watch.control))
+        )
+      );
+      // Once all three are out, the user presses stop.
+      while (calls.length < 3) await new Promise(setImmediate);
+      watch.abort('user');
+      const result = await review;
+
+      assert.strictEqual(calls.length, 3, 'nothing was asked after the stop');
+      assert.ok(
+        calls.every((call) => call.options.signal),
+        'every request carried the signal that stopped it'
+      );
+      assert.strictEqual(result.aiReview.stopped, true);
+      assert.strictEqual(result.aiReview.pairsNotJudged, 3);
+      assert.strictEqual(result.aiReview.failedRequests, 0, 'not a failure');
+      assert.strictEqual(
+        result.groups.some((group) => group.source === 'ai-candidate'),
+        false,
+        'a pair nobody answered cannot become a group'
+      );
+      service.resetCalibration();
+    });
+
+    await test('A spent token budget stops the dispatching', async () => {
+      const pairs = tagPairs(6);
+      const watch = useControl({ tokenBudget: 100 });
+      const { calls } = useProvider(answerAll('same', 'two spellings'));
+
+      await withBatchSize(1, () =>
+        service.reviewPairs(pairs, {
+          kind: 'tags',
+          tracker: service._reviewTracker(watch.control),
+          concurrency: 2,
+        })
+      );
+
+      assert.strictEqual(
+        calls.length,
+        2,
+        'the two that were out when the first answer spent the budget'
+      );
+      assert.deepStrictEqual(watch.stops, ['token-budget']);
+    });
+
+    await test('A remembered verdict answers its pair without a request', async () => {
+      await withVerdictMemory(90, async () => {
+        seedArchive();
+        const first = useProvider(answerFromTable());
+        const before = await service.reviewScan(BAND_REVIEW);
+        await service.lastVerdictSave;
+        assert.strictEqual(first.calls.length > 0, true);
+        assert.strictEqual(before.aiReview.verdictsReused, 0, 'nothing yet');
+        assert.strictEqual(
+          await documentModel.countAiPairVerdicts(),
+          3,
+          'the three pairs the model answered are remembered'
+        );
+
+        // The same archive, the same names: nothing to ask.
+        seedArchive();
+        const second = useProvider(answerFromTable());
+        const lines = [];
+        const realLog = console.log;
+        console.log = (...args) => lines.push(args.join(' '));
+        let result;
+        try {
+          result = await service.reviewScan(BAND_REVIEW);
+        } finally {
+          console.log = realLog;
+        }
+
+        assert.strictEqual(second.calls.length, 0, 'no request at all');
+        assert.strictEqual(result.aiReview.verdictsReused, 3);
+        assert.strictEqual(result.aiReview.requests, 0);
+        assert.ok(
+          lines.some((line) =>
+            /correspondents: 3 pair\(s\) answered from memory, 0 asked\./.test(
+              line
+            )
+          ),
+          `no memory line:\n${lines.join('\n')}`
+        );
+        const groups = result.groups.filter(
+          (group) => group.source === 'ai-candidate'
+        );
+        assert.ok(
+          groups.length > 0,
+          'a remembered "same" still builds a group'
+        );
+        const member = groups[0].members.find((one) => one.aiVerdict);
+        assert.strictEqual(member.aiVerdict.verdict, 'same');
+        assert.strictEqual(
+          member.aiVerdict.remembered,
+          true,
+          'and the page is told where the verdict came from'
+        );
+        assert.strictEqual(groups[0].aiVerdict.remembered, true);
+      });
+    });
+
+    await test('A renamed pair is asked again, an unsure one is never remembered', async () => {
+      await withVerdictMemory(90, async () => {
+        seedArchive();
+        // What an earlier review left behind: one row that still fits the
+        // two names, one that was written before a rename.
+        await documentModel.saveAiPairVerdict({
+          kind: 'correspondents',
+          pairKey: 'correspondents:3-4',
+          nameA: 'Vodafone Kundenservice',
+          nameB: 'Kundenservice Vodafone Nord',
+          verdict: 'same',
+          basis: 'synonym',
+          confidence: 'high',
+          reason: 'one service desk',
+          model: 'test-model',
+        });
+        await documentModel.saveAiPairVerdict({
+          kind: 'correspondents',
+          pairKey: 'correspondents:5-6',
+          nameA: 'Techniker Krankenkasse',
+          nameB: 'what it was called last month',
+          verdict: 'different',
+          basis: 'different-thing',
+          confidence: 'high',
+          reason: 'two offices',
+          model: 'test-model',
+        });
+
+        const { calls } = useProvider(answerAll('unsure', 'not enough'));
+        const result = await service.reviewScan(BAND_REVIEW);
+
+        const asked = calls.flatMap((call) => idsInPrompt(call.prompt));
+        assert.strictEqual(
+          asked.includes('correspondents:3-4'),
+          false,
+          'both names unchanged: answered from memory'
+        );
+        assert.ok(
+          asked.includes('correspondents:5-6'),
+          'one name changed: a new question'
+        );
+        assert.strictEqual(result.aiReview.verdictsReused, 1);
+        assert.strictEqual(
+          await documentModel.countAiPairVerdicts(),
+          2,
+          'and "unsure" was not written: the rows are the two from before'
+        );
+        const stale = await documentModel.getAiPairVerdicts('correspondents', [
+          'correspondents:5-6',
+        ]);
+        assert.strictEqual(
+          stale[0].verdict,
+          'different',
+          'the stale row is left as it was until a real verdict replaces it'
+        );
+      });
+    });
+
+    await test('Nothing is read or written when the memory is switched off', async () => {
+      await withVerdictMemory(0, async () => {
+        await documentModel.saveAiPairVerdict({
+          kind: 'correspondents',
+          pairKey: 'correspondents:3-4',
+          nameA: 'Vodafone Kundenservice',
+          nameB: 'Kundenservice Vodafone Nord',
+          verdict: 'same',
+          basis: 'synonym',
+          confidence: 'high',
+          reason: 'one service desk',
+          model: 'test-model',
+        });
+        seedArchive();
+        const { calls } = useProvider(answerFromTable());
+
+        const result = await service.reviewScan(BAND_REVIEW);
+        await service.lastVerdictSave;
+
+        assert.ok(
+          calls
+            .flatMap((call) => idsInPrompt(call.prompt))
+            .includes('correspondents:3-4'),
+          'the row is not read'
+        );
+        assert.strictEqual(result.aiReview.verdictsReused, 0);
+        assert.strictEqual(
+          await documentModel.countAiPairVerdicts(),
+          1,
+          'and nothing new is written'
+        );
+      });
+    });
+
+    await test('forgetVerdicts empties the memory and says how much it dropped', async () => {
+      await withVerdictMemory(90, async () => {
+        seedArchive();
+        useProvider(answerFromTable());
+        await service.reviewScan(BAND_REVIEW);
+        await service.lastVerdictSave;
+        assert.strictEqual(await documentModel.countAiPairVerdicts(), 3);
+
+        assert.strictEqual(await service.forgetVerdicts(), 3);
+        assert.strictEqual(await documentModel.countAiPairVerdicts(), 0);
+        assert.strictEqual(
+          await service.forgetVerdicts(),
+          0,
+          'an empty memory forgets nothing'
+        );
+
+        // Which is what the next review sees: every pair asked again.
+        seedArchive();
+        const { calls } = useProvider(answerFromTable());
+        const result = await service.reviewScan(BAND_REVIEW);
+        assert.ok(calls.length > 0);
+        assert.strictEqual(result.aiReview.verdictsReused, 0);
+      });
     });
   } finally {
     AIServiceFactory.getService = realGetService;
