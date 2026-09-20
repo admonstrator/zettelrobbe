@@ -146,6 +146,11 @@ const RELEASES = [
       'New: A "Duplicates" section on the settings page holds every setting of the feature: the AI review on or off, a separate judge model (DUPLICATES_AI_MODEL), pairs per request, the candidate floor, excerpts, a token budget per review (DUPLICATES_AI_TOKEN_BUDGET) and an idle stop for reviews nobody is watching (DUPLICATES_AI_IDLE_STOP_SECONDS)',
       'Improvement: History and Restore keep working for documents a merge touched; the local records follow the merge and the undo',
       'Improvement: The Duplicates feature writes readable log lines for scans, merges, undos and every model request, and reads the tag and correspondent lists from Paperless-ngx in parallel',
+      'New: A "Simplify tags" page next to Duplicates splits compound tags into a document type and topic tags: "Stromrechnung" becomes the document type "Rechnung" plus the tag "Strom". The model proposes a vocabulary of types and topics from your tag names (SIMPLIFY_VOCABULARY_SIZE, SIMPLIFY_TAGS_PER_REQUEST), you edit and save it, the proposals come by rule first and by the model second, and nothing is applied until you tick it',
+      'New: A split fills the document type where none is set and keeps a different one; the confirmation says how many documents keep theirs, and a per-tag "overwrite type" switch sets it everywhere. Every split is logged with what it did per document and can be undone from the Duplicates page',
+      'New: Document analysis decomposes a new compound tag name against the saved vocabulary instead of creating it, and the mapping is listed on the Duplicates page',
+      'Improvement: The AI review treats the thinking a model does as a fixed cost per request instead of shrinking the batch, runs requests side by side (DUPLICATES_AI_CONCURRENCY, automatic: one for Ollama, three for hosted providers) and remembers every verdict so an unchanged pair is not asked again (DUPLICATES_AI_VERDICT_MEMORY_DAYS, default 90); "Forget remembered verdicts" clears the memory',
+      'Improvement: Reasoning models that ignore the thinking switch are asked for low reasoning effort where their model family supports it',
     ],
   },
 ];
