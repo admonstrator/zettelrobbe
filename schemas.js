@@ -1529,6 +1529,10 @@
  *                 type: integer
  *               tagName:
  *                 type: string
+ *               action:
+ *                 type: string
+ *                 enum: [split, delete]
+ *                 description: a delete is a split with no targets; the documents lose the tag
  *               logId:
  *                 type: integer
  *               documentsUpdated:
