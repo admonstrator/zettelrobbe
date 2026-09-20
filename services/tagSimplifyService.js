@@ -54,7 +54,22 @@ const DIMENSIONS = Object.freeze({ TYPE: 'type', TOPIC: 'topic' });
 /** Where a proposal came from. */
 const PROPOSAL_SOURCES = Object.freeze(['rule', 'model', 'user']);
 /** What a proposal can be. */
-const PROPOSAL_STATUSES = Object.freeze(['open', 'applied', 'skipped']);
+const PROPOSAL_STATUSES = Object.freeze([
+  'open',
+  'accepted',
+  'applied',
+  'skipped',
+]);
+/**
+ * What the proposed order does with one tag: split it into a document type
+ * and/or topic tags, merge it into another tag, keep it as it is, or delete
+ * it (its documents lose it; the log row makes that undoable).
+ */
+const PROPOSAL_ACTIONS = Object.freeze(['split', 'merge', 'keep', 'delete']);
+/** The kinds of group the order is shown in. */
+const GROUP_KINDS = Object.freeze(['type', 'topic', 'merge', 'keep', 'delete']);
+/** What a group decision may be. */
+const GROUP_DECISIONS = Object.freeze(['accept', 'skip', 'reopen']);
 /** The log action of a split, shared with duplicateMergeService and the page. */
 const SPLIT_ACTION = 'split';
 /** Proposals one apply call may take. */
@@ -70,6 +85,8 @@ const LOG_PREFIX = '[SIMPLIFY]';
 const PHASES = Object.freeze({
   VOCABULARY: 'vocabulary',
   SPLITTING: 'splitting',
+  ORDERING: 'ordering',
+  APPLYING: 'applying',
 });
 
 /** Fewest tag names one vocabulary request reads, whatever the setting says. */
@@ -1244,10 +1261,33 @@ class TagSimplifyService {
       next.overwriteType = patch.overwriteType === true;
     }
     if ('status' in patch) {
-      if (patch.status !== 'open' && patch.status !== 'skipped') {
-        throw new SimplifyError('status must be open or skipped', 400);
+      if (
+        patch.status !== 'open' &&
+        patch.status !== 'skipped' &&
+        patch.status !== 'accepted'
+      ) {
+        throw new SimplifyError(
+          'status must be open, accepted or skipped',
+          400
+        );
       }
       next.status = patch.status;
+    }
+    if ('action' in patch) {
+      if (!PROPOSAL_ACTIONS.includes(patch.action)) {
+        throw new SimplifyError(
+          `action must be one of ${PROPOSAL_ACTIONS.join(', ')}`,
+          400
+        );
+      }
+      next.action = patch.action;
+      next.source = 'user';
+    }
+    if ('mergeInto' in patch) {
+      const name =
+        patch.mergeInto == null ? '' : String(patch.mergeInto).trim();
+      next.mergeInto = name === '' ? null : name;
+      next.source = 'user';
     }
     await documentModel.updateTagSplitProposal(id, next);
     return documentModel.getTagSplitProposal(id);
@@ -2027,12 +2067,94 @@ class TagSimplifyService {
       await documentModel.setTagVocabularyPaperlessId(row.id, null);
     }
   }
+
+  /* --- The proposed order (round 12) ------------------------------------ */
+
+  /**
+   * One job for the whole order: reads every tag and every document type,
+   * proposes the vocabulary itself (or keeps the saved one when
+   * options.vocabulary is 'keep'), and gives every tag one action — split,
+   * merge, keep or delete — by rule first and by the model second. Replaces
+   * the stored proposals. Runs as a job with task 'order'.
+   *
+   * @param {{ vocabulary?: 'propose'|'keep' }} options
+   * @param {object} control  { signal, onProgress, tokenBudget, stop, stopReason }
+   * @returns {Promise<{ vocabulary: object, proposals: number, byRule: number, byModel: number, requests: number, tokens: number, groups: number, stopped: boolean }>}
+   */
+  async proposeOrder(options = {}, control = {}) {
+    void options;
+    void control;
+    throw new SimplifyError('The order proposal is not available yet', 501);
+  }
+
+  /**
+   * The stored proposals as groups: one per document type (kind 'type', the
+   * tags that become or get it), one per topic (kind 'topic', the tags that
+   * carry it), one per merge target (kind 'merge'), and the two buckets
+   * 'keep' and 'delete'. A tag with a type and two topics is a member of
+   * three groups; a decision on a group patches its members' proposals.
+   *
+   * @returns {Promise<{ groups: object[], tags: number, open: number, accepted: number, applied: number, skipped: number }>}
+   */
+  async listGroups() {
+    throw new SimplifyError('The group view is not available yet', 501);
+  }
+
+  /**
+   * Accepts, skips or reopens every open member of a group (applied members
+   * are left alone). A group key is 'type:Rechnung', 'topic:Strom',
+   * 'merge:Amazon', 'keep' or 'delete'.
+   *
+   * @param {string} key
+   * @param {'accept'|'skip'|'reopen'} decision
+   * @returns {Promise<{ key: string, changed: number, group: object|null }>}
+   */
+  async decideGroup(key, decision) {
+    void key;
+    void decision;
+    throw new SimplifyError('Group decisions are not available yet', 501);
+  }
+
+  /**
+   * Takes one tag out of a group without touching the rest of its proposal:
+   * out of a type group the tag loses its type, out of a topic group that
+   * topic, out of a merge group it becomes 'keep', out of 'delete' it becomes
+   * 'keep'. A tag left with nothing becomes 'keep'.
+   *
+   * @param {string} key
+   * @param {number} tagId
+   * @returns {Promise<object>} the patched proposal
+   */
+  async removeGroupMember(key, tagId) {
+    void key;
+    void tagId;
+    throw new SimplifyError('Group edits are not available yet', 501);
+  }
+
+  /**
+   * Applies every accepted proposal (or those of one group when
+   * request.groupKey is set), one tag after the other: splits and deletes
+   * through applySplits, merges through duplicateMergeService.merge. Runs as
+   * a job with task 'apply'; the result has the shape of TagOrderApplyResult.
+   *
+   * @param {{ groupKey?: string|null, performedBy?: string|null }} request
+   * @param {object} control
+   * @returns {Promise<{ applied: object[], merged: object[], failed: object[], stopped: boolean }>}
+   */
+  async applyAccepted(request = {}, control = {}) {
+    void request;
+    void control;
+    throw new SimplifyError('Applying the order is not available yet', 501);
+  }
 }
 
 const tagSimplifyService = new TagSimplifyService();
 tagSimplifyService.DIMENSIONS = DIMENSIONS;
 tagSimplifyService.PROPOSAL_SOURCES = PROPOSAL_SOURCES;
 tagSimplifyService.PROPOSAL_STATUSES = PROPOSAL_STATUSES;
+tagSimplifyService.PROPOSAL_ACTIONS = PROPOSAL_ACTIONS;
+tagSimplifyService.GROUP_KINDS = GROUP_KINDS;
+tagSimplifyService.GROUP_DECISIONS = GROUP_DECISIONS;
 tagSimplifyService.SPLIT_ACTION = SPLIT_ACTION;
 tagSimplifyService.MAX_APPLY_TAGS = MAX_APPLY_TAGS;
 tagSimplifyService.SimplifyError = SimplifyError;

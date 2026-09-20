@@ -143,6 +143,7 @@ const TESTS = {
   'tag-simplify-service': 'test-tag-simplify-service.js',
   'simplify-endpoints': 'test-simplify-endpoints.js',
   'simplify-ui': 'test-simplify-ui.js',
+  'simplify-groups': 'test-simplify-groups.js',
 };
 
 const AREAS = {
@@ -265,6 +266,7 @@ const AREAS = {
     'tag-simplify-service',
     'simplify-endpoints',
     'simplify-ui',
+    'simplify-groups',
   ],
 };
 

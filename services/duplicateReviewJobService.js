@@ -69,6 +69,8 @@ const PHASES = Object.freeze({
   // The tasks of the Simplify tags page, run through the same job.
   VOCABULARY: 'vocabulary',
   SPLITTING: 'splitting',
+  ORDERING: 'ordering',
+  APPLYING: 'applying',
 });
 
 /** What a job runs; the review is the default, the other two belong to Simplify tags. */
@@ -76,6 +78,8 @@ const JOB_TASKS = Object.freeze({
   REVIEW: 'review',
   VOCABULARY: 'vocabulary',
   SPLITS: 'splits',
+  ORDER: 'order',
+  APPLY: 'apply',
 });
 
 /** How long a finished job stays reachable through current() and get(). */

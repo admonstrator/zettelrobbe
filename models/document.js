@@ -517,6 +517,22 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 14,
+    description:
+      'Simplify tags round 12: the action and the merge target of a proposal',
+    up: (database) => {
+      // The proposed order gives every tag one of four actions: split (a
+      // document type and/or topic tags), merge (into another tag), keep,
+      // delete. Rows from before carry split, which is what they were.
+      database.exec(
+        "ALTER TABLE tag_split_proposals ADD COLUMN action TEXT NOT NULL DEFAULT 'split'"
+      );
+      database.exec(
+        'ALTER TABLE tag_split_proposals ADD COLUMN merge_into TEXT DEFAULT NULL'
+      );
+    },
+  },
 ];
 
 /** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
@@ -621,6 +637,8 @@ function parseTagSplitProposalRow(row) {
     tagId: row.tag_id,
     tagName: row.tag_name,
     documentCount: Number(row.document_count) || 0,
+    action: row.action || 'split',
+    mergeInto: row.merge_into ?? null,
     typeName: row.type_name ?? null,
     topicNames: parseJsonColumn(row.topic_names, []),
     source: row.source || 'rule',
@@ -2253,8 +2271,8 @@ module.exports = {
         db.prepare('DELETE FROM tag_split_proposals').run();
         const insert = db.prepare(
           `INSERT INTO tag_split_proposals
-             (tag_id, tag_name, document_count, type_name, topic_names, source, confidence, reason, documents_with_type, overwrite_type, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             (tag_id, tag_name, document_count, action, merge_into, type_name, topic_names, source, confidence, reason, documents_with_type, overwrite_type, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         let stored = 0;
         for (const row of list) {
@@ -2264,6 +2282,8 @@ module.exports = {
             tagId,
             String(row.tagName ?? ''),
             Number(row.documentCount) || 0,
+            row.action || 'split',
+            row.mergeInto == null ? null : String(row.mergeInto),
             row.typeName == null ? null : String(row.typeName),
             JSON.stringify(Array.isArray(row.topicNames) ? row.topicNames : []),
             row.source || 'rule',
@@ -2355,6 +2375,14 @@ module.exports = {
       sets.push('confidence = ?');
       params.push(patch.confidence == null ? null : String(patch.confidence));
     }
+    if ('action' in patch) {
+      sets.push('action = ?');
+      params.push(String(patch.action || 'split'));
+    }
+    if ('mergeInto' in patch) {
+      sets.push('merge_into = ?');
+      params.push(patch.mergeInto == null ? null : String(patch.mergeInto));
+    }
     if ('documentsWithType' in patch) {
       sets.push('documents_with_type = ?');
       params.push(
@@ -2373,6 +2401,35 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] updating a split proposal:', error);
       return false;
+    }
+  },
+
+  /**
+   * Sets one status on many proposals in one transaction: a group accepted,
+   * skipped or reopened on the page.
+   *
+   * @param {number[]} tagIds
+   * @param {string} status
+   * @returns {Promise<number>} rows changed
+   */
+  async setTagSplitProposalStatus(tagIds, status) {
+    const ids = (Array.isArray(tagIds) ? tagIds : [])
+      .map(Number)
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) return 0;
+    try {
+      const update = db.prepare(
+        'UPDATE tag_split_proposals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE tag_id = ?'
+      );
+      const run = db.transaction(() => {
+        let changed = 0;
+        for (const id of ids) changed += update.run(String(status), id).changes;
+        return changed;
+      });
+      return run();
+    } catch (error) {
+      console.error('[ERROR] setting the status of split proposals:', error);
+      return 0;
     }
   },
 
