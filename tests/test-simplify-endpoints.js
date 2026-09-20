@@ -35,7 +35,19 @@
  * 14. POST /api/simplify/apply validates tagIds
  * 15. Apply answers success: true when nothing failed
  * 16. Apply answers 200 with success: false when something did
- * 17. The four settings of the round: GET, POST, clamp, keep-previous, export
+ * 17. POST /api/simplify/order/propose starts the one job of the order, with
+ *     the vocabulary mode it was given, and refuses any other mode
+ * 18. A second job while one runs is a 409 that names it, apply included
+ * 19. GET /api/simplify/groups hands the groups through, 501 included
+ * 20. A group decision decodes its key, validates the decision and passes a
+ *     refusal of the service through with its status
+ * 21. A member is taken out of a group by id; 404, 409 and 501 pass through
+ * 22. POST /api/simplify/order/apply starts a job with task apply, with and
+ *     without a groupKey, and refuses a groupKey that is not one
+ * 23. PATCH takes action, mergeInto and the accepted status
+ * 24. GET /api/simplify/proposals?status=accepted is a filter of its own
+ * 25. Every route of the proposed order is mounted and behind the guard
+ * 26. The four settings of the round: GET, POST, clamp, keep-previous, export
  */
 
 'use strict';
@@ -984,6 +996,747 @@ async function main() {
           assert.match(payload.error, /not available/);
         }
       );
+    });
+
+    await test('POST /api/simplify/order/propose starts a job with task order', async () => {
+      reviewJobs.reset();
+      const seen = [];
+      await withStubs(
+        tagSimplifyService,
+        {
+          proposeOrder: async (request, control) => {
+            seen.push({ request, control });
+            return {
+              vocabulary: { types: ['Rechnung'], topics: ['Strom'] },
+              proposals: 3,
+              byRule: 2,
+              byModel: 1,
+              requests: 1,
+              tokens: 120,
+              groups: 4,
+              stopped: false,
+            };
+          },
+        },
+        async () => {
+          const response = await call(
+            'POST',
+            '/api/simplify/order/propose',
+            {}
+          );
+          assert.strictEqual(response.status, 202, 'a started job is accepted');
+          const payload = await response.json();
+          assert.strictEqual(payload.success, true);
+          const job = payload.data.job;
+          assert.ok(job.id, 'the job is named');
+          assert.strictEqual(job.status, 'running');
+          assert.strictEqual(
+            job.task,
+            'order',
+            'the page tells the tasks apart by this field'
+          );
+          assert.strictEqual('controller' in job, false, 'no internals leak');
+
+          await reviewJobs.wait(job.id);
+          assert.strictEqual(
+            seen[0].request.vocabulary,
+            'propose',
+            'an empty body proposes the vocabulary as well'
+          );
+          assert.strictEqual(
+            'task' in seen[0].request,
+            false,
+            'the job task is not an option of the service'
+          );
+          assert.strictEqual(typeof seen[0].control.onProgress, 'function');
+          assert.ok(seen[0].control.signal, 'the runner can be aborted');
+
+          // The page reads the outcome off the job's own result route.
+          const result = await call(
+            'GET',
+            `/api/duplicates/ai-review/jobs/${job.id}/result`
+          );
+          assert.strictEqual(result.status, 200);
+          const resultPayload = await result.json();
+          assert.strictEqual(resultPayload.data.proposals, 3);
+          assert.strictEqual(resultPayload.data.groups, 4);
+
+          reviewJobs.reset();
+          const keep = await call('POST', '/api/simplify/order/propose', {
+            vocabulary: 'keep',
+          });
+          assert.strictEqual(keep.status, 202);
+          const keepJob = (await keep.json()).data.job;
+          assert.strictEqual(keepJob.task, 'order');
+          await reviewJobs.wait(keepJob.id);
+          assert.strictEqual(
+            seen[1].request.vocabulary,
+            'keep',
+            'keep reaches the service unchanged'
+          );
+        }
+      );
+      reviewJobs.reset();
+    });
+
+    await test('The order proposal refuses a vocabulary it does not know', async () => {
+      reviewJobs.reset();
+      let calls = 0;
+      await withStubs(
+        tagSimplifyService,
+        {
+          proposeOrder: async () => {
+            calls += 1;
+            return { proposals: 0 };
+          },
+        },
+        async () => {
+          const bodies = [
+            { vocabulary: 'rebuild' },
+            { vocabulary: 'PROPOSE' },
+            { vocabulary: 1 },
+            { vocabulary: true },
+            { vocabulary: ['propose'] },
+          ];
+          for (const body of bodies) {
+            const response = await call(
+              'POST',
+              '/api/simplify/order/propose',
+              body
+            );
+            assert.strictEqual(
+              response.status,
+              400,
+              `expected 400 for ${JSON.stringify(body)}`
+            );
+            const payload = await response.json();
+            assert.strictEqual(payload.success, false);
+            assert.match(payload.error, /vocabulary/);
+          }
+          assert.strictEqual(
+            calls,
+            0,
+            'a refused body must not start a job at all'
+          );
+          assert.strictEqual(
+            reviewJobs.isRunning(),
+            false,
+            'and must not leave one behind'
+          );
+        }
+      );
+      reviewJobs.reset();
+    });
+
+    await test('A second order job while one runs is a 409 that names it', async () => {
+      reviewJobs.reset();
+      let open = () => {};
+      const opened = new Promise((resolve) => {
+        open = resolve;
+      });
+      await withStubs(
+        tagSimplifyService,
+        {
+          proposeOrder: async () => {
+            await opened;
+            return { proposals: 0 };
+          },
+          applyAccepted: async () => ({
+            applied: [],
+            merged: [],
+            failed: [],
+            stopped: false,
+          }),
+        },
+        async () => {
+          const first = await call('POST', '/api/simplify/order/propose', {});
+          const job = (await first.json()).data.job;
+
+          const second = await call('POST', '/api/simplify/order/propose', {});
+          assert.strictEqual(second.status, 409, 'one job at a time');
+          const refusal = await second.json();
+          assert.strictEqual(refusal.success, false);
+          assert.match(refusal.error, /already running/);
+          assert.strictEqual(
+            refusal.data.job.id,
+            job.id,
+            'the refusal names the running job so a second tab can attach'
+          );
+
+          // The apply is the same one job, so it cannot jump the queue.
+          const apply = await call('POST', '/api/simplify/order/apply', {});
+          assert.strictEqual(apply.status, 409);
+          assert.strictEqual((await apply.json()).data.job.id, job.id);
+
+          open();
+          await reviewJobs.wait(job.id);
+        }
+      );
+      reviewJobs.reset();
+    });
+
+    await test('GET /api/simplify/groups answers what the service says', async () => {
+      const groups = {
+        groups: [
+          {
+            key: 'type:Rechnung',
+            kind: 'type',
+            name: 'Rechnung',
+            tags: 2,
+            documents: 15,
+            open: 2,
+            accepted: 0,
+            applied: 0,
+            skipped: 0,
+            members: [
+              {
+                tagId: 9,
+                tagName: 'Stromrechnung',
+                documentCount: 12,
+                action: 'split',
+                typeName: 'Rechnung',
+                topicNames: ['Strom'],
+                mergeInto: null,
+                source: 'rule',
+                confidence: 'high',
+                reason: 'compound of Rechnung and Strom',
+                status: 'open',
+              },
+            ],
+          },
+          {
+            key: 'keep',
+            kind: 'keep',
+            name: null,
+            tags: 1,
+            documents: 4,
+            open: 1,
+            accepted: 0,
+            applied: 0,
+            skipped: 0,
+            members: [],
+          },
+        ],
+        tags: 3,
+        open: 3,
+        accepted: 0,
+        applied: 0,
+        skipped: 0,
+      };
+      await withStubs(
+        tagSimplifyService,
+        { listGroups: async () => groups },
+        async () => {
+          const response = await call('GET', '/api/simplify/groups');
+          assert.strictEqual(response.status, 200);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, true);
+          assert.deepStrictEqual(
+            payload.data,
+            groups,
+            'the route hands the groups through, it does not reshape them'
+          );
+        }
+      );
+
+      // Until the backend of the round lands, the service's own 501 is the
+      // answer — with its status, not a 500.
+      await withStubs(
+        tagSimplifyService,
+        {
+          listGroups: async () => {
+            const error = new Error('The group view is not available yet');
+            error.status = 501;
+            throw error;
+          },
+        },
+        async () => {
+          const response = await call('GET', '/api/simplify/groups');
+          assert.strictEqual(response.status, 501);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, false);
+          assert.match(payload.error, /not available/);
+        }
+      );
+    });
+
+    await test('A group decision decodes its key and validates the decision', async () => {
+      const seen = [];
+      await withStubs(
+        tagSimplifyService,
+        {
+          decideGroup: async (key, decision) => {
+            seen.push({ key, decision });
+            return {
+              key,
+              changed: 3,
+              group: {
+                key,
+                kind: 'topic',
+                name: 'Wärme',
+                tags: 3,
+                documents: 9,
+                open: 0,
+                accepted: 3,
+                applied: 0,
+                skipped: 0,
+                members: [],
+              },
+            };
+          },
+        },
+        async () => {
+          const response = await call(
+            'POST',
+            `/api/simplify/groups/${encodeURIComponent('topic:Wärme')}/decision`,
+            { decision: 'accept' }
+          );
+          assert.strictEqual(response.status, 200);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, true);
+          assert.strictEqual(payload.data.key, 'topic:Wärme');
+          assert.strictEqual(payload.data.changed, 3);
+          assert.strictEqual(payload.data.group.accepted, 3);
+          assert.match(payload.message, /3 tag\(s\) accepted/);
+          assert.strictEqual(
+            seen[0].key,
+            'topic:Wärme',
+            'the colon and the umlaut survive the path'
+          );
+
+          // keep and delete are keys without a colon, and every decision works.
+          for (const decision of ['skip', 'reopen']) {
+            const plain = await call(
+              'POST',
+              '/api/simplify/groups/keep/decision',
+              { decision }
+            );
+            assert.strictEqual(plain.status, 200);
+          }
+          assert.deepStrictEqual(
+            seen.slice(1).map((entry) => [entry.key, entry.decision]),
+            [
+              ['keep', 'skip'],
+              ['keep', 'reopen'],
+            ]
+          );
+          const reopened = await call(
+            'POST',
+            '/api/simplify/groups/keep/decision',
+            { decision: 'reopen' }
+          );
+          assert.match(
+            (await reopened.json()).message,
+            /3 tag\(s\) reopened/,
+            'the toast says what happened, in the words of the decision'
+          );
+
+          // A colon needs no encoding in a path segment; both spellings work.
+          await call('POST', '/api/simplify/groups/merge:Amazon/decision', {
+            decision: 'accept',
+          });
+          assert.strictEqual(seen[seen.length - 1].key, 'merge:Amazon');
+
+          const before = seen.length;
+          const bodies = [
+            {},
+            { decision: 'accepted' },
+            { decision: 'ACCEPT' },
+            { decision: null },
+            { decision: 1 },
+          ];
+          for (const body of bodies) {
+            const bad = await call(
+              'POST',
+              '/api/simplify/groups/keep/decision',
+              body
+            );
+            assert.strictEqual(
+              bad.status,
+              400,
+              `expected 400 for ${JSON.stringify(body)}`
+            );
+            const badPayload = await bad.json();
+            assert.strictEqual(badPayload.success, false);
+            assert.match(badPayload.error, /decision/);
+          }
+          assert.strictEqual(
+            seen.length,
+            before,
+            'a refused decision must not reach the service'
+          );
+
+          // A key far longer than any name is the route's own refusal.
+          const long = await call(
+            'POST',
+            `/api/simplify/groups/${encodeURIComponent(`topic:${'x'.repeat(200)}`)}/decision`,
+            { decision: 'accept' }
+          );
+          assert.strictEqual(long.status, 400);
+          assert.match((await long.json()).error, /group key/i);
+          assert.strictEqual(seen.length, before);
+        }
+      );
+    });
+
+    await test('A decision the service refuses keeps its status', async () => {
+      const refusals = [
+        [404, 'There is no group type:Nope'],
+        [501, 'Group decisions are not available yet'],
+      ];
+      for (const [status, message] of refusals) {
+        await withStubs(
+          tagSimplifyService,
+          {
+            decideGroup: async () => {
+              const error = new Error(message);
+              error.status = status;
+              throw error;
+            },
+          },
+          async () => {
+            const response = await call(
+              'POST',
+              `/api/simplify/groups/${encodeURIComponent('type:Nope')}/decision`,
+              { decision: 'accept' }
+            );
+            assert.strictEqual(response.status, status);
+            const payload = await response.json();
+            assert.strictEqual(payload.success, false);
+            assert.strictEqual(payload.error, message);
+          }
+        );
+      }
+    });
+
+    await test('DELETE /api/simplify/groups/:key/members/:tagId takes one tag out', async () => {
+      const seen = [];
+      await withStubs(
+        tagSimplifyService,
+        {
+          removeGroupMember: async (key, tagId) => {
+            seen.push({ key, tagId });
+            return {
+              tagId,
+              tagName: 'Stromrechnung',
+              documentCount: 12,
+              action: 'split',
+              mergeInto: null,
+              typeName: null,
+              topicNames: ['Strom'],
+              source: 'user',
+              status: 'open',
+            };
+          },
+        },
+        async () => {
+          const response = await call(
+            'DELETE',
+            `/api/simplify/groups/${encodeURIComponent('type:Rechnung')}/members/9`
+          );
+          assert.strictEqual(response.status, 200);
+          const payload = await response.json();
+          assert.strictEqual(payload.success, true);
+          assert.strictEqual(payload.data.tagId, 9);
+          assert.strictEqual(
+            payload.data.typeName,
+            null,
+            'out of a type group the tag loses its document type'
+          );
+          assert.deepStrictEqual(seen[0], { key: 'type:Rechnung', tagId: 9 });
+
+          const before = seen.length;
+          for (const id of ['0', '-3', 'abc']) {
+            const bad = await call(
+              'DELETE',
+              `/api/simplify/groups/keep/members/${id}`
+            );
+            assert.strictEqual(
+              bad.status,
+              400,
+              `expected 400 for the id ${id}`
+            );
+            assert.match((await bad.json()).error, /tag id/i);
+          }
+          assert.strictEqual(
+            seen.length,
+            before,
+            'a refused id must not reach the service'
+          );
+        }
+      );
+
+      const refusals = [
+        [404, 'Tag 9 is not a member of type:Rechnung'],
+        [409, 'This proposal was already applied'],
+        [501, 'Group edits are not available yet'],
+      ];
+      for (const [status, message] of refusals) {
+        await withStubs(
+          tagSimplifyService,
+          {
+            removeGroupMember: async () => {
+              const error = new Error(message);
+              error.status = status;
+              throw error;
+            },
+          },
+          async () => {
+            const response = await call(
+              'DELETE',
+              `/api/simplify/groups/${encodeURIComponent('type:Rechnung')}/members/9`
+            );
+            assert.strictEqual(response.status, status);
+            const payload = await response.json();
+            assert.strictEqual(payload.success, false);
+            assert.strictEqual(payload.error, message);
+          }
+        );
+      }
+    });
+
+    await test('POST /api/simplify/order/apply starts a job with task apply', async () => {
+      reviewJobs.reset();
+      const seen = [];
+      await withStubs(
+        tagSimplifyService,
+        {
+          applyAccepted: async (request, control) => {
+            seen.push({ request, control });
+            return {
+              applied: [
+                {
+                  tagId: 9,
+                  tagName: 'Stromrechnung',
+                  logId: 7,
+                  documentsUpdated: 12,
+                },
+              ],
+              merged: [],
+              failed: [],
+              stopped: false,
+            };
+          },
+        },
+        async () => {
+          const response = await call('POST', '/api/simplify/order/apply', {});
+          assert.strictEqual(response.status, 202);
+          const job = (await response.json()).data.job;
+          assert.strictEqual(job.task, 'apply');
+          await reviewJobs.wait(job.id);
+          assert.strictEqual(
+            seen[0].request.groupKey,
+            null,
+            'without a group key everything accepted is applied'
+          );
+          assert.strictEqual(
+            seen[0].request.performedBy,
+            'api-key',
+            'the log records who asked for the run'
+          );
+          assert.ok(seen[0].control.signal, 'the run can be stopped');
+
+          const result = await call(
+            'GET',
+            `/api/duplicates/ai-review/jobs/${job.id}/result`
+          );
+          assert.strictEqual(result.status, 200);
+          const data = (await result.json()).data;
+          assert.strictEqual(
+            data.applied[0].logId,
+            7,
+            'the result route serves TagOrderApplyResult unchanged'
+          );
+          assert.deepStrictEqual(data.merged, []);
+          assert.strictEqual(data.stopped, false);
+
+          reviewJobs.reset();
+          const one = await call('POST', '/api/simplify/order/apply', {
+            groupKey: '  type:Rechnung  ',
+          });
+          assert.strictEqual(one.status, 202);
+          const oneJob = (await one.json()).data.job;
+          await reviewJobs.wait(oneJob.id);
+          assert.strictEqual(
+            seen[1].request.groupKey,
+            'type:Rechnung',
+            'a group key is trimmed and handed to the service'
+          );
+        }
+      );
+      reviewJobs.reset();
+    });
+
+    await test('POST /api/simplify/order/apply refuses a groupKey that is not one', async () => {
+      reviewJobs.reset();
+      let calls = 0;
+      await withStubs(
+        tagSimplifyService,
+        {
+          applyAccepted: async () => {
+            calls += 1;
+            return { applied: [], merged: [], failed: [], stopped: false };
+          },
+        },
+        async () => {
+          const bodies = [
+            { groupKey: '' },
+            { groupKey: '   ' },
+            { groupKey: 7 },
+            { groupKey: ['type:Rechnung'] },
+            { groupKey: { key: 'keep' } },
+            { groupKey: 'x'.repeat(200) },
+          ];
+          for (const body of bodies) {
+            const response = await call(
+              'POST',
+              '/api/simplify/order/apply',
+              body
+            );
+            assert.strictEqual(
+              response.status,
+              400,
+              `expected 400 for ${JSON.stringify(body).slice(0, 40)}`
+            );
+            const payload = await response.json();
+            assert.strictEqual(payload.success, false);
+            assert.match(payload.error, /group ?key/i);
+          }
+          assert.strictEqual(calls, 0, 'a refused body must not start a job');
+          assert.strictEqual(reviewJobs.isRunning(), false);
+
+          // null is not a refusal: it means "everything that was accepted".
+          const all = await call('POST', '/api/simplify/order/apply', {
+            groupKey: null,
+          });
+          assert.strictEqual(all.status, 202);
+          const allJob = (await all.json()).data.job;
+          await reviewJobs.wait(allJob.id);
+          assert.strictEqual(calls, 1);
+        }
+      );
+      reviewJobs.reset();
+    });
+
+    await test('PATCH takes an action, a merge target and the accepted status', async () => {
+      const merged = await call('PATCH', '/api/simplify/proposals/9', {
+        action: 'merge',
+        mergeInto: '  Rechnungen  ',
+      });
+      assert.strictEqual(merged.status, 200);
+      const mergedPayload = await merged.json();
+      assert.strictEqual(mergedPayload.success, true);
+      assert.strictEqual(mergedPayload.data.action, 'merge');
+      assert.strictEqual(mergedPayload.data.mergeInto, 'Rechnungen');
+      assert.strictEqual(
+        mergedPayload.data.source,
+        'user',
+        'an action the user chose is the user’s'
+      );
+
+      const accepted = await call('PATCH', '/api/simplify/proposals/9', {
+        status: 'accepted',
+      });
+      assert.strictEqual(accepted.status, 200);
+      const acceptedPayload = await accepted.json();
+      assert.strictEqual(acceptedPayload.data.status, 'accepted');
+      assert.strictEqual(
+        acceptedPayload.data.action,
+        'merge',
+        'only what the patch names changes'
+      );
+
+      // null clears the merge target; keep is the action of a tag that stays.
+      const back = await call('PATCH', '/api/simplify/proposals/9', {
+        action: 'keep',
+        mergeInto: null,
+        status: 'open',
+      });
+      const backPayload = await back.json();
+      assert.strictEqual(backPayload.data.action, 'keep');
+      assert.strictEqual(backPayload.data.mergeInto, null);
+      assert.strictEqual(backPayload.data.status, 'open');
+
+      const bodies = [
+        { action: 'rename' },
+        { action: 'SPLIT' },
+        { action: null },
+        { action: 7 },
+        { mergeInto: 7 },
+        { mergeInto: ['Rechnung'] },
+        { mergeInto: 'x'.repeat(129) },
+      ];
+      for (const body of bodies) {
+        const response = await call('PATCH', '/api/simplify/proposals/9', body);
+        assert.strictEqual(
+          response.status,
+          400,
+          `expected 400 for ${JSON.stringify(body).slice(0, 40)}`
+        );
+        const payload = await response.json();
+        assert.strictEqual(payload.success, false);
+        assert.match(payload.error, /action|mergeInto/);
+      }
+    });
+
+    await test('GET /api/simplify/proposals?status=accepted is a filter of its own', async () => {
+      await harness.documentModel.updateTagSplitProposal(9, {
+        status: 'accepted',
+      });
+      const response = await call(
+        'GET',
+        '/api/simplify/proposals?status=accepted'
+      );
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      assert.strictEqual(payload.success, true);
+      assert.deepStrictEqual(
+        payload.data.map((row) => row.tagId),
+        [9]
+      );
+      assert.strictEqual(
+        payload.data[0].action,
+        'keep',
+        'the row carries the action of the proposed order'
+      );
+      assert.strictEqual(payload.data[0].mergeInto, null);
+
+      const open = await call('GET', '/api/simplify/proposals?status=open');
+      assert.deepStrictEqual((await open.json()).data, []);
+      await harness.documentModel.updateTagSplitProposal(9, {
+        status: 'open',
+      });
+    });
+
+    await test('Every route of the proposed order is mounted and guarded', async () => {
+      const routes = harness.router.stack
+        .filter((layer) => layer.route)
+        .map((layer) => layer.route.path);
+      [
+        '/api/simplify/order/propose',
+        '/api/simplify/groups',
+        '/api/simplify/groups/:key/decision',
+        '/api/simplify/groups/:key/members/:tagId',
+        '/api/simplify/order/apply',
+      ].forEach((route) => {
+        assert.ok(routes.includes(route), `${route} must be mounted`);
+      });
+
+      const guarded = [
+        ['POST', '/api/simplify/order/propose'],
+        ['GET', '/api/simplify/groups'],
+        ['POST', '/api/simplify/groups/keep/decision'],
+        ['DELETE', '/api/simplify/groups/keep/members/9'],
+        ['POST', '/api/simplify/order/apply'],
+      ];
+      for (const [method, url] of guarded) {
+        const anonymous = await fetch(harness.base + url, {
+          method,
+          redirect: 'manual',
+        });
+        assert.strictEqual(anonymous.status, 302, `${method} ${url} -> /login`);
+        assert.strictEqual(anonymous.headers.get('location'), '/login');
+      }
     });
 
     await test('GET /settings shows the four settings of the round', async () => {
