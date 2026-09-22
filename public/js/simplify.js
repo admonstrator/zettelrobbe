@@ -445,8 +445,10 @@ function htmlEmptyRow(columns, text) {
 }
 
 /** One symbol out of the app's icon set; there is no icon font. */
-function htmlIconMarkup(name) {
-  return `<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#${esc(name)}"/></svg>`;
+function htmlIconMarkup(name, extra) {
+  const htmlExtra =
+    typeof extra === 'string' && extra !== '' ? ` ${esc(extra)}` : '';
+  return `<svg class="zr-icon zr-icon--sm${htmlExtra}" aria-hidden="true"><use href="/icons.svg#${esc(name)}"/></svg>`;
 }
 
 /** "3,410" — a count of documents the eye can take in at a glance. */
@@ -2530,8 +2532,20 @@ function htmlLedger(items) {
 function htmlTokenbar(split) {
   const shares = tokenShares(split);
   if (shares.total <= 0) return '';
-  const key = (value, word) => `${formatTokens(value)} ${word}`;
-  return `<div class="zr-tokenbar"><div class="zr-tokenbar__track"><span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: ${num(shares.prompt)}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: ${num(shares.answer)}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: ${num(shares.thinking)}%"></span></div><div class="zr-tokenbar__legend"><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>${esc(key(split.prompt, 'question'))}</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>${esc(key(split.answer, 'answer'))}</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>${esc(key(split.thinking, 'thinking'))}</span></div></div>`;
+  // A part that cost nothing is left out of the legend: "0 answer" next to a
+  // bar with no green in it is a reading exercise, not information.
+  const htmlKeys = [
+    { part: 'prompt', value: split.prompt, word: 'question' },
+    { part: 'answer', value: split.answer, word: 'answer' },
+    { part: 'thinking', value: split.thinking, word: 'thinking' },
+  ]
+    .filter((key) => num(key.value) > 0)
+    .map(
+      (key) =>
+        `<span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--${esc(key.part)}"></span>${esc(`${formatTokens(key.value)} ${key.word}`)}</span>`
+    )
+    .join('');
+  return `<div class="zr-tokenbar"><div class="zr-tokenbar__track"><span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: ${num(shares.prompt)}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: ${num(shares.answer)}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: ${num(shares.thinking)}%"></span></div><div class="zr-tokenbar__legend">${htmlKeys}</div></div>`;
 }
 
 /** The line above a button that says what pressing it writes. */
@@ -3306,98 +3320,120 @@ async function fetchOrderEstimate(keepVocabulary) {
 }
 
 /**
- * Where the numbers come from, said out loud. A guess is named a guess. Pure
- * on purpose.
+ * Where the numbers come from, in a handful of words. A guess is named a
+ * guess. Pure on purpose.
+ *
+ * The long version of this used to be three lines of prose in the dialog. It
+ * was true and nobody read it: what a person needs before pressing Start is
+ * whether to trust the number above, not an essay about how it was made.
  *
  * @param {object} estimate normaliseEstimate()
  * @returns {string}
  */
 function basisText(estimate) {
-  const model = estimate.model === '' ? 'the model' : estimate.model;
-  if (estimate.basis === 'run') {
-    const last = estimate.lastRun || {};
-    const requests = num(last.requests);
-    return `These are the per-request averages of the last run of this task on ${model}: ${requests} ${plural(requests, 'request', 'requests')}, ${formatRunTime(num(last.seconds))}.`;
-  }
-  if (estimate.basis === 'model') {
-    return `These come from what was measured on ${model} itself, not from a run of this task — the shape of the question can still move them.`;
-  }
-  return `Nothing has been measured yet, so this is a round guess. It can be out by a factor; the first run is what makes the next estimate honest.`;
+  const model = estimate.model === '' ? 'your model' : estimate.model;
+  if (estimate.basis === 'run') return 'Measured on your last run';
+  if (estimate.basis === 'model') return `Measured on ${model}`;
+  return 'A rough guess — nothing measured yet';
 }
 
 /**
- * The four numbered steps, each with its own price. Pure on purpose.
+ * A length of time a person can feel, rather than one that looks measured.
+ * "about 3:51 min" reads like a promise; this is an estimate, so it rounds.
+ *
+ * @param {number} seconds
+ * @returns {string}
+ */
+function roughTime(seconds) {
+  const total = Math.max(0, num(seconds));
+  if (total < 45) return 'under a minute';
+  if (total < 5400) {
+    const minutes = Math.max(1, Math.round(total / 60));
+    return `${minutes} min`;
+  }
+  const hours = Math.round(total / 360) / 10;
+  return `${hours} h`;
+}
+
+/**
+ * The one sentence above the numbers: what the run does, with the part a rule
+ * handles for free named as such. Pure on purpose.
+ *
+ * @param {object} estimate normaliseEstimate()
+ * @returns {string}
+ */
+function preflightLede(estimate) {
+  const asked = grouped(estimate.items);
+  const all = grouped(estimate.tags);
+  const rule = num(estimate.itemsByRule);
+  if (rule > 0) {
+    return `I ask the model about ${asked} of your ${all} tags. A rule takes care of the other ${grouped(rule)}.`;
+  }
+  return `I ask the model about ${asked} of your ${all} tags.`;
+}
+
+/**
+ * The hero: the time first, because that is what anyone feels, the price
+ * under it, and the token split as the one graphic in the dialog.
  *
  * @param {object} estimate normaliseEstimate()
  * @returns {string} markup
  */
-function htmlPreflightSteps(estimate) {
-  const steps = [
-    {
-      what: `Read your ${grouped(estimate.tags)} ${plural(estimate.tags, 'tag', 'tags')} and every document type`,
-      price: 'no model',
-    },
-    {
-      what: `Take apart what a rule already covers — ${grouped(estimate.itemsByRule)} of them`,
-      price: 'no model',
-    },
-    {
-      what: `Ask about the other ${grouped(estimate.items)}, ${estimate.batchSize} per request`,
-      price: `${estimate.requests} ${plural(estimate.requests, 'request', 'requests')} · ${formatTokens(estimate.tokens.total)} tokens`,
-    },
-    {
-      what: 'Fold the answers into one plan and store it',
-      price: 'free',
-    },
-  ];
-  const htmlItems = steps
-    .map(
-      (step) =>
-        `<li class="sim-preflight__step"><span class="sim-preflight__what">${esc(step.what)}</span><span class="sim-preflight__price">${esc(step.price)}</span></li>`
-    )
-    .join('');
-  return `<ol class="sim-preflight__steps">${htmlItems}</ol>`;
+function htmlPreflightHero(estimate) {
+  const requests = `${estimate.requests} ${plural(estimate.requests, 'request', 'requests')}`;
+  const sub = `${requests} · ${formatTokens(estimate.tokens.total)} tokens`;
+  return `<div class="zr-preflight__hero"><span class="zr-preflight__time">${esc(roughTime(estimate.seconds))}</span><span class="zr-preflight__sub">${esc(sub)}</span>${htmlTokenbar(tokenSplit(estimate.tokens))}<p class="zr-preflight__basis">${esc(basisText(estimate))}</p></div>`;
 }
 
-/** The levers, in the state `runLevers` has them. Pure on purpose. */
+/**
+ * The levers, in the state `runLevers` has them. A lever that would save
+ * nothing is left out rather than offered as "skip the 0 tags you have
+ * already decided". Pure on purpose.
+ *
+ * @param {object} estimate normaliseEstimate()
+ * @returns {string} markup
+ */
 function htmlPreflightLevers(estimate) {
-  const htmlDecided = runLevers.skipDecided === true ? ' checked' : '';
-  const htmlLow = runLevers.minDocuments > 1 ? ' checked' : '';
+  const htmlRows = [];
+  if (num(estimate.skippable.decided) > 0) {
+    const htmlChecked = runLevers.skipDecided === true ? ' checked' : '';
+    const label = `Skip the ${grouped(estimate.skippable.decided)} ${plural(estimate.skippable.decided, 'tag', 'tags')} you already decided`;
+    htmlRows.push(
+      `<label class="zr-preflight__lever"><input type="checkbox" class="zr-check sim-lever" data-lever="skipDecided"${htmlChecked}><span>${esc(label)}</span></label>`
+    );
+  }
+  if (num(estimate.skippable.lowDocument) > 0) {
+    const htmlChecked = runLevers.minDocuments > 1 ? ' checked' : '';
+    const label = `Only tags on ${MIN_DOCUMENTS_LEVER} documents or more`;
+    htmlRows.push(
+      `<label class="zr-preflight__lever"><input type="checkbox" class="zr-check sim-lever" data-lever="minDocuments"${htmlChecked}><span>${esc(label)}</span></label>`
+    );
+  }
   const htmlLanes = LANE_CHOICES.map((lanes) => {
     const htmlSelected = lanes === runLevers.lanes ? ' selected' : '';
     return `<option value="${num(lanes)}"${htmlSelected}>${num(lanes)}</option>`;
   }).join('');
-  const decided = `Skip the ${grouped(estimate.skippable.decided)} ${plural(estimate.skippable.decided, 'tag', 'tags')} you have already decided`;
-  const low = `Only tags on at least ${MIN_DOCUMENTS_LEVER} documents — leaves out ${grouped(estimate.skippable.lowDocument)}`;
-  return `<div class="sim-preflight__levers"><label class="sim-preflight__lever"><input type="checkbox" class="zr-check sim-lever" data-lever="skipDecided"${htmlDecided}><span class="zr-sm">${esc(decided)}</span></label><label class="sim-preflight__lever"><input type="checkbox" class="zr-check sim-lever" data-lever="minDocuments"${htmlLow}><span class="zr-sm">${esc(low)}</span></label><label class="sim-preflight__lever"><span class="zr-sm">${esc('Requests in flight at once')}</span><select class="zr-select sim-lever" data-lever="lanes" aria-label="Requests in flight at once">${htmlLanes}</select></label></div>`;
+  htmlRows.push(
+    `<label class="zr-preflight__lever"><span>${esc('Requests at a time')}</span><select class="zr-select sim-lever" data-lever="lanes" aria-label="Requests at a time">${htmlLanes}</select></label>`
+  );
+  return `<div class="zr-preflight__levers">${htmlRows.join('')}</div>`;
 }
 
 /**
- * The whole preflight body: what it does, what it costs, what it changes, and
- * the levers that make it cheaper. Pure on purpose.
+ * The whole preflight body: one sentence, one number, one graphic, one
+ * promise, and everything adjustable folded away. Pure on purpose.
  *
  * @param {object} estimate normaliseEstimate()
  * @returns {string} markup
  */
 function htmlPreflight(estimate) {
-  const htmlCost = `${htmlLedger([
-    { value: String(estimate.requests), unit: 'requests' },
-    { value: formatTokens(estimate.tokens.total), unit: 'tokens' },
-    { value: formatRunTime(estimate.seconds), unit: '' },
-    { value: '0', unit: 'writes', quiet: true },
-  ])}${htmlTokenbar(tokenSplit(estimate.tokens))}<p class="zr-sm zr-faint sim-preflight__basis">${esc(basisText(estimate))}</p>`;
-  return `<div class="sim-preflight"><section class="sim-preflight__block"><span class="zr-label">${esc('What I actually do')}</span>${htmlPreflightSteps(estimate)}</section><section class="sim-preflight__block"><span class="zr-label">${esc('What it costs')}</span>${htmlCost}</section><section class="sim-preflight__block"><span class="zr-label">${esc('What it changes')}</span>${htmlConsequence('Nothing is written while this runs. The plan is a proposal until you run it.', true)}</section><section class="sim-preflight__block"><span class="zr-label">${esc('Cheaper, if you want')}</span>${htmlPreflightLevers(estimate)}</section></div>`;
+  const htmlOptions = `<details class="zr-preflight__options"><summary class="zr-preflight__summary">${htmlIconMarkup('i-chevron-right', 'zr-preflight__chevron')}${esc('Options')}</summary>${htmlPreflightLevers(estimate)}</details>`;
+  return `<div class="zr-preflight"><p class="zr-preflight__lede">${esc(preflightLede(estimate))}</p>${htmlPreflightHero(estimate)}<p class="zr-preflight__safe">${htmlIconMarkup('i-check')}<span>${esc('Nothing is written.')}</span></p>${htmlOptions}</div>`;
 }
 
-/** What the primary button of the dialog says once the numbers are in. */
-function preflightConfirmText(estimate) {
-  return `Start — ${estimate.requests} ${plural(estimate.requests, 'request', 'requests')}, ${formatRunTime(estimate.seconds)}`;
-}
-
-/** The same, with the token count on the second line. */
-function htmlPreflightConfirm(estimate) {
-  const sub = `${formatTokens(estimate.tokens.total)} tokens · ${estimate.lanes} ${plural(estimate.lanes, 'lane', 'lanes')} · 0 writes`;
-  return `${esc(preflightConfirmText(estimate))}<span class="zr-btn__sub">${esc(sub)}</span>`;
+/** What the primary button of the dialog says. Its price is in the dialog. */
+function preflightConfirmText() {
+  return 'Start';
 }
 
 /**
@@ -3412,19 +3448,23 @@ async function askPreflight(keepVocabulary) {
   const answer = confirmDialog({
     title: 'Propose a new order',
     html: htmlPreflight(estimate),
-    confirmLabel: preflightConfirmText(estimate),
+    confirmLabel: preflightConfirmText(),
     cancelLabel: 'Not now',
   });
   const dialog = document.querySelector('dialog.zr-dialog[open]');
   if (dialog) {
     const body = dialog.querySelector('.zr-dialog__body');
-    const confirm = dialog.querySelector('[value="ok"]');
+    // Only the body changes with a lever now: the button says Start, and what
+    // Start costs is the number above it.
     const draw = () => {
-      if (body) body.innerHTML = htmlPreflight(estimate);
-      if (confirm) {
-        confirm.classList.add('zr-btn--stacked');
-        confirm.innerHTML = htmlPreflightConfirm(estimate);
-      }
+      if (!body) return;
+      // A lever the user opened stays open when its own change redraws the
+      // body underneath it.
+      const wasOpen =
+        body.querySelector('.zr-preflight__options')?.open === true;
+      body.innerHTML = htmlPreflight(estimate);
+      const options = body.querySelector('.zr-preflight__options');
+      if (options) options.open = wasOpen;
     };
     draw();
     // Delegated, so a redraw of the body does not lose the listener.

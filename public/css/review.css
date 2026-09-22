@@ -447,6 +447,146 @@
     color: var(--zr-warn);
   }
 
+  /* The dialog every model-backed run opens first.
+
+     It used to be four labelled sections of prose and a button with a second
+     line of numbers on it. What a person wants to know before pressing Start
+     is how long this takes, what it costs and whether it breaks anything —
+     in that order and in that many words. So: one sentence, one big number
+     with the token split under it as the only graphic, one green line, and
+     everything adjustable folded away. The button says Start. */
+  .zr-preflight {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-5);
+  }
+
+  .zr-preflight__lede {
+    margin: 0;
+    font-size: var(--zr-fs-md);
+    line-height: 1.55;
+    color: var(--zr-text-muted);
+  }
+
+  .zr-preflight__hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--zr-2);
+    padding: var(--zr-5) var(--zr-4);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface-2);
+  }
+
+  .zr-preflight__time {
+    font-family: var(--zr-font-brand);
+    font-size: var(--zr-fs-2xl);
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--zr-text);
+  }
+
+  .zr-preflight__sub {
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-preflight .zr-tokenbar {
+    width: 100%;
+    margin-top: var(--zr-2);
+  }
+
+  .zr-preflight .zr-tokenbar__legend {
+    justify-content: center;
+  }
+
+  .zr-preflight__basis {
+    margin: 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  /* The one sentence that takes the fear out, and it is allowed to be plain. */
+  .zr-preflight__safe {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--zr-2);
+    margin: 0;
+    padding: var(--zr-3) var(--zr-4);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-ok-soft);
+    color: var(--zr-ok);
+    font-size: var(--zr-fs-md);
+    font-weight: 600;
+  }
+
+  .zr-preflight__warn {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+    margin: 0;
+    padding: var(--zr-3) var(--zr-4);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-warn-soft);
+    color: var(--zr-warn);
+    font-size: var(--zr-fs-base);
+    line-height: 1.5;
+  }
+
+  .zr-preflight__options {
+    border-top: 1px solid var(--zr-line);
+    padding-top: var(--zr-3);
+  }
+
+  .zr-preflight__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    cursor: pointer;
+    list-style: none;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-preflight__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .zr-preflight__chevron {
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .zr-preflight__options[open] .zr-preflight__chevron {
+    transform: rotate(90deg);
+  }
+
+  .zr-preflight__levers {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+    padding-top: var(--zr-4);
+  }
+
+  .zr-preflight__lever {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    font-size: var(--zr-fs-base);
+    cursor: pointer;
+  }
+
+  .zr-preflight__lever > span:first-of-type {
+    flex-grow: 1;
+  }
+
+  .zr-preflight__lever .zr-select {
+    flex-shrink: 0;
+    width: auto;
+    min-width: 5rem;
+    margin-left: auto;
+  }
+
   /* A button that carries its price on a second line. The base button is a
      one-line flex row, so a stacked one lays its two lines out itself. */
   .zr-btn--stacked {

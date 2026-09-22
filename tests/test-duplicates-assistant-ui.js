@@ -975,12 +975,12 @@ function preflightHelpers() {
       'formatSeconds',
       'htmlLedgerItem',
       'estimateBasisText',
-      'htmlEstimateSteps',
-      'htmlEstimateCost',
+      'roughTime',
+      'preflightLede',
+      'htmlPreflightHero',
       'htmlEstimateLevers',
       'htmlPreflight',
       'preflightOptions',
-      'preflightSubText',
     ],
     {
       constants: ['htmlPlanMarks'],
@@ -989,78 +989,85 @@ function preflightHelpers() {
   );
 }
 
-test('The preflight says what it does, what it costs and what it changes', () => {
+test('The preflight is one sentence, one number, one bar and one promise', () => {
   const kit = preflightHelpers();
   const levers = { sweep: true, excerpts: true, sensitivity: '', lanes: 3 };
   const markup = kit.htmlPreflight(ESTIMATE, levers);
 
-  [
-    'What I actually do',
-    'What it costs',
-    'What it changes',
-    'Cheaper, if you want',
-  ].forEach((title) => {
-    assert.ok(markup.includes(title), `the dialog has no "${title}" block`);
-  });
-  // The steps, each with its own price, and the one that costs the tokens.
+  // One sentence instead of four labelled sections of prose.
   assert.ok(
-    markup.includes('Comparing the names') &&
-      markup.includes('no model, already done'),
-    'the free step is not named as free'
+    markup.includes(
+      'I ask the model about 31 pairs the spelling alone cannot settle, out of 2 groups it found.'
+    ),
+    'the lede does not say what the run asks about'
+  );
+  ['What I actually do', 'What it costs', 'What it changes', 'Cheaper'].forEach(
+    (heading) => {
+      assert.ok(
+        !markup.includes(heading),
+        `"${heading}" is a section header the dialog no longer needs`
+      );
+    }
+  );
+
+  // The hero: the time a person feels, the price under it, the one graphic.
+  assert.ok(
+    markup.includes('class="zr-preflight__time">under a minute<'),
+    'the time is the big number, and 38 seconds is not "0:38"'
   );
   assert.ok(
-    markup.includes('31 pairs in 4 requests · this is where the tokens go'),
-    `the expensive step is not priced: ${markup}`
+    markup.includes('4 requests · 96k tokens'),
+    'the price sits under it in one line'
   );
   assert.ok(
-    markup.includes('12 document reads from Paperless-ngx · no model'),
-    'the excerpt reads are not counted, or read as a model call'
+    markup.includes('class="zr-tokenbar__track"'),
+    'the token split is the graphic of the dialog'
   );
   assert.ok(
-    markup.includes('4 requests of its own'),
-    'the sweep does not carry its own requests'
-  );
-  // The ledger, the split and the honest line about where the numbers are from.
-  assert.ok(
-    markup.includes('zr-ledger') && markup.includes('96k'),
-    'the ledger does not carry the token total'
+    markup.includes('Measured on qwen3:30b'),
+    'and one short line says where the numbers come from'
   );
   assert.ok(
-    markup.includes('>0</span> writes'),
-    'the ledger does not say that a run writes nothing'
+    !markup.includes('class="zr-ledger'),
+    'the ledger belonged to the old four-section layout'
+  );
+
+  // The promise, in five words.
+  assert.ok(
+    markup.includes('class="zr-preflight__safe"'),
+    'the dialog does not say that nothing is merged'
   );
   assert.ok(
-    markup.includes('zr-tokenbar__seg--thinking" style="width:64%'),
-    `the split does not show where the tokens go: ${markup}`
+    markup.includes('Nothing is merged while this runs.'),
+    'word for word'
   );
+
+  // Everything adjustable is folded away.
   assert.ok(
-    markup.includes('what this model was measured at'),
-    'the dialog does not say where its numbers come from'
+    markup.includes('<details class="zr-preflight__options">'),
+    'the levers are not folded away'
   );
-  // And what it changes: nothing.
-  assert.ok(
-    markup.includes('zr-consequence--free') &&
-      markup.includes(
-        'Nothing is merged while this runs. You decide every merge afterwards.'
-      ),
-    'the dialog does not promise that it writes nothing'
+  assert.ok(markup.includes('Options</summary>'), 'and the fold has a name');
+
+  // The time rounds, and says so in words where a number would lie.
+  assert.strictEqual(kit.roughTime(20), 'under a minute');
+  assert.strictEqual(kit.roughTime(75), '1 min');
+  assert.strictEqual(kit.roughTime(372), '6 min');
+
+  // Where the numbers come from, in a handful of words.
+  assert.strictEqual(
+    kit.estimateBasisText({ ...ESTIMATE, basis: 'run' }),
+    'Measured on your last run'
   );
-  // Every basis has its own sentence, and a guess says so plainly.
   assert.ok(
     kit
       .estimateBasisText({ ...ESTIMATE, basis: 'guess' })
-      .includes('plainly a guess'),
-    'a guess must not be dressed up as a measurement'
-  );
-  assert.ok(
-    kit
-      .estimateBasisText({ ...ESTIMATE, basis: 'run' })
-      .includes('a run of this very task'),
-    'a measured run does not say so'
+      .includes('rough guess'),
+    'an unmeasured estimate has to say so plainly'
   );
 });
 
-test('The levers are offered with what each one costs', () => {
+test('The levers are folded away, each with what it costs', () => {
   const kit = preflightHelpers();
   const levers = { sweep: false, excerpts: true, sensitivity: '', lanes: 3 };
   const markup = kit.htmlEstimateLevers(ESTIMATE, levers);
@@ -1070,12 +1077,21 @@ test('The levers are offered with what each one costs', () => {
     }
   );
   assert.ok(
-    markup.includes('4 more requests'),
+    markup.includes('+4 requests'),
     'the sweep does not say what switching it on costs'
   );
   assert.ok(
-    markup.includes('12 document reads, no model'),
+    markup.includes('12 document reads'),
     'the excerpts do not say what they cost'
+  );
+  // A price nobody would pay is not printed at all.
+  const free = kit.htmlEstimateLevers(
+    { ...ESTIMATE, extra: { sweepRequests: 0, excerptReads: 0 } },
+    levers
+  );
+  assert.ok(
+    !free.includes('+0 requests') && !free.includes('0 document reads'),
+    'a lever that costs nothing does not say "+0"'
   );
   // The lanes are the four the page offers, with the current one selected.
   WIRE.RUN_LANE_OPTIONS.forEach((lanes) => {
@@ -1105,12 +1121,16 @@ test('When nothing has been scanned the dialog says so instead of inventing', ()
     'the dialog does not say that there is nothing to judge'
   );
   assert.ok(
+    needs.includes('Nothing is merged. The scan only looks.'),
+    'and a scan that only looks has to say so'
+  );
+  assert.ok(
     !kit
       .htmlPreflight(ESTIMATE, levers)
       .includes('Nothing has been scanned yet'),
     'a scanned page must not be told to scan'
   );
-  // And the button offers to do both.
+  // And the button offers to do both, in one line.
   const both = kit.preflightOptions(
     { ...ESTIMATE, needsScan: true },
     levers,
@@ -1121,11 +1141,6 @@ test('When nothing has been scanned the dialog says so instead of inventing', ()
   const plain = kit.preflightOptions(ESTIMATE, levers, 'Ask the AI');
   assert.strictEqual(plain.confirmLabel, 'Ask the AI');
   assert.strictEqual(plain.title, 'Ask the AI');
-  // The primary button carries the price on its second line.
-  assert.strictEqual(
-    kit.preflightSubText(ESTIMATE),
-    '4 requests · about 96k tokens · about 38 s · 0 writes'
-  );
 });
 
 test('A lever changes the numbers the run is priced with', () => {

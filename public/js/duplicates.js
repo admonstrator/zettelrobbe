@@ -5462,83 +5462,89 @@ async function fetchRunEstimate(levers) {
   return localRunEstimate(levers);
 }
 
-/** Where the numbers come from, in one honest line. */
+/** Where the numbers come from, in a handful of words. */
 function estimateBasisText(estimate) {
-  const when = estimate.measuredAt
-    ? ` Measured ${new Date(estimate.measuredAt).toLocaleString()}.`
-    : '';
-  if (estimate.basis === 'run') {
-    return `These are averages of a run of this very task that finished.${when}`;
-  }
+  if (estimate.basis === 'run') return 'Measured on your last run';
   if (estimate.basis === 'model') {
-    return `These come from what this model was measured at, not from a run of this task.${when}`;
+    const model = estimate.model ? String(estimate.model) : 'your model';
+    return `Measured on ${model}`;
   }
-  return 'This is plainly a guess: nothing of this task has been measured yet, so it can be wrong by a factor.';
+  return 'A rough guess — nothing measured yet';
 }
 
-/** "What I actually do" — the steps of a run, each with its own price. */
-function htmlEstimateSteps(estimate, levers) {
-  const extra = estimate.extra || {};
-  const steps = [
-    {
-      what: 'Comparing the names',
-      cost: `${num(estimate.groups)} ${plural(estimate.groups, 'group', 'groups')} · no model, already done`,
-    },
-    {
-      what: 'Judging the near-misses',
-      cost: `${num(estimate.items)} ${plural(estimate.items, 'pair', 'pairs')} in ${num(estimate.requests)} ${plural(estimate.requests, 'request', 'requests')} · this is where the tokens go`,
-    },
-  ];
-  if (levers.excerpts) {
-    steps.push({
-      what: 'Reading excerpts where the spelling alone cannot decide',
-      cost: `${num(extra.excerptReads)} ${plural(extra.excerptReads, 'document read', 'document reads')} from Paperless-ngx · no model`,
-    });
+/**
+ * A length of time a person can feel, rather than one that looks measured.
+ * "about 3:51 min" reads like a promise; this is an estimate, so it rounds.
+ */
+function roughTime(seconds) {
+  const total = Math.max(0, num(seconds));
+  if (total < 45) return 'under a minute';
+  if (total < 5400) {
+    const minutes = Math.max(1, Math.round(total / 60));
+    return `${minutes} min`;
   }
-  if (levers.sweep) {
-    steps.push({
-      what: 'Looking at the whole list for synonyms and translations',
-      cost: `${num(extra.sweepRequests)} ${plural(extra.sweepRequests, 'request', 'requests')} of its own`,
-    });
-  }
-  const htmlRows = steps
-    .map(
-      (step) =>
-        `<div class="zr-reqlog__row"><span class="zr-reqlog__what">${esc(step.what)}</span><span class="zr-reqlog__cost">${esc(step.cost)}</span></div>`
-    )
-    .join('');
-  return `<div class="zr-reqlog dup-preflight__steps">${htmlRows}</div>`;
+  return `${Math.round(total / 360) / 10} h`;
 }
 
-/** "What it costs" — the ledger, the split and the line about where it is from. */
-function htmlEstimateCost(estimate) {
+/** The one sentence above the numbers: what the run actually asks about. */
+function preflightLede(estimate) {
+  if (estimate.needsScan === true) {
+    return 'Nothing has been scanned yet, so I scan first and then ask. The numbers below are what the asking usually costs.';
+  }
+  const pairs = num(estimate.items);
+  const groups = num(estimate.groups);
+  if (pairs <= 0) {
+    return 'The name matcher settled everything it found. There is nothing left to ask about.';
+  }
+  return `I ask the model about ${pairs} ${plural(pairs, 'pair', 'pairs')} the spelling alone cannot settle, out of ${groups} ${plural(groups, 'group', 'groups')} it found.`;
+}
+
+/**
+ * The hero: the time first, because that is what anyone feels, the price
+ * under it, and the token split as the one graphic in the dialog.
+ */
+function htmlPreflightHero(estimate) {
   const tokens = estimate.tokens || {};
   const total = num(tokens.total);
-  const htmlLedger = [
-    htmlLedgerItem(String(num(estimate.requests)), 'requests', false),
-    htmlLedgerItem(formatTokens(total), 'tokens', false),
-    htmlLedgerItem(formatSeconds(estimate.seconds), 'about', false),
-    htmlLedgerItem('0', 'writes', true),
-  ].join('');
   const share = (value) =>
     total <= 0 ? '0%' : `${Math.round((num(value) / total) * 100)}%`;
-  const htmlBar = `<div class="zr-tokenbar dup-preflight__tokens">
+  const requests = `${num(estimate.requests)} ${plural(estimate.requests, 'request', 'requests')}`;
+  // A part that cost nothing is left out of the legend: "0 answer" next to a
+  // bar with no green in it is a reading exercise, not information.
+  const htmlKeys = [
+    { part: 'prompt', value: tokens.prompt, word: 'question' },
+    { part: 'answer', value: tokens.completion, word: 'answer' },
+    { part: 'thinking', value: tokens.thinking, word: 'thinking' },
+  ]
+    .filter((key) => num(key.value) > 0)
+    .map(
+      (key) =>
+        `<span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--${esc(key.part)}"></span>${esc(`${formatTokens(key.value)} ${key.word}`)}</span>`
+    )
+    .join('');
+  const htmlBar =
+    total <= 0
+      ? ''
+      : `<div class="zr-tokenbar">
       <div class="zr-tokenbar__track">
         <span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width:${esc(share(tokens.prompt))}"></span>
         <span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width:${esc(share(tokens.completion))}"></span>
         <span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width:${esc(share(tokens.thinking))}"></span>
       </div>
-      <div class="zr-tokenbar__legend">
-        <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>${esc(formatTokens(tokens.prompt))} question</span>
-        <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>${esc(formatTokens(tokens.completion))} answer</span>
-        <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>${esc(formatTokens(tokens.thinking))} thinking</span>
-      </div>
+      <div class="zr-tokenbar__legend">${htmlKeys}</div>
     </div>`;
-  return `<div class="zr-ledger dup-preflight__ledger">${htmlLedger}</div>${htmlBar}
-    <p class="zr-sm zr-faint dup-preflight__basis">${esc(estimateBasisText(estimate))}</p>`;
+  return `<div class="zr-preflight__hero">
+      <span class="zr-preflight__time">${esc(roughTime(estimate.seconds))}</span>
+      <span class="zr-preflight__sub">${esc(`${requests} · ${formatTokens(total)} tokens`)}</span>
+      ${htmlBar}
+      <p class="zr-preflight__basis">${esc(estimateBasisText(estimate))}</p>
+    </div>`;
 }
 
-/** "Cheaper, if you want" — the levers, each with what it costs. */
+/**
+ * The levers, folded away behind Options. Each says what it costs in three
+ * words, not a sentence, and the ids stay what the listener knows them as.
+ */
 function htmlEstimateLevers(estimate, levers) {
   const extra = estimate.extra || {};
   const htmlSweepChecked = levers.sweep ? ' checked' : '';
@@ -5556,48 +5562,53 @@ function htmlEstimateLevers(estimate, levers) {
       return `<option value="${esc(option.value)}"${htmlSelected}>${esc(option.textContent)}</option>`;
     })
     .join('');
-  return `<label class="dup-preflight__lever">
-      <input type="checkbox" class="zr-check" id="dupRunSweep"${htmlSweepChecked}>
-      <span>Let the model look at the whole list for synonyms and translations<span class="zr-sm zr-faint dup-preflight__price">${esc(`${num(extra.sweepRequests)} more ${plural(extra.sweepRequests, 'request', 'requests')}`)}</span></span>
-    </label>
-    <label class="dup-preflight__lever">
-      <input type="checkbox" class="zr-check" id="dupRunExcerpts"${htmlExcerptsChecked}>
-      <span>Read document excerpts where the spelling alone cannot decide<span class="zr-sm zr-faint dup-preflight__price">${esc(`${num(extra.excerptReads)} ${plural(extra.excerptReads, 'document read', 'document reads')}, no model`)}</span></span>
-    </label>
-    <div class="dup-preflight__lever">
-      <label class="zr-label" for="dupRunSensitivity">Sensitivity</label>
-      <select class="zr-select" id="dupRunSensitivity">${htmlSensitivity}</select>
-    </div>
-    <div class="dup-preflight__lever">
-      <label class="zr-label" for="dupRunLanes">Requests at once</label>
-      <select class="zr-select" id="dupRunLanes">${htmlLanes}</select>
-      <span class="zr-sm zr-faint dup-preflight__price">More lanes finish sooner and cost the same.</span>
+  const sweepPrice = num(extra.sweepRequests);
+  const htmlSweepPrice =
+    sweepPrice > 0
+      ? `<span class="zr-sm zr-faint">${esc(`+${sweepPrice} ${plural(sweepPrice, 'request', 'requests')}`)}</span>`
+      : '';
+  const reads = num(extra.excerptReads);
+  const htmlReadPrice =
+    reads > 0
+      ? `<span class="zr-sm zr-faint">${esc(`${reads} document ${plural(reads, 'read', 'reads')}`)}</span>`
+      : '';
+  return `<div class="zr-preflight__levers">
+      <label class="zr-preflight__lever">
+        <input type="checkbox" class="zr-check" id="dupRunSweep"${htmlSweepChecked}>
+        <span>Look at the whole list for synonyms</span>
+        ${htmlSweepPrice}
+      </label>
+      <label class="zr-preflight__lever">
+        <input type="checkbox" class="zr-check" id="dupRunExcerpts"${htmlExcerptsChecked}>
+        <span>Read excerpts where spelling cannot decide</span>
+        ${htmlReadPrice}
+      </label>
+      <label class="zr-preflight__lever" for="dupRunSensitivity">
+        <span>Sensitivity</span>
+        <select class="zr-select" id="dupRunSensitivity">${htmlSensitivity}</select>
+      </label>
+      <label class="zr-preflight__lever" for="dupRunLanes">
+        <span>Requests at a time</span>
+        <select class="zr-select" id="dupRunLanes">${htmlLanes}</select>
+      </label>
     </div>`;
 }
 
-/** The whole preflight body: three blocks and the levers. */
+/**
+ * The whole preflight body: one sentence, one number, one graphic, one
+ * promise, and everything adjustable folded away.
+ */
 function htmlPreflight(estimate, levers) {
-  const htmlScan = estimate.needsScan
-    ? `<p class="zr-consequence dup-preflight__scan">${htmlPlanMarks.cost}<span>${esc('Nothing has been scanned yet, so there is nothing to judge. The button below scans first and then asks; the numbers underneath are what the asking would cost if the scan finds what a scan usually finds.')}</span></p>`
-    : '';
-  return `${htmlScan}
-    <div class="dup-preflight">
-      <section class="dup-preflight__block">
-        <h4 class="dup-preflight__title">What I actually do</h4>
-        ${htmlEstimateSteps(estimate, levers)}
-      </section>
-      <section class="dup-preflight__block" id="dupRunCostBlock">
-        <h4 class="dup-preflight__title">What it costs</h4>
-        ${htmlEstimateCost(estimate)}
-      </section>
-      <section class="dup-preflight__block">
-        <h4 class="dup-preflight__title">What it changes</h4>
-        <p class="zr-consequence zr-consequence--free">${htmlPlanMarks.free}<span>${esc('Nothing is merged while this runs. You decide every merge afterwards.')}</span></p>
-      </section>
-      <section class="dup-preflight__block">
-        <h4 class="dup-preflight__title">Cheaper, if you want</h4>
-        <div class="dup-preflight__levers" id="dupRunLevers">${htmlEstimateLevers(estimate, levers)}</div>
-      </section>
+  const safe =
+    estimate.needsScan === true
+      ? 'Nothing is merged. The scan only looks.'
+      : 'Nothing is merged while this runs.';
+  const htmlOptions = `<details class="zr-preflight__options"><summary class="zr-preflight__summary"><svg class="zr-icon zr-icon--sm zr-preflight__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>Options</summary>${htmlEstimateLevers(estimate, levers)}</details>`;
+  return `<div class="zr-preflight" id="dupPreflight">
+      <p class="zr-preflight__lede">${esc(preflightLede(estimate))}</p>
+      ${htmlPreflightHero(estimate)}
+      <p class="zr-preflight__safe">${htmlPlanMarks.free}<span>${esc(safe)}</span></p>
+      ${htmlOptions}
     </div>`;
 }
 
@@ -5612,12 +5623,6 @@ function setDialogPrimary(dialog, label, sub) {
   const subNode = button.querySelector('.zr-btn__sub');
   if (labelNode) labelNode.textContent = label;
   if (subNode) subNode.textContent = sub;
-}
-
-/** What the primary button of the preflight says it costs. */
-function preflightSubText(estimate) {
-  const tokens = estimate.tokens || {};
-  return `${num(estimate.requests)} ${plural(estimate.requests, 'request', 'requests')} · about ${formatTokens(tokens.total)} tokens · about ${formatSeconds(estimate.seconds)} · 0 writes`;
 }
 
 /**
@@ -5659,25 +5664,19 @@ async function confirmRun(label) {
   const answer = confirmDialog(preflightOptions(estimate, levers, label));
   const dialog = lastDialog();
   if (dialog) {
-    dialog.classList.add('zr-dialog--wide', 'dup-preflight-dialog');
-    setDialogPrimary(
-      dialog,
-      estimate.needsScan ? 'Scan, then ask' : label,
-      preflightSubText(estimate)
-    );
+    // Not wide any more: the dialog is one sentence, one number and one bar,
+    // and a wide box around that only spreads it thin.
+    dialog.classList.add('dup-preflight-dialog');
+    // The button says what it does; what it costs is the number above it.
     const redraw = async () => {
       estimate = await fetchRunEstimate(levers);
-      const cost = dialog.querySelector('#dupRunCostBlock');
-      const bar = dialog.querySelector('#dupRunLevers');
-      if (cost) {
-        cost.innerHTML = `<h4 class="dup-preflight__title">What it costs</h4>${htmlEstimateCost(estimate)}`;
-      }
-      if (bar) bar.innerHTML = htmlEstimateLevers(estimate, levers);
-      setDialogPrimary(
-        dialog,
-        estimate.needsScan ? 'Scan, then ask' : label,
-        preflightSubText(estimate)
-      );
+      const body = dialog.querySelector('.zr-dialog__body');
+      if (!body) return;
+      const wasOpen =
+        body.querySelector('.zr-preflight__options')?.open === true;
+      body.innerHTML = htmlPreflight(estimate, levers);
+      const options = body.querySelector('.zr-preflight__options');
+      if (options) options.open = wasOpen;
     };
     dialog.addEventListener('change', (event) => {
       const input = event.target;
