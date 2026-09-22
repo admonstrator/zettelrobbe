@@ -628,7 +628,10 @@ class TagSimplifyService {
    */
   _spendOf(service) {
     const usage = service?.lastGenerateTextUsage;
+    // `Number(null)` is 0, so null has to be turned away before the guard:
+    // a provider that reported nothing did not report a zero.
     const reported = (value) => {
+      if (value === null || value === undefined) return null;
       const number = Number(value);
       return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
     };
@@ -1021,9 +1024,11 @@ class TagSimplifyService {
       this._recordRequest(control, {
         items: names.length,
         answers,
-        tokens: spend.completion,
-        thinkingTokens: spend.thinking,
-        promptTokens: spend.prompt,
+        // Omitted rather than null where nothing was reported; see
+        // recordRequest, which reads an explicit null as a measured 0.
+        tokens: spend.completion ?? undefined,
+        thinkingTokens: spend.thinking ?? undefined,
+        promptTokens: spend.prompt ?? undefined,
         ms: Date.now() - startedAt,
         outcome,
       });
@@ -1507,9 +1512,11 @@ class TagSimplifyService {
       this._recordRequest(control, {
         items: tags.length,
         answers,
-        tokens: spend.completion,
-        thinkingTokens: spend.thinking,
-        promptTokens: spend.prompt,
+        // Omitted rather than null where nothing was reported; see
+        // recordRequest, which reads an explicit null as a measured 0.
+        tokens: spend.completion ?? undefined,
+        thinkingTokens: spend.thinking ?? undefined,
+        promptTokens: spend.prompt ?? undefined,
         ms: Date.now() - startedAt,
         outcome,
       });

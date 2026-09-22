@@ -252,6 +252,7 @@ function freshRunStats() {
  * @param {unknown} value  what the provider reported, or anything else
  */
 function addReported(target, key, value) {
+  if (value === null || value === undefined) return;
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return;
   target[key] = (target[key] ?? 0) + Math.round(number);
@@ -703,6 +704,13 @@ class DuplicateReviewJobService {
       const documentModel = require('../models/document');
       if (typeof documentModel.saveAiRunStats !== 'function') return false;
       const most = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
+      // `saveAiRunStats` decides between a number and NULL with
+      // `Number.isFinite(Number(value))`, and `Number(null)` is 0 — so a null
+      // handed in as null is stored as a measured zero. A zero in this table
+      // is a lie the page would repeat: "the model thought for 0 tokens" is
+      // not "nobody reported what it thought". NaN is the one value that
+      // guard turns into the NULL the column is for.
+      const unreported = (value) => (value === null ? Number.NaN : value);
       return Boolean(
         await documentModel.saveAiRunStats({
           task,
@@ -713,9 +721,9 @@ class DuplicateReviewJobService {
           itemsByRule: most(stats.itemsByRule, progress.spellingRules),
           requests: most(stats.requests, progress.requestsDone),
           failedRequests: most(stats.failedRequests, progress.failedRequests),
-          promptTokens: stats.promptTokens,
-          completionTokens: stats.completionTokens,
-          thinkingTokens: stats.thinkingTokens,
+          promptTokens: unreported(stats.promptTokens),
+          completionTokens: unreported(stats.completionTokens),
+          thinkingTokens: unreported(stats.thinkingTokens),
           seconds: this._elapsed(job) / 1000,
         })
       );

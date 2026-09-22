@@ -2304,7 +2304,10 @@ class EntityMatchAiService {
    */
   _readSpend(service, into) {
     const usage = service?.lastGenerateTextUsage;
+    // `Number(null)` is 0, so null has to be turned away before the guard:
+    // a provider that reported nothing did not report a zero.
     const reported = (value) => {
+      if (value === null || value === undefined) return null;
       const number = Number(value);
       return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
     };
@@ -2695,9 +2698,11 @@ class EntityMatchAiService {
         index: meterIndex,
         items: batch.length,
         answers: answers === null ? batch.length : answers,
-        tokens: spentHere.completion,
-        thinkingTokens: spentHere.thinking,
-        promptTokens: spentHere.prompt,
+        // Omitted rather than null where nothing was reported: the
+        // contract's recordRequest reads an explicit null as a measured 0.
+        tokens: spentHere.completion ?? undefined,
+        thinkingTokens: spentHere.thinking ?? undefined,
+        promptTokens: spentHere.prompt ?? undefined,
         ms: Date.now() - startedAt,
         outcome,
       });
@@ -2904,9 +2909,11 @@ class EntityMatchAiService {
         index: meterIndex,
         items: batch.length,
         answers: 0,
-        tokens: spentHere.completion,
-        thinkingTokens: spentHere.thinking,
-        promptTokens: spentHere.prompt,
+        // Omitted rather than null where nothing was reported: the
+        // contract's recordRequest reads an explicit null as a measured 0.
+        tokens: spentHere.completion ?? undefined,
+        thinkingTokens: spentHere.thinking ?? undefined,
+        promptTokens: spentHere.prompt ?? undefined,
         ms: elapsedMs,
         outcome: 'failed',
       });
@@ -3361,9 +3368,9 @@ class EntityMatchAiService {
       index: meterIndex,
       items: chunk.length,
       answers,
-      tokens: spentHere.completion,
-      thinkingTokens: spentHere.thinking,
-      promptTokens: spentHere.prompt,
+      tokens: spentHere.completion ?? undefined,
+      thinkingTokens: spentHere.thinking ?? undefined,
+      promptTokens: spentHere.prompt ?? undefined,
       ms: Date.now() - startedAt,
       outcome,
     });

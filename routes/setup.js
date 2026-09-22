@@ -11414,7 +11414,32 @@ function parseAiReviewRequest(body) {
     options.semanticSweep = source.semanticSweep;
   }
 
+  // How many requests this one review keeps in flight, instead of what
+  // DUPLICATES_AI_CONCURRENCY says. Clamped rather than refused: a slider
+  // that sends 40 is the page's mistake, and refusing the whole run over it
+  // helps nobody. Absent means "as configured".
+  const concurrency = readRunConcurrency(source.concurrency);
+  if (concurrency !== null) options.concurrency = concurrency;
+
   return { options };
+}
+
+/** The most requests one run may keep in flight, whatever it asked for. */
+const MAX_RUN_CONCURRENCY = 8;
+
+/**
+ * Reads the `concurrency` a single run may name for itself: an integer
+ * between 1 and MAX_RUN_CONCURRENCY, clamped into that range, or null when
+ * the request said nothing about it.
+ *
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+function readRunConcurrency(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const wanted = Number(value);
+  if (!Number.isFinite(wanted)) return null;
+  return Math.max(1, Math.min(Math.floor(wanted), MAX_RUN_CONCURRENCY));
 }
 
 /** How often a watched review stream writes a comment line to stay open. */
@@ -11484,7 +11509,19 @@ function findAiReviewJob(res, id) {
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *             allOf:
+ *               - $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *               - type: object
+ *                 properties:
+ *                   concurrency:
+ *                     type: integer
+ *                     minimum: 1
+ *                     maximum: 8
+ *                     description: |
+ *                       How many model requests this one review keeps in
+ *                       flight, instead of what DUPLICATES_AI_CONCURRENCY
+ *                       says. Out of range is clamped into it rather than
+ *                       refused; absent means "as configured".
  *     responses:
  *       200:
  *         description: The reviewed scan result
@@ -11596,7 +11633,19 @@ router.post('/api/duplicates/ai-review', isAuthenticated, async (req, res) => {
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *             allOf:
+ *               - $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *               - type: object
+ *                 properties:
+ *                   concurrency:
+ *                     type: integer
+ *                     minimum: 1
+ *                     maximum: 8
+ *                     description: |
+ *                       How many model requests this one review keeps in
+ *                       flight, instead of what DUPLICATES_AI_CONCURRENCY
+ *                       says. Out of range is clamped into it rather than
+ *                       refused; absent means "as configured".
  *     responses:
  *       202:
  *         description: The review was started
@@ -12805,6 +12854,213 @@ router.delete('/api/duplicates/mappings', isAuthenticated, async (req, res) => {
     );
   }
 });
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/estimate:
+ *   get:
+ *     summary: What the next AI review would cost, before it starts
+ *     description: |
+ *       Answers the question the page asks before it spends anything: how
+ *       many requests, how many tokens, how long. Nothing here asks a model
+ *       and nothing scans — the page calls this again on every move of a
+ *       lever, so it may only read what is already there.
+ *
+ *       A scan is a walk over every tag and every correspondent of the
+ *       archive, so this never starts one. It answers from the scan the merge
+ *       service still holds for these options, and when there is none it
+ *       answers `needsScan: true` with `items: 0` and `basis: "guess"` — the
+ *       page then says "scan first, then I can tell you" instead of showing a
+ *       number nobody measured.
+ *
+ *       `basis` says where the numbers come from: `run` a finished review of
+ *       this archive, `model` what the judge measured about this model,
+ *       `guess` neither. `requests` is the judging pass alone; `extra` names
+ *       what comes on top — the requests a semantic sweep would add, and the
+ *       entities whose documents would be read for excerpts, which are reads
+ *       of Paperless-ngx rather than model requests.
+ *
+ *       `items` counts the pairs of the scan's groups that the model would be
+ *       asked about. A review that also asks about the candidate band asks
+ *       about more: the band needs the entity list, and reading it is exactly
+ *       the cost this endpoint exists to avoid.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents, all]
+ *         description: What the review would look at; `all` by default
+ *       - in: query
+ *         name: threshold
+ *         schema:
+ *           type: number
+ *           minimum: 0
+ *           maximum: 1
+ *         description: The sensitivity the scan was made with
+ *       - in: query
+ *         name: sweep
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: The semantic sweep is on
+ *       - in: query
+ *         name: excerpts
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: Document excerpts are read as evidence
+ *     responses:
+ *       200:
+ *         description: What the review would cost
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/AiRunEstimate'
+ *                     - type: object
+ *                       properties:
+ *                         model:
+ *                           type: string
+ *                           nullable: true
+ *                         thinking:
+ *                           type: boolean
+ *                         groups:
+ *                           type: integer
+ *                           description: scan groups the review would judge
+ *                         pairs:
+ *                           type: integer
+ *                           description: |
+ *                             every pair of those groups — what the model is
+ *                             asked about plus what a spelling rule settled
+ *                         needsScan:
+ *                           type: boolean
+ *                           description: no cached scan answers for these options
+ *                         extra:
+ *                           type: object
+ *                           properties:
+ *                             sweepRequests:
+ *                               type: integer
+ *                             excerptReads:
+ *                               type: integer
+ *       400:
+ *         description: Unknown kind, or a threshold outside [0, 1]
+ *       401:
+ *         description: Not authenticated
+ *       503:
+ *         description: |
+ *           The AI review is switched off (DUPLICATES_AI_REVIEW), or no AI
+ *           provider is configured; the message names which of the two
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/duplicates/ai-review/estimate',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const kind = String(req.query.kind || duplicateMergeService.KIND_ALL);
+      const knownKinds = [
+        duplicateMergeService.KIND_ALL,
+        ...entityNameMatcher.KIND_LIST,
+      ];
+      if (!knownKinds.includes(kind)) {
+        return res
+          .status(400)
+          .json({ success: false, error: `Unknown entity kind: ${kind}` });
+      }
+      const rawThreshold = req.query.threshold;
+      const threshold =
+        rawThreshold === undefined || rawThreshold === ''
+          ? entityNameMatcher.DEFAULT_THRESHOLD
+          : Number(rawThreshold);
+      if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+        return res.status(400).json({
+          success: false,
+          error: 'threshold must be a number between 0 and 1',
+        });
+      }
+
+      const refusal = aiReviewRefusal();
+      if (refusal) {
+        return res.status(503).json({ success: false, error: refusal });
+      }
+
+      const data = await entityMatchAiService.estimateReview({
+        kind,
+        threshold,
+        sweep: readQueryFlag(req.query.sweep, false),
+        excerpts: readQueryFlag(req.query.excerpts, true),
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/duplicates/ai-review/estimate',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * Why neither estimate may be answered, or null when both may.
+ *
+ * The pages hide their model-backed buttons when the feature is off, so this
+ * is the belt rather than the braces — but it has to name which of the two it
+ * is, because "switch it on" and "configure a provider" are different things
+ * to do.
+ *
+ * @param {boolean} [checkSwitch]  also look at DUPLICATES_AI_REVIEW, which is
+ *   the Duplicates page's switch and says nothing about Simplify tags
+ * @returns {string|null}
+ */
+function aiReviewRefusal(checkSwitch = true) {
+  // The same reading the judge uses: `Boolean('no')` is true, which is the
+  // trap this spelling exists to avoid.
+  const on =
+    configFile.duplicatesAiReview === true ||
+    String(configFile.duplicatesAiReview ?? '')
+      .trim()
+      .toLowerCase() === 'yes';
+  if (checkSwitch && !on) {
+    return 'The AI review is switched off (DUPLICATES_AI_REVIEW)';
+  }
+  if (!configFile.aiProvider) {
+    return 'No AI provider is configured';
+  }
+  return null;
+}
+
+/**
+ * Reads a `0`/`1` query flag the two estimate endpoints use for their
+ * switches. Absent is the default the caller names, not `false`: an estimate
+ * that quietly turned the excerpts off would promise a cheaper run than the
+ * one the button starts.
+ *
+ * @param {unknown} value
+ * @param {boolean} fallback
+ * @returns {boolean}
+ */
+function readQueryFlag(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const text = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off'].includes(text)) return false;
+  return fallback;
+}
+
 // ── Simplify tags: a compound tag becomes a document type and topic tags ────
 // Same rules as the Duplicates block above: nothing runs on its own, every
 // write is confirmed on the page, logged and undoable. The two long-running
@@ -13817,7 +14073,31 @@ const ORDER_DECISION_DONE = Object.freeze({
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/TagOrderProposeRequest'
+ *             allOf:
+ *               - $ref: '#/components/schemas/TagOrderProposeRequest'
+ *               - type: object
+ *                 properties:
+ *                   skipDecided:
+ *                     type: boolean
+ *                     description: |
+ *                       Leave the tags with a proposal the user has already
+ *                       accepted or applied out of the model pass. Their
+ *                       proposals are kept as they are.
+ *                   minDocuments:
+ *                     type: integer
+ *                     minimum: 0
+ *                     description: |
+ *                       Leave the tags on fewer documents than this out of the
+ *                       model pass; they come back as `keep` with a reason
+ *                       that says so.
+ *                   concurrency:
+ *                     type: integer
+ *                     minimum: 1
+ *                     maximum: 8
+ *                     description: |
+ *                       How many model requests this one run keeps in flight,
+ *                       instead of DUPLICATES_AI_CONCURRENCY. Clamped, not
+ *                       refused; absent means "as configured".
  *     responses:
  *       202:
  *         description: The proposal was started
@@ -13849,19 +14129,177 @@ router.post(
   isAuthenticated,
   async (req, res) => {
     try {
-      const vocabulary = readOrderVocabularyMode((req.body || {}).vocabulary);
+      const body = req.body || {};
+      const vocabulary = readOrderVocabularyMode(body.vocabulary);
+      // The three levers of one run. All three are absent by default, and an
+      // absent one narrows nothing and overrides nothing, so a page that
+      // sends only `vocabulary` starts exactly the run it always started.
+      const run = {
+        vocabulary,
+        skipDecided: readQueryFlag(body.skipDecided, false),
+        minDocuments: readMinDocuments(body.minDocuments),
+        concurrency: readRunConcurrency(body.concurrency),
+      };
       return startSimplifyJob(
         res,
         'POST /api/simplify/order/propose',
         duplicateReviewJobService.JOB_TASKS.ORDER,
-        { vocabulary },
-        (options, control) =>
-          tagSimplifyService.proposeOrder({ vocabulary }, control)
+        run,
+        (options, control) => tagSimplifyService.proposeOrder(run, control)
       );
     } catch (error) {
       return respondDuplicatesError(
         res,
         'POST /api/simplify/order/propose',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * Reads the `minDocuments` floor of a run: a whole number of documents,
+ * clamped into [0, MAX_MIN_DOCUMENTS] rather than refused, and null when the
+ * request named none. Zero is a real answer — every tag has at least zero
+ * documents, so it skips nothing.
+ *
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+function readMinDocuments(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const wanted = Number(value);
+  if (!Number.isFinite(wanted)) return null;
+  return Math.max(0, Math.min(Math.floor(wanted), MAX_MIN_DOCUMENTS));
+}
+
+/** The highest document floor a run may be given; past it nothing is asked. */
+const MAX_MIN_DOCUMENTS = 100000;
+
+/**
+ * @swagger
+ * /api/simplify/order/estimate:
+ *   get:
+ *     summary: What the next run of the proposed order would cost
+ *     description: |
+ *       The same question the Duplicates page asks before its review, for the
+ *       order: how many tags reach the model, how many requests that is, what
+ *       it costs and how long it takes. Nothing here asks a model — the page
+ *       calls it again on every move of a lever.
+ *
+ *       The rule pass is the one the run itself runs before it asks anything,
+ *       so `itemsByRule` and `items` are what the run would really do. The
+ *       tag list it reads is cached for a minute.
+ *
+ *       `skippable` is what each of the two levers would save, counted over
+ *       the tags that would otherwise reach the model: `decided` the ones
+ *       with a proposal the user has already accepted or applied,
+ *       `lowDocument` the ones below `minDocuments` — or below three when the
+ *       request named no floor, so the page has a real number to offer before
+ *       anybody has moved anything.
+ *
+ *       `requests` is the ordering pass alone. `extra.vocabularyRequests` is
+ *       what proposing a new vocabulary adds on top, and is zero when
+ *       `keepVocabulary` is set.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: keepVocabulary
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: Use the saved vocabulary instead of proposing a new one
+ *       - in: query
+ *         name: skipDecided
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: Leave out the tags the user has already decided on
+ *       - in: query
+ *         name: minDocuments
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *         description: Leave out the tags on fewer documents than this
+ *     responses:
+ *       200:
+ *         description: What the run would cost
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/AiRunEstimate'
+ *                     - type: object
+ *                       properties:
+ *                         tags:
+ *                           type: integer
+ *                           description: every tag of the archive
+ *                         model:
+ *                           type: string
+ *                           nullable: true
+ *                         thinking:
+ *                           type: boolean
+ *                         skippable:
+ *                           type: object
+ *                           properties:
+ *                             decided:
+ *                               type: integer
+ *                             lowDocument:
+ *                               type: integer
+ *                         extra:
+ *                           type: object
+ *                           properties:
+ *                             vocabularyRequests:
+ *                               type: integer
+ *       401:
+ *         description: Not authenticated
+ *       501:
+ *         description: The proposed order is not available on this build
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ *       503:
+ *         description: No AI provider is configured
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/simplify/order/estimate',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      if (typeof tagSimplifyService.estimateOrder !== 'function') {
+        return res.status(501).json({
+          success: false,
+          error: 'The proposed order is not available on this build',
+        });
+      }
+      // The Simplify page has no switch of its own; a missing provider is the
+      // only thing that can stop it.
+      const refusal = aiReviewRefusal(false);
+      if (refusal) {
+        return res.status(503).json({ success: false, error: refusal });
+      }
+      const data = await tagSimplifyService.estimateOrder({
+        keepVocabulary: readQueryFlag(req.query.keepVocabulary, false),
+        skipDecided: readQueryFlag(req.query.skipDecided, false),
+        minDocuments: readMinDocuments(req.query.minDocuments),
+        concurrency: readRunConcurrency(req.query.concurrency),
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/simplify/order/estimate',
         error
       );
     }
