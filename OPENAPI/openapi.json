@@ -2335,6 +2335,139 @@
             "format": "date-time"
           }
         }
+      },
+      "AiRunEstimate": {
+        "type": "object",
+        "description": "What a model-backed run will cost before it starts, plus what the\nlast run of the same task actually cost. `basis` says where the\nnumbers come from: `run` a finished run of this task, `model` the\njudge's measurement of this model, `guess` neither — the page says\nso rather than pretending.\n",
+        "properties": {
+          "items": {
+            "type": "integer",
+            "description": "items the model would be asked about",
+            "example": 1145
+          },
+          "itemsByRule": {
+            "type": "integer",
+            "description": "items a rule settles without the model",
+            "example": 42
+          },
+          "batchSize": {
+            "type": "integer",
+            "example": 50
+          },
+          "requests": {
+            "type": "integer",
+            "example": 23
+          },
+          "lanes": {
+            "type": "integer",
+            "description": "requests in flight at once",
+            "example": 3
+          },
+          "seconds": {
+            "type": "integer",
+            "example": 372
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "run",
+              "model",
+              "guess"
+            ]
+          },
+          "measuredAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tokens": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 1410000
+              },
+              "prompt": {
+                "type": "integer"
+              },
+              "completion": {
+                "type": "integer"
+              },
+              "thinking": {
+                "type": "integer"
+              }
+            }
+          },
+          "lastRun": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AiRunStats"
+              }
+            ]
+          }
+        }
+      },
+      "AiRunStats": {
+        "type": "object",
+        "description": "What one finished run of a model-backed task cost.",
+        "properties": {
+          "task": {
+            "type": "string",
+            "enum": [
+              "order",
+              "review",
+              "vocabulary",
+              "splits"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "thinking": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "items": {
+            "type": "integer"
+          },
+          "itemsByRule": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "failedRequests": {
+            "type": "integer"
+          },
+          "promptTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "completionTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "thinkingTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },

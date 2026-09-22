@@ -533,10 +533,69 @@ const MIGRATIONS = [
       );
     },
   },
+  {
+    version: 15,
+    description:
+      'Round 13: what a model-backed run cost, so the next one is known before it starts',
+    up: (database) => {
+      // One row per finished run of a model-backed task. It exists so a page
+      // can say what the next run will cost before anyone pays for it: the
+      // per-request averages of a real run beat every estimate, because they
+      // carry this task's own prompt and this model's habits at once.
+      //
+      // `items` counts what the model was asked about, `items_by_rule` what
+      // never reached it. A stopped run is kept and marked: half a run still
+      // measures a request.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ai_run_stats (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task TEXT NOT NULL,
+          model TEXT DEFAULT NULL,
+          thinking INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'done',
+          items INTEGER NOT NULL DEFAULT 0,
+          items_by_rule INTEGER NOT NULL DEFAULT 0,
+          requests INTEGER NOT NULL DEFAULT 0,
+          failed_requests INTEGER NOT NULL DEFAULT 0,
+          prompt_tokens INTEGER DEFAULT NULL,
+          completion_tokens INTEGER DEFAULT NULL,
+          thinking_tokens INTEGER DEFAULT NULL,
+          seconds REAL NOT NULL DEFAULT 0,
+          finished_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      database.exec(
+        'CREATE INDEX IF NOT EXISTS idx_ai_run_stats_task ON ai_run_stats (task, id DESC)'
+      );
+    },
+  },
 ];
 
 /** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
 const ENTITY_NAME_MAPPINGS_KEEP = 200;
+
+/** Runs kept per task; the older ones are pruned when a new one is saved. */
+const AI_RUN_STATS_KEEP = 50;
+
+/** One `ai_run_stats` row in the shape the services and the API use. */
+function mapAiRunStats(row) {
+  return {
+    id: Number(row.id),
+    task: row.task,
+    model: row.model ?? null,
+    thinking: row.thinking === 1,
+    status: row.status,
+    items: Number(row.items) || 0,
+    itemsByRule: Number(row.items_by_rule) || 0,
+    requests: Number(row.requests) || 0,
+    failedRequests: Number(row.failed_requests) || 0,
+    promptTokens: row.prompt_tokens ?? null,
+    completionTokens: row.completion_tokens ?? null,
+    thinkingTokens: row.thinking_tokens ?? null,
+    seconds: Number(row.seconds) || 0,
+    finishedAt: row.finished_at,
+  };
+}
 
 function runMigrations(database) {
   const currentVersion = database.pragma('user_version', { simple: true });
@@ -1524,6 +1583,146 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] clearing entity name mappings:', error);
       return 0;
+    }
+  },
+
+  /**
+   * Writes down what one finished run cost. A stopped or failed run is saved
+   * too, marked as such: it measured its requests all the same, and a page
+   * that only ever learned from perfect runs would keep guessing.
+   *
+   * @param {object} run
+   * @param {string} run.task               'order' | 'review' | 'vocabulary' | 'splits'
+   * @param {string|null} [run.model]
+   * @param {boolean} [run.thinking]
+   * @param {string} [run.status]           'done' | 'stopped' | 'failed'
+   * @param {number} [run.items]            items the model was asked about
+   * @param {number} [run.itemsByRule]      items a rule settled without it
+   * @param {number} [run.requests]
+   * @param {number} [run.failedRequests]
+   * @param {number|null} [run.promptTokens]
+   * @param {number|null} [run.completionTokens]
+   * @param {number|null} [run.thinkingTokens]
+   * @param {number} [run.seconds]
+   * @returns {Promise<boolean>}
+   */
+  async saveAiRunStats({
+    task,
+    model = null,
+    thinking = false,
+    status = 'done',
+    items = 0,
+    itemsByRule = 0,
+    requests = 0,
+    failedRequests = 0,
+    promptTokens = null,
+    completionTokens = null,
+    thinkingTokens = null,
+    seconds = 0,
+  }) {
+    const name = String(task || '').trim();
+    if (name === '') return false;
+    const count = (value) => Math.max(0, Math.round(Number(value) || 0));
+    const nullable = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
+    };
+    try {
+      const write = db.transaction(() => {
+        db.prepare(
+          `
+          INSERT INTO ai_run_stats
+            (task, model, thinking, status, items, items_by_rule, requests,
+             failed_requests, prompt_tokens, completion_tokens, thinking_tokens,
+             seconds, finished_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `
+        ).run(
+          name,
+          model == null ? null : String(model),
+          thinking ? 1 : 0,
+          String(status || 'done'),
+          count(items),
+          count(itemsByRule),
+          count(requests),
+          count(failedRequests),
+          nullable(promptTokens),
+          nullable(completionTokens),
+          nullable(thinkingTokens),
+          Math.max(0, Number(seconds) || 0)
+        );
+        db.prepare(
+          `
+          DELETE FROM ai_run_stats
+          WHERE task = ?
+            AND id NOT IN (
+              SELECT id FROM ai_run_stats WHERE task = ? ORDER BY id DESC LIMIT ?
+            )
+        `
+        ).run(name, name, AI_RUN_STATS_KEEP);
+      });
+      write();
+      return true;
+    } catch (error) {
+      console.error('[ERROR] saving AI run stats:', error);
+      return false;
+    }
+  },
+
+  /**
+   * The newest run of a task, or null. `model` narrows it to runs of one
+   * model: a measurement of a model you no longer use is worse than none.
+   *
+   * @param {string} task
+   * @param {string|null} [model]
+   * @returns {Promise<object|null>}
+   */
+  async getLastAiRunStats(task, model = null) {
+    try {
+      const name = String(task || '').trim();
+      if (name === '') return null;
+      const row =
+        model == null
+          ? db
+              .prepare(
+                'SELECT * FROM ai_run_stats WHERE task = ? ORDER BY id DESC LIMIT 1'
+              )
+              .get(name)
+          : db
+              .prepare(
+                'SELECT * FROM ai_run_stats WHERE task = ? AND model = ? ORDER BY id DESC LIMIT 1'
+              )
+              .get(name, String(model));
+      return row ? mapAiRunStats(row) : null;
+    } catch (error) {
+      console.error('[ERROR] reading AI run stats:', error);
+      return null;
+    }
+  },
+
+  /**
+   * The newest runs of a task, newest first.
+   *
+   * @param {string} task
+   * @param {number} [limit]
+   * @returns {Promise<object[]>}
+   */
+  async listAiRunStats(task, limit = 10) {
+    try {
+      const name = String(task || '').trim();
+      if (name === '') return [];
+      const rows = db
+        .prepare(
+          'SELECT * FROM ai_run_stats WHERE task = ? ORDER BY id DESC LIMIT ?'
+        )
+        .all(
+          name,
+          Math.max(1, Math.min(AI_RUN_STATS_KEEP, Number(limit) || 10))
+        );
+      return rows.map(mapAiRunStats);
+    } catch (error) {
+      console.error('[ERROR] listing AI run stats:', error);
+      return [];
     }
   },
 

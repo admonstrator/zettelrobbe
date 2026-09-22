@@ -87,6 +87,12 @@ const RETENTION_MS = 10 * 60 * 1000;
 
 /** How often a job waiting for the document scan looks again. */
 const SCAN_POLL_MS = 1000;
+
+/** Finished requests the run meter keeps; older ones fall off the end. */
+const REQUEST_LOG_LENGTH = 8;
+
+/** What a finished request can have come back as; see AiReviewRequestRecord. */
+const OUTCOMES = new Set(['answered', 'partial', 'empty', 'failed']);
 /** How often the idle watch looks at a running job. */
 const IDLE_CHECK_MS = 5 * 1000;
 
@@ -115,6 +121,32 @@ const IDLE_CHECK_MS = 5 * 1000;
  * @property {boolean} thinking           the model is writing reasoning
  * @property {number|null} batchSize      pairs per request in use
  * @property {boolean} calibrated         sizes come from a measurement
+ * @property {number|null} promptTokens   what the questions cost so far
+ * @property {number|null} completionTokens what the answers cost so far,
+ *   reasoning included where the provider counts it there
+ * @property {AiReviewRequestRecord[]} requestLog  the last finished requests,
+ *   newest first, so a page can show what each one cost instead of one number
+ *   for the whole run
+ */
+
+/**
+ * One finished request, as the run meter shows it.
+ *
+ * `outcome` says what came back, which is the difference between a run that
+ * is slow and a run that is wasting your tokens:
+ *   'answered' every item of the request came back
+ *   'partial'  some items were missing and were asked again
+ *   'empty'    nothing usable came back, reasoning aside
+ *   'failed'   the provider or the budget ended it
+ *
+ * @typedef {object} AiReviewRequestRecord
+ * @property {number} index          the request's number in this run
+ * @property {number} items          items it asked about
+ * @property {number} answers        items it answered
+ * @property {number|null} tokens    completion tokens it produced
+ * @property {number|null} thinkingTokens  of those, spent on reasoning
+ * @property {number} ms             how long it took
+ * @property {'answered'|'partial'|'empty'|'failed'} outcome
  */
 
 /**
@@ -154,7 +186,45 @@ function freshProgress(tokenBudget) {
     inFlight: 0,
     verdictsReused: 0,
     thinkingTokens: null,
+    promptTokens: null,
+    completionTokens: null,
+    requestLog: [],
   };
+}
+
+/**
+ * Puts one finished request at the front of the run's request log and drops
+ * what falls off the end. The log is short on purpose: it is there so the
+ * page can show the last handful with what each cost, not so anyone can audit
+ * a run from it. The whole run's numbers live in `ai_run_stats`.
+ *
+ * @param {AiReviewProgress} progress
+ * @param {Partial<AiReviewRequestRecord>} record
+ * @returns {AiReviewRequestRecord[]} the log, for the caller's convenience
+ */
+function recordRequest(progress, record) {
+  if (!progress || typeof progress !== 'object') return [];
+  if (!Array.isArray(progress.requestLog)) progress.requestLog = [];
+  const whole = (value) => Math.max(0, Math.round(Number(value) || 0));
+  const nullable = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
+  };
+  const outcome = OUTCOMES.has(record?.outcome) ? record.outcome : 'answered';
+  progress.requestLog.unshift({
+    index: whole(record?.index),
+    items: whole(record?.items),
+    answers: whole(record?.answers),
+    tokens: nullable(record?.tokens),
+    thinkingTokens: nullable(record?.thinkingTokens),
+    ms: whole(record?.ms),
+    outcome,
+  });
+  progress.requestLog.length = Math.min(
+    progress.requestLog.length,
+    REQUEST_LOG_LENGTH
+  );
+  return progress.requestLog;
 }
 
 class DuplicateReviewJobService {
@@ -612,5 +682,7 @@ duplicateReviewJobService.STOP_REASONS = STOP_REASONS;
 duplicateReviewJobService.EVENT_TYPES = EVENT_TYPES;
 duplicateReviewJobService.PHASES = PHASES;
 duplicateReviewJobService.RETENTION_MS = RETENTION_MS;
+duplicateReviewJobService.recordRequest = recordRequest;
+duplicateReviewJobService.REQUEST_LOG_LENGTH = REQUEST_LOG_LENGTH;
 
 module.exports = duplicateReviewJobService;
