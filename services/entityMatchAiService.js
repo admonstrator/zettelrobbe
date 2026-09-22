@@ -261,6 +261,7 @@
 const config = require('../config/config');
 const entityNameMatcher = require('./entityNameMatcher');
 const { calculateTokens } = require('./serviceUtils');
+const { estimateRun } = require('./aiRunEstimate');
 
 const AI_VERDICTS = Object.freeze({
   SAME: 'same',
@@ -1337,9 +1338,17 @@ class EntityMatchAiService {
    * start of a review, so a change on the settings page counts on the next
    * review rather than on the next restart.
    *
+   * `override` is one run's own answer, from the page: out of range is
+   * clamped into it rather than refused, and absent means "as configured".
+   *
+   * @param {unknown} [override]
    * @returns {number} between 1 and MAX_CONCURRENCY
    */
-  concurrency() {
+  concurrency(override = null) {
+    const wanted = Number(override);
+    if (Number.isFinite(wanted) && wanted >= 1) {
+      return Math.max(1, Math.min(Math.floor(wanted), MAX_CONCURRENCY));
+    }
     const runtimeConfig = require('../config/config');
     const configured = Number(runtimeConfig.duplicatesAiConcurrency);
     if (Number.isFinite(configured) && configured > 0) {
@@ -2143,6 +2152,12 @@ class EntityMatchAiService {
       stop: typeof given.stop === 'function' ? given.stop : null,
       readStopReason:
         typeof given.stopReason === 'function' ? given.stopReason : null,
+      // What the job writes down about the run: one record per finished
+      // request, and what the review knows about its own size. Both absent
+      // when nobody is keeping the books, which is every caller but the job.
+      recordRequest:
+        typeof given.recordRequest === 'function' ? given.recordRequest : null,
+      noteRun: typeof given.noteRun === 'function' ? given.noteRun : null,
       tokenBudget,
       stopped: false,
       budgetSpent: false,
@@ -2171,7 +2186,18 @@ class EntityMatchAiService {
       // while several answers are still on their way.
       concurrency: 1,
       lanesBusy: 0,
+      // Numbers the rows of the run meter. Run-wide and monotonic, unlike
+      // the per-kind number the log lines carry: two rows of the same run
+      // must not show the same number to the person reading them.
+      requestNumber: 0,
     };
+  }
+
+  /** The next number for the run meter, 0 when nobody is keeping one. */
+  _nextRequestIndex(tracker) {
+    if (!tracker) return 0;
+    tracker.requestNumber = (Number(tracker.requestNumber) || 0) + 1;
+    return tracker.requestNumber;
   }
 
   /**
@@ -2261,6 +2287,72 @@ class EntityMatchAiService {
       (tracker.tokens || 0) +
       promptTokens +
       (Number.isFinite(measured) ? measured : 0);
+  }
+
+  /**
+   * Reads what the provider says one request cost onto a small holder, so
+   * every exit of `_askBatch` can report the same three numbers.
+   *
+   * A field the provider did not report stays null. `_countRequestTokens`
+   * estimates a total for the page's counter and the token budget where it
+   * has to; that estimate is deliberately not copied here, because what is
+   * written here ends up in `ai_run_stats` and is read back as a
+   * measurement.
+   *
+   * @param {object} service  the provider service, after the call
+   * @param {{prompt:number|null, completion:number|null, thinking:number|null}} into
+   */
+  _readSpend(service, into) {
+    const usage = service?.lastGenerateTextUsage;
+    // `Number(null)` is 0, so null has to be turned away before the guard:
+    // a provider that reported nothing did not report a zero.
+    const reported = (value) => {
+      if (value === null || value === undefined) return null;
+      const number = Number(value);
+      return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
+    };
+    into.prompt = reported(usage?.promptTokens);
+    into.completion = reported(usage?.completionTokens);
+    into.thinking = reported(usage?.reasoningTokens);
+  }
+
+  /**
+   * Hands one finished request to the job that is keeping the books. Nothing
+   * happens when nobody is: a review the tests run without a job makes the
+   * same requests, it just writes nothing down.
+   *
+   * @param {object} context
+   * @param {object} record  an AiReviewRequestRecord plus `promptTokens`
+   */
+  _recordRequest(context, record) {
+    const tracker = context?.tracker;
+    if (!tracker || typeof tracker.recordRequest !== 'function') return;
+    try {
+      tracker.recordRequest(record);
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} a request record was refused: ${error?.message || error}`
+      );
+    }
+  }
+
+  /**
+   * Tells the job what this review is, in the terms `ai_run_stats` keeps:
+   * how many pairs the model is asked about, how many a rule settled first,
+   * the model and whether it thinks.
+   *
+   * @param {object|null} tracker
+   * @param {{items?:number, itemsByRule?:number, model?:string|null, thinking?:boolean}} patch
+   */
+  _noteRun(tracker, patch) {
+    if (!tracker || typeof tracker.noteRun !== 'function') return;
+    try {
+      tracker.noteRun(patch);
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} what this run costs could not be noted: ${error?.message || error}`
+      );
+    }
   }
 
   /**
@@ -2521,6 +2613,8 @@ class EntityMatchAiService {
     // even when several lanes are counting prompts at the same time.
     state.requestNumber += 1;
     const requestNumber = state.requestNumber;
+    // The run meter numbers every request of the whole run, sweep included.
+    const meterIndex = this._nextRequestIndex(tracker);
 
     const keys = new Set(batch.map((pair) => pair.key));
     const byKey = new Map(batch.map((pair) => [pair.key, pair]));
@@ -2575,6 +2669,11 @@ class EntityMatchAiService {
     }
 
     const startedAt = Date.now();
+    // What this one request cost, as the provider reported it. Read off the
+    // service after the answer arrived; null while nothing came back, and
+    // null afterwards for a provider that reports nothing — an estimate in
+    // this place would be written to `ai_run_stats` and believed later.
+    const spentHere = { prompt: null, completion: null, thinking: null };
     const withExcerpts = batch.filter(
       (pair) =>
         (pair.a?.sampleExcerpts || []).length > 0 ||
@@ -2587,8 +2686,26 @@ class EntityMatchAiService {
     // requests a cut-off answer added to the plan. The lane is closed first:
     // this request is counted from here on, and the plan counts the lanes
     // that are still out.
-    const report = (splits = 0) => {
+    //
+    // `outcome` and `answers` are what the run meter shows for this request.
+    // Every path below names its own, because the difference between a
+    // request that answered everything, one that answered half of it and one
+    // that thought for 25,000 tokens and said nothing is the whole reason
+    // the log exists — and the page shows what it is told.
+    const report = (splits = 0, outcome = 'answered', answers = null) => {
       if (typeof lane === 'function') lane();
+      this._recordRequest(context, {
+        index: meterIndex,
+        items: batch.length,
+        answers: answers === null ? batch.length : answers,
+        // Omitted rather than null where nothing was reported: the
+        // contract's recordRequest reads an explicit null as a measured 0.
+        tokens: spentHere.completion ?? undefined,
+        thinkingTokens: spentHere.thinking ?? undefined,
+        promptTokens: spentHere.prompt ?? undefined,
+        ms: Date.now() - startedAt,
+        outcome,
+      });
       return this._afterRequest(context, batch, splits);
     };
 
@@ -2640,6 +2757,7 @@ class EntityMatchAiService {
         return;
       }
       if (error?.code !== TRUNCATION_ERROR_CODE) {
+        this._readSpend(service, spentHere);
         this._failRequest(
           head(),
           error?.message || 'the AI provider could not be reached',
@@ -2649,7 +2767,7 @@ class EntityMatchAiService {
           usage
         );
         if (tracker) tracker.failedRequests += 1;
-        return report();
+        return report(0, 'failed', 0);
       }
       truncated = true;
       // What the provider wrote before it ran out of room. All four carry it
@@ -2659,6 +2777,7 @@ class EntityMatchAiService {
 
     const elapsedMs = Date.now() - startedAt;
     await this._countRequestTokens(context, promptTokens, answer);
+    this._readSpend(service, spentHere);
     const completionTokens = Number(
       service.lastGenerateTextUsage?.completionTokens
     );
@@ -2710,7 +2829,14 @@ class EntityMatchAiService {
       this._log(
         `${head()}${spent}, ${tally.same} same / ${tally.different} different / ${tally.unsure + missing} unsure.`
       );
-      return report();
+      // A readable answer that left pairs out is not an answered request:
+      // those pairs are unsure because nobody answered them, and the meter
+      // says so rather than showing a full green row.
+      return report(
+        0,
+        missing === 0 ? 'answered' : 'partial',
+        batch.length - missing
+      );
     }
 
     // Everything below is a cut-off answer: the provider said so, or the text
@@ -2735,14 +2861,14 @@ class EntityMatchAiService {
         usage
       );
       if (tracker) tracker.failedRequests += 1;
-      return report();
+      return report(0, 'failed', 0);
     }
 
     if (missing.length === 0) {
       this._log(
         `${head()}${spent} — the answer was cut off, salvaged all ${salvaged.recorded} verdict(s).`
       );
-      return report();
+      return report(0, 'answered', salvaged.recorded);
     }
 
     // Nothing came back at all and there is still room in the window: the cap
@@ -2758,7 +2884,9 @@ class EntityMatchAiService {
         `${head()}${spent} — the answer hit the token limit and salvaged nothing, ` +
           `raising the cap from ${cap} to ${raised} and asking the same ${batch.length} pair(s) again.`
       );
-      report(1);
+      // Nothing usable came back, reasoning aside: this is the row the run
+      // meter exists for, and it is asked again right after it.
+      report(1, 'empty', 0);
       // Back to the front of the queue rather than straight on: with one
       // lane that is the very next request either way, and with several the
       // lane this ran in is free for the batch behind it.
@@ -2776,6 +2904,19 @@ class EntityMatchAiService {
       // Splitting would not help: a review whose warm-up cannot answer four
       // pairs will not answer four hundred, and the operator has two switches
       // that can do something about it.
+      if (typeof lane === 'function') lane();
+      this._recordRequest(context, {
+        index: meterIndex,
+        items: batch.length,
+        answers: 0,
+        // Omitted rather than null where nothing was reported: the
+        // contract's recordRequest reads an explicit null as a measured 0.
+        tokens: spentHere.completion ?? undefined,
+        thinkingTokens: spentHere.thinking ?? undefined,
+        promptTokens: spentHere.prompt ?? undefined,
+        ms: elapsedMs,
+        outcome: 'failed',
+      });
       throw this._unavailable(WARMUP_IMPOSSIBLE_MESSAGE(batch.length));
     }
 
@@ -2784,7 +2925,7 @@ class EntityMatchAiService {
       this._log(
         `${head()} — the answer hit the token limit for a single pair, giving up on ${batch[0].key}.`
       );
-      return report();
+      return report(0, 'empty', 0);
     }
 
     const halves = splitInHalves(missing).filter((half) => half.length > 0);
@@ -2793,7 +2934,11 @@ class EntityMatchAiService {
         ? `${head()}${spent} — the answer was cut off, salvaged ${salvaged.recorded}, re-asking ${missing.length} in ${halves.length} request(s).`
         : `${head()}${spent} — the answer hit the token limit and a raised cap did not help, halving into ${halves.map((half) => half.length).join(' + ')}.`
     );
-    report(halves.length);
+    report(
+      halves.length,
+      salvaged.recorded > 0 ? 'partial' : 'empty',
+      salvaged.recorded
+    );
     // In order, at the front: the first half is the next request, so a
     // review with one lane asks in exactly the order it always did.
     for (const half of [...halves].reverse()) {
@@ -3216,6 +3361,19 @@ class EntityMatchAiService {
     state.lastStreamMs = 0;
     usage.requests += 1;
     const startedAt = Date.now();
+    const meterIndex = this._nextRequestIndex(tracker);
+    const spentHere = { prompt: null, completion: null, thinking: null };
+    /** One row of the run meter for this sweep request; see _askBatch. */
+    const meter = (outcome, answers) => ({
+      index: meterIndex,
+      items: chunk.length,
+      answers,
+      tokens: spentHere.completion ?? undefined,
+      thinkingTokens: spentHere.thinking ?? undefined,
+      promptTokens: spentHere.prompt ?? undefined,
+      ms: Date.now() - startedAt,
+      outcome,
+    });
     const head = () =>
       `sweep ${kind}: ${chunk.length} name(s), ~${promptTokens} prompt tokens, ` +
       `cap ${cap}, ${Date.now() - startedAt}ms`;
@@ -3250,6 +3408,8 @@ class EntityMatchAiService {
         console.warn(
           `${LOG_PREFIX} ${head()} — failed: ${error?.message || 'the AI provider could not be reached'}.`
         );
+        this._readSpend(service, spentHere);
+        this._recordRequest(context, meter('failed', 0));
         this._afterSweepRequest(kind, context);
         return [];
       }
@@ -3258,6 +3418,7 @@ class EntityMatchAiService {
     }
 
     await this._countRequestTokens(context, promptTokens, answer);
+    this._readSpend(service, spentHere);
 
     let items = null;
     let parseError = null;
@@ -3282,6 +3443,7 @@ class EntityMatchAiService {
             `raising the cap from ${cap} to ${raised} and reading the same names again.`
         );
         if (tracker) tracker.requestsPlanned += 1;
+        this._recordRequest(context, meter('empty', 0));
         this._afterSweepRequest(kind, context);
         return this._sweepChunk(kind, chunk, context, {
           cap: raised,
@@ -3295,6 +3457,7 @@ class EntityMatchAiService {
             `${truncated ? 'the answer was cut off with nothing usable in it' : parseError?.message || 'the answer could not be read'}. ` +
             `Raw answer: ${String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'}`
         );
+        this._recordRequest(context, meter(truncated ? 'empty' : 'failed', 0));
         this._afterSweepRequest(kind, context);
         return [];
       }
@@ -3308,6 +3471,13 @@ class EntityMatchAiService {
     if (!truncated) {
       this._log(`${head()} — ${proposals.length} group(s) proposed.`);
     }
+    // A sweep answers with the groups it found among the names it was shown;
+    // finding none is a complete answer, not an empty one. Only a cut-off
+    // answer left something behind.
+    this._recordRequest(
+      context,
+      meter(truncated ? 'partial' : 'answered', chunk.length)
+    );
     this._afterSweepRequest(kind, context);
     return proposals;
   }
@@ -3782,6 +3952,172 @@ class EntityMatchAiService {
   }
 
   /**
+   * The scan the merge service still has in its cache for these options, or
+   * null. It never scans.
+   *
+   * A scan is a walk over every tag and every correspondent of the archive
+   * and costs Paperless-ngx a page request per hundred of them. The estimate
+   * is asked again on every move of a slider, so it reads what is there and
+   * says "scan first" when there is nothing — the same three conditions the
+   * scan itself applies to its cache: the options, the age, and the
+   * dismissals that may have changed behind the service's back.
+   *
+   * @param {{kind:string, threshold:number, includeDismissed:boolean}} options
+   * @returns {Promise<object|null>} DuplicateScanResult or null
+   */
+  async _cachedScan({ kind, threshold, includeDismissed }) {
+    const duplicateMergeService = require('./duplicateMergeService');
+    const cache = duplicateMergeService._scanCache;
+    if (!(cache instanceof Map)) return null;
+    const cached = cache.get(
+      `${kind}|${threshold}|${includeDismissed ? 1 : 0}`
+    );
+    if (!cached) return null;
+    const age = Date.now() - cached.at;
+    if (!(age < (Number(duplicateMergeService.scanCacheMs) || 0))) return null;
+    try {
+      const kinds =
+        kind === duplicateMergeService.KIND_ALL
+          ? [...entityNameMatcher.KIND_LIST]
+          : [kind];
+      const fingerprint = await duplicateMergeService._dismissalFingerprint(
+        kinds,
+        includeDismissed
+      );
+      if (cached.dismissals !== fingerprint) return null;
+    } catch {
+      // A fingerprint that cannot be read is a cache that cannot be trusted.
+      return null;
+    }
+    return cached.result;
+  }
+
+  /**
+   * What the next AI review would cost, without asking anybody and without
+   * scanning.
+   *
+   * Two pages call this on every move of a lever, so it may read nothing but
+   * what is already there: the scan the merge service still holds, the
+   * judge's measurement of this model, and what the last review of this
+   * archive actually cost. When there is no cached scan for these options
+   * there is nothing honest to say — the answer is `needsScan: true` and the
+   * page asks for a scan instead of showing a number it made up.
+   *
+   * The pairs come out of the same `_pairsForKind` the review itself uses,
+   * with an empty band: the band needs the entity list, which is a read this
+   * must not make. So `items` is what the groups of the scan alone would
+   * cost, and a review that also asks about the band asks about more.
+   *
+   * @param {object} [options]
+   * @param {'tags'|'correspondents'|'all'} [options.kind]
+   * @param {number} [options.threshold]
+   * @param {boolean} [options.sweep]     the semantic sweep is on
+   * @param {boolean} [options.excerpts]  document excerpts are on
+   * @returns {Promise<object>} an AiReviewEstimate
+   */
+  async estimateReview(options = {}) {
+    const duplicateMergeService = require('./duplicateMergeService');
+    const documentModel = require('../models/document');
+    const kind = options.kind || duplicateMergeService.KIND_ALL;
+    const threshold = Number.isFinite(Number(options.threshold))
+      ? Number(options.threshold)
+      : entityNameMatcher.DEFAULT_THRESHOLD;
+    const sweep = options.sweep === true;
+    const excerpts = options.excerpts !== false && this.excerptsEnabled();
+
+    const model = this.modelName();
+    const thinking = this.thinkingEnabled();
+    const lanes = this.concurrency();
+    const batchSize = this.batchSize();
+    const [calibration, lastRun] = await Promise.all([
+      model
+        ? documentModel.getAiCalibration(model, thinking)
+        : Promise.resolve(null),
+      documentModel.getLastAiRunStats('review', model),
+    ]);
+
+    // Either state of the page's "show dismissed pairs" box answers; what is
+    // cached is what the user last scanned with.
+    const scan =
+      (await this._cachedScan({ kind, threshold, includeDismissed: false })) ??
+      (await this._cachedScan({ kind, threshold, includeDismissed: true }));
+
+    const shape = (extra) => ({
+      model,
+      thinking,
+      lastRun,
+      ...extra,
+    });
+
+    if (!scan) {
+      return shape({
+        ...estimateRun({ items: 0, batchSize, lanes }),
+        // Nothing was measured, so nothing is claimed — whatever the model
+        // calibration would have allowed the arithmetic to say.
+        basis: 'guess',
+        measuredAt: null,
+        itemsByRule: 0,
+        groups: 0,
+        pairs: 0,
+        needsScan: true,
+        extra: { sweepRequests: 0, excerptReads: 0 },
+      });
+    }
+
+    const kinds =
+      kind === duplicateMergeService.KIND_ALL
+        ? [...entityNameMatcher.KIND_LIST]
+        : [kind];
+    let groupCount = 0;
+    let asked = 0;
+    let settledByRule = 0;
+    let sweepRequests = 0;
+    const excerptEntities = new Set();
+    for (const one of kinds) {
+      const groups = (scan.groups || []).filter((group) => group.kind === one);
+      groupCount += groups.length;
+      const built = this._pairsForKind(one, groups, []);
+      asked += built.pairs.length;
+      settledByRule += built.settled.size;
+      if (excerpts) {
+        for (const pair of built.pairs) {
+          if (!EXCERPT_REASON_SET.has(pair.matchedBy)) continue;
+          for (const entity of [pair.a, pair.b]) {
+            const id = Number(entity?.id);
+            if (Number.isInteger(id)) excerptEntities.add(`${one}:${id}`);
+          }
+        }
+      }
+      if (sweep) {
+        const names = Number(scan.totals?.[one]);
+        if (Number.isFinite(names) && names >= 2 && names <= SWEEP_MAX_NAMES) {
+          sweepRequests += Math.ceil(names / this.sweepNames());
+        }
+      }
+    }
+
+    return shape({
+      ...estimateRun({
+        items: asked,
+        batchSize,
+        lanes,
+        calibration,
+        lastRun,
+        thinking,
+      }),
+      itemsByRule: settledByRule,
+      groups: groupCount,
+      // Every pair of the scan's groups: what the model is asked about plus
+      // what a spelling rule settled before it was.
+      pairs: asked + settledByRule,
+      needsScan: false,
+      // What comes on top of `requests`: the sweep asks its own, and the
+      // excerpts are reads of Paperless-ngx rather than model requests.
+      extra: { sweepRequests, excerptReads: excerptEntities.size },
+    });
+  }
+
+  /**
    * Runs a scan, adds the wider candidate band, has the model judge every
    * pair (group members against their target, and the candidates) and
    * returns the scan result with verdicts attached.
@@ -3836,8 +4172,12 @@ class EntityMatchAiService {
     // the whole review: nothing is read and nothing is written.
     const memory = await this._openVerdictMemory();
     // How many requests this review keeps in flight. One while the model is
-    // being measured, whatever this says.
-    const concurrency = this.concurrency();
+    // being measured, whatever this says. `options.concurrency` is this
+    // review's own answer to the question the setting answers for every
+    // review: the page offers it as a lever, and it is clamped rather than
+    // refused, because a slider that can send 40 is the page's bug and not a
+    // reason to refuse the run.
+    const concurrency = this.concurrency(options.concurrency);
     if (tracker) tracker.concurrency = concurrency;
     const requested = options.kind || 'all';
     const kinds =
@@ -4100,6 +4440,19 @@ class EntityMatchAiService {
         asked,
         plan,
         systemPrompt,
+      });
+    }
+
+    // What this run is, in the terms `ai_run_stats` keeps it: the pairs the
+    // model is asked about and the pairs a spelling rule settled before it
+    // was. Told once pass one is over, so a run that is stopped during pass
+    // two still writes down the size of the question it was asked.
+    if (tracker) {
+      this._noteRun(tracker, {
+        items: tracker.pairsTotal,
+        itemsByRule: spellingRules,
+        model,
+        thinking: Boolean(sizer && sizer.thinking),
       });
     }
 
