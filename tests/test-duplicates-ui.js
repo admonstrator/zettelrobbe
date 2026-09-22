@@ -1426,9 +1426,21 @@ test('The proposal scans, asks about everything and sends both evidence flags', 
     !body.includes('groupIds'),
     'the proposal asks about everything; narrowing it is the guided path'
   );
-  ['Scanning…', 'Asking the AI about'].forEach((line) => {
-    assert.ok(body.includes(line), `the status line never says "${line}"`);
-  });
+  // The status line covers the scan, and stands down the moment the run
+  // meter takes over: one place saying what is happening, not two.
+  assert.ok(
+    body.includes("setProposalStatus('Scanning…')"),
+    'the scan is silent'
+  );
+  assert.ok(
+    !body.includes('Asking the AI about'),
+    'the run meter already says that the model is being asked'
+  );
+  assert.ok(
+    body.indexOf("setProposalStatus('')") <
+      body.indexOf('setAiReviewing(true)'),
+    'the status line has to be cleared before the meter appears'
+  );
   // No request of its own: the scan, the review and the merges are it.
   ['fetch(', 'postJson(', 'requestJson('].forEach((call) => {
     assert.ok(
@@ -1834,8 +1846,9 @@ test('The progress panel is rendered only where the review is offered', () => {
     'dupAiProgressBar',
     'dupAiProgressFill',
     'dupAiProgressMessage',
-    'dupAiProgressCounts',
-    'dupAiProgressEta',
+    'dupRunPosition',
+    'dupRunRest',
+    'dupRunCeiling',
     'dupAiStopBtn',
   ].forEach((id) => {
     assert.ok(
@@ -1850,12 +1863,12 @@ test('The progress panel is rendered only where the review is offered', () => {
   // Hidden until a review runs, and a live region so a screen reader hears it.
   assert.match(
     offered,
-    /class="dup-progress hidden" id="dupAiProgress" role="status" aria-live="polite"/,
+    /class="dup-progress zr-runmeter hidden" id="dupAiProgress" role="status" aria-live="polite"/,
     'the panel is not a hidden live region'
   );
   assert.match(
     offered,
-    /class="zr-btn zr-btn--ghost" id="dupAiStopBtn"/,
+    /class="zr-btn zr-btn--ghost zr-btn--stacked" id="dupAiStopBtn"/,
     'Stop is the quiet button of the row, not a primary action'
   );
   assert.match(
@@ -2104,8 +2117,6 @@ test('The stylesheet carries the progress panel and stops its animation', () => 
     '.dup-progress__bar',
     '.dup-progress__fill',
     '.dup-progress__fill--indeterminate',
-    '.dup-progress__text',
-    '.dup-progress__actions',
   ].forEach((selector) => {
     assert.ok(
       selectorsOf(CSS).includes(selector),
@@ -2123,12 +2134,11 @@ test('The stylesheet carries the progress panel and stops its animation', () => 
     /@media \(prefers-reduced-motion: reduce\) \{\s*\.dup-progress__fill--indeterminate \{\s*animation: none;/,
     'the sliding band keeps sliding for someone who asked it not to'
   );
-  // An empty line still takes its row, so the stats below do not jump while
-  // the numbers come in.
-  assert.match(
-    CSS,
-    /\.dup-progress__text > span \{[^}]*min-height:/,
-    'the text lines collapse when they are empty'
+  // The panel is the shared run meter now: a headline, a bar, three numbers,
+  // the split and the log, with nothing left to reserve a row for.
+  assert.ok(
+    !CSS.includes('.dup-progress__text'),
+    'the four stacked text lines are gone, and so is the rule that spaced them'
   );
 });
 
@@ -2224,63 +2234,24 @@ test('progressCountsText says where the running request is', () => {
   );
 });
 
-test('progressTimeText names the warm-up and the thinking instead of a clock', () => {
-  const { progressTimeText } = helpers([
-    'formatEta',
-    'formatElapsed',
-    'progressTimeText',
-  ]);
+test('The headline is the phase, not the sentence that flickers under it', () => {
+  const { phaseHeadline } = helpers(['phaseHeadline']);
+  // The phase is what stays put while a request thinks.
   assert.strictEqual(
-    progressTimeText({ phase: 'warming-up', etaMs: null }, 7000),
-    'measuring the model · 0:07 elapsed',
-    'the one request that exists to be measured cannot estimate anything'
+    phaseHeadline({ phase: 'warming-up', message: 'The model is thinking…' }),
+    'Measuring the model'
   );
+  assert.strictEqual(phaseHeadline({ phase: 'judging' }), 'Asking the model');
   assert.strictEqual(
-    progressTimeText({ phase: 'judging', thinking: true, etaMs: null }, 41000),
-    'the model is thinking · 0:41 elapsed',
-    'reasoning is not "estimating…", it is a state the user can read'
+    phaseHeadline({ phase: 'sweeping' }),
+    'Looking at the whole list'
   );
+  // A phase nobody mapped falls back to what the job said, never to silence.
   assert.strictEqual(
-    progressTimeText({ phase: 'judging', thinking: false, etaMs: null }, 5000),
-    'estimating… · 0:05 elapsed',
-    'the wording of the first request is unchanged'
+    phaseHeadline({ phase: 'brand-new', message: 'Waiting for the scan…' }),
+    'Waiting for the scan…'
   );
-  // An estimate the job did make is shown next to the thinking, because it
-  // is still the answer to "how long is this going to take".
-  assert.strictEqual(
-    progressTimeText(
-      { phase: 'judging', thinking: true, etaMs: 120000 },
-      84000
-    ),
-    'the model is thinking · about 2 min left · 1:24 elapsed'
-  );
-  assert.strictEqual(
-    progressTimeText({ phase: 'judging', etaMs: 40000 }, 84000),
-    'about 40 s left · 1:24 elapsed'
-  );
-});
-
-test('progressNoteText says whether the batch size is a guess or a measurement', () => {
-  const { progressNoteText } = helpers(['num', 'plural', 'progressNoteText']);
-  assert.strictEqual(
-    progressNoteText({ batchSize: 4, calibrated: false }),
-    '4 pairs per request while the model is measured'
-  );
-  assert.strictEqual(
-    progressNoteText({ batchSize: 9, calibrated: true }),
-    "9 pairs per request, sized from the model's answers"
-  );
-  assert.strictEqual(
-    progressNoteText({ batchSize: 1, calibrated: true }),
-    "1 pair per request, sized from the model's answers"
-  );
-  assert.strictEqual(
-    progressNoteText({ batchSize: null, calibrated: false }),
-    '',
-    'nothing to say before the judge sized anything'
-  );
-  assert.strictEqual(progressNoteText({}), '');
-  assert.strictEqual(progressNoteText(null), '');
+  assert.strictEqual(phaseHeadline({}), 'Working');
 });
 
 test('The outcome line keeps the measured batch size', () => {
@@ -2314,21 +2285,34 @@ test('The outcome line keeps the measured batch size', () => {
   );
 });
 
-test('The panel carries the note line and the thinking state', () => {
+test('The panel says its phase once, and shows that the model is thinking', () => {
   const offered = renderSync(
     'duplicates.ejs',
     Object.assign({}, LOCALS, { aiReviewEnabled: true })
   );
-  assert.ok(
-    offered.includes('id="dupAiProgressNote"'),
-    'the note line has no element to write into'
+  // One headline, one bar, three numbers, the split, the ceiling, the log —
+  // and none of the four text lines that used to repeat each other.
+  ['dupAiProgressCounts', 'dupAiProgressNote', 'dupAiProgressEta'].forEach(
+    (id) => {
+      assert.ok(
+        !offered.includes(`id="${id}"`),
+        `#${id} said what the ledger and the log say better`
+      );
+    }
   );
   assert.ok(
-    offered.indexOf('id="dupAiProgressCounts"') <
-      offered.indexOf('id="dupAiProgressNote"') &&
-      offered.indexOf('id="dupAiProgressNote"') <
-        offered.indexOf('id="dupAiProgressEta"'),
-    'the note belongs under the counts it explains'
+    offered.indexOf('id="dupAiProgressMessage"') <
+      offered.indexOf('id="dupRunPosition"') &&
+      offered.indexOf('id="dupRunLedger"') <
+        offered.indexOf('id="dupRunCeiling"') &&
+      offered.indexOf('id="dupRunCeiling"') < offered.indexOf('id="dupRunLog"'),
+    'the panel reads top to bottom: what, how far, how much, what each cost'
+  );
+  // The Stop sits in the headline row rather than under everything.
+  assert.ok(
+    offered.indexOf('id="dupAiStopBtn"') <
+      offered.indexOf('id="dupRunPosition"'),
+    'Stop belongs next to what it would stop'
   );
 
   const render = functionBody('renderProgress');
@@ -2337,8 +2321,8 @@ test('The panel carries the note line and the thinking state', () => {
     'nothing shows that the model is thinking'
   );
   assert.ok(
-    render.includes('progressNoteText(state)'),
-    'the note line is never written'
+    render.includes('phaseHeadline(state)'),
+    'the headline is never written'
   );
   // The panel of a review that has finished says none of this any more.
   const outcome = functionBody('renderProgressOutcome');
@@ -2347,15 +2331,15 @@ test('The panel carries the note line and the thinking state', () => {
     'a finished review keeps pulsing'
   );
   assert.ok(
-    outcome.includes('el.aiProgressNote.textContent = ') &&
-      functionBody('hideProgressPanel').includes('el.aiProgressNote'),
-    'the note survives the review it belongs to'
+    outcome.includes('progressCountsText(') &&
+      outcome.includes('el.runPosition.textContent'),
+    'a finished review does not sum itself up'
   );
   // The row is held open only while a review runs, so the tiles below do not
   // jump the moment the warm-up fills it.
   assert.ok(
     functionBody('showProgressPanel').includes("'dup-progress--live'"),
-    'the note line has no reserved row while a review runs'
+    'the panel has no reserved row while a review runs'
   );
 });
 
@@ -2391,10 +2375,7 @@ test('A failed review points at the settings that could have prevented it', () =
 });
 
 test('The stylesheet pulses while the model thinks, and stops for reduced motion', () => {
-  [
-    '.dup-progress__fill--thinking',
-    '.dup-progress--live .dup-progress__note:empty::before',
-  ].forEach((selector) => {
+  ['.dup-progress__fill--thinking'].forEach((selector) => {
     assert.ok(
       selectorsOf(CSS).includes(selector),
       `${selector} has no rule of its own`

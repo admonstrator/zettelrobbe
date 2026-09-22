@@ -130,12 +130,19 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                              button that ends it. All three AI paths share it,
                              and a reloaded page attaches to a review that is
                              still going through /api/duplicates/ai-review/jobs. -->
-                        <div class="dup-progress hidden" id="dupAiProgress" role="status" aria-live="polite">
-                            <!-- The run meter. The bar is the same bar it always
-                                 was; what is new around it is the position on
-                                 its left, the time left on its right, and the
-                                 bill underneath — a run that says "working…"
-                                 and nothing else is a bill nobody sees. -->
+                        <div class="dup-progress zr-runmeter hidden" id="dupAiProgress" role="status" aria-live="polite">
+                            <!-- What someone waiting reads: what it is doing,
+                                 how far it is, how much longer. The rest of
+                                 what a request costs belongs to the request,
+                                 so it lives in the log at the bottom. -->
+                            <div class="zr-runmeter__head">
+                                <span class="zr-runmeter__phase" id="dupAiProgressMessage"></span>
+                                <button class="zr-btn zr-btn--ghost zr-btn--stacked" id="dupAiStopBtn" type="button">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
+                                    <span class="dup-progress__stop-label">Stop</span>
+                                    <span class="zr-btn__sub" id="dupAiStopSub">nothing is written either way</span>
+                                </button>
+                            </div>
                             <div class="zr-runbar dup-progress__runbar">
                                 <span class="zr-runbar__position" id="dupRunPosition"></span>
                                 <div class="dup-progress__bar zr-runbar__track" id="dupAiProgressBar" role="progressbar" aria-label="AI review progress">
@@ -143,20 +150,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 </div>
                                 <span class="zr-runbar__rest" id="dupRunRest"></span>
                             </div>
-                            <div class="dup-progress__text">
-                                <span class="zr-sm" id="dupAiProgressMessage"></span>
-                                <span class="zr-sm zr-faint zr-mono" id="dupAiProgressCounts"></span>
-                                <!-- How the judge sizes its requests: the
-                                     measured batch size, and whether it is
-                                     still a guess or comes from the model's
-                                     own answers. -->
-                                <span class="zr-sm zr-faint dup-progress__note" id="dupAiProgressNote"></span>
-                                <span class="zr-sm zr-faint" id="dupAiProgressEta"></span>
-                            </div>
-                            <!-- What the run has cost so far, against what it
-                                 was estimated to cost, and where those tokens
-                                 went: the question, the answer, and the model
-                                 thinking to itself. -->
+                            <!-- Three numbers, and what the tokens went on. -->
                             <div class="zr-ledger dup-progress__ledger" id="dupRunLedger"></div>
                             <div class="zr-tokenbar dup-progress__tokenbar hidden" id="dupRunTokenbar">
                                 <div class="zr-tokenbar__track">
@@ -166,17 +160,13 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 </div>
                                 <div class="zr-tokenbar__legend" id="dupRunLegend"></div>
                             </div>
+                            <!-- The ceiling that would end the run, shown only
+                                 once it is close enough to matter. -->
+                            <p class="zr-runmeter__ceiling hidden" id="dupRunCeiling"></p>
                             <!-- The last handful of requests, newest first: what
                                  each one asked, what it answered and what it
                                  cost. An empty or failed one says so in words. -->
                             <div class="zr-reqlog dup-progress__reqlog" id="dupRunLog"></div>
-                            <div class="dup-progress__actions">
-                                <button class="zr-btn zr-btn--ghost" id="dupAiStopBtn" type="button">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                                    <span class="dup-progress__stop-label">Stop</span>
-                                    <span class="zr-btn__sub dup-progress__stop-sub" id="dupAiStopSub"></span>
-                                </button>
-                            </div>
                         </div>
 <% } -%>
                     </div>

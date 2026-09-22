@@ -3188,6 +3188,9 @@ class TagSimplifyService {
       thinking,
       skippable,
       lastRun,
+      // The ceiling that would end the run. The dialog names it, so nobody
+      // meets it for the first time on the running screen.
+      tokenBudget: require('./duplicateReviewJobService').tokenBudget(),
       // What comes on top of `requests`: proposing a new vocabulary is a
       // pass of its own over every tag name, before the first tag is
       // ordered. Nothing when the run keeps the saved one.

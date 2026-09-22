@@ -270,9 +270,7 @@ const el = {
   aiProgressBar: document.getElementById('dupAiProgressBar'),
   aiProgressFill: document.getElementById('dupAiProgressFill'),
   aiProgressMessage: document.getElementById('dupAiProgressMessage'),
-  aiProgressCounts: document.getElementById('dupAiProgressCounts'),
-  aiProgressNote: document.getElementById('dupAiProgressNote'),
-  aiProgressEta: document.getElementById('dupAiProgressEta'),
+  runCeiling: document.getElementById('dupRunCeiling'),
   aiStopBtn: document.getElementById('dupAiStopBtn'),
   aiForgetBtn: document.getElementById('dupAiForgetBtn'),
   stats: document.getElementById('dupStats'),
@@ -1581,49 +1579,12 @@ function progressCountsText(progress) {
 }
 
 /**
- * "about 40 s left · 1:24 elapsed"; only the elapsed part is always there.
- *
- * Two stretches of a review have nothing to estimate from and say so instead
- * of showing a clock that does not move: the warm-up, whose single small
- * request exists to be measured, and a model that is writing its reasoning,
- * where no answer arrives until it is done thinking. An estimate the job did
- * make is shown next to either of them.
- */
-function progressTimeText(progress, elapsedMs) {
-  const state = progress || {};
-  const parts = [];
-  const warmingUp = state.phase === 'warming-up';
-  const eta = warmingUp ? '' : formatEta(state.etaMs);
-  if (warmingUp) {
-    parts.push('measuring the model');
-  } else if (state.thinking) {
-    parts.push('the model is thinking');
-  }
-  if (eta) {
-    parts.push(eta);
-  } else if (!warmingUp && !state.thinking && state.phase === 'judging') {
-    // The rate of the first request is what an estimate is made of.
-    parts.push('estimating…');
-  }
-  parts.push(`${formatElapsed(elapsedMs)} elapsed`);
-  return parts.join(' · ');
-}
-
-/**
  * The one line under the counts that says how the judge is sizing its
  * requests, and whether that size is a guess or a measurement.
  *
  * @param {object|null} progress  an AiReviewProgress
  * @returns {string} empty while the batch size is not known
  */
-function progressNoteText(progress) {
-  const state = progress || {};
-  const size = Number(state.batchSize);
-  if (!Number.isFinite(size) || size <= 0) return '';
-  return state.calibrated
-    ? `${size} ${plural(size, 'pair', 'pairs')} per request, sized from the model's answers`
-    : `${size} ${plural(size, 'pair', 'pairs')} per request while the model is measured`;
-}
 
 /** The single line the panel keeps after a review ended. */
 function progressOutcomeText(event) {
@@ -1683,9 +1644,6 @@ function hideProgressPanel() {
   el.aiProgress.classList.add('hidden');
   el.aiProgress.classList.remove('dup-progress--live');
   if (el.aiProgressMessage) el.aiProgressMessage.textContent = '';
-  if (el.aiProgressCounts) el.aiProgressCounts.textContent = '';
-  if (el.aiProgressNote) el.aiProgressNote.textContent = '';
-  if (el.aiProgressEta) el.aiProgressEta.textContent = '';
   if (el.aiProgressFill) {
     el.aiProgressFill.classList.remove('dup-progress__fill--indeterminate');
     el.aiProgressFill.classList.remove('dup-progress__fill--thinking');
@@ -1705,13 +1663,52 @@ function stopProgressTicker() {
   progressTimer = null;
 }
 
-/** The elapsed time between two events, so the line does not stand still. */
+/**
+ * Keeps the elapsed figure moving between two progress events, so a run that
+ * is thinking does not look frozen. Everything else in the meter only changes
+ * when the job says something, which is the point of it.
+ */
 function drawProgressTime() {
-  if (!el.aiProgressEta || !progressJob) return;
+  if (!el.runLedger || !progressJob) return;
   const state = progressJob.progress || {};
   const base = Number(state.elapsedMs) || 0;
   const live = progressJob.finishedAt ? base : base + (Date.now() - progressAt);
-  el.aiProgressEta.textContent = progressTimeText(state, live);
+  renderRunLedger(Object.assign({}, state, { elapsedMs: live }));
+}
+
+/**
+ * What the run is doing, in two or three words, for the one line at the top
+ * of the panel.
+ *
+ * The service's own message is longer and changes inside a phase ("The model
+ * is thinking… (168 tokens so far)"); that detail belongs to the request it
+ * describes and is shown on its row in the log. What stays up here is the
+ * phase, so the eye has something that does not flicker. A phase nobody
+ * mapped falls back to the message rather than to silence.
+ *
+ * @param {object} progress
+ * @returns {string}
+ */
+function phaseHeadline(progress) {
+  const state = progress || {};
+  const labels = {
+    starting: 'Getting ready',
+    scanning: 'Comparing the names',
+    evidence: 'Reading documents',
+    sweeping: 'Looking at the whole list',
+    'warming-up': 'Measuring the model',
+    judging: 'Asking the model',
+    escalating: 'Asking again, with more to go on',
+    finishing: 'Finishing up',
+    applying: 'Writing to Paperless-ngx',
+    // The order of the Simplify page runs through the same job service.
+    vocabulary: 'Proposing a vocabulary',
+    ordering: 'Asking the model',
+    splitting: 'Asking the model',
+  };
+  const label = labels[String(state.phase || '')];
+  if (label) return label;
+  return String(state.message || 'Working');
 }
 
 /** One `progress` event on the panel. */
@@ -1744,13 +1741,7 @@ function renderProgress(job) {
     }
   }
   if (el.aiProgressMessage) {
-    el.aiProgressMessage.textContent = state.message || '';
-  }
-  if (el.aiProgressCounts) {
-    el.aiProgressCounts.textContent = progressCountsText(state);
-  }
-  if (el.aiProgressNote) {
-    el.aiProgressNote.textContent = progressNoteText(state);
+    el.aiProgressMessage.textContent = phaseHeadline(state);
   }
   renderRunMeter(state);
   drawProgressTime();
@@ -1776,16 +1767,16 @@ function renderProgressOutcome(event) {
     el.aiProgressFill.style.width =
       event.type === 'done' ? '100%' : `${percent === null ? 0 : percent}%`;
   }
+  // The run is over: the headline says how it ended, the bar carries the one
+  // line that sums it up, and the bill it leaves behind is the ledger, the
+  // split and the request log. Stop has nothing left to keep.
   if (el.aiProgressMessage) {
     el.aiProgressMessage.textContent = progressOutcomeText(event);
   }
-  if (el.aiProgressCounts) el.aiProgressCounts.textContent = '';
-  if (el.aiProgressNote) el.aiProgressNote.textContent = '';
-  if (el.aiProgressEta) el.aiProgressEta.textContent = '';
-  // The run is over: the bill it leaves behind is the request log and the
-  // split, and Stop has nothing left to keep.
-  if (el.runPosition) el.runPosition.textContent = progressOutcomeText(event);
-  if (el.runRest) el.runRest.textContent = '';
+  if (el.runPosition) el.runPosition.textContent = '';
+  if (el.runRest) {
+    el.runRest.textContent = progressCountsText(job ? job.progress : null);
+  }
   setStopSub('');
 }
 
@@ -3165,10 +3156,10 @@ async function runAiProposal() {
     // A failed scan has already said so where the results are; the proposal
     // has nothing to add and nothing to ask about.
     if (!scanned) return;
-    const pairs = reviewPairCount();
-    setProposalStatus(
-      `Asking the AI about ${pairs} ${plural(pairs, 'pair', 'pairs')} and near-misses…`
-    );
+    // From here the run meter says what is happening, how far it is and what
+    // it costs; a second line above it saying the same thing in other words
+    // is what this panel had too much of.
+    setProposalStatus('');
     setAiReviewing(true);
     let outcome;
     try {
@@ -5360,6 +5351,9 @@ function initStack() {
 /** The lanes the preflight offers. One is the safe default on a local model. */
 const RUN_LANE_OPTIONS = [1, 3, 5, 8];
 
+/** How much of the run's token budget has to be gone before it is named. */
+const CEILING_SHOWN_ABOVE = 0.5;
+
 /* The round numbers the page falls back to while the estimate endpoint is
    not there yet. They are the ones services/aiRunEstimate.js guesses with —
    restated here because a browser cannot require a Node module — and a plan
@@ -5509,6 +5503,11 @@ function htmlPreflightHero(estimate) {
   const share = (value) =>
     total <= 0 ? '0%' : `${Math.round((num(value) / total) * 100)}%`;
   const requests = `${num(estimate.requests)} ${plural(estimate.requests, 'request', 'requests')}`;
+  const ceiling = num(estimate.tokenBudget);
+  const htmlCeiling =
+    ceiling > 0
+      ? `<p class="zr-preflight__basis">${esc(`It stops itself at ${formatTokens(ceiling)} tokens.`)}</p>`
+      : '';
   // A part that cost nothing is left out of the legend: "0 answer" next to a
   // bar with no green in it is a reading exercise, not information.
   const htmlKeys = [
@@ -5538,6 +5537,7 @@ function htmlPreflightHero(estimate) {
       <span class="zr-preflight__sub">${esc(`${requests} · ${formatTokens(total)} tokens`)}</span>
       ${htmlBar}
       <p class="zr-preflight__basis">${esc(estimateBasisText(estimate))}</p>
+      ${htmlCeiling}
     </div>`;
 }
 
@@ -5738,37 +5738,49 @@ function renderRunLedger(progress) {
   if (!el.runLedger) return;
   const state = progress || {};
   const spent = num(state.tokens);
-  const estimated = Number(state.estimatedTokens);
-  const seconds = num(state.elapsedMs) / 1000;
-  const rate = seconds > 0 ? Math.round(spent / seconds) : 0;
+  const estimated = num(state.estimatedTokens);
+  const judged = num(state.pairsJudged);
+  const total = num(state.pairsTotal);
   const items = [
-    htmlLedgerItem(String(num(state.requestsDone)), 'requests done', false),
-    htmlLedgerItem(
-      Number.isFinite(estimated) && estimated > 0
-        ? `${formatTokens(spent)} / ${formatTokens(estimated)}`
-        : formatTokens(spent),
-      'tokens',
-      false
-    ),
-    htmlLedgerItem(`${rate}/s`, 'while it runs', false),
-    htmlLedgerItem('0', 'writes', true),
+    htmlLedgerItem(formatElapsed(state.elapsedMs), 'elapsed', false),
   ];
-  // What the request in flight is spending, against the budget that would end
-  // the run. It is the one number that says "stop this now" in time.
-  const budget = Number(state.tokenBudget);
-  const running = Number(state.requestTokens);
-  if (Number.isFinite(running) && running > 0) {
+  if (total > 0) {
+    items.push(htmlLedgerItem(`${judged} of ${total}`, 'pairs', false));
+  } else if (judged > 0) {
+    items.push(htmlLedgerItem(String(judged), 'pairs', false));
+  }
+  if (spent > 0) {
     items.push(
       htmlLedgerItem(
-        Number.isFinite(budget) && budget > 0
-          ? `${formatTokens(running)} of ${formatTokens(budget)}`
-          : formatTokens(running),
-        'this request',
+        estimated > 0
+          ? `${formatTokens(spent)} of ~${formatTokens(estimated)}`
+          : formatTokens(spent),
+        'tokens',
         false
       )
     );
   }
   el.runLedger.innerHTML = items.join('');
+  renderRunCeiling(state);
+}
+
+/**
+ * The ceiling that would end the run, and only when it is close enough to
+ * matter. It is the whole run's budget, not one request's — the panel used to
+ * print it beside the request in flight, which read as if a single question
+ * were allowed two hundred thousand tokens.
+ *
+ * @param {object} state the progress
+ */
+function renderRunCeiling(state) {
+  if (!el.runCeiling) return;
+  const budget = num(state.tokenBudget);
+  const spent = num(state.tokens);
+  const near = budget > 0 && spent > budget * CEILING_SHOWN_ABOVE;
+  el.runCeiling.classList.toggle('hidden', !near);
+  el.runCeiling.textContent = near
+    ? `${formatTokens(spent)} of the ${formatTokens(budget)} this run may spend — it stops itself there.`
+    : '';
 }
 
 /** What one finished request cost, as a sentence rather than a row of cells. */
@@ -5803,27 +5815,61 @@ function reqlogCostText(record) {
 }
 
 /** The last handful of requests, newest first. */
+/**
+ * The request being answered right now, as the first row of the log. This is
+ * where "the model is thinking" belongs: on the request that is thinking,
+ * with what it has spent, rather than in the headline above everything.
+ *
+ * @param {object} state the progress
+ * @returns {string} markup, or '' when nothing is in flight
+ */
+function htmlLiveRequestRow(state) {
+  const running = num(state.requestTokens);
+  const thinking = state.thinking === true;
+  if (running <= 0 && !thinking) return '';
+  const index = num(state.requestsDone) + 1;
+  const pairs = num(state.requestPairs);
+  const answers = num(state.requestAnswers);
+  const what =
+    pairs > 0
+      ? `Request ${index} — ${pairs} ${plural(pairs, 'pair', 'pairs')}, ${answers} answered so far`
+      : `Request ${index}`;
+  const cost =
+    running > 0
+      ? `${formatTokens(running)} so far${thinking ? ', thinking' : ''}`
+      : 'thinking';
+  return `<div class="zr-reqlog__row zr-reqlog__row--live">
+      <span class="zr-reqlog__mark">${htmlPlanMarks.running}</span>
+      <span class="zr-reqlog__what">${esc(what)}</span>
+      <span class="zr-reqlog__cost">${esc(cost)}</span>
+      <span class="zr-reqlog__state">running</span>
+    </div>`;
+}
+
 function htmlRequestLog(progress) {
-  const list = Array.isArray(progress && progress.requestLog)
-    ? progress.requestLog
-    : [];
-  if (list.length === 0) return '';
-  return list
-    .map((record) => {
-      const warn = record.outcome === 'empty' || record.outcome === 'failed';
-      const rowClass = warn ? ' zr-reqlog__row--warn' : '';
-      const htmlMark = warn ? htmlPlanMarks.failed : htmlPlanMarks.ok;
-      const seconds = num(record.ms) / 1000;
-      const took =
-        seconds >= 60 ? formatElapsed(record.ms) : `${Math.round(seconds)} s`;
-      return `<div class="zr-reqlog__row${esc(rowClass)}">
+  const state = progress || {};
+  const htmlLive = htmlLiveRequestRow(state);
+  const list = Array.isArray(state.requestLog) ? state.requestLog : [];
+  if (list.length === 0) return htmlLive;
+  return (
+    htmlLive +
+    list
+      .map((record) => {
+        const warn = record.outcome === 'empty' || record.outcome === 'failed';
+        const rowClass = warn ? ' zr-reqlog__row--warn' : '';
+        const htmlMark = warn ? htmlPlanMarks.failed : htmlPlanMarks.ok;
+        const seconds = num(record.ms) / 1000;
+        const took =
+          seconds >= 60 ? formatElapsed(record.ms) : `${Math.round(seconds)} s`;
+        return `<div class="zr-reqlog__row${esc(rowClass)}">
           <span class="zr-reqlog__mark">${htmlMark}</span>
           <span class="zr-reqlog__what">${esc(reqlogWhatText(record))}</span>
           <span class="zr-reqlog__cost">${esc(reqlogCostText(record))}</span>
           <span class="zr-reqlog__state">${esc(took)}</span>
         </div>`;
-    })
-    .join('');
+      })
+      .join('')
+  );
 }
 
 /** What stopping now keeps, on the second line of the Stop button. */
@@ -5855,7 +5901,7 @@ function renderRunMeter(progress) {
   const judged = num(state.pairsJudged);
   setStopSub(
     judged > 0
-      ? `keeps the ${judged} ${plural(judged, 'verdict', 'verdicts')} it already has`
+      ? `keeps ${judged} ${plural(judged, 'verdict', 'verdicts')}`
       : 'nothing is written either way'
   );
 }
@@ -5867,6 +5913,10 @@ function clearRunMeter() {
   if (el.runLedger) el.runLedger.innerHTML = '';
   if (el.runLog) el.runLog.innerHTML = '';
   if (el.runTokenbar) el.runTokenbar.classList.add('hidden');
+  if (el.runCeiling) {
+    el.runCeiling.textContent = '';
+    el.runCeiling.classList.add('hidden');
+  }
   setStopSub('');
 }
 

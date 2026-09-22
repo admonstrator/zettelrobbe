@@ -447,6 +447,44 @@
     color: var(--zr-warn);
   }
 
+  /* A run while it runs.
+
+     It used to be six lines of text that said the same things in different
+     words — a message, a monospace counts line, a note about the batch size,
+     an eta, and a five-item ledger that included the run's whole budget
+     labelled "this request". What someone waiting actually reads is: what is
+     it doing, how far is it, how much longer. So the panel is a headline with
+     the Stop next to it, one bar, three numbers, the token split, and the
+     last requests. Everything else moved into the request log, where it
+     belongs to the request it describes. */
+  .zr-runmeter {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .zr-runmeter__head {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .zr-runmeter__phase {
+    flex-grow: 1;
+    min-width: 0;
+    font-size: var(--zr-fs-lg);
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  /* The ceiling that would end the run. Shown only once it is close enough to
+     matter — a budget nobody is near is a number nobody needs. */
+  .zr-runmeter__ceiling {
+    margin: 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-warn);
+  }
+
   /* The dialog every model-backed run opens first.
 
      It used to be four labelled sections of prose and a button with a second
