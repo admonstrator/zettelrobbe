@@ -29,9 +29,12 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                     <div class="zr-module__head sim-order__head">
                         <h2 class="zr-module__title">Proposed order</h2>
                         <span class="zr-module__meta" id="simOrderMeta"></span>
-                        <button class="zr-btn zr-btn--primary sim-order__apply-all" id="simApplyAcceptedBtn" type="button" disabled>
-                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                        <!-- A button that writes carries its price on a second
+                             line; the stacked variant lays its two lines out
+                             itself, so it wears no icon. -->
+                        <button class="zr-btn zr-btn--primary zr-btn--stacked sim-order__apply-all" id="simApplyAcceptedBtn" type="button" disabled>
                             <span id="simApplyAcceptedLabel">Apply all accepted (0)</span>
+                            <span class="zr-btn__sub" id="simApplyAcceptedSub">nothing accepted yet</span>
                         </button>
                     </div>
                     <div class="zr-module__body zr-col zr-col--loose">
@@ -70,108 +73,157 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                                 <span class="zr-sm zr-faint zr-mono" id="simProgressCounts"></span>
                                 <span class="zr-sm zr-faint" id="simProgressEta"></span>
                             </div>
+                            <!-- Round 13: the panel says what the run costs
+                                 while it runs. The bar above is the same one;
+                                 everything below is filled from the progress
+                                 the job service streams, and stays empty for a
+                                 job that reports no tokens at all. -->
+                            <div class="sim-meter" id="simRunbar"></div>
+                            <div class="sim-meter" id="simRunLedger"></div>
+                            <div class="sim-meter" id="simRunTokens"></div>
+                            <div class="sim-meter" id="simRunLive"></div>
+                            <div class="sim-meter sim-meter--log" id="simReqLog"></div>
                             <div class="sim-progress__actions">
-                                <button class="zr-btn zr-btn--ghost" id="simStopBtn" type="button">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
+                                <button class="zr-btn zr-btn--ghost zr-btn--stacked" id="simStopBtn" type="button">
                                     <span class="sim-progress__stop-label">Stop</span>
+                                    <span class="zr-btn__sub" id="simStopSub">Keeps every answer that already came back.</span>
                                 </button>
                             </div>
                         </div>
 
                         <p class="zr-sm sim-order__summary hidden" id="simOrderSummary" aria-live="polite"></p>
                         <div class="sim-apply-result" id="simApplyResult" aria-live="polite"></div>
+                        <!-- An apply is a checklist, not a spinner: done rows
+                             with their seconds, the ones running now, the rest
+                             waiting, and a failure with what Paperless-ngx
+                             said. No model is asked here, and the head says so. -->
+                        <div class="sim-checklist" id="simApplyChecklist" aria-live="polite"></div>
 
-                        <section class="zr-stats sim-stats hidden" id="simOrderStats" aria-label="Group counts">
-                            <div class="zr-stat">
-                                <span class="zr-stat__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>
-                                    Types
-                                </span>
-                                <span class="zr-stat__value" id="simStatGroupTypes">0</span>
-                            </div>
-                            <div class="zr-stat">
-                                <span class="zr-stat__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
-                                    Topics
-                                </span>
-                                <span class="zr-stat__value" id="simStatGroupTopics">0</span>
-                            </div>
-                            <div class="zr-stat">
-                                <span class="zr-stat__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
-                                    Merges
-                                </span>
-                                <span class="zr-stat__value" id="simStatGroupMerges">0</span>
-                            </div>
-                            <div class="zr-stat">
-                                <span class="zr-stat__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
-                                    Delete
-                                </span>
-                                <span class="zr-stat__value" id="simStatGroupDelete">0</span>
-                            </div>
-                            <div class="zr-stat">
-                                <span class="zr-stat__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>
-                                    Keep
-                                </span>
-                                <span class="zr-stat__value" id="simStatGroupKeep">0</span>
-                            </div>
-                            <div class="zr-stat">
-                                <span class="zr-stat__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
-                                    Accepted
-                                </span>
-                                <span class="zr-stat__value" id="simStatOrderAccepted">0</span>
-                            </div>
-                            <div class="zr-stat">
-                                <span class="zr-stat__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
-                                    Applied
-                                </span>
-                                <span class="zr-stat__value" id="simStatOrderApplied">0</span>
-                            </div>
-                        </section>
-
-                        <!-- Groups are how this page is read; the table below is
-                             the detail view of the very same proposals. -->
+                        <!-- Round 13: the two views are the plan and the
+                             table. The data-view names are what round 12 left
+                             them; the label on the first one is what the page
+                             now shows there. -->
                         <div class="sim-view" id="simViewField">
                             <span class="zr-label" id="simViewLabel">View</span>
                             <div class="zr-segment" id="simView" role="group" aria-labelledby="simViewLabel">
-                                <button type="button" data-view="groups" aria-selected="true">Groups</button>
+                                <button type="button" data-view="groups" aria-selected="true">Plan</button>
                                 <button type="button" data-view="table" aria-selected="false">Table</button>
                             </div>
                         </div>
 
-                        <div class="sim-filters" id="simGroupFilters">
-                            <div class="sim-filters__field sim-filters__field--wide">
-                                <span class="zr-label" id="simGroupKindLabel">Kind</span>
-                                <div class="zr-segment" id="simGroupKind" role="group" aria-labelledby="simGroupKindLabel">
-                                    <button type="button" data-kind="all" aria-selected="true">All</button>
-                                    <button type="button" data-kind="type" aria-selected="false">Types</button>
-                                    <button type="button" data-kind="topic" aria-selected="false">Topics</button>
-                                    <button type="button" data-kind="merge" aria-selected="false">Merges</button>
-                                    <button type="button" data-kind="delete" aria-selected="false">Delete</button>
-                                    <button type="button" data-kind="keep" aria-selected="false">Keep</button>
-                                </div>
-                            </div>
-                            <div class="sim-filters__field sim-filters__field--wide">
-                                <span class="zr-label" id="simGroupStatusLabel">Show</span>
-                                <div class="zr-segment" id="simGroupStatus" role="group" aria-labelledby="simGroupStatusLabel">
-                                    <button type="button" data-group-status="open" aria-selected="true">Open</button>
-                                    <button type="button" data-group-status="accepted" aria-selected="false">Accepted</button>
-                                    <button type="button" data-group-status="applied" aria-selected="false">Applied</button>
-                                    <button type="button" data-group-status="skipped" aria-selected="false">Skipped</button>
-                                    <button type="button" data-group-status="all" aria-selected="false">All</button>
-                                </div>
-                            </div>
-                            <div class="sim-filters__field zr-grow">
-                                <label class="zr-label" for="simGroupSearch">Search</label>
-                                <input class="zr-input" id="simGroupSearch" type="search" autocomplete="off" placeholder="Filter by group or tag name">
-                            </div>
+                        <!-- The plan: what the run produced, read as four
+                             baskets of sentences. The header card above them
+                             carries the two ledgers — what the proposal cost
+                             and what running it will cost — and the one button
+                             that runs it. Both are filled by the page script
+                             from the proposals it already has. -->
+                        <div class="sim-plan" id="simPlan">
+                            <div class="sim-plan__head" id="simPlanHead"></div>
+                            <div class="sim-baskets" id="simBaskets"></div>
                         </div>
 
-                        <div class="sim-groups" id="simGroups"></div>
+                        <!-- The stack: one decision per screen, for the basket
+                             that needs answers. It is a mode, not a page — the
+                             baskets are hidden while it is open. -->
+                        <section class="sim-stack hidden" id="simStack" tabindex="-1" aria-label="One decision at a time">
+                            <div class="sim-stack__bar" id="simStackBar"></div>
+                            <div class="sim-stack__card" id="simStackCard"></div>
+                            <div class="sim-stack__foot" id="simStackFoot"></div>
+                        </section>
+
+                        <!-- Round 12's group cards and their three filters, and
+                             the counts per kind. They are the second way to
+                             read the same proposals, so they wait in a closed
+                             block rather than sitting under the baskets. -->
+                        <details class="sim-groupsblock" id="simGroupsBlock">
+                            <summary class="sim-groupsblock__summary">
+                                <svg class="zr-icon zr-icon--sm sim-groupsblock__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
+                                <span class="zr-sm">Group them by type, topic and merge target</span>
+                            </summary>
+                            <div class="sim-groupsblock__body zr-col zr-col--loose">
+                            <section class="zr-stats sim-stats hidden" id="simOrderStats" aria-label="Group counts">
+                                <div class="zr-stat">
+                                    <span class="zr-stat__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>
+                                        Types
+                                    </span>
+                                    <span class="zr-stat__value" id="simStatGroupTypes">0</span>
+                                </div>
+                                <div class="zr-stat">
+                                    <span class="zr-stat__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
+                                        Topics
+                                    </span>
+                                    <span class="zr-stat__value" id="simStatGroupTopics">0</span>
+                                </div>
+                                <div class="zr-stat">
+                                    <span class="zr-stat__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                                        Merges
+                                    </span>
+                                    <span class="zr-stat__value" id="simStatGroupMerges">0</span>
+                                </div>
+                                <div class="zr-stat">
+                                    <span class="zr-stat__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                        Delete
+                                    </span>
+                                    <span class="zr-stat__value" id="simStatGroupDelete">0</span>
+                                </div>
+                                <div class="zr-stat">
+                                    <span class="zr-stat__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>
+                                        Keep
+                                    </span>
+                                    <span class="zr-stat__value" id="simStatGroupKeep">0</span>
+                                </div>
+                                <div class="zr-stat">
+                                    <span class="zr-stat__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                                        Accepted
+                                    </span>
+                                    <span class="zr-stat__value" id="simStatOrderAccepted">0</span>
+                                </div>
+                                <div class="zr-stat">
+                                    <span class="zr-stat__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                        Applied
+                                    </span>
+                                    <span class="zr-stat__value" id="simStatOrderApplied">0</span>
+                                </div>
+                            </section>
+                            <div class="sim-filters" id="simGroupFilters">
+                                <div class="sim-filters__field sim-filters__field--wide">
+                                    <span class="zr-label" id="simGroupKindLabel">Kind</span>
+                                    <div class="zr-segment" id="simGroupKind" role="group" aria-labelledby="simGroupKindLabel">
+                                        <button type="button" data-kind="all" aria-selected="true">All</button>
+                                        <button type="button" data-kind="type" aria-selected="false">Types</button>
+                                        <button type="button" data-kind="topic" aria-selected="false">Topics</button>
+                                        <button type="button" data-kind="merge" aria-selected="false">Merges</button>
+                                        <button type="button" data-kind="delete" aria-selected="false">Delete</button>
+                                        <button type="button" data-kind="keep" aria-selected="false">Keep</button>
+                                    </div>
+                                </div>
+                                <div class="sim-filters__field sim-filters__field--wide">
+                                    <span class="zr-label" id="simGroupStatusLabel">Show</span>
+                                    <div class="zr-segment" id="simGroupStatus" role="group" aria-labelledby="simGroupStatusLabel">
+                                        <button type="button" data-group-status="open" aria-selected="true">Open</button>
+                                        <button type="button" data-group-status="accepted" aria-selected="false">Accepted</button>
+                                        <button type="button" data-group-status="applied" aria-selected="false">Applied</button>
+                                        <button type="button" data-group-status="skipped" aria-selected="false">Skipped</button>
+                                        <button type="button" data-group-status="all" aria-selected="false">All</button>
+                                    </div>
+                                </div>
+                                <div class="sim-filters__field zr-grow">
+                                    <label class="zr-label" for="simGroupSearch">Search</label>
+                                    <input class="zr-input" id="simGroupSearch" type="search" autocomplete="off" placeholder="Filter by group or tag name">
+                                </div>
+                            </div>
+
+                            <div class="sim-groups" id="simGroups"></div>
+                            </div>
+                        </details>
+
                         <div class="zr-empty sim-order__empty hidden" id="simOrderEmpty"></div>
                     </div>
                 </section>
