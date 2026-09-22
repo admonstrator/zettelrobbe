@@ -1107,7 +1107,11 @@ const PROGRESS = {
   thinking: true,
   promptTokens: 24000,
   completionTokens: 180000,
-  thinkingTokens: 120000,
+  // The request being answered right now, and the whole run's reasoning. The
+  // bar is drawn from the second: the first falls back to null between
+  // requests and would collapse the bar every time one finished.
+  thinkingTokens: 45000,
+  thinkingTotal: 120000,
   requestLog: [
     {
       index: 12,
@@ -1256,7 +1260,7 @@ test('The token split is the question, the answer and the thinking', () => {
   const split = tokenSplit({
     prompt: PROGRESS.promptTokens,
     completion: PROGRESS.completionTokens,
-    thinking: PROGRESS.thinkingTokens,
+    thinking: PROGRESS.thinkingTotal,
   });
   assert.deepStrictEqual(split, {
     prompt: 24000,

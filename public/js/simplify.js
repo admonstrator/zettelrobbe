@@ -3577,7 +3577,7 @@ function renderRunMeter(progress) {
       tokenSplit({
         prompt: state.promptTokens,
         completion: state.completionTokens,
-        thinking: state.thinkingTokens,
+        thinking: state.thinkingTotal,
       })
     );
   }
@@ -3597,7 +3597,7 @@ function keepRunCost(progress) {
     ms: num(state.elapsedMs),
     prompt: num(state.promptTokens),
     completion: num(state.completionTokens),
-    thinking: num(state.thinkingTokens),
+    thinking: num(state.thinkingTotal),
   };
 }
 

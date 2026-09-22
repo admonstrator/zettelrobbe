@@ -1226,7 +1226,11 @@ const PROGRESS = {
   thinking: true,
   promptTokens: 183000,
   completionTokens: 148000,
-  thinkingTokens: 411000,
+  // The request being answered right now, and the whole run's reasoning. The
+  // bar is drawn from the second: the first falls back to null between
+  // requests and would collapse the bar every time one finished.
+  thinkingTokens: 45000,
+  thinkingTotal: 411000,
   requestLog: [
     {
       index: 12,
@@ -1351,11 +1355,16 @@ test('The run meter counts what is spent against what was promised', () => {
     ledger.includes("htmlLedgerItem('0', 'writes', true)"),
     'the meter does not say that a run writes nothing'
   );
-  // The split comes from the three counts the job reports separately.
+  // The split comes from the three counts the job reports separately, and the
+  // reasoning is the run's total rather than the request in flight.
   const meter = functionBody('renderRunMeter');
-  ['promptTokens', 'completionTokens', 'thinkingTokens'].forEach((field) => {
+  ['promptTokens', 'completionTokens', 'thinkingTotal'].forEach((field) => {
     assert.ok(meter.includes(field), `the split ignores ${field}`);
   });
+  assert.ok(
+    !/state\.thinkingTokens/.test(meter),
+    'the bar would collapse between requests if it read the live field'
+  );
   assert.ok(
     meter.includes('htmlRequestLog(state)'),
     'the meter never draws the request log'

@@ -4699,7 +4699,7 @@ function renderPlanLedger() {
     planTokenParts(),
     progress.promptTokens,
     progress.completionTokens,
-    progress.thinkingTokens
+    progress.thinkingTotal
   );
 }
 
@@ -5850,7 +5850,7 @@ function renderRunMeter(progress) {
     runTokenParts(),
     state.promptTokens,
     state.completionTokens,
-    state.thinkingTokens
+    state.thinkingTotal
   );
   if (el.runLog) el.runLog.innerHTML = htmlRequestLog(state);
   const judged = num(state.pairsJudged);

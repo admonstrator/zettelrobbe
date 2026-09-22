@@ -704,6 +704,83 @@ async function main() {
     await fakeOpenAI.close();
   }
 
+  await test('A token nobody reported stays null, and is not a measured zero', async () => {
+    await documentModel.saveAiRunStats({
+      task: 'vocabulary',
+      model: 'silent-model',
+      requests: 3,
+      promptTokens: null,
+      completionTokens: 1200,
+      thinkingTokens: null,
+      seconds: 12,
+    });
+    const run = await documentModel.getLastAiRunStats('vocabulary');
+    assert.strictEqual(
+      run.promptTokens,
+      null,
+      'a provider that reports no prompt tokens must not look like a free one'
+    );
+    assert.strictEqual(run.thinkingTokens, null);
+    assert.strictEqual(
+      run.completionTokens,
+      1200,
+      'what was reported survives'
+    );
+
+    const jobs = require('../services/duplicateReviewJobService');
+    const progress = { requestLog: [] };
+    jobs.recordRequest(progress, {
+      index: 1,
+      items: 50,
+      tokens: null,
+      thinkingTokens: null,
+      outcome: 'answered',
+    });
+    assert.strictEqual(progress.requestLog[0].tokens, null);
+    assert.strictEqual(progress.requestLog[0].thinkingTokens, null);
+    // Zero is still zero when somebody did report it.
+    jobs.recordRequest(progress, { index: 2, tokens: 0, outcome: 'empty' });
+    assert.strictEqual(progress.requestLog[0].tokens, 0);
+  });
+
+  await test('The run meter reads a running total of the reasoning', () => {
+    const jobs = require('../services/duplicateReviewJobService');
+    const service = Object.create(Object.getPrototypeOf(jobs));
+    const job = {
+      progress: { requestLog: [], promptTokens: null, completionTokens: null },
+      subscribers: new Set(),
+    };
+    service._emit = () => {};
+    service._noteRequest(job, {
+      index: 1,
+      items: 50,
+      promptTokens: 2000,
+      tokens: 12000,
+      thinkingTokens: 7000,
+      outcome: 'answered',
+    });
+    service._noteRequest(job, {
+      index: 2,
+      items: 50,
+      promptTokens: 2000,
+      tokens: 13000,
+      thinkingTokens: 8000,
+      outcome: 'answered',
+    });
+    assert.strictEqual(job.progress.promptTokens, 4000);
+    assert.strictEqual(job.progress.completionTokens, 25000);
+    assert.strictEqual(
+      job.progress.thinkingTotal,
+      15000,
+      'the page draws its bar from this; per-request would collapse it'
+    );
+    // The per-request field keeps its own meaning: the request being answered.
+    assert.notStrictEqual(
+      job.progress.thinkingTotal,
+      job.progress.thinkingTokens
+    );
+  });
+
   raw.close();
   process.chdir(originalCwd);
   await fs.rm(tempRoot, { recursive: true, force: true });

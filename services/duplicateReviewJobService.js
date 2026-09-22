@@ -145,6 +145,10 @@ const IDLE_CHECK_MS = 5 * 1000;
  * @property {number|null} promptTokens   what the questions cost so far
  * @property {number|null} completionTokens what the answers cost so far,
  *   reasoning included where the provider counts it there
+ * @property {number|null} thinkingTotal  what the reasoning cost so far, over
+ *   the whole run. `thinkingTokens` is the request being answered right now
+ *   and falls back to null between requests; a bar drawn from that one would
+ *   collapse every time a request finished
  * @property {AiReviewRequestRecord[]} requestLog  the last finished requests,
  *   newest first, so a page can show what each one cost instead of one number
  *   for the whole run
@@ -209,6 +213,7 @@ function freshProgress(tokenBudget) {
     thinkingTokens: null,
     promptTokens: null,
     completionTokens: null,
+    thinkingTotal: null,
     requestLog: [],
   };
 }
@@ -273,6 +278,9 @@ function recordRequest(progress, record) {
   if (!Array.isArray(progress.requestLog)) progress.requestLog = [];
   const whole = (value) => Math.max(0, Math.round(Number(value) || 0));
   const nullable = (value) => {
+    // Number(null) is 0, and a request whose tokens nobody reported did not
+    // cost nothing — the row would read as a free request on screen.
+    if (value === null || value === undefined) return null;
     const number = Number(value);
     return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
   };
@@ -670,6 +678,7 @@ class DuplicateReviewJobService {
     addReported(stats, 'thinkingTokens', record?.thinkingTokens);
     job.progress.promptTokens = stats.promptTokens;
     job.progress.completionTokens = stats.completionTokens;
+    job.progress.thinkingTotal = stats.thinkingTokens;
     // A runner that keeps no count of its own gets the run's: the rows of
     // one run are numbered once, in the order they finished, whether they
     // came from the vocabulary pass, the order pass or the judge.

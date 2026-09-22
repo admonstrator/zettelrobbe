@@ -1624,6 +1624,10 @@ module.exports = {
     if (name === '') return false;
     const count = (value) => Math.max(0, Math.round(Number(value) || 0));
     const nullable = (value) => {
+      // Number(null) is 0, and a token count nobody reported is not a
+      // measured zero: the next estimate would read it as "this model
+      // answers for free". Keep the difference.
+      if (value === null || value === undefined) return null;
       const number = Number(value);
       return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
     };
