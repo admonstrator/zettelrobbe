@@ -223,7 +223,7 @@ test('The view opens on the plan and carries the stack and the run meter', () =>
     'simRunbar',
     'simRunLedger',
     'simRunTokens',
-    'simRunLive',
+    'simRunCeiling',
     'simReqLog',
     'simStopSub',
     'simApplyChecklist',
@@ -266,7 +266,7 @@ test('The view opens on the plan and carries the stack and the run meter', () =>
   // The Stop button says what stopping keeps.
   assert.match(
     page,
-    /id="simStopBtn"[\s\S]{0,260}zr-btn__sub" id="simStopSub"/,
+    /id="simStopBtn"[\s\S]{0,420}zr-btn__sub" id="simStopSub"/,
     'the stop button carries its own second line'
   );
 });
@@ -1202,24 +1202,57 @@ test('The run meter reads a progress event, empty requests included', () => {
   assert.ok(bar.includes('width: 52%'), 'and how far the run is');
   assert.ok(bar.includes('about 3 min left'), 'with the estimate beside it');
 
+  // Three numbers, and no fourth that repeats what the bar already says.
   const ledger = htmlRunLedger(PROGRESS);
   assert.ok(
-    ledger.includes('760k of 1.4M'),
+    ledger.includes('760k of ~1.4M'),
     'the tokens so far are read against the estimate'
   );
-  assert.ok(ledger.includes('4,000/s'), 'and the rate is said out loud');
+  assert.ok(ledger.includes('elapsed'), 'how long it has been going');
   assert.ok(
-    ledger.includes('zr-ledger__value--quiet">0</span> writes'),
-    'a run that asks writes nothing, and the ledger repeats it'
+    !ledger.includes('writes'),
+    'the Stop button already says that a run writes nothing'
   );
 
+  // The request in flight is a row of the log, not a line of its own, and it
+  // is not held against the budget of the whole run.
   const live = htmlLiveRequest(PROGRESS);
   assert.ok(
-    live.includes('89.1k of the 2M this run may spend'),
-    'the request running now is read against the budget'
+    live.includes('zr-reqlog__row--live'),
+    'the running request has no row'
   );
-  assert.ok(live.includes('21 of 50 answered'), 'and against its own items');
-  assert.ok(live.includes('still thinking'), 'a thinking model says so');
+  assert.ok(
+    live.includes('Request 13 — 50 tags, 21 answered so far'),
+    'the running row does not say where it is'
+  );
+  assert.ok(
+    live.includes('89.1k so far, thinking'),
+    'the running row does not say what it has spent, or that it is thinking'
+  );
+  assert.strictEqual(
+    htmlLiveRequest({ requestTokens: 0, thinking: false }),
+    '',
+    'a run between two requests has nothing in flight to show'
+  );
+
+  // The ceiling of the whole run, and only once it is close.
+  const { runCeilingText } = helpers(
+    ['num', 'formatTokens', 'runCeilingText'],
+    {
+      constants: ['CEILING_SHOWN_ABOVE'],
+    }
+  );
+  assert.strictEqual(
+    runCeilingText({ tokens: 10000, tokenBudget: 2000000 }),
+    '',
+    'a budget nobody is near is a number nobody needs'
+  );
+  assert.ok(
+    runCeilingText({ tokens: 1500000, tokenBudget: 2000000 }).includes(
+      'of the 2M this run may spend'
+    ),
+    'the ceiling belongs to the run, and has to say so'
+  );
 
   const log = htmlReqLog(PROGRESS.requestLog);
   assert.strictEqual(
@@ -1253,17 +1286,9 @@ test('The run meter reads a progress event, empty requests included', () => {
   );
   assert.strictEqual(htmlReqLog([]), '', 'no requests, no log');
 
-  // The stop button says what stopping keeps.
-  assert.ok(
-    stopSubText(PROGRESS).includes(
-      'Keeps the 12 requests that already came back'
-    ),
-    'stopping keeps what has been paid for'
-  );
-  assert.ok(
-    stopSubText({ requestsDone: 0 }).includes('Nothing has come back yet'),
-    'and says so when there is nothing to keep'
-  );
+  // The stop button says what stopping keeps, in three words.
+  assert.strictEqual(stopSubText(PROGRESS), 'keeps 12 answers');
+  assert.strictEqual(stopSubText({}), 'nothing kept yet');
 
   // The meter rides on the events the panel already gets.
   assert.ok(

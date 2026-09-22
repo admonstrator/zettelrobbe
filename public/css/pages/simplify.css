@@ -148,22 +148,13 @@
      own names: both pages watch the one job service, so both say where it is
      the same way. A bar over three lines of text, and the button that ends
      it; the lines keep their height so the table below does not move. */
+  /* The panel is the shared run meter; the page only gives it its rule and
+     its room. The two-column grid it used to be held a Stop button beside
+     three stacked lines of text, and none of that is left. */
   .sim-progress {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: var(--zr-2) var(--zr-3);
     width: 100%;
     padding-top: var(--zr-3);
     border-top: 1px solid var(--zr-line);
-  }
-
-  .sim-progress__bar {
-    grid-column: 1 / -1;
-    height: 6px;
-    background: var(--zr-surface-sunken);
-    border-radius: var(--zr-r-full);
-    overflow: hidden;
   }
 
   .sim-progress__fill {
@@ -192,26 +183,6 @@
     }
   }
 
-  .sim-progress__text {
-    display: grid;
-    gap: var(--zr-1);
-    min-width: 0;
-  }
-
-  .sim-progress__text > span {
-    min-height: 1.15em;
-    overflow-wrap: anywhere;
-  }
-
-  .sim-progress__text > span:empty {
-    min-height: 0;
-  }
-
-  .sim-progress__actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .sim-progress__fill--indeterminate {
       animation: none;
@@ -221,10 +192,6 @@
   @media (max-width: 720px) {
     .sim-progress {
       grid-template-columns: 1fr;
-    }
-
-    .sim-progress__actions {
-      justify-content: flex-start;
     }
   }
 
@@ -744,8 +711,8 @@
      saying nothing. */
 
   /* --- the run meter ---------------------------------------------------- */
-  /* Five slots under the progress bar. Each one is empty until the job
-     reports the numbers it needs, and an empty slot takes no room. */
+  /* The slots of the shared meter. Each one is empty until the job reports
+     the numbers it needs, and an empty slot takes no room. */
   .sim-meter {
     margin-top: var(--zr-3);
   }
@@ -757,10 +724,6 @@
   .sim-meter--log {
     border-top: 1px solid var(--zr-line);
     margin-top: var(--zr-4);
-  }
-
-  .sim-meter__live {
-    margin: 0;
   }
 
   /* --- the apply checklist ---------------------------------------------- */

@@ -151,11 +151,7 @@ test('The view carries the ids the page script and the route agree on', () => {
     'simProposeSplitsBtn',
     'simProposeSplitsHint',
     'simProgress',
-    'simProgressBar',
-    'simProgressFill',
     'simProgressMessage',
-    'simProgressCounts',
-    'simProgressEta',
     'simStopBtn',
     'simStats',
     'simStatProposals',
@@ -212,7 +208,7 @@ test('The view carries the ids the page script and the route agree on', () => {
   // The progress panel starts hidden through the framework's !important class.
   assert.match(
     page,
-    /class="sim-progress hidden" id="simProgress"/,
+    /class="sim-progress zr-runmeter hidden" id="simProgress"/,
     'the progress panel must come up hidden'
   );
   assert.match(
@@ -1520,9 +1516,8 @@ test('The panel words its numbers the way a wait reads', () => {
     formatElapsed,
     formatEta,
     progressPercent,
-    progressCountsText,
-    progressTimeText,
     progressOutcomeText,
+    phaseHeadline,
   } = helpers(
     [
       'num',
@@ -1531,9 +1526,8 @@ test('The panel words its numbers the way a wait reads', () => {
       'formatElapsed',
       'formatEta',
       'progressPercent',
-      'progressCountsText',
-      'progressTimeText',
       'progressOutcomeText',
+      'phaseHeadline',
     ],
     {}
   );
@@ -1565,26 +1559,21 @@ test('The panel words its numbers the way a wait reads', () => {
     'a plan that grew must not push the bar past its end'
   );
 
+  // The headline is the phase, and it does not flicker with the message
+  // underneath it — that detail lives on the request's own row in the log.
   assert.strictEqual(
-    progressCountsText({ requestsDone: 2, requestsPlanned: 9, tokens: 12400 }),
-    'Request 2 of 9 · 12.4k tokens'
+    phaseHeadline({ phase: 'ordering', message: 'Asking about 50 tags…' }),
+    'Asking the model'
   );
   assert.strictEqual(
-    progressCountsText({
-      requestsDone: 2,
-      requestsPlanned: 9,
-      tokens: 12400,
-      tokenBudget: 200000,
-    }),
-    'Request 2 of 9 · 12.4k of 200k tokens'
+    phaseHeadline({ phase: 'vocabulary' }),
+    'Proposing a vocabulary'
   );
-  assert.strictEqual(progressCountsText({}), '0 tokens');
-
   assert.strictEqual(
-    progressTimeText({ etaMs: 40000 }, 84000),
-    'about 40 s left · 1:24 elapsed'
+    phaseHeadline({ phase: 'brand-new', message: 'Waiting for the scan…' }),
+    'Waiting for the scan…'
   );
-  assert.strictEqual(progressTimeText({}, 7000), '0:07 elapsed');
+  assert.strictEqual(phaseHeadline({}), 'Working');
 
   assert.strictEqual(
     progressOutcomeText({

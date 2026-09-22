@@ -64,31 +64,26 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                              review: every job of this page runs through the one
                              job service, so a reloaded page can attach to any
                              of them. -->
-                        <div class="sim-progress hidden" id="simProgress" role="status" aria-live="polite">
-                            <div class="sim-progress__bar" id="simProgressBar" role="progressbar" aria-label="Job progress">
-                                <div class="sim-progress__fill" id="simProgressFill"></div>
-                            </div>
-                            <div class="sim-progress__text">
-                                <span class="zr-sm" id="simProgressMessage"></span>
-                                <span class="zr-sm zr-faint zr-mono" id="simProgressCounts"></span>
-                                <span class="zr-sm zr-faint" id="simProgressEta"></span>
-                            </div>
-                            <!-- Round 13: the panel says what the run costs
-                                 while it runs. The bar above is the same one;
-                                 everything below is filled from the progress
-                                 the job service streams, and stays empty for a
-                                 job that reports no tokens at all. -->
-                            <div class="sim-meter" id="simRunbar"></div>
-                            <div class="sim-meter" id="simRunLedger"></div>
-                            <div class="sim-meter" id="simRunTokens"></div>
-                            <div class="sim-meter" id="simRunLive"></div>
-                            <div class="sim-meter sim-meter--log" id="simReqLog"></div>
-                            <div class="sim-progress__actions">
+                        <div class="sim-progress zr-runmeter hidden" id="simProgress" role="status" aria-live="polite">
+                            <!-- What someone waiting reads: what it is doing,
+                                 how far it is, how much longer. What one
+                                 request costs belongs to that request, so it
+                                 lives on its row in the log at the bottom. -->
+                            <div class="zr-runmeter__head">
+                                <span class="zr-runmeter__phase" id="simProgressMessage"></span>
                                 <button class="zr-btn zr-btn--ghost zr-btn--stacked" id="simStopBtn" type="button">
-                                    <span class="sim-progress__stop-label">Stop</span>
+                                    <span class="sim-progress__stop-label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
+                                        Stop
+                                    </span>
                                     <span class="zr-btn__sub" id="simStopSub">Keeps every answer that already came back.</span>
                                 </button>
                             </div>
+                            <div class="sim-meter" id="simRunbar"></div>
+                            <div class="sim-meter" id="simRunLedger"></div>
+                            <div class="sim-meter" id="simRunTokens"></div>
+                            <p class="zr-runmeter__ceiling hidden" id="simRunCeiling"></p>
+                            <div class="sim-meter sim-meter--log" id="simReqLog"></div>
                         </div>
 
                         <p class="zr-sm sim-order__summary hidden" id="simOrderSummary" aria-live="polite"></p>

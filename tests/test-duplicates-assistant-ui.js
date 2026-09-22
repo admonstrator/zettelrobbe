@@ -1295,6 +1295,7 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
       'formatElapsed',
       'reqlogWhatText',
       'reqlogCostText',
+      'htmlLiveRequestRow',
       'htmlRequestLog',
       'runPositionText',
     ],
@@ -1307,8 +1308,12 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
   const log = kit.htmlRequestLog(PROGRESS);
   assert.strictEqual(
     (log.match(/<div class="zr-reqlog__row/g) || []).length,
-    4,
-    'the log does not show every request it was handed'
+    5,
+    'the log shows the four finished requests and the one in flight'
+  );
+  assert.ok(
+    log.indexOf('zr-reqlog__row--live') < log.indexOf('Request 12'),
+    'the request in flight belongs at the top of the log'
   );
   // An answered request says what it asked and what came back, with the share
   // of its tokens that went into reasoning.
@@ -1350,6 +1355,33 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
     '',
     'an empty log renders nothing'
   );
+  // The request in flight is the first row of the log, which is where "the
+  // model is thinking" belongs — on the request that is thinking.
+  const live = kit.htmlRequestLog({
+    requestsDone: 12,
+    requestPairs: 50,
+    requestAnswers: 21,
+    requestTokens: 89100,
+    thinking: true,
+    requestLog: [],
+  });
+  assert.ok(
+    live.includes('zr-reqlog__row--live'),
+    'the running request has no row'
+  );
+  assert.ok(
+    live.includes('Request 13 — 50 pairs, 21 answered so far'),
+    'the running row does not say where it is'
+  );
+  assert.ok(
+    live.includes('89.1k so far, thinking'),
+    'the running row does not say what it has spent, or that it is thinking'
+  );
+  assert.strictEqual(
+    kit.htmlLiveRequestRow({ requestTokens: 0, thinking: false }),
+    '',
+    'a run between two requests has nothing in flight to show'
+  );
 });
 
 test('The run meter counts what is spent against what was promised', () => {
@@ -1359,16 +1391,21 @@ test('The run meter counts what is spent against what was promised', () => {
     'what has been spent is not held against what was estimated'
   );
   assert.ok(
-    ledger.includes("'while it runs'") && ledger.includes('spent / seconds'),
-    'the meter does not say how fast the tokens are going'
+    ledger.includes("'elapsed'") && ledger.includes("'pairs'"),
+    'three numbers: how long, how far, how much'
   );
+  // The budget belongs to the run, not to the request in flight, and it is
+  // only named once it is close enough to matter.
   assert.ok(
-    ledger.includes('tokenBudget') && ledger.includes("'this request'"),
-    'the request in flight is not held against the budget that would end it'
+    !ledger.includes("'this request'"),
+    "a single question was never allowed the whole run's budget"
   );
+  const ceiling = functionBody('renderRunCeiling');
   assert.ok(
-    ledger.includes("htmlLedgerItem('0', 'writes', true)"),
-    'the meter does not say that a run writes nothing'
+    ceiling.includes('tokenBudget') &&
+      ceiling.includes('CEILING_SHOWN_ABOVE') &&
+      ceiling.includes('this run may spend'),
+    "the ceiling is not named as the run's, or is named too early"
   );
   // The split comes from the three counts the job reports separately, and the
   // reasoning is the run's total rather than the request in flight.
@@ -1384,9 +1421,10 @@ test('The run meter counts what is spent against what was promised', () => {
     meter.includes('htmlRequestLog(state)'),
     'the meter never draws the request log'
   );
-  // Stopping says what it keeps.
+  // Stopping says what it keeps, in three words.
   assert.ok(
-    meter.includes('it already has'),
+    meter.includes("plural(judged, 'verdict', 'verdicts')") &&
+      meter.includes("'nothing is written either way'"),
     'Stop does not say what stopping keeps'
   );
   // And every progress event redraws it.

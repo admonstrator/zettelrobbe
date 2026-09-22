@@ -128,18 +128,16 @@
      row rather than in a modal, because the page stays usable while the model
      thinks. The three lines keep their height when they are empty, so the
      stat tiles below do not move while the numbers come in. */
+  /* The panel is the shared run meter; the page only gives it its rule and
+     its room. The two-column grid it used to be held a Stop button beside
+     four stacked lines of text, and none of that is left. */
   .dup-progress {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: var(--zr-2) var(--zr-3);
     width: 100%;
     padding-top: var(--zr-3);
     border-top: 1px solid var(--zr-line);
   }
 
   .dup-progress__bar {
-    grid-column: 1 / -1;
     height: 6px;
     background: var(--zr-surface-sunken);
     border-radius: var(--zr-r-full);
@@ -190,38 +188,11 @@
     }
   }
 
-  .dup-progress__text {
-    display: grid;
-    gap: var(--zr-1);
-    min-width: 0;
-  }
-
   /* An empty line still takes its row: the panel must not resize under the
      stats while a review reports. */
-  .dup-progress__text > span {
-    min-height: 1.15em;
-    overflow-wrap: anywhere;
-  }
 
   /* All three lines carry something while a review runs, so only the panel
      that has finished — one outcome line and nothing else — collapses. */
-  .dup-progress__text > span:empty {
-    min-height: 0;
-  }
-
-  /* The note only has something to say once the warm-up measured the model.
-     A zero-width space holds its row open for as long as a review runs — a
-     min-height would reserve a little less than the filled line really takes
-     and the stats below would still move. The panel that has finished drops
-     the class and releases the row with the rest. */
-  .dup-progress--live .dup-progress__note:empty::before {
-    content: '\200b';
-  }
-
-  .dup-progress__actions {
-    display: flex;
-    justify-content: flex-end;
-  }
 
   @media (prefers-reduced-motion: reduce) {
     .dup-progress__fill--indeterminate {
@@ -238,10 +209,6 @@
   @media (max-width: 720px) {
     .dup-progress {
       grid-template-columns: 1fr;
-    }
-
-    .dup-progress__actions {
-      justify-content: flex-start;
     }
   }
 
@@ -1165,10 +1132,6 @@
 
   /* A stop button that carries a second line lays it out itself; its icon
      then sits on the first line rather than in a flex row of its own. */
-  .dup-progress__actions .zr-btn--stacked .zr-icon {
-    vertical-align: -2px;
-    margin-right: var(--zr-1);
-  }
 
   /* --- what a button writes ---------------------------------------------- */
   /* It sits between the member table and the foot, so it takes the module's

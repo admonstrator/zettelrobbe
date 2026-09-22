@@ -4046,6 +4046,9 @@ class EntityMatchAiService {
       model,
       thinking,
       lastRun,
+      // The ceiling that would end the run. The dialog names it, so nobody
+      // meets it for the first time on the running screen.
+      tokenBudget: require('./duplicateReviewJobService').tokenBudget(),
       ...extra,
     });
 

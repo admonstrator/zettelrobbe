@@ -205,6 +205,9 @@ const ORDER_BATCH_SIZE = 50;
 /** What the preflight's lanes select offers. */
 const LANE_CHOICES = [1, 3, 5, 8];
 
+/** How much of the run's token budget has to be gone before it is named. */
+const CEILING_SHOWN_ABOVE = 0.5;
+
 /** The second lever: tags on fewer documents than this are left out. */
 const MIN_DOCUMENTS_LEVER = 3;
 
@@ -282,11 +285,8 @@ const el = {
   proposeSplitsBtn: document.getElementById('simProposeSplitsBtn'),
   proposeSplitsHint: document.getElementById('simProposeSplitsHint'),
   progress: document.getElementById('simProgress'),
-  progressBar: document.getElementById('simProgressBar'),
-  progressFill: document.getElementById('simProgressFill'),
   progressMessage: document.getElementById('simProgressMessage'),
-  progressCounts: document.getElementById('simProgressCounts'),
-  progressEta: document.getElementById('simProgressEta'),
+  runCeiling: document.getElementById('simRunCeiling'),
   stopBtn: document.getElementById('simStopBtn'),
   stats: document.getElementById('simStats'),
   statProposals: document.getElementById('simStatProposals'),
@@ -317,7 +317,6 @@ const el = {
   runbar: document.getElementById('simRunbar'),
   runLedger: document.getElementById('simRunLedger'),
   runTokens: document.getElementById('simRunTokens'),
-  runLive: document.getElementById('simRunLive'),
   reqLog: document.getElementById('simReqLog'),
   stopSub: document.getElementById('simStopSub'),
   checklist: document.getElementById('simApplyChecklist'),
@@ -1868,37 +1867,6 @@ function progressPercent(progress) {
   return Math.max(0, Math.min(100, Math.round((done / planned) * 100)));
 }
 
-/** "Request 2 of 9 · 12.4k of 200k tokens". */
-function progressCountsText(progress) {
-  const state = progress || {};
-  const parts = [];
-  const done = Number(state.requestsDone) || 0;
-  const planned = Number(state.requestsPlanned);
-  if (Number.isFinite(planned) && planned > 0) {
-    parts.push(`Request ${Math.min(done, planned)} of ${planned}`);
-  } else if (done > 0) {
-    parts.push(`Request ${done}`);
-  }
-  const budget = Number(state.tokenBudget);
-  const spent = formatTokens(state.tokens);
-  parts.push(
-    Number.isFinite(budget) && budget > 0
-      ? `${spent} of ${formatTokens(budget)} tokens`
-      : `${spent} tokens`
-  );
-  return parts.join(' · ');
-}
-
-/** "about 40 s left · 1:24 elapsed"; the elapsed part is always there. */
-function progressTimeText(progress, elapsedMs) {
-  const state = progress || {};
-  const parts = [];
-  const eta = formatEta(state.etaMs);
-  if (eta) parts.push(eta);
-  parts.push(`${formatElapsed(elapsedMs)} elapsed`);
-  return parts.join(' · ');
-}
-
 /** The single line the panel keeps after a job ended. */
 function progressOutcomeText(event) {
   const job = (event && event.job) || {};
@@ -1942,11 +1910,13 @@ function stopProgressTicker() {
 }
 
 function drawProgressTime() {
-  if (!el.progressEta || !progressJob) return;
+  if (!el.runLedger || !progressJob) return;
   const state = progressJob.progress || {};
-  const base = Number(state.elapsedMs) || 0;
+  const base = num(state.elapsedMs);
   const live = progressJob.finishedAt ? base : base + (Date.now() - progressAt);
-  el.progressEta.textContent = progressTimeText(state, live);
+  el.runLedger.innerHTML = htmlRunLedger(
+    Object.assign({}, state, { elapsedMs: live })
+  );
 }
 
 /** One `progress` event on the panel. */
@@ -1955,29 +1925,41 @@ function renderProgress(job) {
   progressJob = job;
   progressAt = Date.now();
   const state = job.progress || {};
-  const percent = progressPercent(state);
-  if (el.progressFill) {
-    const unknown = percent === null;
-    el.progressFill.classList.toggle(
-      'sim-progress__fill--indeterminate',
-      unknown
-    );
-    el.progressFill.style.width = unknown ? '' : `${percent}%`;
+  // The bar is the run meter's own now, indeterminate state and all.
+  if (el.progressMessage) {
+    el.progressMessage.textContent = phaseHeadline(state);
   }
-  if (el.progressBar) {
-    if (percent === null) {
-      el.progressBar.removeAttribute('aria-valuenow');
-    } else {
-      el.progressBar.setAttribute('aria-valuenow', String(percent));
-    }
-  }
-  if (el.progressMessage) el.progressMessage.textContent = state.message || '';
-  if (el.progressCounts) {
-    el.progressCounts.textContent = progressCountsText(state);
-  }
-  drawProgressTime();
   renderRunMeter(state);
   startProgressTicker();
+}
+
+/**
+ * What the run is doing, in two or three words, for the one line at the top
+ * of the panel. The job's own message is longer and changes inside a phase;
+ * that detail belongs to the request it describes, on its row in the log.
+ *
+ * @param {object} progress
+ * @returns {string}
+ */
+function phaseHeadline(progress) {
+  const state = progress || {};
+  // Every phase the shared job service knows, because the order borrows the
+  // judge's warm-up and would otherwise fall back to a sentence that changes
+  // with every token.
+  const labels = {
+    starting: 'Getting ready',
+    'warming-up': 'Measuring the model',
+    vocabulary: 'Proposing a vocabulary',
+    ordering: 'Asking the model',
+    splitting: 'Asking the model',
+    judging: 'Asking the model',
+    escalating: 'Asking again, with more to go on',
+    applying: 'Writing to Paperless-ngx',
+    finishing: 'Finishing up',
+  };
+  const label = labels[String(state.phase || '')];
+  if (label) return label;
+  return String(state.message || 'Working');
 }
 
 /** The last thing the panel says; it stays until the next run. */
@@ -1990,17 +1972,9 @@ function renderProgressOutcome(event) {
     el.stopBtn.disabled = true;
     el.stopBtn.classList.add('hidden');
   }
-  const percent = progressPercent(progressJob ? progressJob.progress : null);
-  if (el.progressFill) {
-    el.progressFill.classList.remove('sim-progress__fill--indeterminate');
-    el.progressFill.style.width =
-      event.type === 'done' ? '100%' : `${percent === null ? 0 : percent}%`;
-  }
   if (el.progressMessage) {
     el.progressMessage.textContent = progressOutcomeText(event);
   }
-  if (el.progressCounts) el.progressCounts.textContent = '';
-  if (el.progressEta) el.progressEta.textContent = '';
   // The meter keeps what the run cost; the plan's first ledger reads it.
   const finished = progressJob ? progressJob.progress : null;
   renderRunMeter(finished);
@@ -3236,6 +3210,9 @@ function normaliseEstimate(data) {
       lowDocument: num(skippable.lowDocument),
     },
     lastRun: source.lastRun || null,
+    // The ceiling that would end the run, named here so it is not met for
+    // the first time on the running screen.
+    tokenBudget: num(source.tokenBudget),
   };
 }
 
@@ -3382,7 +3359,12 @@ function preflightLede(estimate) {
 function htmlPreflightHero(estimate) {
   const requests = `${estimate.requests} ${plural(estimate.requests, 'request', 'requests')}`;
   const sub = `${requests} · ${formatTokens(estimate.tokens.total)} tokens`;
-  return `<div class="zr-preflight__hero"><span class="zr-preflight__time">${esc(roughTime(estimate.seconds))}</span><span class="zr-preflight__sub">${esc(sub)}</span>${htmlTokenbar(tokenSplit(estimate.tokens))}<p class="zr-preflight__basis">${esc(basisText(estimate))}</p></div>`;
+  const ceiling = num(estimate.tokenBudget);
+  const htmlCeiling =
+    ceiling > 0
+      ? `<p class="zr-preflight__basis">${esc(`It stops itself at ${formatTokens(ceiling)} tokens.`)}</p>`
+      : '';
+  return `<div class="zr-preflight__hero"><span class="zr-preflight__time">${esc(roughTime(estimate.seconds))}</span><span class="zr-preflight__sub">${esc(sub)}</span>${htmlTokenbar(tokenSplit(estimate.tokens))}<p class="zr-preflight__basis">${esc(basisText(estimate))}</p>${htmlCeiling}</div>`;
 }
 
 /**
@@ -3495,7 +3477,7 @@ function htmlRunbar(progress) {
     planned > 0
       ? `Request ${Math.min(done + 1, planned)} of ${planned}`
       : `Request ${done + 1}`;
-  const rest = formatEta(state.etaMs) || 'time unknown so far';
+  const rest = formatEta(state.etaMs) || 'estimating…';
   const htmlFill =
     percent === null
       ? '<div class="zr-runbar__fill sim-progress__fill--indeterminate"></div>'
@@ -3508,39 +3490,67 @@ function htmlRunLedger(progress) {
   const state = progress || {};
   const spent = num(state.tokens);
   const planned = num(state.estimatedTokens);
-  const elapsed = Math.max(1, num(state.elapsedMs)) / 1000;
-  const rate = Math.round(spent / elapsed);
+  const judged = num(state.pairsJudged);
+  const total = num(state.pairsTotal);
   const items = [
-    {
+    { value: formatElapsed(num(state.elapsedMs)), unit: 'elapsed' },
+  ];
+  if (total > 0) {
+    items.push({ value: `${judged} of ${total}`, unit: 'tags' });
+  } else if (judged > 0) {
+    items.push({ value: String(judged), unit: 'tags' });
+  }
+  if (spent > 0) {
+    items.push({
       value:
         planned > 0
-          ? `${formatTokens(spent)} of ${formatTokens(planned)}`
+          ? `${formatTokens(spent)} of ~${formatTokens(planned)}`
           : formatTokens(spent),
       unit: 'tokens',
-    },
-    { value: `${grouped(rate)}/s`, unit: '' },
-    { value: formatElapsed(num(state.elapsedMs)), unit: 'elapsed' },
-    { value: '0', unit: 'writes', quiet: true },
-  ];
+    });
+  }
   return htmlLedger(items);
 }
 
-/** The request being answered right now, against its ceiling. Pure on purpose. */
+/**
+ * The ceiling that would end the run, and only when it is close enough to
+ * matter. It is the whole run's budget, not one request's.
+ *
+ * @param {object} progress
+ * @returns {string} the line, or '' while it is far away
+ */
+function runCeilingText(progress) {
+  const state = progress || {};
+  const budget = num(state.tokenBudget);
+  const spent = num(state.tokens);
+  if (budget <= 0 || spent <= budget * CEILING_SHOWN_ABOVE) return '';
+  return `${formatTokens(spent)} of the ${formatTokens(budget)} this run may spend — it stops itself there.`;
+}
+
+/**
+ * The request being answered right now, as the first row of the log. This is
+ * where "the model is thinking" belongs: on the request that is thinking.
+ *
+ * @param {object} progress
+ * @returns {string} markup, or '' when nothing is in flight
+ */
 function htmlLiveRequest(progress) {
   const state = progress || {};
   const running = num(state.requestTokens);
-  if (running <= 0) return '';
-  const budget = num(state.tokenBudget);
-  const answers = num(state.requestAnswers);
+  const thinking = state.thinking === true;
+  if (running <= 0 && !thinking) return '';
+  const index = num(state.requestsDone) + 1;
   const items = num(state.requestPairs);
-  const where =
-    items > 0 ? `${answers} of ${items} answered` : `${answers} answered`;
-  const against =
-    budget > 0
-      ? `${formatTokens(running)} of the ${formatTokens(budget)} this run may spend`
-      : `${formatTokens(running)} so far`;
-  const thinking = state.thinking === true ? ', still thinking' : '';
-  return `<p class="zr-sm zr-faint sim-meter__live">${esc(`This request: ${against} · ${where}${thinking}`)}</p>`;
+  const answers = num(state.requestAnswers);
+  const what =
+    items > 0
+      ? `Request ${index} — ${items} ${plural(items, 'tag', 'tags')}, ${answers} answered so far`
+      : `Request ${index}`;
+  const cost =
+    running > 0
+      ? `${formatTokens(running)} so far${thinking ? ', thinking' : ''}`
+      : 'thinking';
+  return `<div class="zr-reqlog__row zr-reqlog__row--live"><span class="zr-reqlog__mark">${htmlIconMarkup('i-refresh', 'zr-icon--spin')}</span><span class="zr-reqlog__what">${esc(what)}</span><span class="zr-reqlog__cost">${esc(cost)}</span><span class="zr-reqlog__state">running</span></div>`;
 }
 
 /**
@@ -3601,10 +3611,9 @@ function htmlReqLog(list) {
 function stopSubText(progress) {
   const state = progress || {};
   const done = num(state.requestsDone);
-  if (done <= 0) {
-    return 'Nothing has come back yet; stopping costs you the tokens already spent.';
-  }
-  return `Keeps the ${done} ${plural(done, 'request', 'requests')} that already came back; the tags they covered stay in the plan.`;
+  // Four words on a second line, not a sentence: the button is a button.
+  if (done <= 0) return 'nothing kept yet';
+  return `keeps ${done} ${plural(done, 'answer', 'answers')}`;
 }
 
 /** The run meter, from one progress event. */
@@ -3621,8 +3630,15 @@ function renderRunMeter(progress) {
       })
     );
   }
-  if (el.runLive) el.runLive.innerHTML = htmlLiveRequest(state);
-  if (el.reqLog) el.reqLog.innerHTML = htmlReqLog(state.requestLog);
+  if (el.runCeiling) {
+    const ceiling = runCeilingText(state);
+    el.runCeiling.textContent = ceiling;
+    el.runCeiling.classList.toggle('hidden', ceiling === '');
+  }
+  // The request in flight is the first row of the log, where it belongs.
+  if (el.reqLog) {
+    el.reqLog.innerHTML = htmlLiveRequest(state) + htmlReqLog(state.requestLog);
+  }
   if (el.stopSub) el.stopSub.textContent = stopSubText(state);
 }
 
