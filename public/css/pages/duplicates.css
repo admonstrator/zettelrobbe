@@ -1190,62 +1190,8 @@
   /* --- the preflight dialog ---------------------------------------------- */
   /* What a run does, what it costs, what it changes, and the levers that make
      it cheaper. Four blocks, read top to bottom. */
-  .dup-preflight {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-5);
-  }
-
-  .dup-preflight__block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-  }
-
-  .dup-preflight__title {
-    margin: 0;
-    font-size: var(--zr-fs-md);
-    font-weight: 600;
-    color: var(--zr-text);
-  }
-
-  .dup-preflight__steps {
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-md);
-    overflow: hidden;
-  }
-
-  .dup-preflight__steps .zr-reqlog__row:first-child {
-    border-top: 0;
-  }
-
-  .dup-preflight__basis {
-    margin: 0;
-  }
-
-  .dup-preflight__levers {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-  }
-
-  .dup-preflight__lever {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--zr-2);
-    font-size: var(--zr-fs-base);
-    line-height: 1.5;
-  }
 
   /* What a lever costs, under the lever rather than beside it. */
-  .dup-preflight__price {
-    display: block;
-    margin-top: 2px;
-  }
-
-  .dup-preflight__scan {
-    margin-bottom: var(--zr-4);
-  }
 
   .dup-preflight__btnlabel {
     display: block;

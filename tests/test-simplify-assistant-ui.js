@@ -873,121 +873,142 @@ const ESTIMATE = {
   lastRun: { requests: 23, seconds: 372 },
 };
 
-test('The preflight says what it does, what it costs and what it changes', () => {
-  const { normaliseEstimate, htmlPreflight, preflightConfirmText, basisText } =
-    helpers(
-      [
-        ...BASE,
-        'normaliseEstimate',
-        'basisText',
-        'htmlPreflightSteps',
-        'htmlPreflightLevers',
-        'htmlPreflight',
-        'preflightConfirmText',
-      ],
-      {
-        constants: ['ESTIMATE_BASES', 'ORDER_BATCH_SIZE', 'LANE_CHOICES'],
-        globals: {
-          runLevers: { skipDecided: false, minDocuments: 1, lanes: 3 },
-          MIN_DOCUMENTS_LEVER: 3,
-        },
-      }
-    );
+test('The preflight is one sentence, one number, one bar and one promise', () => {
+  const {
+    normaliseEstimate,
+    htmlPreflight,
+    preflightConfirmText,
+    basisText,
+    roughTime,
+  } = helpers(
+    [
+      ...BASE,
+      'normaliseEstimate',
+      'basisText',
+      'roughTime',
+      'preflightLede',
+      'htmlPreflightHero',
+      'htmlPreflightLevers',
+      'htmlPreflight',
+      'preflightConfirmText',
+    ],
+    {
+      constants: ['ESTIMATE_BASES', 'ORDER_BATCH_SIZE', 'LANE_CHOICES'],
+      globals: {
+        runLevers: { skipDecided: false, minDocuments: 1, lanes: 3 },
+        MIN_DOCUMENTS_LEVER: 3,
+      },
+    }
+  );
 
   const estimate = normaliseEstimate(ESTIMATE);
   const html = htmlPreflight(estimate);
 
-  // Block 1: four numbered steps, each with its own price.
-  assert.ok(html.includes('What I actually do'), 'the first block is missing');
-  assert.strictEqual(
-    (html.match(/class="sim-preflight__step"/g) || []).length,
-    4,
-    'four steps: reading, the rule pass, asking, folding'
+  // One sentence, and it names both halves: what the model is asked about
+  // and what a rule handles without it.
+  assert.ok(
+    html.includes('I ask the model about 1,145 of your 1,187 tags'),
+    'the lede does not say what the run asks about'
   );
-  assert.strictEqual(
-    (html.match(/class="sim-preflight__price"/g) || []).length,
-    4,
-    'every step carries its own price'
+  assert.ok(
+    html.includes('A rule takes care of the other 42'),
+    'and it does not say what stays free'
   );
-  assert.strictEqual(
-    (html.match(/>no model</g) || []).length,
-    2,
-    'reading the tags and the rule pass ask no model'
+  // The four labelled sections of prose are gone.
+  ['What I actually do', 'What it costs', 'What it changes', 'Cheaper'].forEach(
+    (heading) => {
+      assert.ok(
+        !html.includes(heading),
+        `"${heading}" is a section header the dialog no longer needs`
+      );
+    }
   );
-  assert.ok(html.includes('>free<'), 'and folding the answers costs nothing');
+
+  // The hero: the time a person feels, then the price, then the one graphic.
+  assert.ok(
+    html.includes('class="zr-preflight__time">6 min<'),
+    'the time is the big number, and it is rounded'
+  );
   assert.ok(
     html.includes('23 requests · 1.4M tokens'),
-    'the one step that costs tokens says how many'
+    'the price sits under it in one line'
   );
-
-  // Block 2: the ledger, the split bar and where the numbers come from.
-  assert.ok(html.includes('What it costs'), 'the second block is missing');
-  assert.ok(html.includes('class="zr-ledger"'), 'the numbers are a ledger');
   assert.ok(
     html.includes('class="zr-tokenbar__track"'),
-    'and the tokens are split into three'
+    'the token split is the graphic of the dialog'
   );
   assert.ok(
-    html.includes('zr-ledger__value--quiet">0</span> writes'),
-    'nought writes is the point of the whole dialog'
+    html.includes('Measured on your last run'),
+    'and one short line says where the numbers come from'
   );
   assert.ok(
-    html.includes('qwen3:30b'),
-    'basis "run" names the run the numbers come from'
+    !html.includes('class="zr-ledger"'),
+    'the ledger belonged to the old four-section layout'
   );
 
-  // Block 3: the sentence that makes the dialog worth having.
-  assert.ok(html.includes('What it changes'), 'the third block is missing');
+  // The promise, in three words.
   assert.ok(
-    html.includes('zr-consequence--free'),
-    'and it is the free variant of the line'
+    html.includes('class="zr-preflight__safe"'),
+    'the dialog does not say that nothing is written'
   );
-  assert.ok(
-    html.includes('Nothing is written while this runs'),
-    'word for word'
-  );
+  assert.ok(html.includes('Nothing is written.'), 'word for word');
 
-  // The levers.
+  // Everything adjustable is folded away.
   assert.ok(
-    html.includes('Cheaper, if you want'),
-    'the lever block is missing'
+    html.includes('<details class="zr-preflight__options">'),
+    'the levers are not folded away'
   );
+  assert.ok(html.includes('>Options</summary>'), 'and the fold has a name');
   assert.strictEqual(
     (html.match(/class="zr-check sim-lever"/g) || []).length,
     2,
     'two checkboxes: the decided ones and the small ones'
   );
   assert.ok(
-    html.includes('Skip the 312 tags you have already decided'),
+    html.includes('Skip the 312 tags you already decided'),
     'the first lever says how many it would leave out'
   );
-  assert.ok(html.includes('leaves out 659'), 'and so does the second');
+  assert.ok(
+    html.includes('Only tags on 3 documents or more'),
+    'and the second says what it keeps'
+  );
   assert.strictEqual(
     (html.match(/<option value="\d+"/g) || []).length,
     4,
     'the lanes select offers 1, 3, 5 and 8'
   );
 
-  // The button carries the final numbers.
+  // The button is a button again.
+  assert.strictEqual(preflightConfirmText(), 'Start');
+
+  // A lever that would save nothing is not offered at all.
+  const nothing = normaliseEstimate(
+    Object.assign({}, ESTIMATE, { skippable: { decided: 0, lowDocument: 0 } })
+  );
   assert.strictEqual(
-    preflightConfirmText(estimate),
-    'Start — 23 requests, about 6:12 min'
+    (htmlPreflight(nothing).match(/class="zr-check sim-lever"/g) || []).length,
+    0,
+    '"skip the 0 tags you already decided" is noise, not an option'
   );
 
-  // A guess says it is one, in plain words.
+  // The time rounds, and says so in words where a number would lie.
+  assert.strictEqual(roughTime(20), 'under a minute');
+  assert.strictEqual(roughTime(75), '1 min');
+  assert.strictEqual(roughTime(372), '6 min');
+
+  // Where the numbers come from, in a handful of words.
+  assert.strictEqual(
+    basisText(
+      normaliseEstimate(Object.assign({}, ESTIMATE, { basis: 'model' }))
+    ),
+    'Measured on qwen3:30b'
+  );
   const guess = normaliseEstimate(
     Object.assign({}, ESTIMATE, { basis: 'guess', lastRun: null })
   );
   assert.ok(
-    basisText(guess).includes('Nothing has been measured yet') &&
-      basisText(guess).includes('out by a factor'),
+    basisText(guess).includes('rough guess'),
     'an unmeasured estimate has to say so plainly'
-  );
-  assert.ok(
-    basisText(
-      normaliseEstimate(Object.assign({}, ESTIMATE, { basis: 'model' }))
-    ).includes('measured on qwen3:30b itself'),
-    'and a model measurement says what it is'
   );
   // An unknown basis is a guess, never a claim.
   assert.strictEqual(
@@ -1079,9 +1100,9 @@ testAsync('The levers move the numbers the dialog shows', async () => {
     'every lever re-asks the estimate and redraws the numbers'
   );
   assert.ok(
-    ask.includes("confirm.classList.add('zr-btn--stacked')") &&
-      ask.includes('htmlPreflightConfirm(estimate)'),
-    "the primary button's own second line moves with them"
+    ask.includes(".querySelector('.zr-preflight__options')?.open") &&
+      ask.includes('options.open = wasOpen'),
+    "a redraw under an open Options fold closes it in the user's face"
   );
   assert.ok(
     ask.includes('confirmDialog({'),
@@ -1527,8 +1548,7 @@ test('The page places the kit rather than redefining it', () => {
     '.sim-baskets',
     '.sim-stack',
     '.sim-decision__evidence',
-    '.sim-preflight',
-    '.sim-preflight__step',
+
     '.sim-meter',
     '.sim-checklist',
     '.sim-groupsblock',

@@ -739,65 +739,9 @@
   /* --- the preflight dialog --------------------------------------------- */
   /* Four blocks in the kernel's dialog: what it does, what it costs, what it
      changes, and the levers that make it cheaper. */
-  .sim-preflight {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-5);
-    text-align: left;
-  }
-
-  .sim-preflight__block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-2);
-  }
-
-  .sim-preflight__steps {
-    margin: 0;
-    padding-left: var(--zr-5);
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-2);
-  }
-
-  .sim-preflight__step {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--zr-2) var(--zr-3);
-  }
-
-  .sim-preflight__what {
-    flex-grow: 1;
-    min-width: 0;
-    font-size: var(--zr-fs-md);
-  }
 
   /* Every step carries its own price, and a free one says so rather than
      saying nothing. */
-  .sim-preflight__price {
-    flex-shrink: 0;
-    font-size: var(--zr-fs-base);
-    color: var(--zr-text-muted);
-    white-space: nowrap;
-  }
-
-  .sim-preflight__basis {
-    margin: 0;
-  }
-
-  .sim-preflight__levers {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-2);
-  }
-
-  .sim-preflight__lever {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-2);
-    cursor: pointer;
-  }
 
   /* --- the run meter ---------------------------------------------------- */
   /* Five slots under the progress bar. Each one is empty until the job
@@ -893,10 +837,6 @@
     .sim-stack__foot .zr-btn {
       flex: 1;
       justify-content: center;
-    }
-
-    .sim-preflight__price {
-      white-space: normal;
     }
   }
 }
