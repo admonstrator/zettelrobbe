@@ -2693,9 +2693,18 @@ class TagSimplifyService {
    * merge, keep or delete — by rule first and by the model second. Replaces
    * the stored proposals. Runs as a job with task 'order'.
    *
-   * @param {{ vocabulary?: 'propose'|'keep' }} options
-   * @param {object} control  { signal, onProgress, tokenBudget, stop, stopReason }
-   * @returns {Promise<{ vocabulary: object, proposals: number, byRule: number, byModel: number, requests: number, tokens: number, groups: number, stopped: boolean }>}
+   * Three options narrow what this one run does without changing what the
+   * order means: `skipDecided` leaves out the tags the user has already
+   * decided on (keeping their proposals), `minDocuments` leaves out the tags
+   * on fewer documents than that, and `concurrency` overrides
+   * DUPLICATES_AI_CONCURRENCY for this run. All three are absent by default,
+   * and an absent one narrows and overrides nothing.
+   *
+   * @param {{ vocabulary?: 'propose'|'keep', skipDecided?: boolean,
+   *   minDocuments?: number|null, concurrency?: number|null }} options
+   * @param {object} control  { signal, onProgress, tokenBudget, stop,
+   *   stopReason, noteRun, recordRequest }
+   * @returns {Promise<{ vocabulary: object, proposals: number, byRule: number, byModel: number, items: number, itemsByRule: number, requests: number, tokens: number, groups: number, stopped: boolean }>}
    */
   async proposeOrder(options = {}, control = {}) {
     const config = this._config();
@@ -2864,7 +2873,14 @@ class TagSimplifyService {
         `${count('merge')} merge, ${count('keep')} keep, ${count('delete')} delete; ` +
         `${byRule} by rule, ${byModel} by the model in ${usage.requests} request(s).`
     );
-    if (!withModel && unsettled.length > 0) {
+    const leftOut = unsettled.length - asked.length;
+    if (leftOut > 0) {
+      this._log(
+        `${leftOut} tag(s) the rule could not settle were left out of this ` +
+          'run by its own options; their proposals are as they were.'
+      );
+    }
+    if (!withModel && asked.length > 0) {
       this._log(
         'no AI provider is configured; the tags the rule could not settle are kept.'
       );
@@ -2875,6 +2891,10 @@ class TagSimplifyService {
       proposals: rows.length,
       byRule,
       byModel,
+      // What the model was asked about and what a rule settled first: the
+      // two numbers `ai_run_stats` files this run under.
+      items: asked.length,
+      itemsByRule: settledByRule,
       requests: usage.requests,
       tokens: usage.tokens,
       groups,
