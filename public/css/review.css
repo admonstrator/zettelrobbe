@@ -171,12 +171,16 @@
   }
 
   .zr-basket__title {
+    /* Both of these are spans inside one cell, so without this the note runs
+       straight into the title and its margin does nothing. */
+    display: block;
     font-size: var(--zr-fs-lg);
     font-weight: 600;
     color: var(--zr-text);
   }
 
   .zr-basket__note {
+    display: block;
     margin-top: 2px;
     font-size: var(--zr-fs-base);
     color: var(--zr-text-muted);
