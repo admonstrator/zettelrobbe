@@ -25,6 +25,15 @@
  *   - `tokenBudget`   the ceiling, null when there is none
  *   - `stopReason()`  why the job is stopping, for the judge's own log line;
  *                     null while it is not
+ *   - `noteRun()`     what the runner knows and the progress does not: the
+ *                     items the model is asked about, the items a rule
+ *                     settled without it, the model, whether it thinks
+ *   - `recordRequest()` one finished request: into the page's request log and
+ *                     into what the run has spent, in one call
+ *
+ * What a run of `order`, `review`, `vocabulary` or `splits` cost is written
+ * to `ai_run_stats` when it ends, whichever way it ended — the next estimate
+ * of that task is built from it, and half a run still measures a request.
  * A judge that stops early returns what it has, with `aiReview.stopped` set;
  * that partial result is kept on the job like a complete one.
  *
@@ -81,6 +90,18 @@ const JOB_TASKS = Object.freeze({
   ORDER: 'order',
   APPLY: 'apply',
 });
+
+/**
+ * The tasks whose cost is written to `ai_run_stats` when they end. All four
+ * ask a model; `apply` is left out because it writes to Paperless-ngx and
+ * never asks anything, so a row for it would measure nothing.
+ */
+const RECORDED_TASKS = Object.freeze([
+  'order',
+  'review',
+  'vocabulary',
+  'splits',
+]);
 
 /** How long a finished job stays reachable through current() and get(). */
 const RETENTION_MS = 10 * 60 * 1000;
@@ -193,6 +214,50 @@ function freshProgress(tokenBudget) {
 }
 
 /**
+ * What the run costs, gathered while it runs and written to `ai_run_stats`
+ * when it ends. It is kept beside the progress rather than in it because the
+ * progress is what the page renders — `tokens` and `thinkingTokens` there
+ * belong to the request in flight — while this is what the next estimate is
+ * built from.
+ *
+ * The three token fields start as null and stay null when the provider never
+ * reported one. A run that was measured in characters is not a measurement,
+ * and an estimate written into this table would come back as `basis: 'run'`
+ * and be believed.
+ *
+ * @returns {{items:number, itemsByRule:number, requests:number,
+ *   failedRequests:number, promptTokens:number|null,
+ *   completionTokens:number|null, thinkingTokens:number|null,
+ *   model:string|null, thinking:boolean}}
+ */
+function freshRunStats() {
+  return {
+    items: 0,
+    itemsByRule: 0,
+    requests: 0,
+    failedRequests: 0,
+    promptTokens: null,
+    completionTokens: null,
+    thinkingTokens: null,
+    model: null,
+    thinking: false,
+  };
+}
+
+/**
+ * Adds one reported token count to a running sum that starts as null.
+ *
+ * @param {object} target
+ * @param {string} key
+ * @param {unknown} value  what the provider reported, or anything else
+ */
+function addReported(target, key, value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return;
+  target[key] = (target[key] ?? 0) + Math.round(number);
+}
+
+/**
  * Puts one finished request at the front of the run's request log and drops
  * what falls off the end. The log is short on purpose: it is there so the
  * page can show the last handful with what each cost, not so anyone can audit
@@ -290,6 +355,7 @@ class DuplicateReviewJobService {
       finishedAt: null,
       stopReason: null,
       progress: freshProgress(tokenBudget),
+      runStats: freshRunStats(),
       result: null,
       error: null,
       controller: new AbortController(),
@@ -481,6 +547,16 @@ class DuplicateReviewJobService {
       // says why it stopped. The reason it returns in the result stays null;
       // this job fills that in below.
       stopReason: () => job.stopReason,
+      // What the runner knows about the run that the progress does not say:
+      // how many items the model is asked about, how many a rule settled
+      // without it, which model answers and whether it thinks. Merged, so a
+      // runner may report the model early and the counts once its own first
+      // pass is over.
+      noteRun: (patch) => this._noteRun(job, patch),
+      // One finished request: it goes into the page's request log and its
+      // tokens into the run's totals, in one call, so the two can never
+      // disagree about what a run cost.
+      recordRequest: (record) => this._noteRequest(job, record),
     };
     try {
       // Asked before any await: a runner that reports synchronously must
@@ -514,6 +590,10 @@ class DuplicateReviewJobService {
     job.progress.elapsedMs = this._elapsed(job);
     job.progress.etaMs = null;
     this._stopIdleWatch();
+    // Before the final event: the page that reloads after a run is over asks
+    // what the next one will cost, and the run it just watched has to be the
+    // one that answers. A stop and a failure are measurements too.
+    await this._saveRunStats(job);
     this._log(
       `job ${job.id} ${job.status}` +
         (job.stopReason ? ` (${job.stopReason})` : '') +
@@ -531,6 +611,130 @@ class DuplicateReviewJobService {
     job.listeners.clear();
     job._resolveFinished(event);
     this._scheduleRetention(job);
+  }
+
+  /**
+   * Merges what a runner says about its own run into the job's run stats.
+   * Only the fields the table has are taken; everything else is the
+   * progress's business.
+   *
+   * @param {object} job
+   * @param {{items?:number, itemsByRule?:number, model?:string|null,
+   *   thinking?:boolean}} patch
+   * @returns {object} the run stats, for a caller that wants to read them
+   */
+  _noteRun(job, patch) {
+    const stats = job.runStats || (job.runStats = freshRunStats());
+    if (!patch || typeof patch !== 'object') return stats;
+    const whole = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
+    };
+    const items = whole(patch.items);
+    if (items !== null) stats.items = items;
+    const byRule = whole(patch.itemsByRule);
+    if (byRule !== null) stats.itemsByRule = byRule;
+    if (patch.model !== undefined) {
+      const model = patch.model == null ? '' : String(patch.model).trim();
+      stats.model = model === '' ? null : model;
+    }
+    if (patch.thinking !== undefined) stats.thinking = Boolean(patch.thinking);
+    return stats;
+  }
+
+  /**
+   * One finished request, from the runner that made it.
+   *
+   * It does three things at once on purpose: the record reaches the page's
+   * request log, its tokens are added to what the run has spent, and the two
+   * running totals the page shows — what the questions cost and what the
+   * answers cost — are put back on the progress. A runner that recorded the
+   * log and the totals separately would sooner or later record one and not
+   * the other.
+   *
+   * `record.promptTokens` is read here although the log does not keep it: the
+   * log is what one request cost to answer, the run stats are what the whole
+   * conversation cost.
+   *
+   * @param {object} job
+   * @param {Partial<AiReviewRequestRecord> & {promptTokens?: number|null}} record
+   * @returns {AiReviewRequestRecord[]} the request log
+   */
+  _noteRequest(job, record) {
+    const stats = job.runStats || (job.runStats = freshRunStats());
+    stats.requests += 1;
+    if (record?.outcome === 'failed') stats.failedRequests += 1;
+    addReported(stats, 'promptTokens', record?.promptTokens);
+    addReported(stats, 'completionTokens', record?.tokens);
+    addReported(stats, 'thinkingTokens', record?.thinkingTokens);
+    job.progress.promptTokens = stats.promptTokens;
+    job.progress.completionTokens = stats.completionTokens;
+    // A runner that keeps no count of its own gets the run's: the rows of
+    // one run are numbered once, in the order they finished, whether they
+    // came from the vocabulary pass, the order pass or the judge.
+    const numbered =
+      Number(record?.index) > 0 ? record : { ...record, index: stats.requests };
+    const log = recordRequest(job.progress, numbered);
+    this._emit(job, EVENT_TYPES.PROGRESS);
+    return log;
+  }
+
+  /**
+   * Writes down what this run cost, once, when it is over.
+   *
+   * Every ending counts. A run that was stopped after six of twenty-three
+   * requests measured six requests, and six requests of this task on this
+   * model is exactly what the next estimate wants to know; a run that failed
+   * measured whatever it managed before it did. Only `apply` is left out — it
+   * writes tags, it does not ask.
+   *
+   * Never throws: a job that finished must not end up reported as failed
+   * because a bookkeeping row could not be written.
+   *
+   * @param {object} job
+   * @returns {Promise<boolean>} whether a row was written
+   */
+  async _saveRunStats(job) {
+    const task = job.task || JOB_TASKS.REVIEW;
+    if (!RECORDED_TASKS.includes(task)) return false;
+    try {
+      const stats = job.runStats || freshRunStats();
+      const progress = job.progress || {};
+      const documentModel = require('../models/document');
+      if (typeof documentModel.saveAiRunStats !== 'function') return false;
+      const most = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
+      return Boolean(
+        await documentModel.saveAiRunStats({
+          task,
+          model: stats.model ?? this._runModel(),
+          thinking: stats.thinking,
+          status: job.status,
+          items: most(stats.items, progress.pairsTotal),
+          itemsByRule: most(stats.itemsByRule, progress.spellingRules),
+          requests: most(stats.requests, progress.requestsDone),
+          failedRequests: most(stats.failedRequests, progress.failedRequests),
+          promptTokens: stats.promptTokens,
+          completionTokens: stats.completionTokens,
+          thinkingTokens: stats.thinkingTokens,
+          seconds: this._elapsed(job) / 1000,
+        })
+      );
+    } catch (error) {
+      console.warn(
+        `[AI-REVIEW] what job ${job.id} cost could not be written down: ` +
+          (error?.message || error)
+      );
+      return false;
+    }
+  }
+
+  /** The model a run is filed under when its runner named none. */
+  _runModel() {
+    try {
+      return require('./entityMatchAiService').modelName() || null;
+    } catch {
+      return null;
+    }
   }
 
   _finalEvent(job) {
@@ -684,5 +888,6 @@ duplicateReviewJobService.PHASES = PHASES;
 duplicateReviewJobService.RETENTION_MS = RETENTION_MS;
 duplicateReviewJobService.recordRequest = recordRequest;
 duplicateReviewJobService.REQUEST_LOG_LENGTH = REQUEST_LOG_LENGTH;
+duplicateReviewJobService.RECORDED_TASKS = RECORDED_TASKS;
 
 module.exports = duplicateReviewJobService;

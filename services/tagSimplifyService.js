@@ -61,6 +61,7 @@ const documentModel = require('../models/document');
 const paperlessService = require('./paperlessService');
 const entityNameMatcher = require('./entityNameMatcher');
 const { calculateTokens } = require('./serviceUtils');
+const { estimateRun } = require('./aiRunEstimate');
 
 /** The two dimensions a vocabulary entry can belong to. */
 const DIMENSIONS = Object.freeze({ TYPE: 'type', TOPIC: 'topic' });
@@ -102,6 +103,22 @@ const DELETE_ACTION = 'delete';
 const MAX_APPLY_TAGS = 200;
 /** Prefix of every line this service writes to the app log. */
 const LOG_PREFIX = '[SIMPLIFY]';
+/** The most model requests one run keeps in flight, whatever it was told. */
+const MAX_LANES = 8;
+/**
+ * The document count below which a tag is offered as skippable when the
+ * caller names no floor of its own. A tag on two documents is not what an
+ * archive is reorganised around, and a run that leaves those out asks the
+ * model about a third fewer names on a real archive.
+ */
+const DEFAULT_LOW_DOCUMENT_FLOOR = 3;
+/**
+ * How long the estimate may answer from the tag list it last read. Two pages
+ * ask for an estimate on every move of a lever, and a walk over 1,200 tags is
+ * a dozen requests to Paperless-ngx; the list does not change while somebody
+ * drags a slider.
+ */
+const ESTIMATE_TAGS_TTL_MS = 60 * 1000;
 
 /**
  * The phases the two long-running tasks report, the same strings
@@ -541,16 +558,85 @@ class TagSimplifyService {
    *
    * @returns {number}
    */
-  _lanes() {
+  _lanes(override = null) {
     try {
       const judge = require('./entityMatchAiService');
-      const lanes = Number(judge.concurrency());
+      const lanes = Number(judge.concurrency(override));
       return Number.isFinite(lanes) && lanes > 0
-        ? Math.min(8, Math.floor(lanes))
+        ? Math.min(MAX_LANES, Math.floor(lanes))
         : 1;
     } catch {
-      return 1;
+      const wanted = Number(override);
+      return Number.isFinite(wanted) && wanted >= 1
+        ? Math.max(1, Math.min(Math.floor(wanted), MAX_LANES))
+        : 1;
     }
+  }
+
+  /** Whether the model this service asks writes reasoning before it answers. */
+  _thinkingOn() {
+    try {
+      return Boolean(require('./entityMatchAiService').thinkingEnabled());
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Tells the job what this run is, in the terms `ai_run_stats` keeps it.
+   * Nothing happens without a job, which is every caller but the route.
+   *
+   * @param {object} control
+   * @param {{items?:number, itemsByRule?:number, model?:string|null, thinking?:boolean}} patch
+   */
+  _noteRun(control, patch) {
+    if (typeof control?.noteRun !== 'function') return;
+    try {
+      control.noteRun(patch);
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} what this run costs could not be noted: ${error?.message || error}`
+      );
+    }
+  }
+
+  /**
+   * Hands one finished request to the job that keeps the run meter: what it
+   * asked about, what came back, what it cost and how it ended.
+   *
+   * @param {object} control
+   * @param {object} record  an AiReviewRequestRecord plus `promptTokens`
+   */
+  _recordRequest(control, record) {
+    if (typeof control?.recordRequest !== 'function') return;
+    try {
+      control.recordRequest(record);
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} a request record was refused: ${error?.message || error}`
+      );
+    }
+  }
+
+  /**
+   * What the provider says one request cost. A field it never reported stays
+   * null: what is written here reaches `ai_run_stats` and is read back later
+   * as a measurement, and an estimate in that place would be believed.
+   *
+   * @param {object} service
+   * @returns {{prompt:number|null, completion:number|null, thinking:number|null}}
+   */
+  _spendOf(service) {
+    const usage = service?.lastGenerateTextUsage;
+    const reported = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
+    };
+    return {
+      prompt: reported(usage?.promptTokens),
+      completion: reported(usage?.completionTokens),
+      thinking: reported(usage?.reasoningTokens),
+    };
   }
 
   /**
@@ -789,7 +875,6 @@ class TagSimplifyService {
    * @returns {Promise<{types: string[], topics: string[], requests: number, tokens: number}>}
    */
   async proposeVocabulary(options = {}, control = {}) {
-    void options;
     const config = this._config();
     const service = this._provider();
     const size = Math.max(4, Number(config.simplifyVocabularySize) || 25);
@@ -846,7 +931,14 @@ class TagSimplifyService {
       message: `Reading ${names.length} tag names for a vocabulary in ${chunks.length} request(s)…`,
     });
 
-    const lanes = Math.min(this._lanes(), chunks.length);
+    // One run's own answer to how many requests it keeps in flight; absent
+    // means the setting decides, as it always did.
+    this._noteRun(control, {
+      items: names.length,
+      model: this._modelName() ?? null,
+      thinking: this._thinkingOn(),
+    });
+    const lanes = Math.min(this._lanes(options?.concurrency), chunks.length);
     const laneNote = lanes > 1 ? ` in ${lanes} lanes` : '';
     let started = 0;
     let done = 0;
@@ -921,7 +1013,21 @@ class TagSimplifyService {
         ? Math.max(base + (await this._thinkingAllowance()), this._capFloor())
         : wanted;
     usage.requests += 1;
+    const startedAt = Date.now();
     const head = () => `vocabulary: ${names.length} name(s), cap ${cap}`;
+    /** One row of the run meter for this request; see _splitChunk. */
+    const meter = (outcome, answers) => {
+      const spend = this._spendOf(service);
+      this._recordRequest(control, {
+        items: names.length,
+        answers,
+        tokens: spend.completion,
+        thinkingTokens: spend.thinking,
+        promptTokens: spend.prompt,
+        ms: Date.now() - startedAt,
+        outcome,
+      });
+    };
 
     let answer;
     let truncated = false;
@@ -945,6 +1051,7 @@ class TagSimplifyService {
             error?.message || 'the AI provider could not be reached'
           }.`
         );
+        meter('failed', 0);
         return { types: [], topics: [] };
       }
     }
@@ -973,6 +1080,7 @@ class TagSimplifyService {
           `${head()} — the answer hit the token limit with nothing usable in it ` +
             `(a thinking model spends the cap before it answers), raising the cap to ${raised} and asking again.`
         );
+        meter('empty', 0);
         return this._vocabularyChunk(
           service,
           systemPrompt,
@@ -992,6 +1100,7 @@ class TagSimplifyService {
         }${this._answerDiagnosis(service)}. Raw answer: ` +
           `${String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'}`
       );
+      meter(truncated ? 'empty' : 'failed', 0);
       return { types: [], topics: [] };
     }
 
@@ -999,7 +1108,20 @@ class TagSimplifyService {
       (Array.isArray(value) ? value : [])
         .map((name) => String(name ?? '').trim())
         .filter((name) => name !== '' && name.length <= 128);
-    return { types: asNames(parsed.types), topics: asNames(parsed.topics) };
+    const proposed = {
+      types: asNames(parsed.types),
+      topics: asNames(parsed.topics),
+    };
+    // A vocabulary request reads a chunk of names and answers with the words
+    // it found in them: it read all of them, so it answered for all of them.
+    // A request that found nothing at all read nothing usable.
+    meter(
+      proposed.types.length + proposed.topics.length === 0
+        ? 'empty'
+        : 'answered',
+      names.length
+    );
+    return proposed;
   }
 
   /** One vote for a name, counted under its normalised spelling. */
@@ -1175,6 +1297,13 @@ class TagSimplifyService {
     const withModel = this.hasProvider();
     const perRequest = Math.max(1, Number(config.simplifyTagsPerRequest) || 50);
     const chunks = withModel ? chunkList(unsettled, perRequest) : [];
+
+    this._noteRun(control, {
+      items: unsettled.length,
+      itemsByRule: settledByRule,
+      model: this._modelName() ?? null,
+      thinking: this._thinkingOn(),
+    });
 
     this._report(control, {
       phase: PHASES.SPLITTING,
@@ -1367,7 +1496,24 @@ class TagSimplifyService {
         ? Math.max(base + (await this._thinkingAllowance()), this._capFloor())
         : wanted;
     usage.requests += 1;
+    const startedAt = Date.now();
     const head = () => `${label}: ${tags.length} tag(s), cap ${cap}`;
+    /**
+     * One row of the run meter for this request. The page shows these, so
+     * `outcome` says what actually came back rather than what was hoped for.
+     */
+    const meter = (outcome, answers) => {
+      const spend = this._spendOf(service);
+      this._recordRequest(control, {
+        items: tags.length,
+        answers,
+        tokens: spend.completion,
+        thinkingTokens: spend.thinking,
+        promptTokens: spend.prompt,
+        ms: Date.now() - startedAt,
+        outcome,
+      });
+    };
 
     let answer;
     let truncated = false;
@@ -1377,6 +1523,7 @@ class TagSimplifyService {
         this._requestOptions(systemPrompt, cap, control, () => {})
       );
     } catch (error) {
+      // A stop is not a finished request; it goes into no row.
       if (this._stopped(control)) return [];
       if (error?.code !== TRUNCATION_ERROR_CODE) {
         usage.failedRequests += 1;
@@ -1385,6 +1532,7 @@ class TagSimplifyService {
             error?.message || 'the AI provider could not be reached'
           }.`
         );
+        meter('failed', 0);
         return [];
       }
       truncated = true;
@@ -1419,6 +1567,9 @@ class TagSimplifyService {
           `${head()} — the answer hit the token limit and salvaged nothing ` +
             `(a thinking model spends the cap before it answers), raising the cap to ${raised} and reading the same tags again.`
         );
+        // Nothing usable came back, reasoning aside — the row the run meter
+        // exists for. The request after it records its own.
+        meter('empty', 0);
         return this._splitChunk(
           service,
           systemPrompt,
@@ -1440,6 +1591,9 @@ class TagSimplifyService {
             String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'
           }`
         );
+        // A cut-off answer spent its budget and said nothing; an unreadable
+        // one is a request that went wrong. The page tells them apart.
+        meter(truncated ? 'empty' : 'failed', 0);
         return [];
       }
       this._log(
@@ -1448,9 +1602,19 @@ class TagSimplifyService {
       items = salvaged;
     }
 
-    return typeof build === 'function'
-      ? build(items, tags, vocabulary)
-      : this._modelProposals(items, tags, vocabulary);
+    const rows =
+      typeof build === 'function'
+        ? build(items, tags, vocabulary)
+        : this._modelProposals(items, tags, vocabulary);
+    meter(
+      rows.length === 0
+        ? 'empty'
+        : rows.length < tags.length
+          ? 'partial'
+          : 'answered',
+      rows.length
+    );
+    return rows;
   }
 
   /**
@@ -2531,7 +2695,12 @@ class TagSimplifyService {
     const mode = options?.vocabulary === 'keep' ? 'keep' : 'propose';
     const usage = { requests: 0, tokens: 0, failedRequests: 0 };
 
-    const vocabulary = await this._orderVocabulary(mode, usage, control);
+    const vocabulary = await this._orderVocabulary(
+      mode,
+      usage,
+      control,
+      options?.concurrency
+    );
 
     let tags;
     try {
@@ -2541,31 +2710,33 @@ class TagSimplifyService {
     }
     const named = tags.filter((tag) => String(tag?.name ?? '').trim() !== '');
 
-    const mergeService = this._mergeService();
-    const rules = {
-      mergeService,
-      configuredTagNames: mergeService.configuredTagNames(),
-      topicKeys: new Set(
-        vocabulary.topics.map((entry) => normalizedTagKey(entry.name))
-      ),
-    };
-
-    const proposals = new Map();
-    const unsettled = [];
-    for (const tag of named) {
-      const settled = this._ruleAction(tag, named, vocabulary, rules);
-      if (settled) proposals.set(Number(tag.id), settled);
-      else unsettled.push(tag);
-    }
+    const pass = this._rulePass(named, vocabulary);
+    const proposals = pass.settled;
+    const unsettled = pass.unsettled;
     const settledByRule = proposals.size;
 
-    const withModel = unsettled.length > 0 && this.hasProvider();
+    // The two levers of this run: what the user has already decided and what
+    // sits on too few documents never reach the model. Absent options narrow
+    // nothing, so a run that says neither asks exactly what it always asked.
+    const narrowed = await this._narrowToAsk(unsettled, options);
+    const asked = narrowed.items;
+    const withModel = asked.length > 0 && this.hasProvider();
     const perRequest = Math.max(1, Number(config.simplifyTagsPerRequest) || 50);
-    const chunks = withModel ? chunkList(unsettled, perRequest) : [];
+    const chunks = withModel ? chunkList(asked, perRequest) : [];
     // The vocabulary proposal made requests of its own; the job's counters
     // carry on from there instead of starting again.
     const baseRequests = usage.requests;
     const planned = baseRequests + chunks.length;
+
+    // What this run costs is filed under the tags the model is asked about
+    // and the tags a rule settled first, so the next estimate of the order
+    // divides by the right number.
+    this._noteRun(control, {
+      items: asked.length,
+      itemsByRule: settledByRule,
+      model: this._modelName() ?? null,
+      thinking: this._thinkingOn(),
+    });
 
     this._report(control, {
       phase: PHASES.ORDERING,
@@ -2578,7 +2749,7 @@ class TagSimplifyService {
       message: this._splitMessage(
         settledByRule,
         named.length,
-        unsettled.length,
+        asked.length,
         chunks.length,
         0
       ),
@@ -2592,7 +2763,7 @@ class TagSimplifyService {
         const key = normalizedTagKey(tag.name);
         if (key !== '' && !index.has(key)) index.set(key, tag);
       }
-      const lanes = Math.min(this._lanes(), chunks.length);
+      const lanes = Math.min(this._lanes(options?.concurrency), chunks.length);
       let started = 0;
       let done = baseRequests;
       await runInLanes(chunks, lanes, async (chunk) => {
@@ -2603,7 +2774,7 @@ class TagSimplifyService {
           message: this._splitMessage(
             settledByRule,
             named.length,
-            unsettled.length,
+            asked.length,
             chunks.length,
             started
           ),
@@ -2639,18 +2810,31 @@ class TagSimplifyService {
       });
     }
 
+    // A tag the run was told not to ask about keeps the proposal it was
+    // decided on. Skipping it saves a request; it does not undo a decision.
+    for (const [tagId, row] of narrowed.keepAsIs) {
+      if (!proposals.has(tagId)) proposals.set(tagId, row);
+    }
+    const belowFloor = new Set(
+      narrowed.lowDocument.map((tag) => Number(tag.id))
+    );
+
     // Every tag ends up with an action. What neither the rule nor the model
-    // settled stays as it is rather than disappearing from the review.
+    // settled stays as it is rather than disappearing from the review, and
+    // the reason says which of the three it was.
     for (const tag of named) {
-      if (proposals.has(Number(tag.id))) continue;
+      const tagId = Number(tag.id);
+      if (proposals.has(tagId)) continue;
       proposals.set(
-        Number(tag.id),
+        tagId,
         this._orderRow(tag, {
           action: 'keep',
           confidence: 'low',
-          reason: withModel
-            ? 'the model did not answer for this tag'
-            : 'nothing in the vocabulary accounts for this name',
+          reason: belowFloor.has(tagId)
+            ? 'this run left out the tags on few documents'
+            : withModel
+              ? 'the model did not answer for this tag'
+              : 'nothing in the vocabulary accounts for this name',
         })
       );
     }
@@ -2699,9 +2883,10 @@ class TagSimplifyService {
    * @param {'propose'|'keep'} mode
    * @param {{requests: number, tokens: number}} usage
    * @param {object} control
+   * @param {number|null} [concurrency]  the run's own lane count, if it named one
    * @returns {Promise<{types: object[], topics: object[]}>}
    */
-  async _orderVocabulary(mode, usage, control) {
+  async _orderVocabulary(mode, usage, control, concurrency = null) {
     const saved = await this.getVocabulary();
     const isEmpty = (entry) =>
       entry.types.length === 0 && entry.topics.length === 0;
@@ -2731,7 +2916,7 @@ class TagSimplifyService {
       return saved;
     }
 
-    const proposed = await this.proposeVocabulary({}, control);
+    const proposed = await this.proposeVocabulary({ concurrency }, control);
     usage.requests += Number(proposed.requests) || 0;
     usage.tokens += Number(proposed.tokens) || 0;
     if (proposed.types.length === 0 && proposed.topics.length === 0) {
@@ -2778,6 +2963,228 @@ class TagSimplifyService {
       status: 'open',
     };
     return { ...defaults, ...row, reason: toReason(row.reason) };
+  }
+
+  /**
+   * The pass the order runs before it asks anything: every tag the rule can
+   * settle on its own, and the ones only the model can answer for.
+   *
+   * It is a function of the tags and the vocabulary and nothing else — no
+   * request, no write — which is why the estimate can run it too. The
+   * estimate and the run therefore never disagree about how many tags reach
+   * the model.
+   *
+   * @param {object[]} named  every tag of the archive that has a name
+   * @param {{types: object[], topics: object[]}} vocabulary
+   * @returns {{settled: Map<number, object>, unsettled: object[]}}
+   */
+  _rulePass(named, vocabulary) {
+    const mergeService = this._mergeService();
+    const rules = {
+      mergeService,
+      configuredTagNames: mergeService.configuredTagNames(),
+      topicKeys: new Set(
+        vocabulary.topics.map((entry) => normalizedTagKey(entry.name))
+      ),
+    };
+    const settled = new Map();
+    const unsettled = [];
+    for (const tag of named) {
+      const row = this._ruleAction(tag, named, vocabulary, rules);
+      if (row) settled.set(Number(tag.id), row);
+      else unsettled.push(tag);
+    }
+    return { settled, unsettled };
+  }
+
+  /**
+   * The floor a run was given for the document count, or null when it was
+   * given none. Negative is nonsense, not a refusal: it is clamped to zero,
+   * which skips nothing.
+   *
+   * @param {unknown} value
+   * @returns {number|null}
+   */
+  _minDocuments(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return Math.max(0, Math.floor(number));
+  }
+
+  /** The stored proposals the user has already accepted or applied, by tag id. */
+  async _decidedProposals() {
+    const decided = new Map();
+    for (const row of await documentModel.listTagSplitProposals({})) {
+      if (row?.status !== 'accepted' && row?.status !== 'applied') continue;
+      const id = Number(row.tagId);
+      if (Number.isInteger(id)) decided.set(id, row);
+    }
+    return decided;
+  }
+
+  /**
+   * The two levers of the order, applied to the tags the rule could not
+   * settle: leave out what the user has already decided, and leave out what
+   * sits on too few documents to be worth a model request.
+   *
+   * A tag left out for being decided keeps the proposal it was decided on —
+   * skipping it saves a request, it does not throw the decision away.
+   *
+   * @param {object[]} unsettled  the tags the rule left open
+   * @param {{skipDecided?: boolean, minDocuments?: number|null}} [options]
+   * @returns {Promise<{items: object[], keepAsIs: Map<number, object>,
+   *   lowDocument: object[]}>}
+   */
+  async _narrowToAsk(unsettled, options = {}) {
+    const skipDecided = options?.skipDecided === true;
+    const floor = this._minDocuments(options?.minDocuments);
+    if (!skipDecided && floor === null) {
+      return { items: unsettled, keepAsIs: new Map(), lowDocument: [] };
+    }
+    const decided = skipDecided ? await this._decidedProposals() : new Map();
+    const items = [];
+    const keepAsIs = new Map();
+    const lowDocument = [];
+    for (const tag of unsettled) {
+      const id = Number(tag.id);
+      const row = decided.get(id);
+      if (row) {
+        keepAsIs.set(id, row);
+        continue;
+      }
+      if (floor !== null && (Number(tag.documentCount) || 0) < floor) {
+        lowDocument.push(tag);
+        continue;
+      }
+      items.push(tag);
+    }
+    return { items, keepAsIs, lowDocument };
+  }
+
+  /**
+   * The tags of the archive, from the read the estimate last made when that
+   * was less than ESTIMATE_TAGS_TTL_MS ago.
+   *
+   * Only the estimate uses it. A run reads the archive as it is, because it
+   * is about to write to it.
+   *
+   * @returns {Promise<object[]>}
+   */
+  async _tagsForEstimate() {
+    const cached = this._estimateTags;
+    if (cached && Date.now() - cached.at < ESTIMATE_TAGS_TTL_MS) {
+      return cached.tags;
+    }
+    let tags;
+    try {
+      tags = await paperlessService.listEntities('tags');
+    } catch (error) {
+      throw this._asPaperlessError(error, 'reading the tags');
+    }
+    this._estimateTags = { tags, at: Date.now() };
+    return tags;
+  }
+
+  /** Forgets the tag list the estimate answers from; the tests use it. */
+  forgetEstimateTags() {
+    this._estimateTags = null;
+  }
+
+  /**
+   * What the next run of the proposed order would cost, without asking
+   * anybody.
+   *
+   * The page calls this on every move of a lever, so nothing here asks a
+   * model and nothing reads a document: the rule pass the run itself runs,
+   * the tag list (cached for a minute), the saved vocabulary, the stored
+   * proposals, and what the judge measured about this model.
+   *
+   * `skippable` is what each lever would save, counted over the tags that
+   * would otherwise reach the model — the number the page puts next to the
+   * lever, not a count of the whole archive. `lowDocument` uses the floor it
+   * was given, or DEFAULT_LOW_DOCUMENT_FLOOR when it was given none, so the
+   * page has something real to offer before anybody has moved anything.
+   *
+   * @param {object} [options]
+   * @param {boolean} [options.keepVocabulary]  use the saved vocabulary
+   *   instead of proposing a new one, which is the pass that costs extra
+   * @param {boolean} [options.skipDecided]
+   * @param {number|null} [options.minDocuments]
+   * @param {number|null} [options.concurrency]
+   * @returns {Promise<object>} a TagOrderEstimate
+   */
+  async estimateOrder(options = {}) {
+    const config = this._config();
+    const keepVocabulary = options?.keepVocabulary === true;
+    const floor = this._minDocuments(options?.minDocuments);
+
+    const tags = await this._tagsForEstimate();
+    const named = tags.filter((tag) => String(tag?.name ?? '').trim() !== '');
+    const vocabulary = await this.getVocabulary();
+    const { settled, unsettled } = this._rulePass(named, vocabulary);
+
+    const decided = await this._decidedProposals();
+    const skippable = {
+      decided: unsettled.filter((tag) => decided.has(Number(tag.id))).length,
+      lowDocument: unsettled.filter(
+        (tag) =>
+          (Number(tag.documentCount) || 0) <
+          (floor === null ? DEFAULT_LOW_DOCUMENT_FLOOR : floor)
+      ).length,
+    };
+    const narrowed = await this._narrowToAsk(unsettled, options);
+
+    const model = this._modelName() ?? null;
+    const thinking = this._thinkingOn();
+    const batchSize = Math.max(1, Number(config.simplifyTagsPerRequest) || 50);
+    const lanes = this._lanes(options?.concurrency);
+    const [calibration, lastRun] = await Promise.all([
+      model
+        ? documentModel.getAiCalibration(model, thinking)
+        : Promise.resolve(null),
+      documentModel.getLastAiRunStats('order', model),
+    ]);
+
+    return {
+      tags: named.length,
+      itemsByRule: settled.size,
+      ...estimateRun({
+        items: narrowed.items.length,
+        batchSize,
+        lanes,
+        calibration,
+        lastRun,
+        thinking,
+      }),
+      model,
+      thinking,
+      skippable,
+      lastRun,
+      // What comes on top of `requests`: proposing a new vocabulary is a
+      // pass of its own over every tag name, before the first tag is
+      // ordered. Nothing when the run keeps the saved one.
+      extra: {
+        vocabularyRequests: keepVocabulary
+          ? 0
+          : this._vocabularyRequestsFor(named),
+      },
+    };
+  }
+
+  /** How many requests a vocabulary proposal over these tags would take. */
+  _vocabularyRequestsFor(named) {
+    const config = this._config();
+    const perRequest = Math.max(
+      MIN_VOCABULARY_NAMES_PER_REQUEST,
+      Number(config.duplicatesAiSweepNames) || MIN_VOCABULARY_NAMES_PER_REQUEST
+    );
+    const distinct = new Set();
+    for (const tag of named) {
+      const name = String(tag?.name ?? '').trim();
+      if (name !== '') distinct.add(name);
+    }
+    return Math.ceil(distinct.size / perRequest);
   }
 
   /**
