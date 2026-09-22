@@ -982,4 +982,304 @@
     border-top: 1px solid var(--zr-line);
     color: var(--zr-text);
   }
+
+  /* --- the plan ---------------------------------------------------------- */
+  /* Four baskets of sentences where a list of cards used to be. The kit in
+     css/review.css carries every zr- class they are built from; what belongs
+     here is only the room between them and the header card above them. */
+  .dup-plan {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    margin-bottom: var(--zr-5);
+  }
+
+  .dup-plan__headbody {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+  }
+
+  /* The one sentence that says what a scan found. It is read, not scanned,
+     so it gets the brand face and room to breathe. */
+  .dup-plan__sentence {
+    margin: 0;
+    font-family: var(--zr-font-brand);
+    font-size: var(--zr-fs-xl);
+    line-height: 1.4;
+    color: var(--zr-text);
+  }
+
+  .dup-plan__tokenbar {
+    max-width: 520px;
+  }
+
+  .dup-plan__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-3);
+  }
+
+  /* A stacked button's first line; the price under it is .zr-btn__sub. */
+  .dup-plan__btnlabel {
+    display: block;
+  }
+
+  .dup-plan__baskets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-plan__foot {
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  /* An empty basket keeps its heading and loses its body; without this the
+     padding of an empty body would leave a gap under every one of them. */
+  .dup-basket__body:empty {
+    display: none;
+  }
+
+  /* --- the stack --------------------------------------------------------- */
+  /* One pair per screen. The card itself is .zr-decision from the kit; the
+     bar above it, the footer under it and the per-member ticks inside it are
+     what this page adds. */
+  .dup-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    margin-bottom: var(--zr-5);
+    padding: var(--zr-5);
+    border: 1px solid var(--zr-line-strong);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface-2);
+  }
+
+  .dup-stack:focus-visible {
+    outline: 2px solid var(--zr-focus);
+    outline-offset: 2px;
+  }
+
+  .dup-stack__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .dup-stack__tally {
+    margin-right: auto;
+  }
+
+  /* The line a stack that has just undone something keeps above its card. */
+  .dup-stack__notice {
+    margin-bottom: var(--zr-4);
+  }
+
+  /* The ticks a group of more than two members keeps inside its card, so the
+     target stays choosable without leaving the stack. */
+  .dup-decision__members {
+    margin-top: var(--zr-5);
+    padding-top: var(--zr-4);
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .dup-decision__memberlist {
+    list-style: none;
+    margin: var(--zr-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+  }
+
+  .dup-decision__member {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    padding: var(--zr-1) 0;
+  }
+
+  .dup-decision__membername {
+    flex-grow: 1;
+    min-width: 0;
+  }
+
+  /* Amber, because copying a matching rule changes what Paperless-ngx will
+     catch tomorrow — the one part of a merge that outlives the documents. */
+  .dup-decision__copy {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+    margin-top: var(--zr-4);
+    padding: var(--zr-3) var(--zr-4);
+    border: 1px solid var(--zr-warn);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-warn-soft);
+    color: var(--zr-warn);
+    font-size: var(--zr-fs-base);
+    line-height: 1.5;
+  }
+
+  .dup-decision__consequence {
+    margin-top: var(--zr-4);
+  }
+
+  /* --- applying ---------------------------------------------------------- */
+  /* The most destructive thing this page does, with the room to say so. */
+  .dup-apply {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+    margin-bottom: var(--zr-5);
+    padding: var(--zr-4) var(--zr-5);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  .dup-apply__list {
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  /* --- the run meter ----------------------------------------------------- */
+  /* The panel keeps its bar; what is new is the position on its left, the
+     time on its right, and the bill underneath. */
+  .dup-progress__runbar {
+    width: 100%;
+  }
+
+  .dup-progress__ledger,
+  .dup-progress__tokenbar {
+    margin-top: var(--zr-2);
+  }
+
+  .dup-progress__reqlog {
+    margin: var(--zr-2) calc(var(--zr-5) * -1) 0;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  /* A stop button that carries a second line lays it out itself; its icon
+     then sits on the first line rather than in a flex row of its own. */
+  .dup-progress__actions .zr-btn--stacked .zr-icon {
+    vertical-align: -2px;
+    margin-right: var(--zr-1);
+  }
+
+  /* --- what a button writes ---------------------------------------------- */
+  /* It sits between the member table and the foot, so it takes the module's
+     own gutter rather than standing flush against the card's edge. */
+  .dup-group__consequence {
+    margin: var(--zr-3) var(--zr-3) 0;
+  }
+
+  .dup-selection__consequence {
+    flex-basis: 100%;
+    margin: var(--zr-2) 0 0;
+  }
+
+  .dup-manual__consequence,
+  .dup-unused__consequence {
+    margin: var(--zr-3) 0 0;
+  }
+
+  /* --- the preflight dialog ---------------------------------------------- */
+  /* What a run does, what it costs, what it changes, and the levers that make
+     it cheaper. Four blocks, read top to bottom. */
+  .dup-preflight {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-5);
+  }
+
+  .dup-preflight__block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-preflight__title {
+    margin: 0;
+    font-size: var(--zr-fs-md);
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  .dup-preflight__steps {
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+    overflow: hidden;
+  }
+
+  .dup-preflight__steps .zr-reqlog__row:first-child {
+    border-top: 0;
+  }
+
+  .dup-preflight__basis {
+    margin: 0;
+  }
+
+  .dup-preflight__levers {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-preflight__lever {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+    font-size: var(--zr-fs-base);
+    line-height: 1.5;
+  }
+
+  /* What a lever costs, under the lever rather than beside it. */
+  .dup-preflight__price {
+    display: block;
+    margin-top: 2px;
+  }
+
+  .dup-preflight__scan {
+    margin-bottom: var(--zr-4);
+  }
+
+  .dup-preflight__btnlabel {
+    display: block;
+  }
+
+  .dup-preflight-dialog .zr-dialog__body {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  @media (max-width: 720px) {
+    .dup-plan__sentence {
+      font-size: var(--zr-fs-lg);
+    }
+
+    .dup-plan__actions .zr-btn {
+      width: 100%;
+    }
+
+    .dup-stack {
+      padding: var(--zr-3);
+    }
+
+    .dup-stack__foot .zr-btn {
+      flex: 1;
+    }
+
+    .dup-apply {
+      padding: var(--zr-3);
+    }
+
+    .dup-progress__reqlog {
+      margin-left: calc(var(--zr-3) * -1);
+      margin-right: calc(var(--zr-3) * -1);
+    }
+  }
 }

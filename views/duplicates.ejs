@@ -131,8 +131,17 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                              and a reloaded page attaches to a review that is
                              still going through /api/duplicates/ai-review/jobs. -->
                         <div class="dup-progress hidden" id="dupAiProgress" role="status" aria-live="polite">
-                            <div class="dup-progress__bar" id="dupAiProgressBar" role="progressbar" aria-label="AI review progress">
-                                <div class="dup-progress__fill" id="dupAiProgressFill"></div>
+                            <!-- The run meter. The bar is the same bar it always
+                                 was; what is new around it is the position on
+                                 its left, the time left on its right, and the
+                                 bill underneath — a run that says "working…"
+                                 and nothing else is a bill nobody sees. -->
+                            <div class="zr-runbar dup-progress__runbar">
+                                <span class="zr-runbar__position" id="dupRunPosition"></span>
+                                <div class="dup-progress__bar zr-runbar__track" id="dupAiProgressBar" role="progressbar" aria-label="AI review progress">
+                                    <div class="dup-progress__fill zr-runbar__fill" id="dupAiProgressFill"></div>
+                                </div>
+                                <span class="zr-runbar__rest" id="dupRunRest"></span>
                             </div>
                             <div class="dup-progress__text">
                                 <span class="zr-sm" id="dupAiProgressMessage"></span>
@@ -144,10 +153,28 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 <span class="zr-sm zr-faint dup-progress__note" id="dupAiProgressNote"></span>
                                 <span class="zr-sm zr-faint" id="dupAiProgressEta"></span>
                             </div>
+                            <!-- What the run has cost so far, against what it
+                                 was estimated to cost, and where those tokens
+                                 went: the question, the answer, and the model
+                                 thinking to itself. -->
+                            <div class="zr-ledger dup-progress__ledger" id="dupRunLedger"></div>
+                            <div class="zr-tokenbar dup-progress__tokenbar hidden" id="dupRunTokenbar">
+                                <div class="zr-tokenbar__track">
+                                    <span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" id="dupRunSegPrompt"></span>
+                                    <span class="zr-tokenbar__seg zr-tokenbar__seg--answer" id="dupRunSegAnswer"></span>
+                                    <span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" id="dupRunSegThinking"></span>
+                                </div>
+                                <div class="zr-tokenbar__legend" id="dupRunLegend"></div>
+                            </div>
+                            <!-- The last handful of requests, newest first: what
+                                 each one asked, what it answered and what it
+                                 cost. An empty or failed one says so in words. -->
+                            <div class="zr-reqlog dup-progress__reqlog" id="dupRunLog"></div>
                             <div class="dup-progress__actions">
                                 <button class="zr-btn zr-btn--ghost" id="dupAiStopBtn" type="button">
                                     <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
                                     <span class="dup-progress__stop-label">Stop</span>
+                                    <span class="zr-btn__sub dup-progress__stop-sub" id="dupAiStopSub"></span>
                                 </button>
                             </div>
                         </div>
@@ -255,6 +282,9 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
 
                         <div class="dup-manual__warnings" id="dupManualWarnings"></div>
 
+                        <!-- What the Merge button writes, before it is pressed. -->
+                        <p class="zr-consequence dup-manual__consequence hidden" id="dupManualConsequence"></p>
+
                         <div class="dup-manual__actions">
                             <button class="zr-btn" id="dupManualReloadBtn" type="button">
                                 <svg class="zr-icon zr-icon--sm" id="dupManualReloadIcon" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
@@ -275,10 +305,106 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                      runs, a warning about failed requests, or its error. -->
                 <div class="dup-ai-notice" id="dupAiNotice"></div>
 <% } -%>
+                <!-- The plan: what a scan found, read as four baskets of
+                     sentences instead of a list of cards. It replaces the card
+                     list as the default result; the cards themselves are one
+                     button away and every module below still holds what it
+                     always held. Hidden until a scan has answered. -->
+                <section class="dup-plan hidden" id="dupPlan" aria-label="What the scan found">
+                    <div class="zr-module dup-plan__head">
+                        <div class="zr-module__body dup-plan__headbody">
+                            <p class="dup-plan__sentence" id="dupPlanSentence"></p>
+                            <!-- What the last review cost. A page that has asked
+                                 nothing yet says so rather than showing zeros
+                                 that look like a measurement. -->
+                            <div class="zr-ledger dup-plan__ledger" id="dupPlanLedger"></div>
+                            <div class="zr-tokenbar dup-plan__tokenbar hidden" id="dupPlanTokenbar">
+                                <div class="zr-tokenbar__track">
+                                    <span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" id="dupPlanSegPrompt"></span>
+                                    <span class="zr-tokenbar__seg zr-tokenbar__seg--answer" id="dupPlanSegAnswer"></span>
+                                    <span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" id="dupPlanSegThinking"></span>
+                                </div>
+                                <div class="zr-tokenbar__legend" id="dupPlanLegend"></div>
+                            </div>
+                            <div class="dup-plan__actions">
+<% if (dupAiReviewEnabled) { -%>
+                                <!-- Asking costs tokens; the sub-line carries
+                                     the estimate the dialog explains in full. -->
+                                <button class="zr-btn zr-btn--primary zr-btn--stacked hidden" id="dupPlanAskBtn" type="button">
+                                    <span class="dup-plan__btnlabel" id="dupPlanAskLabel">Ask the AI</span>
+                                    <span class="zr-btn__sub" id="dupPlanAskSub"></span>
+                                </button>
+<% } -%>
+                                <!-- Applying costs writes; the sub-line counts
+                                     them, and no model is asked. -->
+                                <button class="zr-btn zr-btn--stacked hidden" id="dupPlanApplyBtn" type="button">
+                                    <span class="dup-plan__btnlabel" id="dupPlanApplyLabel">Merge the agreed ones</span>
+                                    <span class="zr-btn__sub" id="dupPlanApplySub"></span>
+                                </button>
+                                <button class="zr-btn zr-btn--stacked hidden" id="dupPlanStackBtn" type="button">
+                                    <span class="dup-plan__btnlabel" id="dupPlanStackLabel">Walk me through them</span>
+                                    <span class="zr-btn__sub" id="dupPlanStackSub"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dup-plan__baskets" id="dupBaskets"></div>
+
+                    <div class="dup-plan__foot">
+                        <button class="zr-btn zr-btn--ghost" id="dupShowAllBtn" type="button"
+                                aria-expanded="false" aria-controls="dupEverything">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-list"/></svg>
+                            <span id="dupShowAllLabel">Show every group</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- The stack: one pair per screen, for the basket that needs
+                     answers. A mode, not a page — it is opened from the plan
+                     and closed back into it, and the cards below never move. -->
+                <section class="dup-stack hidden" id="dupStack" tabindex="-1" aria-label="One decision at a time">
+                    <div class="zr-runbar dup-stack__bar">
+                        <span class="zr-runbar__position" id="dupStackPosition"></span>
+                        <div class="zr-runbar__track"><div class="zr-runbar__fill" id="dupStackFill"></div></div>
+                        <span class="zr-runbar__rest" id="dupStackRest"></span>
+                        <button class="zr-btn zr-btn--ghost zr-btn--stacked hidden" id="dupStackObviousBtn" type="button">
+                            <span id="dupStackObviousLabel">Take the obvious ones in one go</span>
+                            <span class="zr-btn__sub" id="dupStackObviousSub"></span>
+                        </button>
+                    </div>
+                    <div class="dup-stack__card" id="dupStackCard"></div>
+                    <div class="dup-stack__foot">
+                        <span class="zr-sm zr-faint dup-stack__tally" id="dupStackTally"></span>
+                        <button class="zr-btn zr-btn--ghost" id="dupStackUndoBtn" type="button" disabled>
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-undo"/></svg>
+                            Undo the last decision
+                        </button>
+                        <button class="zr-btn" id="dupStackCloseBtn" type="button">Back to the plan</button>
+                    </div>
+                </section>
+
+                <!-- What a batch merge looks like while it writes: one row per
+                     group, the ones running now, the rest waiting, and a
+                     failure with what Paperless-ngx said about it. -->
+                <section class="dup-apply hidden" id="dupApply" role="status" aria-live="polite" aria-label="Merging">
+                    <p class="zr-consequence zr-consequence--free dup-apply__free">
+                        <svg class="zr-icon zr-icon--sm zr-consequence__icon" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                        <span id="dupApplyFree">0 tokens — this step never asks the model. The document scan is standing by; a merge is refused while it runs.</span>
+                    </p>
+                    <div class="zr-runbar dup-apply__bar">
+                        <span class="zr-runbar__position" id="dupApplyPosition"></span>
+                        <div class="zr-runbar__track"><div class="zr-runbar__fill" id="dupApplyFill"></div></div>
+                        <span class="zr-runbar__rest" id="dupApplyRest"></span>
+                    </div>
+                    <div class="zr-reqlog dup-apply__list" id="dupApplyList"></div>
+                </section>
+
                 <!-- What to do with a long result list: put it in the order that
                      helps, and tick everything above a confidence in one move.
                      Hidden until a scan has produced groups; it re-orders and
                      ticks what is already on the page and fetches nothing. -->
+                <div class="dup-everything" id="dupEverything">
                 <div class="dup-results-bar hidden" id="dupResultsBar" role="group" aria-label="Sort and select results">
                     <div class="dup-results-bar__sort">
                         <label class="zr-label" for="dupSortSelect">Sort by</label>
@@ -309,6 +435,8 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                 <div class="dup-selection hidden" id="dupSelection" role="group" aria-label="Selected groups">
                     <span class="dup-selection__count" id="dupSelectionCount"></span>
                     <span class="zr-sm dup-selection__progress hidden" id="dupSelectionProgress" aria-live="polite"></span>
+                    <!-- What "Merge selected" writes, before it is pressed. -->
+                    <p class="zr-consequence dup-selection__consequence hidden" id="dupSelectionConsequence"></p>
                     <div class="dup-selection__actions">
                         <button class="zr-btn zr-btn--ghost" id="dupSelectAllBtn" type="button">Select all</button>
                         <button class="zr-btn zr-btn--ghost hidden" id="dupSelectAiSameBtn" type="button">Select AI: same</button>
@@ -340,6 +468,8 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     </div>
                 </div>
 
+                </div>
+
                 <!-- Objects the scan found that carry no document at all. They
                      are not duplicates of anything, they are leftovers — a
                      merge of last year, a renamed tag, an import that went
@@ -369,6 +499,8 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 <tbody id="dupUnusedBody"></tbody>
                             </table>
                         </div>
+                        <!-- What "Delete selected" writes, before it is pressed. -->
+                        <p class="zr-consequence dup-unused__consequence hidden" id="dupUnusedConsequence"></p>
                         <div class="dup-unused__actions">
                             <button class="zr-btn zr-btn--ghost" id="dupUnusedSelectAllBtn" type="button">Select all</button>
                             <button class="zr-btn zr-btn--danger" id="dupUnusedDeleteBtn" type="button" disabled>

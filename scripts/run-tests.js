@@ -144,6 +144,10 @@ const TESTS = {
   'simplify-endpoints': 'test-simplify-endpoints.js',
   'simplify-ui': 'test-simplify-ui.js',
   'simplify-groups': 'test-simplify-groups.js',
+  'ai-run-estimate': 'test-ai-run-estimate.js',
+  'ai-run-cost': 'test-ai-run-cost.js',
+  'duplicates-assistant-ui': 'test-duplicates-assistant-ui.js',
+  'simplify-assistant-ui': 'test-simplify-assistant-ui.js',
 };
 
 const AREAS = {
@@ -260,6 +264,9 @@ const AREAS = {
     'duplicate-review-job',
     'ai-provider-streaming',
     'entity-creation-guard',
+    'ai-run-estimate',
+    'ai-run-cost',
+    'duplicates-assistant-ui',
   ],
   simplify: [
     'simplify-model',
@@ -267,6 +274,7 @@ const AREAS = {
     'simplify-endpoints',
     'simplify-ui',
     'simplify-groups',
+    'simplify-assistant-ui',
   ],
 };
 

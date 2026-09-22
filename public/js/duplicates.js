@@ -333,6 +333,61 @@ const el = {
   mappingsClear: document.getElementById('dupMappingsClearBtn'),
   dismissalsSummary: document.getElementById('dupDismissalsSummary'),
   dismissalsList: document.getElementById('dupDismissalsList'),
+  // The plan: what a scan found, read as baskets of sentences.
+  plan: document.getElementById('dupPlan'),
+  planSentence: document.getElementById('dupPlanSentence'),
+  planLedger: document.getElementById('dupPlanLedger'),
+  planTokenbar: document.getElementById('dupPlanTokenbar'),
+  planSegPrompt: document.getElementById('dupPlanSegPrompt'),
+  planSegAnswer: document.getElementById('dupPlanSegAnswer'),
+  planSegThinking: document.getElementById('dupPlanSegThinking'),
+  planLegend: document.getElementById('dupPlanLegend'),
+  // null on every instance without the AI review; every use is guarded.
+  planAskBtn: document.getElementById('dupPlanAskBtn'),
+  planAskLabel: document.getElementById('dupPlanAskLabel'),
+  planAskSub: document.getElementById('dupPlanAskSub'),
+  planApplyBtn: document.getElementById('dupPlanApplyBtn'),
+  planApplyLabel: document.getElementById('dupPlanApplyLabel'),
+  planApplySub: document.getElementById('dupPlanApplySub'),
+  planStackBtn: document.getElementById('dupPlanStackBtn'),
+  planStackLabel: document.getElementById('dupPlanStackLabel'),
+  planStackSub: document.getElementById('dupPlanStackSub'),
+  baskets: document.getElementById('dupBaskets'),
+  showAllBtn: document.getElementById('dupShowAllBtn'),
+  showAllLabel: document.getElementById('dupShowAllLabel'),
+  everything: document.getElementById('dupEverything'),
+  // The stack: one pair per screen.
+  stack: document.getElementById('dupStack'),
+  stackPosition: document.getElementById('dupStackPosition'),
+  stackFill: document.getElementById('dupStackFill'),
+  stackRest: document.getElementById('dupStackRest'),
+  stackObviousBtn: document.getElementById('dupStackObviousBtn'),
+  stackObviousLabel: document.getElementById('dupStackObviousLabel'),
+  stackObviousSub: document.getElementById('dupStackObviousSub'),
+  stackCard: document.getElementById('dupStackCard'),
+  stackTally: document.getElementById('dupStackTally'),
+  stackUndoBtn: document.getElementById('dupStackUndoBtn'),
+  stackCloseBtn: document.getElementById('dupStackCloseBtn'),
+  // The checklist a batch merge writes itself onto.
+  apply: document.getElementById('dupApply'),
+  applyPosition: document.getElementById('dupApplyPosition'),
+  applyFill: document.getElementById('dupApplyFill'),
+  applyRest: document.getElementById('dupApplyRest'),
+  applyList: document.getElementById('dupApplyList'),
+  // The run meter around the progress panel; null without the review.
+  runPosition: document.getElementById('dupRunPosition'),
+  runRest: document.getElementById('dupRunRest'),
+  runLedger: document.getElementById('dupRunLedger'),
+  runTokenbar: document.getElementById('dupRunTokenbar'),
+  runSegPrompt: document.getElementById('dupRunSegPrompt'),
+  runSegAnswer: document.getElementById('dupRunSegAnswer'),
+  runSegThinking: document.getElementById('dupRunSegThinking'),
+  runLegend: document.getElementById('dupRunLegend'),
+  runLog: document.getElementById('dupRunLog'),
+  aiStopSub: document.getElementById('dupAiStopSub'),
+  selectionConsequence: document.getElementById('dupSelectionConsequence'),
+  manualConsequence: document.getElementById('dupManualConsequence'),
+  unusedConsequence: document.getElementById('dupUnusedConsequence'),
 };
 
 /** groupId -> { group, targetId, selected: Set<number> } */
@@ -723,6 +778,7 @@ function htmlGroupCard(state) {
         <tbody class="dup-members__body">${htmlMemberRows(state)}</tbody>
       </table>
     </div>
+    <p class="zr-consequence dup-group__consequence hidden"></p>
     <div class="zr-module__foot dup-group__foot">
       <button type="button" class="zr-btn zr-btn--primary dup-merge-btn"></button>
       <button type="button" class="zr-btn zr-btn--ghost dup-dismiss-btn">Not a duplicate</button>
@@ -756,7 +812,9 @@ function updateFoot(card, state) {
       ? 'The API token may not change this object'
       : '';
   // Every change to a card runs through here, which is what keeps the select
-  // check and the count in the bar honest without a second set of listeners.
+  // check, the line that says what merging writes and the count in the bar
+  // honest without a second set of listeners.
+  updateGroupConsequence(card, state);
   updateSelect(card, state);
   updateSelectionBar();
 }
@@ -1025,6 +1083,7 @@ function renderGroups(list) {
       'No duplicates found at this sensitivity.'
     );
     renderBuckets();
+    renderPlan();
     updateResultsBar();
     updateSelectionBar();
     return;
@@ -1044,6 +1103,10 @@ function renderGroups(list) {
   el.results.innerHTML = `${htmlScanned}${htmlCandidates}`;
   el.results.querySelectorAll('.dup-group').forEach(bindGroup);
   renderBuckets();
+  // The plan is a reading of the cards, so it is drawn from them and the full
+  // list folds away behind "Show every group".
+  renderPlan();
+  showEverything(false);
   // The order the user chose survives a new scan and a review; it is a way of
   // reading the list, not a property of one answer.
   sortResults();
@@ -1268,6 +1331,11 @@ async function runScan() {
     }
     const data = payload.data || {};
     paperlessUrl = data.paperlessUrl || '';
+    // The plan's one sentence needs what was looked at, and a plain scan is a
+    // new question: the numbers of the last review say nothing about it.
+    lastScanTotals = data.totals || null;
+    lastRunReview = data.aiReview || null;
+    if (!lastRunReview) lastRunProgress = null;
     renderStats(data);
     renderGroups(data.groups);
     renderUnused(data);
@@ -1623,6 +1691,7 @@ function hideProgressPanel() {
     el.aiProgressFill.classList.remove('dup-progress__fill--thinking');
     el.aiProgressFill.style.width = '0%';
   }
+  clearRunMeter();
 }
 
 function startProgressTicker() {
@@ -1683,6 +1752,7 @@ function renderProgress(job) {
   if (el.aiProgressNote) {
     el.aiProgressNote.textContent = progressNoteText(state);
   }
+  renderRunMeter(state);
   drawProgressTime();
   startProgressTicker();
 }
@@ -1712,11 +1782,22 @@ function renderProgressOutcome(event) {
   if (el.aiProgressCounts) el.aiProgressCounts.textContent = '';
   if (el.aiProgressNote) el.aiProgressNote.textContent = '';
   if (el.aiProgressEta) el.aiProgressEta.textContent = '';
+  // The run is over: the bill it leaves behind is the request log and the
+  // split, and Stop has nothing left to keep.
+  if (el.runPosition) el.runPosition.textContent = progressOutcomeText(event);
+  if (el.runRest) el.runRest.textContent = '';
+  setStopSub('');
 }
 
 /** What the answer of a review does to the page, wherever it came from. */
 function applyReviewResult(data) {
   if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
+  // What this run cost. The `aiReview` block counts the requests and the
+  // tokens; only the job's own progress carries the seconds and the split
+  // between question, answer and reasoning, so the ledger reads both.
+  lastRunReview = data.aiReview || null;
+  lastRunProgress = progressJob ? progressJob.progress || null : null;
+  if (data.totals) lastScanTotals = data.totals;
   renderStats(data);
   renderGroups(data.groups);
   renderUnused(data);
@@ -2017,6 +2098,8 @@ async function forgetVerdicts() {
 
 async function runAiReview() {
   if (!el.aiReviewBtn || scanning || aiReviewing || !scanned) return;
+  // Asking costs tokens, so the dialog says how many before anything starts.
+  if (!(await confirmRun('Ask the AI'))) return;
   setAiReviewing(true);
   const pairs = reviewPairCount();
   if (el.aiNotice) {
@@ -2131,7 +2214,9 @@ function setGroupBusy(card, busy) {
 
 function finishGroup(card, markup) {
   card
-    .querySelectorAll('.zr-table-wrap, .dup-group__warnings')
+    .querySelectorAll(
+      '.zr-table-wrap, .dup-group__warnings, .dup-group__consequence'
+    )
     .forEach((node) => node.remove());
   const foot = card.querySelector('.dup-group__foot');
   if (foot) foot.remove();
@@ -2228,7 +2313,7 @@ async function runMerge({
     if (payload.success && data.status !== 'partial') {
       result(htmlMergeSuccess(data), 'done');
       const moved = num(data.documentsMoved);
-      outcome = { status: 'done', documentsMoved: moved };
+      outcome = { status: 'done', documentsMoved: moved, message: '' };
       if (!batch) {
         toast(
           `Merged ${moved} ${plural(moved, 'document', 'documents')} into ${targetName}`,
@@ -2242,6 +2327,7 @@ async function runMerge({
       outcome = {
         status: 'partial',
         documentsMoved: num(data.documentsMoved),
+        message: payload.message || 'Not everything could be merged',
       };
       if (!batch) {
         toast(payload.message || 'Not everything could be merged', {
@@ -2254,7 +2340,7 @@ async function runMerge({
   } catch (error) {
     result(htmlAlert('danger', 'The merge failed', error.message), 'error');
     busy(false);
-    outcome = { status: 'error', documentsMoved: 0 };
+    outcome = { status: 'error', documentsMoved: 0, message: error.message };
     if (!batch) toast(error.message, { tone: 'danger' });
   }
   if (!batch) loadLog(true);
@@ -2413,6 +2499,7 @@ function setSelectionBusy(busy) {
 }
 
 function updateSelectionBar() {
+  updateSelectionConsequence();
   if (!el.selection) return;
   // While a batch runs the bar is the batch's: its cards go busy and leave the
   // selection one by one, which would otherwise pull the progress line away.
@@ -2521,20 +2608,41 @@ function htmlBatchDialog(entries, offerCopy) {
 async function runBatch(entries, copyMatchingRule) {
   merging = true;
   setSelectionBusy(true);
+  // The checklist is the visible half of this loop: which group is being
+  // written, which are waiting, and what Paperless-ngx said about a failure.
+  openApply(entries);
   let merged = 0;
   let failed = 0;
   let documents = 0;
   for (let index = 0; index < entries.length; index += 1) {
     setSelectionProgress(`Merging ${index + 1} of ${entries.length}…`);
     const entry = entries[index];
+    drawApplyBar(index, entries.length);
+    markApply(entry.state.group.id, 'running', '');
+    const startedAt = Date.now();
     // Awaited on purpose: one bulk edit at a time is what Paperless-ngx wants.
     const outcome = await mergeGroup(entry.card, entry.state, {
       copyMatchingRule,
     });
+    const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
     documents += outcome ? num(outcome.documentsMoved) : 0;
-    if (outcome && outcome.status === 'done') merged += 1;
-    else failed += 1;
+    if (outcome && outcome.status === 'done') {
+      merged += 1;
+      markApply(
+        entry.state.group.id,
+        'done',
+        `${num(outcome.documentsMoved)} ${plural(outcome.documentsMoved, 'document', 'documents')} in ${seconds} s`
+      );
+    } else {
+      failed += 1;
+      markApply(
+        entry.state.group.id,
+        'failed',
+        (outcome && outcome.message) || 'Paperless-ngx refused it'
+      );
+    }
   }
+  drawApplyBar(entries.length, entries.length);
 
   const summary =
     `Merged ${merged} ${plural(merged, 'group', 'groups')}, ` +
@@ -2543,15 +2651,21 @@ async function runBatch(entries, copyMatchingRule) {
   toast(summary, { tone: failed > 0 ? 'danger' : 'ok' });
   merging = false;
   setSelectionBusy(false);
+  finishApply(summary);
   setSelectionProgress(summary);
   // What the batch left behind: the merged groups are gone from the selection,
   // a group that failed is still in it and can be tried again.
   updateSelectionBar();
   // The one reload of the whole batch; nothing else on the page is refetched.
   loadLog(true);
+  // The plan is a reading of the cards, and the cards have just changed.
+  renderPlan();
   window.setTimeout(() => {
     setSelectionProgress('');
     updateSelectionBar();
+    // A batch that went through leaves no checklist behind; one that did not
+    // keeps its failed rows and the button that tries them again.
+    if (failed === 0) closeApply();
   }, SELECTION_SUMMARY_MS);
 }
 
@@ -2594,6 +2708,17 @@ async function mergeSelected() {
     cancelLabel: 'Cancel',
     tone: 'danger',
   });
+  // The button carries what pressing it writes, on its second line.
+  const documents = entries.reduce(
+    (sum, entry) => sum + countDocuments(entry.sources),
+    0
+  );
+  const deleted = entries.reduce((sum, entry) => sum + entry.sources.length, 0);
+  setDialogPrimary(
+    lastDialog(),
+    'Merge all',
+    `${documents} ${plural(documents, 'document', 'documents')} rewritten · ${deleted} ${plural(deleted, 'deletion', 'deletions')} · no model asked · one Undo each`
+  );
   const copyMatchingRule = copyRuleAnswer('dupCopyRuleAll');
   if (!(await answer)) return;
 
@@ -3029,6 +3154,9 @@ async function runAiProposal() {
   if (!el.aiProposalBtn || scanning || aiReviewing || merging || proposing) {
     return;
   }
+  // The same dialog the button beside it opens: what the run does, what it
+  // costs, what it changes, and the levers that make it cheaper.
+  if (!(await confirmRun('Scan and ask the AI'))) return;
   setProposalBusy(true);
   clearAiNotice();
   try {
@@ -3235,6 +3363,7 @@ function manualRender() {
   el.manualMerge.title = locked
     ? 'The API token may not change every entry you picked'
     : '';
+  updateManualConsequence();
 }
 
 function setManualBusy(busy) {
@@ -3568,6 +3697,7 @@ function updateUnusedSummary() {
 }
 
 function updateUnusedButton() {
+  updateUnusedConsequence();
   if (!el.unusedDelete) return;
   const picked = unusedPicked().length;
   el.unusedDelete.disabled = deletingUnused || picked === 0;
@@ -3593,6 +3723,7 @@ function renderUnused(data) {
   el.unused.classList.remove('hidden');
   updateUnusedSummary();
   updateUnusedButton();
+  renderPlan();
 }
 
 function setUnusedBusy(busy) {
@@ -4109,6 +4240,1922 @@ async function restoreDismissal(id, row) {
   }
 }
 
+/* --- the plan: a scan read as four baskets -------------------------------- */
+/* A scan of a grown archive answers with dozens of groups that all look the
+   same in a table. The plan is the same answer read out loud: what is plainly
+   the same thing, what the model confirmed, what it could not settle without
+   a word from the user, and what carries no document at all. Every line is a
+   sentence with the numbers in it, and every button on it delegates to the
+   card the scan already built — the plan is a way of reading the result, not
+   a second copy of it. */
+
+/** At or above this a pair is the same thing whatever a model would say. */
+const PLAIN_SCORE = 0.95;
+
+/** The four baskets, in the order they are read. */
+const BASKET_PLAIN = 'plain';
+const BASKET_SAME = 'same';
+const BASKET_ASK = 'ask';
+
+/**
+ * Warnings that are a question rather than a note. An inbox tag and a large
+ * group are things to know about a merge; these four are things only the user
+ * can decide, so a group carrying one of them goes into the ask basket
+ * however well it scored.
+ */
+const ASK_WARNINGS = [
+  'has-matching-rule',
+  'configured-tag',
+  'no-permission',
+  'owner-differs',
+];
+
+/**
+ * What the rule the model named means, as half a sentence. The keys are the
+ * contract (AiVerdict.basis in schemas.js); the wording belongs to this page.
+ */
+const AI_BASIS_PHRASES = {
+  'case-or-spacing': 'same word, different case',
+  umlaut: 'one spelling writes the umlaut out',
+  'legal-form': 'the legal form is the only difference',
+  plural: 'singular and plural of the same word',
+  abbreviation: 'the long form and its abbreviation',
+  translation: 'the same thing in two languages',
+  synonym: 'two words for the same thing',
+  typo: 'one of them is a typo',
+  'different-thing': 'two different things',
+  'different-topic': 'two different topics',
+  'insufficient-evidence': 'not enough to go on',
+};
+
+/** The same, for what the string matcher saw when no model was asked. */
+const REASON_PHRASES = {
+  'exact-normalized': 'the same name',
+  'umlaut-variant': 'an umlaut spelled two ways',
+  'legal-form': 'the legal form is the only difference',
+  plural: 'singular and plural',
+  'token-order': 'the same words in another order',
+  prefix: 'one name is how the other one starts',
+  fuzzy: 'the spellings are close',
+  semantic: 'the model looked past the spelling',
+};
+
+/** What the last finished review cost, for the ledger of the header card. */
+let lastRunProgress = null;
+/** The `aiReview` block of the last answer, or null after a plain scan. */
+let lastRunReview = null;
+/** The totals of the last scan, for the one sentence above the baskets. */
+let lastScanTotals = null;
+
+/**
+ * Which basket a group belongs in. The first match wins, and the ask basket
+ * is the floor: a group nothing settled is a question, never a proposal that
+ * slips through because no rule named it.
+ *
+ * Pure on purpose — tests/test-duplicates-assistant-ui.js evaluates it.
+ *
+ * @param {object} state  a registered group state
+ * @returns {string} one of the three basket names, or '' for a group the
+ *   model called apart, which stays as it is and is in no basket at all
+ */
+function planBasketOf(state) {
+  const group = (state && state.group) || {};
+  const verdict = group.aiVerdict;
+  const value = verdict ? String(verdict.verdict) : '';
+  if (value === 'different') return '';
+  const warnings = Array.isArray(group.warnings) ? group.warnings : [];
+  if (
+    value === 'unsure' ||
+    warnings.some((warning) => ASK_WARNINGS.includes(warning))
+  ) {
+    return BASKET_ASK;
+  }
+  const reasons = Array.isArray(group.reasons) ? group.reasons : [];
+  const plain =
+    reasons.includes('exact-normalized') ||
+    num(group.confidence) >= PLAIN_SCORE;
+  if (plain) return BASKET_PLAIN;
+  if (value === 'same') {
+    // A pair the model confirmed below the sensitivity is still a pair the
+    // scan would not have proposed; only a sure "same" carries it alone.
+    return isSureSame(verdict) || num(group.confidence) >= currentThreshold()
+      ? BASKET_SAME
+      : BASKET_ASK;
+  }
+  return BASKET_ASK;
+}
+
+/** The cards of the page sorted into their baskets, in the order they stand. */
+function planBuckets() {
+  const buckets = { plain: [], same: [], ask: [], apart: [] };
+  eachGroupCard((card, state) => {
+    if (selectBlockReason(card, state) !== '') return;
+    const basket = planBasketOf(state);
+    if (basket === '') buckets.apart.push(state);
+    else buckets[basket].push(state);
+  });
+  return buckets;
+}
+
+/** Everything the plan proposes without asking anything: plain plus same. */
+function planObvious() {
+  const buckets = planBuckets();
+  return [...buckets.plain, ...buckets.same];
+}
+
+/** Documents that move when this group is merged as it stands. */
+function planMovingDocuments(state) {
+  return countDocuments(selectedSources(state));
+}
+
+/** Why this group is proposed, as half a sentence. */
+function planPhrase(state) {
+  const group = state.group;
+  const basis = group.aiVerdict ? String(group.aiVerdict.basis) : '';
+  if (AI_BASIS_PHRASES[basis]) return AI_BASIS_PHRASES[basis];
+  const reasons = Array.isArray(group.reasons) ? group.reasons : [];
+  const named = reasons.find((reason) => REASON_PHRASES[reason]);
+  if (named) return REASON_PHRASES[named];
+  return `${pct(group.confidence)} % of the spelling in common`;
+}
+
+/** Why this group is a question rather than a proposal. */
+function planQuestion(state) {
+  const group = state.group;
+  const warnings = Array.isArray(group.warnings) ? group.warnings : [];
+  if (warnings.includes('has-matching-rule')) {
+    return 'one of them carries a matching rule the survivor does not';
+  }
+  if (warnings.includes('no-permission')) {
+    return 'the API token may not change every object here';
+  }
+  if (warnings.includes('configured-tag')) {
+    return 'one of these tags is named in the Zettelrobbe settings';
+  }
+  if (warnings.includes('owner-differs')) {
+    return 'they belong to different owners in Paperless-ngx';
+  }
+  const verdict = group.aiVerdict;
+  if (verdict && String(verdict.verdict) === 'unsure') {
+    const said = shortReason(verdict.reason);
+    return said === '' ? 'the model was unsure' : said;
+  }
+  const percent = pct(group.confidence);
+  const floor = Math.round(currentThreshold() * 100);
+  if (percent < floor) {
+    return `only ${percent} % alike, under your ${floor} %`;
+  }
+  return `${percent} % alike, and nothing settled it`;
+}
+
+/** The names a merge would fold away, bold, as one phrase. */
+function htmlPlanSources(state) {
+  return selectedSources(state)
+    .map(
+      (member) =>
+        `<strong>${esc(String(member.name == null ? '' : member.name))}</strong>`
+    )
+    .join(', ');
+}
+
+/** The name that survives, bold. */
+function htmlPlanTarget(state) {
+  const target = memberOf(state, state.targetId);
+  const name = target ? String(target.name == null ? '' : target.name) : '';
+  return `<strong>${esc(name)}</strong>`;
+}
+
+/**
+ * One proposal as a sentence: what is folded into what, how many documents
+ * move out of how many, and why.
+ */
+function htmlPlanLine(state) {
+  const moving = planMovingDocuments(state);
+  const total = groupDocuments(state);
+  const htmlSources = htmlPlanSources(state);
+  const htmlTarget = htmlPlanTarget(state);
+  const aside = `${moving} of ${total} ${plural(total, 'document', 'documents')} move, ${planPhrase(state)}`;
+  return `<div class="zr-basket__line" data-group-id="${esc(state.group.id)}">
+      <p class="zr-basket__sentence">${htmlSources} folded into ${htmlTarget} — <span class="zr-basket__aside">${esc(aside)}</span></p>
+      <button type="button" class="zr-btn zr-btn--ghost dup-basket-drop" data-group-id="${esc(state.group.id)}">Not the same</button>
+    </div>`;
+}
+
+/** One question, with the two or three answers that settle it. */
+function htmlPlanQuestion(state) {
+  const target = memberOf(state, state.targetId);
+  const targetName = target
+    ? String(target.name == null ? '' : target.name)
+    : '';
+  const moving = planMovingDocuments(state);
+  const sources = selectedSources(state);
+  const htmlSources = htmlPlanSources(state);
+  const htmlTarget = htmlPlanTarget(state);
+  const aside = `${moving} ${plural(moving, 'document', 'documents')} would move — ${planQuestion(state)}`;
+  const writes = `${moving} ${plural(moving, 'document', 'documents')} · ${sources.length} ${plural(sources.length, 'deletion', 'deletions')} · undoable`;
+  return `<div class="zr-basket__question" data-group-id="${esc(state.group.id)}">
+      <p class="zr-basket__sentence">${htmlSources} or ${htmlTarget}? <span class="zr-basket__aside">${esc(aside)}</span></p>
+      <div class="zr-basket__choices">
+        <button type="button" class="zr-btn zr-btn--stacked dup-basket-fold" data-group-id="${esc(state.group.id)}">Fold into ${esc(targetName)}<span class="zr-btn__sub">${esc(writes)}</span></button>
+        <button type="button" class="zr-btn zr-btn--stacked dup-basket-keep" data-group-id="${esc(state.group.id)}">Keep both<span class="zr-btn__sub">nothing is written in Paperless-ngx</span></button>
+        <button type="button" class="zr-btn zr-btn--ghost dup-basket-look" data-group-id="${esc(state.group.id)}">Look at it</button>
+      </div>
+    </div>`;
+}
+
+/**
+ * One basket. `htmlBody` is already-escaped markup; an empty basket keeps its
+ * heading and says so, because "nothing in here" is an answer and a basket
+ * that disappeared would read as a basket nobody looked in.
+ */
+function htmlBasket(options) {
+  const htmlMark = options.htmlMark;
+  const htmlAction = options.htmlAction || '';
+  const htmlBody = options.htmlBody || '';
+  const toneClass = options.empty
+    ? ' zr-basket--quiet'
+    : options.ask
+      ? ' zr-basket--ask'
+      : '';
+  const hiddenClass = options.collapsed ? ' hidden' : '';
+  return `<section class="zr-basket${esc(toneClass)} dup-basket" data-basket="${esc(options.name)}">
+      <div class="zr-basket__head">
+        <span class="zr-basket__mark ${esc(options.mark)}">${htmlMark}</span>
+        <span class="zr-basket__titles">
+          <span class="zr-basket__title">${esc(options.title)}</span>
+          <span class="zr-basket__note">${esc(options.note)}</span>
+        </span>
+        ${htmlAction}
+      </div>
+      <div class="zr-basket__body dup-basket__body${esc(hiddenClass)}" data-basket-body="${esc(options.name)}">${htmlBody}</div>
+    </section>`;
+}
+
+/** "The same thing, plainly" — collapsed, because there is nothing to weigh. */
+function htmlBasketPlain(states) {
+  const count = states.length;
+  const htmlAction =
+    count > 0
+      ? `<button type="button" class="zr-btn zr-btn--ghost dup-basket-toggle" data-basket="${esc(BASKET_PLAIN)}" aria-expanded="false">Show them</button>`
+      : '';
+  return htmlBasket({
+    name: BASKET_PLAIN,
+    mark: 'zr-basket__mark--ok',
+    htmlMark: htmlPlanMarks.ok,
+    title: `The same thing, plainly — ${count} ${plural(count, 'group', 'groups')}`,
+    note:
+      count === 0
+        ? 'Nothing was that clear this time.'
+        : 'Same name, or all but identical. There is nothing here to weigh up.',
+    empty: count === 0,
+    collapsed: true,
+    htmlAction,
+    htmlBody: states.map(htmlPlanLine).join(''),
+  });
+}
+
+/** "The model says it is the same" — expanded, one sentence per group. */
+function htmlBasketSame(states) {
+  const count = states.length;
+  const note =
+    count === 0
+      ? aiReviewOffered()
+        ? 'The model has confirmed nothing here yet.'
+        : 'No model is configured, so nothing is confirmed by one.'
+      : 'It said why. Drop any line you disagree with.';
+  return htmlBasket({
+    name: BASKET_SAME,
+    mark: 'zr-basket__mark--ok',
+    htmlMark: htmlPlanMarks.wand,
+    title: `The model says it is the same — ${count} ${plural(count, 'group', 'groups')}`,
+    note,
+    empty: count === 0,
+    htmlBody: states.map(htmlPlanLine).join(''),
+  });
+}
+
+/** "I need a word from you" — the amber basket, one question per group. */
+function htmlBasketAsk(states) {
+  const count = states.length;
+  const htmlAction =
+    count > 0
+      ? `<button type="button" class="zr-btn dup-basket-walk">Walk me through them</button>`
+      : '';
+  return htmlBasket({
+    name: BASKET_ASK,
+    mark: 'zr-basket__mark--ask',
+    htmlMark: htmlPlanMarks.ask,
+    title: `I need a word from you — ${count} ${plural(count, 'group', 'groups')}`,
+    note:
+      count === 0
+        ? 'Nothing is waiting on you.'
+        : 'Too close to call from the spelling alone, or something about them needs deciding.',
+    ask: count > 0,
+    empty: count === 0,
+    htmlAction,
+    htmlBody: states.map(htmlPlanQuestion).join(''),
+  });
+}
+
+/** "Leftovers" — the unused objects, written as one line over the old table. */
+function htmlBasketLeftovers() {
+  const entries = Array.isArray(unusedEntries) ? unusedEntries : [];
+  const count = entries.length;
+  const tags = entries.filter(
+    (entry) => normalizeKind(entry.kind) === 'tags'
+  ).length;
+  const correspondents = count - tags;
+  const htmlAction =
+    count > 0
+      ? `<button type="button" class="zr-btn zr-btn--ghost dup-basket-unused">Open the list</button>`
+      : '';
+  const sentence = `${tags} ${plural(tags, 'tag', 'tags')} and ${correspondents} ${plural(correspondents, 'correspondent', 'correspondents')} carry no document at all, so they are duplicates of nothing. Deleting them is logged below and can be undone; the re-created objects get new ids.`;
+  const htmlBody =
+    count === 0
+      ? ''
+      : `<div class="zr-basket__line">
+          <p class="zr-basket__sentence">${esc(sentence)}</p>
+        </div>`;
+  return htmlBasket({
+    name: 'leftovers',
+    mark: '',
+    htmlMark: htmlPlanMarks.leftovers,
+    title: `Leftovers — ${count} ${plural(count, 'object', 'objects')}`,
+    note:
+      count === 0
+        ? 'Every object the scan looked at carries at least one document.'
+        : 'Not duplicates of anything — just nothing left using them.',
+    empty: count === 0,
+    htmlAction,
+    htmlBody,
+  });
+}
+
+/** The marks the four baskets wear. */
+const htmlPlanMarks = {
+  ok: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>',
+  wand: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>',
+  ask: '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>',
+  leftovers:
+    '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-inbox"/></svg>',
+  arrow:
+    '<svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-arrow-left"/></svg>',
+  free: '<svg class="zr-icon zr-icon--sm zr-consequence__icon" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>',
+  cost: '<svg class="zr-icon zr-icon--sm zr-consequence__icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>',
+  running:
+    '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>',
+  waiting:
+    '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-clock"/></svg>',
+  failed:
+    '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>',
+};
+
+/** The one sentence above the baskets: what was looked at and what came back. */
+function planSentenceText(buckets) {
+  const totals = lastScanTotals || {};
+  const looked = [];
+  if (totals.tags != null) {
+    looked.push(
+      `${num(totals.tags)} ${plural(num(totals.tags), 'tag', 'tags')}`
+    );
+  }
+  if (totals.correspondents != null) {
+    looked.push(
+      `${num(totals.correspondents)} ${plural(num(totals.correspondents), 'correspondent', 'correspondents')}`
+    );
+  }
+  const proposals = buckets.plain.length + buckets.same.length;
+  const opening =
+    looked.length > 0
+      ? `I looked at ${looked.join(' and ')}.`
+      : 'I looked at what you asked for.';
+  const middle = `${proposals} ${plural(proposals, 'group is', 'groups are')} ready to merge, ${buckets.ask.length} ${plural(buckets.ask.length, 'needs', 'need')} a word from you`;
+  const apart =
+    buckets.apart.length > 0
+      ? `, and ${buckets.apart.length} ${plural(buckets.apart.length, 'group the model called apart stays', 'groups the model called apart stay')} as ${plural(buckets.apart.length, 'it is', 'they are')}`
+      : '';
+  return `${opening} ${middle}${apart}.`;
+}
+
+/**
+ * The three segments of a token bar, as widths in percent. They are data, not
+ * theme, which is why they are set inline rather than through a class.
+ */
+function drawTokenbar(parts, prompt, completion, thinking) {
+  if (!parts.bar) return;
+  const total = num(prompt) + num(completion) + num(thinking);
+  if (total <= 0) {
+    parts.bar.classList.add('hidden');
+    return;
+  }
+  parts.bar.classList.remove('hidden');
+  const share = (value) => `${Math.round((num(value) / total) * 100)}%`;
+  if (parts.prompt) parts.prompt.style.width = share(prompt);
+  if (parts.answer) parts.answer.style.width = share(completion);
+  if (parts.thinking) parts.thinking.style.width = share(thinking);
+  if (!parts.legend) return;
+  parts.legend.innerHTML = `<span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>${esc(formatTokens(prompt))} question</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>${esc(formatTokens(completion))} answer</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>${esc(formatTokens(thinking))} thinking</span>`;
+}
+
+/** One row of a ledger: the number, then what it is. */
+function htmlLedgerItem(value, label, quiet) {
+  const quietClass = quiet ? ' zr-ledger__value--quiet' : '';
+  return `<span class="zr-ledger__item"><span class="zr-ledger__value${esc(quietClass)}">${esc(value)}</span> ${esc(label)}</span>`;
+}
+
+/** A number of seconds the way a person says it. */
+function formatSeconds(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (total < 60) return `${total} s`;
+  if (total < 3600) return `${Math.max(1, Math.round(total / 60))} min`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.round((total % 3600) / 60);
+  return `${hours} h ${minutes} min`;
+}
+
+/**
+ * The ledger of the header card: what the last review cost. A page that has
+ * asked nothing yet says so rather than showing four zeros that look like a
+ * measurement of something.
+ */
+function renderPlanLedger() {
+  if (!el.planLedger) return;
+  const review = lastRunReview;
+  const progress = lastRunProgress || {};
+  if (!review) {
+    el.planLedger.innerHTML = `<span class="zr-ledger__item">${esc('No model has been asked about this scan — the numbers below come from the name matcher alone.')}</span>`;
+    drawTokenbar(planTokenParts(), 0, 0, 0);
+    return;
+  }
+  const tokens = num(review.tokens);
+  const seconds = Math.round(num(progress.elapsedMs) / 1000);
+  el.planLedger.innerHTML = [
+    htmlLedgerItem(String(num(review.requests)), 'requests', false),
+    htmlLedgerItem(formatTokens(tokens), 'tokens', false),
+    htmlLedgerItem(formatSeconds(seconds), 'spent', false),
+    htmlLedgerItem('0', 'writes', true),
+  ].join('');
+  drawTokenbar(
+    planTokenParts(),
+    progress.promptTokens,
+    progress.completionTokens,
+    progress.thinkingTotal
+  );
+}
+
+/** The elements of the header card's token bar, as drawTokenbar wants them. */
+function planTokenParts() {
+  return {
+    bar: el.planTokenbar,
+    prompt: el.planSegPrompt,
+    answer: el.planSegAnswer,
+    thinking: el.planSegThinking,
+    legend: el.planLegend,
+  };
+}
+
+/** The three buttons of the header card, with what pressing each one costs. */
+function updatePlanButtons(buckets) {
+  const obvious = buckets.plain.length + buckets.same.length;
+  if (el.planApplyBtn) {
+    const states = planObvious();
+    const documents = states.reduce(
+      (sum, state) => sum + planMovingDocuments(state),
+      0
+    );
+    const deletions = states.reduce(
+      (sum, state) => sum + selectedSources(state).length,
+      0
+    );
+    el.planApplyBtn.classList.toggle('hidden', obvious === 0);
+    el.planApplyBtn.disabled = merging || proposing;
+    if (el.planApplyLabel) {
+      el.planApplyLabel.textContent = `Merge the ${obvious} agreed ${plural(obvious, 'one', 'ones')}`;
+    }
+    if (el.planApplySub) {
+      el.planApplySub.textContent = `${documents} ${plural(documents, 'document', 'documents')} rewritten · ${deletions} ${plural(deletions, 'deletion', 'deletions')} · no model asked · one Undo each`;
+    }
+  }
+  if (el.planStackBtn) {
+    el.planStackBtn.classList.toggle('hidden', buckets.ask.length === 0);
+    if (el.planStackLabel) {
+      el.planStackLabel.textContent = `Walk me through the ${buckets.ask.length}`;
+    }
+    if (el.planStackSub) {
+      el.planStackSub.textContent =
+        'one pair per screen · no model, no writing';
+    }
+  }
+  if (el.planAskBtn) {
+    const pairs = reviewPairCount();
+    el.planAskBtn.classList.remove('hidden');
+    el.planAskBtn.disabled = scanning || aiReviewing || merging || proposing;
+    if (el.planAskLabel) {
+      el.planAskLabel.textContent = `Ask the AI about ${pairs} ${plural(pairs, 'pair', 'pairs')}`;
+    }
+    if (el.planAskSub) {
+      el.planAskSub.textContent =
+        'tokens, no writes — the dialog says what it costs first';
+    }
+  }
+}
+
+/** Draws the plan from the cards on the page. */
+function renderPlan() {
+  if (!el.plan || !el.baskets) return;
+  if (groups.size === 0 && unusedEntries.length === 0) {
+    el.plan.classList.add('hidden');
+    showEverything(true);
+    return;
+  }
+  const buckets = planBuckets();
+  el.plan.classList.remove('hidden');
+  if (el.planSentence) {
+    el.planSentence.textContent = planSentenceText(buckets);
+  }
+  el.baskets.innerHTML = [
+    htmlBasketPlain(buckets.plain),
+    htmlBasketSame(buckets.same),
+    htmlBasketAsk(buckets.ask),
+    htmlBasketLeftovers(),
+  ].join('');
+  renderPlanLedger();
+  updatePlanButtons(buckets);
+}
+
+/** Shows or folds away the full card list, the toolbar and the selection bar. */
+function showEverything(visible) {
+  if (!el.everything) return;
+  el.everything.classList.toggle('hidden', !visible);
+  if (el.showAllBtn) {
+    el.showAllBtn.setAttribute('aria-expanded', visible ? 'true' : 'false');
+  }
+  if (el.showAllLabel) {
+    el.showAllLabel.textContent = visible
+      ? 'Hide the full list'
+      : 'Show every group';
+  }
+}
+
+/** The card behind a group id, or null when it has been merged away. */
+function cardFor(groupId) {
+  let found = null;
+  eachGroupCard((card) => {
+    if (card.dataset.groupId === String(groupId)) found = card;
+  });
+  return found;
+}
+
+/** Both halves of a group the plan acts on, or null when it is gone. */
+function planEntry(groupId) {
+  const state = groups.get(String(groupId));
+  const card = cardFor(groupId);
+  return state && card ? { state, card } : null;
+}
+
+/** Folds one group in from a basket, through the card the scan built. */
+async function planFold(groupId) {
+  const entry = planEntry(groupId);
+  if (!entry) return;
+  await mergeGroup(entry.card, entry.state);
+  renderPlan();
+}
+
+/** Drops one group out of the plan: the pair is hidden, nothing is merged. */
+async function planDrop(groupId) {
+  const entry = planEntry(groupId);
+  if (!entry) return;
+  await dismissGroup(entry.card, entry.state);
+  renderPlan();
+}
+
+/* --- the stack: one pair per screen --------------------------------------- */
+/* The ask basket is a list of questions, and a list of questions is a list
+   nobody answers. The stack asks them one at a time: two sides, the evidence
+   under each name, what the model said, what pressing each button writes, and
+   the three keys that do the same. It is a mode of this page, not a second
+   page — the cards behind it never move, and every decision goes through the
+   same merge request and the same log as a card would. */
+
+/** Document titles a decision card shows per side, when the review fetched any. */
+const DECISION_SAMPLES = 3;
+
+const stack = {
+  /** Group ids still to decide, in the order they were handed over. */
+  ids: [],
+  /** How far through the ids we are; equal to ids.length when it is done. */
+  index: 0,
+  /** What has been decided, newest last, so the last one can be taken back. */
+  decisions: [],
+  tally: { merged: 0, kept: 0, later: 0 },
+  /** True while one decision is being written; the card is inert meanwhile. */
+  busy: false,
+  /** The pairs that were put off, so "decide later" comes round again. */
+  later: [],
+};
+
+/** The group the stack is asking about right now, or null when it is done. */
+function stackState() {
+  const id = stack.ids[stack.index];
+  return id === undefined ? null : groups.get(String(id)) || null;
+}
+
+/** What a member has to say for itself: its documents and its matching rule. */
+function memberMetaText(member) {
+  const count = num(member.documentCount);
+  const algorithm = num(member.matchingAlgorithm);
+  const match = String(member.match == null ? '' : member.match).trim();
+  const rule =
+    algorithm === 0 || match === ''
+      ? 'no matching rule'
+      : `rule: ${ALGORITHM_LABELS[algorithm] || 'none'} “${match}”`;
+  return `${count} ${plural(count, 'document', 'documents')} · ${rule}`;
+}
+
+/** Up to three recent document titles, when the review fetched any. */
+function htmlDecisionSamples(member) {
+  const titles = Array.isArray(member.sampleTitles) ? member.sampleTitles : [];
+  if (titles.length === 0) return '';
+  const htmlRows = titles
+    .slice(0, DECISION_SAMPLES)
+    .map((title) => `<li>${esc(String(title == null ? '' : title))}</li>`)
+    .join('');
+  return `<ul class="zr-decision__samples">${htmlRows}</ul>`;
+}
+
+/** One side of a decision: what stays, or what goes away. */
+function htmlDecisionSide(member, from) {
+  const sideClass = from ? ' zr-decision__side--from' : '';
+  const nameClass = from ? ' zr-decision__name--from' : '';
+  const name = String(member.name == null ? '' : member.name);
+  return `<div class="zr-decision__side${esc(sideClass)}">
+      <div class="zr-decision__label">${esc(from ? 'GOES AWAY' : 'STAYS')}</div>
+      <div class="zr-decision__name${esc(nameClass)}">${esc(name)}</div>
+      <div class="zr-decision__meta">${esc(memberMetaText(member))}</div>
+      ${htmlDecisionSamples(member)}
+    </div>`;
+}
+
+/** The kind, how it was found and how alike the two names are. */
+function htmlDecisionHead(state) {
+  const group = state.group;
+  const kind = normalizeKind(group.kind);
+  const htmlReasons = (Array.isArray(group.reasons) ? group.reasons : [])
+    .map(
+      (reason) =>
+        `<span class="zr-badge">${esc(REASON_LABELS[reason] || reason)}</span>`
+    )
+    .join('');
+  const htmlCandidate =
+    group.source === AI_CANDIDATE_SOURCE
+      ? '<span class="zr-badge zr-badge--info">Found by the model</span>'
+      : '';
+  return `<div class="zr-decision__head">
+      <span class="zr-badge zr-badge--brand">${htmlIcons[kind]}${esc(KIND_LABELS[kind])}</span>
+      ${htmlReasons}${htmlCandidate}${htmlVerdictChip(group.aiVerdict)}
+      <span class="zr-badge">${pct(group.confidence)} % alike</span>
+    </div>`;
+}
+
+/**
+ * The per-member ticks a group of more than two members keeps inside its
+ * card: the target stays choosable and a member can be left out of the merge
+ * without leaving the stack.
+ */
+function htmlDecisionMembers(state) {
+  const members = Array.isArray(state.group.members) ? state.group.members : [];
+  if (members.length <= 2) return '';
+  const htmlRows = members
+    .map((member) => {
+      const id = num(member.id);
+      const isTarget = id === state.targetId;
+      const htmlTargetChecked = isTarget ? ' checked' : '';
+      const htmlSourceChecked = state.selected.has(id) ? ' checked' : '';
+      const name = String(member.name == null ? '' : member.name);
+      const htmlMerge = isTarget
+        ? '<span class="zr-faint">–</span>'
+        : `<input type="checkbox" class="zr-check dup-stack-source" value="${num(id)}"${htmlSourceChecked} aria-label="Merge ${esc(name)} away">`;
+      return `<li class="dup-decision__member">
+          <input type="radio" class="zr-check dup-stack-target" name="dupStackTarget" value="${num(id)}"${htmlTargetChecked} aria-label="Keep ${esc(name)}">
+          ${htmlMerge}
+          <span class="zr-truncate dup-decision__membername" title="${esc(name)}">${esc(name)}</span>
+          <span class="zr-sm zr-faint zr-mono">${num(member.documentCount)}</span>
+        </li>`;
+    })
+    .join('');
+  return `<div class="dup-decision__members">
+      <span class="zr-label">${esc(`All ${members.length} in this group — keep, merge away`)}</span>
+      <ul class="dup-decision__memberlist">${htmlRows}</ul>
+    </div>`;
+}
+
+/** The amber offer to hand the survivor the matching rule it does not have. */
+function htmlDecisionCopy(state, target) {
+  if (!groupOffersCopy(state, target)) return '';
+  const name = String(target.name == null ? '' : target.name);
+  return `<label class="dup-decision__copy">
+      <input type="checkbox" class="zr-check dup-stack-copy" checked>
+      <span>${esc(`Copy the matching rule over to ${name}, so the documents it catches keep being caught`)}</span>
+    </label>`;
+}
+
+/** What merging this group writes, in one sentence above the buttons. */
+function decisionConsequenceText(state, target, copies) {
+  const kind = normalizeKind(state.group.kind);
+  const sources = selectedSources(state);
+  const documents = countDocuments(sources);
+  const rule = copies ? ', copies the matching rule over' : '';
+  const deleted = `${sources.length} ${plural(sources.length, KIND_LABELS[kind].toLowerCase(), KIND_PLURALS[kind])}`;
+  return `Merging rewrites ${documents} ${plural(documents, 'document', 'documents')} in Paperless-ngx${rule} and deletes ${deleted}. No model is asked. One Undo puts it all back.`;
+}
+
+/** The card of the stack: two sides, the evidence, the note and the buttons. */
+function htmlDecisionCard(state) {
+  const target = memberOf(state, state.targetId);
+  const sources = selectedSources(state);
+  if (!target || sources.length === 0) return '';
+  const verdict = state.group.aiVerdict;
+  const said = verdict ? shortReason(verdict.reason) : '';
+  const htmlNote =
+    said === '' ? '' : `<p class="zr-decision__note">${esc(said)}</p>`;
+  const offersCopy = groupOffersCopy(state, target);
+  const targetName = String(target.name == null ? '' : target.name);
+  const htmlAway = sources
+    .map((member) => htmlDecisionSide(member, true))
+    .join('');
+  return `<div class="zr-decision" data-group-id="${esc(state.group.id)}">
+      ${htmlDecisionHead(state)}
+      <div class="zr-decision__sides">
+        ${htmlDecisionSide(target, false)}
+        <div class="zr-decision__arrow">${htmlPlanMarks.arrow}</div>
+        ${htmlAway}
+      </div>
+      ${htmlDecisionMembers(state)}
+      ${htmlNote}
+      ${htmlDecisionCopy(state, target)}
+      <p class="zr-consequence dup-decision__consequence">${htmlPlanMarks.cost}<span>${esc(decisionConsequenceText(state, target, offersCopy))}</span></p>
+      <div class="zr-decision__actions">
+        <button type="button" class="zr-btn zr-btn--primary dup-stack-merge">${htmlIcons.merge}<span>${esc(`Merge into ${targetName}`)}</span></button>
+        <button type="button" class="zr-btn dup-stack-keep">Keep both</button>
+        <button type="button" class="zr-btn zr-btn--ghost dup-stack-later">Decide later</button>
+        <span class="zr-decision__keys">Enter · Esc · L</span>
+      </div>
+    </div>`;
+}
+
+/** What the stack says once every pair has had an answer. */
+function htmlStackDone() {
+  const tally = stack.tally;
+  const sentence = `${tally.merged} merged, ${tally.kept} kept apart, ${tally.later} put off.`;
+  return `<div class="zr-basket zr-basket--quiet dup-stack__done">
+      <div class="zr-basket__head">
+        <span class="zr-basket__mark zr-basket__mark--ok">${htmlPlanMarks.ok}</span>
+        <span class="zr-basket__titles">
+          <span class="zr-basket__title">Nothing left to ask</span>
+          <span class="zr-basket__note">${esc(sentence)}</span>
+        </span>
+      </div>
+    </div>`;
+}
+
+/** The one line a stack that has just undone something keeps above the card. */
+function htmlStackNotice(text) {
+  return `<p class="zr-consequence dup-stack__notice">${htmlPlanMarks.cost}<span>${esc(text)}</span></p>`;
+}
+
+function setStackBusy(busy) {
+  stack.busy = busy;
+  if (!el.stackCard) return;
+  el.stackCard.querySelectorAll('button, input').forEach((control) => {
+    control.disabled = busy;
+  });
+}
+
+/** The run bar of the stack: where we are, and the one bulk offer beside it. */
+function renderStackBar() {
+  const total = stack.ids.length;
+  const done = Math.min(stack.index, total);
+  const left = Math.max(0, total - done);
+  if (el.stackPosition) {
+    el.stackPosition.textContent =
+      left === 0
+        ? `All ${total} ${plural(total, 'pair', 'pairs')} answered`
+        : `Pair ${done + 1} of ${total}`;
+  }
+  if (el.stackFill) {
+    const share = total === 0 ? 0 : Math.round((done / total) * 100);
+    el.stackFill.style.width = `${share}%`;
+  }
+  if (el.stackRest) {
+    el.stackRest.textContent =
+      left === 0 ? '' : `${left} ${plural(left, 'is', 'are')} left`;
+  }
+  if (el.stackObviousBtn) {
+    const obvious = planObvious();
+    const documents = obvious.reduce(
+      (sum, state) => sum + planMovingDocuments(state),
+      0
+    );
+    el.stackObviousBtn.classList.toggle('hidden', obvious.length === 0);
+    el.stackObviousBtn.disabled = merging || stack.busy;
+    if (el.stackObviousLabel) {
+      el.stackObviousLabel.textContent = `Take the ${obvious.length} obvious ${plural(obvious.length, 'one', 'ones')} in one go`;
+    }
+    if (el.stackObviousSub) {
+      el.stackObviousSub.textContent = `${documents} ${plural(documents, 'document', 'documents')} rewritten · no model asked`;
+    }
+  }
+  if (el.stackTally) {
+    el.stackTally.textContent = `${stack.tally.merged} merged · ${stack.tally.kept} kept apart · ${stack.tally.later} put off`;
+  }
+  if (el.stackUndoBtn) {
+    el.stackUndoBtn.disabled = stack.decisions.length === 0 || stack.busy;
+  }
+}
+
+/** Draws the card the stack is on, or its closing line. */
+function renderStack(notice) {
+  if (!el.stack || !el.stackCard) return;
+  const htmlNotice = notice ? htmlStackNotice(notice) : '';
+  const state = stackState();
+  const htmlCard = state ? htmlDecisionCard(state) : htmlStackDone();
+  el.stackCard.innerHTML = `${htmlNotice}${htmlCard}`;
+  renderStackBar();
+}
+
+/** Opens the stack over the plan, on the pairs it was handed. */
+function openStack(ids) {
+  if (!el.stack) return;
+  stack.ids = ids.map((id) => String(id));
+  stack.index = 0;
+  stack.decisions = [];
+  stack.later = [];
+  stack.tally = { merged: 0, kept: 0, later: 0 };
+  el.stack.classList.remove('hidden');
+  renderStack('');
+  el.stack.focus();
+  el.stack.scrollIntoView({ block: 'start' });
+}
+
+function closeStack() {
+  if (!el.stack) return;
+  el.stack.classList.add('hidden');
+  renderPlan();
+}
+
+/** Moves on, and puts the pairs that were put off at the end of the queue. */
+function stackAdvance(notice) {
+  stack.index += 1;
+  if (stack.index >= stack.ids.length && stack.later.length > 0) {
+    stack.ids = stack.ids.concat(stack.later);
+    stack.later = [];
+  }
+  renderStack(notice || '');
+}
+
+/** The copy-rule answer of the card on screen. */
+function stackCopyAnswer() {
+  const check = el.stackCard
+    ? el.stackCard.querySelector('.dup-stack-copy')
+    : null;
+  return Boolean(check && check.checked);
+}
+
+/**
+ * Merge the pair on screen. The card is the confirmation — it named the
+ * documents, the deletions and the undo before the button existed — so the
+ * merge goes through the batch path of runMerge(), which asks nothing again.
+ */
+async function stackMerge() {
+  const state = stackState();
+  if (!state || stack.busy) return;
+  const entry = planEntry(state.group.id);
+  if (!entry) return;
+  const target = memberOf(state, state.targetId);
+  const sources = selectedSources(state);
+  if (!target || sources.length === 0) return;
+  let mergeId = null;
+  const outcome = await runMerge({
+    kind: normalizeKind(state.group.kind),
+    target,
+    sources,
+    offerCopy: groupOffersCopy(state, target),
+    batch: { copyMatchingRule: stackCopyAnswer() },
+    busy: (on) => setStackBusy(on),
+    result: (markup, status) => {
+      if (status === 'done') {
+        finishGroup(entry.card, markup);
+        return;
+      }
+      const holder = entry.card.querySelector('.dup-group__result');
+      if (holder) holder.innerHTML = markup;
+    },
+    done: (data) => {
+      mergeId = data && data.mergeId != null ? num(data.mergeId) : null;
+    },
+  });
+  setStackBusy(false);
+  if (!outcome || outcome.status !== 'done') {
+    toast((outcome && outcome.message) || 'The merge failed', {
+      tone: 'danger',
+    });
+    renderStack('');
+    return;
+  }
+  stack.tally.merged += 1;
+  stack.decisions.push({
+    action: 'merge',
+    groupId: String(state.group.id),
+    mergeId,
+  });
+  const moved = num(outcome.documentsMoved);
+  const name = String(target.name == null ? '' : target.name);
+  toast(
+    `Merged ${moved} ${plural(moved, 'document', 'documents')} into ${name}`,
+    { tone: 'ok' }
+  );
+  loadLog(true);
+  stackAdvance('');
+}
+
+/** Keep both: the pair is hidden from the next scan, nothing is merged. */
+async function stackKeep() {
+  const state = stackState();
+  if (!state || stack.busy) return;
+  const entry = planEntry(state.group.id);
+  if (!entry) return;
+  setStackBusy(true);
+  await dismissGroup(entry.card, state);
+  setStackBusy(false);
+  stack.tally.kept += 1;
+  stack.decisions.push({
+    action: 'keep',
+    groupId: String(state.group.id),
+    kind: normalizeKind(state.group.kind),
+    ids: (state.group.members || []).map((member) => num(member.id)),
+  });
+  stackAdvance('');
+}
+
+/** Decide later: the pair comes round again at the end of the queue. */
+function stackLater() {
+  const state = stackState();
+  if (!state || stack.busy) return;
+  stack.tally.later += 1;
+  stack.later.push(String(state.group.id));
+  stack.decisions.push({ action: 'later', groupId: String(state.group.id) });
+  stackAdvance('');
+}
+
+/**
+ * Takes the last decision back. A merge is undone in Paperless-ngx, which
+ * re-creates the objects with new ids — so that pair cannot simply be asked
+ * about again, and the stack says so instead of offering a card that would
+ * fail. A "keep both" and a "decide later" wrote nothing that cannot simply
+ * be put back.
+ */
+async function stackUndo() {
+  const decision = stack.decisions.pop();
+  if (!decision || stack.busy) {
+    renderStackBar();
+    return;
+  }
+  if (decision.action === 'later') {
+    stack.tally.later = Math.max(0, stack.tally.later - 1);
+    stack.later = stack.later.filter((id) => id !== decision.groupId);
+    stack.index = Math.max(0, stack.index - 1);
+    renderStack('');
+    return;
+  }
+  setStackBusy(true);
+  try {
+    if (decision.action === 'merge') {
+      if (decision.mergeId === null) {
+        throw new Error(
+          'This merge was not logged, so it cannot be undone here.'
+        );
+      }
+      const payload = await postJson(
+        `/api/duplicates/log/${num(decision.mergeId)}/undo`,
+        {}
+      );
+      if (!payload.success) {
+        throw new Error(payload.error || 'The undo failed.');
+      }
+      stack.tally.merged = Math.max(0, stack.tally.merged - 1);
+      loadLog(true);
+      toast(payload.message || 'The merge was undone', { tone: 'ok' });
+      renderStack(
+        'Undone — the objects are back in Paperless-ngx with new ids. Scan again to decide about them.'
+      );
+    } else {
+      await undoDismissal(decision.kind, decision.ids);
+      stack.tally.kept = Math.max(0, stack.tally.kept - 1);
+      stack.index = Math.max(0, stack.index - 1);
+      loadDismissals();
+      renderStack('');
+    }
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+    renderStack('');
+  } finally {
+    setStackBusy(false);
+  }
+}
+
+/**
+ * Un-hides every pair a "keep both" hid. The dismiss endpoint answers with a
+ * count rather than ids, so the rows are found again by the members they
+ * were written for.
+ *
+ * @param {string} kind
+ * @param {number[]} ids  the members of the group that was kept apart
+ */
+async function undoDismissal(kind, ids) {
+  const payload = await requestJson('/api/duplicates/dismissals');
+  const list = Array.isArray(payload.data) ? payload.data : [];
+  const wanted = new Set((ids || []).map((id) => num(id)));
+  const rows = list.filter(
+    (item) =>
+      normalizeKind(item.kind) === normalizeKind(kind) &&
+      wanted.has(num(item.idA)) &&
+      wanted.has(num(item.idB))
+  );
+  for (const row of rows) {
+    await requestJson(`/api/duplicates/dismissals/${num(row.id)}`, {
+      method: 'DELETE',
+    });
+  }
+}
+
+/** The keys of the stack, and the one place they are allowed to fire. */
+function stackKeydown(event) {
+  if (!el.stack || el.stack.classList.contains('hidden')) return;
+  if (stack.busy) return;
+  const target = event.target;
+  // A key pressed inside a field is that field's business, and a key on a
+  // button is the button's — the browser already clicks it.
+  if (target && target.closest('input, select, textarea, button, a')) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    stackMerge();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    stackKeep();
+  } else if (event.key === 'l' || event.key === 'L') {
+    event.preventDefault();
+    stackLater();
+  }
+}
+
+function initStack() {
+  if (!el.stack || !el.stackCard) return;
+
+  el.stackCard.addEventListener('click', (event) => {
+    if (event.target.closest('.dup-stack-merge')) stackMerge();
+    else if (event.target.closest('.dup-stack-keep')) stackKeep();
+    else if (event.target.closest('.dup-stack-later')) stackLater();
+  });
+
+  // The ticks of a group with more than two members: the target stays
+  // choosable, and the card is drawn again so both sides follow the choice.
+  el.stackCard.addEventListener('change', (event) => {
+    const state = stackState();
+    if (!state) return;
+    const input = event.target;
+    if (input.classList.contains('dup-stack-target')) {
+      const next = num(input.value);
+      state.selected.add(state.targetId);
+      state.selected.delete(next);
+      state.targetId = next;
+      const card = cardFor(state.group.id);
+      if (card) renderMembers(card, state);
+      renderStack('');
+      return;
+    }
+    if (input.classList.contains('dup-stack-source')) {
+      const id = num(input.value);
+      if (input.checked) state.selected.add(id);
+      else state.selected.delete(id);
+      const card = cardFor(state.group.id);
+      if (card) renderMembers(card, state);
+      renderStack('');
+    }
+  });
+
+  if (el.stackCloseBtn) el.stackCloseBtn.addEventListener('click', closeStack);
+  if (el.stackUndoBtn) el.stackUndoBtn.addEventListener('click', stackUndo);
+  if (el.stackObviousBtn) {
+    el.stackObviousBtn.addEventListener('click', () => mergeObvious());
+  }
+  el.stack.addEventListener('keydown', stackKeydown);
+}
+
+/* --- the cost layer ------------------------------------------------------- */
+/* Asking costs tokens; applying costs writes. The page said neither before,
+   so a run was "something is happening" and a merge was a button. Three
+   surfaces fix that: what a run will cost before it starts, what it has cost
+   while it runs, and what every button that writes will write. */
+
+/** The lanes the preflight offers. One is the safe default on a local model. */
+const RUN_LANE_OPTIONS = [1, 3, 5, 8];
+
+/* The round numbers the page falls back to while the estimate endpoint is
+   not there yet. They are the ones services/aiRunEstimate.js guesses with —
+   restated here because a browser cannot require a Node module — and a plan
+   built from them says `basis: 'guess'`, which is exactly what it is. */
+const GUESS_BATCH_SIZE = 25;
+const GUESS_PROMPT_BASE = 900;
+const GUESS_PROMPT_PER_ITEM = 18;
+const GUESS_TOKENS_PER_ITEM = 26;
+const GUESS_THINKING_PER_REQUEST = 1800;
+const GUESS_TOKENS_PER_SECOND = 45;
+/** Entities the sweep looks at per request when it is switched on. */
+const GUESS_SWEEP_BATCH = 60;
+
+/**
+ * What a run over the pairs on the page would cost, worked out here.
+ *
+ * This is the fallback half of the one seam in this file: the numbers come
+ * from the same arithmetic the server uses, but from none of its
+ * measurements, so `basis` is always 'guess' and the dialog says so in words.
+ *
+ * @param {{lanes:number, sweep:boolean, excerpts:boolean}} levers
+ * @returns {object} the shape of GET /api/duplicates/ai-review/estimate
+ */
+function localRunEstimate(levers) {
+  const pairs = reviewPairCount();
+  const size = GUESS_BATCH_SIZE;
+  const requests = Math.ceil(pairs / size);
+  const entities = [...groups.values()].reduce(
+    (sum, state) => sum + (state.group.members || []).length,
+    0
+  );
+  const sweepRequests = levers.sweep
+    ? Math.ceil(entities / GUESS_SWEEP_BATCH)
+    : 0;
+  const excerptReads = levers.excerpts ? entities : 0;
+  const all = requests + sweepRequests;
+  const prompt = (GUESS_PROMPT_BASE + GUESS_PROMPT_PER_ITEM * size) * all;
+  const completion = GUESS_TOKENS_PER_ITEM * size * all;
+  const thinking = GUESS_THINKING_PER_REQUEST * all;
+  const lanes = Math.max(1, num(levers.lanes) || 1);
+  const seconds = Math.round(
+    ((completion + thinking) / GUESS_TOKENS_PER_SECOND / Math.max(1, all)) *
+      (all / lanes)
+  );
+  return {
+    groups: groups.size,
+    pairs,
+    needsScan: !scanned,
+    items: pairs,
+    itemsByRule: 0,
+    batchSize: size,
+    lanes,
+    requests: all,
+    seconds,
+    tokens: {
+      total: prompt + completion + thinking,
+      prompt,
+      completion,
+      thinking,
+    },
+    basis: 'guess',
+    measuredAt: null,
+    model: null,
+    thinking: true,
+    extra: { sweepRequests, excerptReads },
+    lastRun: null,
+  };
+}
+
+/**
+ * What a run will cost, from the server where it can answer and from the
+ * arithmetic above where it cannot.
+ *
+ * The endpoint is built beside this page. Until it answers, this is the one
+ * function the seam runs through: nothing else on the page knows whether the
+ * numbers were measured or guessed, because everything reads `basis`.
+ *
+ * @param {object} levers  what the "Cheaper, if you want" block currently says
+ * @returns {Promise<object>} an estimate in the shape the brief fixed
+ */
+async function fetchRunEstimate(levers) {
+  const params = new URLSearchParams({
+    kind: selectedKind(),
+    threshold: String(currentThreshold()),
+    sweep: levers.sweep ? 'true' : 'false',
+    excerpts: levers.excerpts ? 'true' : 'false',
+    lanes: String(num(levers.lanes) || 1),
+  });
+  try {
+    const payload = await requestJson(
+      `/api/duplicates/ai-review/estimate?${params}`
+    );
+    if (payload && payload.success && payload.data) {
+      return { ...localRunEstimate(levers), ...payload.data };
+    }
+  } catch {
+    // No endpoint, no network, no answer: the page still has to be able to
+    // say what a run will roughly cost, and to say that it is a guess.
+  }
+  return localRunEstimate(levers);
+}
+
+/** Where the numbers come from, in one honest line. */
+function estimateBasisText(estimate) {
+  const when = estimate.measuredAt
+    ? ` Measured ${new Date(estimate.measuredAt).toLocaleString()}.`
+    : '';
+  if (estimate.basis === 'run') {
+    return `These are averages of a run of this very task that finished.${when}`;
+  }
+  if (estimate.basis === 'model') {
+    return `These come from what this model was measured at, not from a run of this task.${when}`;
+  }
+  return 'This is plainly a guess: nothing of this task has been measured yet, so it can be wrong by a factor.';
+}
+
+/** "What I actually do" — the steps of a run, each with its own price. */
+function htmlEstimateSteps(estimate, levers) {
+  const extra = estimate.extra || {};
+  const steps = [
+    {
+      what: 'Comparing the names',
+      cost: `${num(estimate.groups)} ${plural(estimate.groups, 'group', 'groups')} · no model, already done`,
+    },
+    {
+      what: 'Judging the near-misses',
+      cost: `${num(estimate.items)} ${plural(estimate.items, 'pair', 'pairs')} in ${num(estimate.requests)} ${plural(estimate.requests, 'request', 'requests')} · this is where the tokens go`,
+    },
+  ];
+  if (levers.excerpts) {
+    steps.push({
+      what: 'Reading excerpts where the spelling alone cannot decide',
+      cost: `${num(extra.excerptReads)} ${plural(extra.excerptReads, 'document read', 'document reads')} from Paperless-ngx · no model`,
+    });
+  }
+  if (levers.sweep) {
+    steps.push({
+      what: 'Looking at the whole list for synonyms and translations',
+      cost: `${num(extra.sweepRequests)} ${plural(extra.sweepRequests, 'request', 'requests')} of its own`,
+    });
+  }
+  const htmlRows = steps
+    .map(
+      (step) =>
+        `<div class="zr-reqlog__row"><span class="zr-reqlog__what">${esc(step.what)}</span><span class="zr-reqlog__cost">${esc(step.cost)}</span></div>`
+    )
+    .join('');
+  return `<div class="zr-reqlog dup-preflight__steps">${htmlRows}</div>`;
+}
+
+/** "What it costs" — the ledger, the split and the line about where it is from. */
+function htmlEstimateCost(estimate) {
+  const tokens = estimate.tokens || {};
+  const total = num(tokens.total);
+  const htmlLedger = [
+    htmlLedgerItem(String(num(estimate.requests)), 'requests', false),
+    htmlLedgerItem(formatTokens(total), 'tokens', false),
+    htmlLedgerItem(formatSeconds(estimate.seconds), 'about', false),
+    htmlLedgerItem('0', 'writes', true),
+  ].join('');
+  const share = (value) =>
+    total <= 0 ? '0%' : `${Math.round((num(value) / total) * 100)}%`;
+  const htmlBar = `<div class="zr-tokenbar dup-preflight__tokens">
+      <div class="zr-tokenbar__track">
+        <span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width:${esc(share(tokens.prompt))}"></span>
+        <span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width:${esc(share(tokens.completion))}"></span>
+        <span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width:${esc(share(tokens.thinking))}"></span>
+      </div>
+      <div class="zr-tokenbar__legend">
+        <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>${esc(formatTokens(tokens.prompt))} question</span>
+        <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>${esc(formatTokens(tokens.completion))} answer</span>
+        <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>${esc(formatTokens(tokens.thinking))} thinking</span>
+      </div>
+    </div>`;
+  return `<div class="zr-ledger dup-preflight__ledger">${htmlLedger}</div>${htmlBar}
+    <p class="zr-sm zr-faint dup-preflight__basis">${esc(estimateBasisText(estimate))}</p>`;
+}
+
+/** "Cheaper, if you want" — the levers, each with what it costs. */
+function htmlEstimateLevers(estimate, levers) {
+  const extra = estimate.extra || {};
+  const htmlSweepChecked = levers.sweep ? ' checked' : '';
+  const htmlExcerptsChecked = levers.excerpts ? ' checked' : '';
+  const htmlLanes = RUN_LANE_OPTIONS.map((lanes) => {
+    const htmlSelected = num(lanes) === num(levers.lanes) ? ' selected' : '';
+    return `<option value="${num(lanes)}"${htmlSelected}>${num(lanes)}</option>`;
+  }).join('');
+  const htmlSensitivity = [...(el.sensitivity ? el.sensitivity.options : [])]
+    .map((option) => {
+      // An attribute fragment, not a value: the "html" prefix is what marks
+      // it as already-safe markup for the escaping check.
+      const htmlSelected =
+        option.value === levers.sensitivity ? ' selected' : '';
+      return `<option value="${esc(option.value)}"${htmlSelected}>${esc(option.textContent)}</option>`;
+    })
+    .join('');
+  return `<label class="dup-preflight__lever">
+      <input type="checkbox" class="zr-check" id="dupRunSweep"${htmlSweepChecked}>
+      <span>Let the model look at the whole list for synonyms and translations<span class="zr-sm zr-faint dup-preflight__price">${esc(`${num(extra.sweepRequests)} more ${plural(extra.sweepRequests, 'request', 'requests')}`)}</span></span>
+    </label>
+    <label class="dup-preflight__lever">
+      <input type="checkbox" class="zr-check" id="dupRunExcerpts"${htmlExcerptsChecked}>
+      <span>Read document excerpts where the spelling alone cannot decide<span class="zr-sm zr-faint dup-preflight__price">${esc(`${num(extra.excerptReads)} ${plural(extra.excerptReads, 'document read', 'document reads')}, no model`)}</span></span>
+    </label>
+    <div class="dup-preflight__lever">
+      <label class="zr-label" for="dupRunSensitivity">Sensitivity</label>
+      <select class="zr-select" id="dupRunSensitivity">${htmlSensitivity}</select>
+    </div>
+    <div class="dup-preflight__lever">
+      <label class="zr-label" for="dupRunLanes">Requests at once</label>
+      <select class="zr-select" id="dupRunLanes">${htmlLanes}</select>
+      <span class="zr-sm zr-faint dup-preflight__price">More lanes finish sooner and cost the same.</span>
+    </div>`;
+}
+
+/** The whole preflight body: three blocks and the levers. */
+function htmlPreflight(estimate, levers) {
+  const htmlScan = estimate.needsScan
+    ? `<p class="zr-consequence dup-preflight__scan">${htmlPlanMarks.cost}<span>${esc('Nothing has been scanned yet, so there is nothing to judge. The button below scans first and then asks; the numbers underneath are what the asking would cost if the scan finds what a scan usually finds.')}</span></p>`
+    : '';
+  return `${htmlScan}
+    <div class="dup-preflight">
+      <section class="dup-preflight__block">
+        <h4 class="dup-preflight__title">What I actually do</h4>
+        ${htmlEstimateSteps(estimate, levers)}
+      </section>
+      <section class="dup-preflight__block" id="dupRunCostBlock">
+        <h4 class="dup-preflight__title">What it costs</h4>
+        ${htmlEstimateCost(estimate)}
+      </section>
+      <section class="dup-preflight__block">
+        <h4 class="dup-preflight__title">What it changes</h4>
+        <p class="zr-consequence zr-consequence--free">${htmlPlanMarks.free}<span>${esc('Nothing is merged while this runs. You decide every merge afterwards.')}</span></p>
+      </section>
+      <section class="dup-preflight__block">
+        <h4 class="dup-preflight__title">Cheaper, if you want</h4>
+        <div class="dup-preflight__levers" id="dupRunLevers">${htmlEstimateLevers(estimate, levers)}</div>
+      </section>
+    </div>`;
+}
+
+/** The dialog's own primary button, with the price on its second line. */
+function setDialogPrimary(dialog, label, sub) {
+  const button = dialog ? dialog.querySelector('[value="ok"]') : null;
+  if (!button) return;
+  button.classList.add('zr-btn--stacked');
+  button.innerHTML =
+    '<span class="dup-preflight__btnlabel"></span><span class="zr-btn__sub"></span>';
+  const labelNode = button.querySelector('.dup-preflight__btnlabel');
+  const subNode = button.querySelector('.zr-btn__sub');
+  if (labelNode) labelNode.textContent = label;
+  if (subNode) subNode.textContent = sub;
+}
+
+/** What the primary button of the preflight says it costs. */
+function preflightSubText(estimate) {
+  const tokens = estimate.tokens || {};
+  return `${num(estimate.requests)} ${plural(estimate.requests, 'request', 'requests')} · about ${formatTokens(tokens.total)} tokens · about ${formatSeconds(estimate.seconds)} · 0 writes`;
+}
+
+/**
+ * What the preflight hands the kernel dialog. Three of its four values follow
+ * `needsScan`, which is why they are decided in one place rather than four.
+ *
+ * @param {object} estimate  what fetchRunEstimate() answered
+ * @param {object} levers    the state of the "Cheaper, if you want" block
+ * @param {string} label     what the primary button does, without its price
+ * @returns {object} the argument of confirmDialog
+ */
+function preflightOptions(estimate, levers, label) {
+  const scanFirst = estimate.needsScan === true;
+  return {
+    title: scanFirst ? 'Scan, then ask the AI' : label,
+    html: htmlPreflight(estimate, levers),
+    confirmLabel: scanFirst ? 'Scan, then ask' : label,
+    cancelLabel: 'Not now',
+    tone: 'primary',
+  };
+}
+
+/**
+ * The dialog every model-backed run opens first: what it does, what it costs,
+ * what it changes, and the levers that make it cheaper. Every lever re-asks
+ * the estimate and rewrites the numbers and the button.
+ *
+ * @param {string} label  what the primary button does, without its price
+ * @returns {Promise<boolean>} true when the run was confirmed
+ */
+async function confirmRun(label) {
+  const levers = {
+    sweep: Boolean(el.aiSweep && el.aiSweep.checked),
+    excerpts: Boolean(el.aiExcerpts && el.aiExcerpts.checked),
+    sensitivity: el.sensitivity ? el.sensitivity.value : '',
+    lanes: RUN_LANE_OPTIONS[1],
+  };
+  let estimate = await fetchRunEstimate(levers);
+  const answer = confirmDialog(preflightOptions(estimate, levers, label));
+  const dialog = lastDialog();
+  if (dialog) {
+    dialog.classList.add('zr-dialog--wide', 'dup-preflight-dialog');
+    setDialogPrimary(
+      dialog,
+      estimate.needsScan ? 'Scan, then ask' : label,
+      preflightSubText(estimate)
+    );
+    const redraw = async () => {
+      estimate = await fetchRunEstimate(levers);
+      const cost = dialog.querySelector('#dupRunCostBlock');
+      const bar = dialog.querySelector('#dupRunLevers');
+      if (cost) {
+        cost.innerHTML = `<h4 class="dup-preflight__title">What it costs</h4>${htmlEstimateCost(estimate)}`;
+      }
+      if (bar) bar.innerHTML = htmlEstimateLevers(estimate, levers);
+      setDialogPrimary(
+        dialog,
+        estimate.needsScan ? 'Scan, then ask' : label,
+        preflightSubText(estimate)
+      );
+    };
+    dialog.addEventListener('change', (event) => {
+      const input = event.target;
+      if (input.id === 'dupRunSweep') levers.sweep = input.checked;
+      else if (input.id === 'dupRunExcerpts') levers.excerpts = input.checked;
+      else if (input.id === 'dupRunSensitivity')
+        levers.sensitivity = input.value;
+      else if (input.id === 'dupRunLanes') levers.lanes = num(input.value);
+      else return;
+      redraw();
+    });
+  }
+  const confirmed = await answer;
+  if (!confirmed) return false;
+  // The levers of the dialog are the page's own controls: what was decided
+  // here is what the run is started with, and what the page shows afterwards.
+  if (el.aiSweep) {
+    el.aiSweep.checked = levers.sweep;
+    storeWrite(STORE_KEYS.aiSweep, levers.sweep);
+  }
+  if (el.aiExcerpts) el.aiExcerpts.checked = levers.excerpts;
+  if (el.sensitivity && levers.sensitivity !== '') {
+    el.sensitivity.value = levers.sensitivity;
+    storeWrite(STORE_KEYS.sensitivity, levers.sensitivity);
+    updateThresholdField();
+  }
+  return true;
+}
+
+/* --- the run meter -------------------------------------------------------- */
+
+/** The elements of the run meter's token bar. */
+function runTokenParts() {
+  return {
+    bar: el.runTokenbar,
+    prompt: el.runSegPrompt,
+    answer: el.runSegAnswer,
+    thinking: el.runSegThinking,
+    legend: el.runLegend,
+  };
+}
+
+/** "Request 13 of 23", or what is known of it. */
+function runPositionText(progress) {
+  const state = progress || {};
+  const done = Number(state.requestsDone) || 0;
+  const planned = Number(state.requestsPlanned);
+  if (Number.isFinite(planned) && planned > 0) {
+    return `Request ${Math.min(done + 1, planned)} of ${planned}`;
+  }
+  return done > 0 ? `Request ${done + 1}` : 'Starting…';
+}
+
+/**
+ * The ledger of a running review: what it has spent, against what it was
+ * estimated to spend, and how fast it is going.
+ */
+function renderRunLedger(progress) {
+  if (!el.runLedger) return;
+  const state = progress || {};
+  const spent = num(state.tokens);
+  const estimated = Number(state.estimatedTokens);
+  const seconds = num(state.elapsedMs) / 1000;
+  const rate = seconds > 0 ? Math.round(spent / seconds) : 0;
+  const items = [
+    htmlLedgerItem(String(num(state.requestsDone)), 'requests done', false),
+    htmlLedgerItem(
+      Number.isFinite(estimated) && estimated > 0
+        ? `${formatTokens(spent)} / ${formatTokens(estimated)}`
+        : formatTokens(spent),
+      'tokens',
+      false
+    ),
+    htmlLedgerItem(`${rate}/s`, 'while it runs', false),
+    htmlLedgerItem('0', 'writes', true),
+  ];
+  // What the request in flight is spending, against the budget that would end
+  // the run. It is the one number that says "stop this now" in time.
+  const budget = Number(state.tokenBudget);
+  const running = Number(state.requestTokens);
+  if (Number.isFinite(running) && running > 0) {
+    items.push(
+      htmlLedgerItem(
+        Number.isFinite(budget) && budget > 0
+          ? `${formatTokens(running)} of ${formatTokens(budget)}`
+          : formatTokens(running),
+        'this request',
+        false
+      )
+    );
+  }
+  el.runLedger.innerHTML = items.join('');
+}
+
+/** What one finished request cost, as a sentence rather than a row of cells. */
+function reqlogWhatText(record) {
+  const index = num(record.index);
+  const items = num(record.items);
+  const answers = num(record.answers);
+  const unit = plural(items, 'pair', 'pairs');
+  if (record.outcome === 'empty') {
+    const thought = num(record.thinkingTokens);
+    return thought > 0
+      ? `Request ${index} — thought for ${formatTokens(thought)} tokens and answered nothing`
+      : `Request ${index} — answered nothing usable`;
+  }
+  if (record.outcome === 'failed') {
+    return `Request ${index} — the provider or the budget ended it; its ${items} ${unit} are marked unsure`;
+  }
+  if (record.outcome === 'partial') {
+    return `Request ${index} — ${items} ${unit}, ${answers} answered; the rest were asked again`;
+  }
+  return `Request ${index} — ${items} ${unit}, ${answers} answered`;
+}
+
+/** The token half of a request's row: the total, and what of it was thinking. */
+function reqlogCostText(record) {
+  const tokens = Number(record.tokens);
+  if (!Number.isFinite(tokens) || tokens <= 0) return '';
+  const thinking = num(record.thinkingTokens);
+  if (thinking <= 0) return `${formatTokens(tokens)} tokens`;
+  if (thinking >= tokens) return `${formatTokens(tokens)}, all thinking`;
+  return `${formatTokens(tokens)} · ${formatTokens(thinking)} of it thinking`;
+}
+
+/** The last handful of requests, newest first. */
+function htmlRequestLog(progress) {
+  const list = Array.isArray(progress && progress.requestLog)
+    ? progress.requestLog
+    : [];
+  if (list.length === 0) return '';
+  return list
+    .map((record) => {
+      const warn = record.outcome === 'empty' || record.outcome === 'failed';
+      const rowClass = warn ? ' zr-reqlog__row--warn' : '';
+      const htmlMark = warn ? htmlPlanMarks.failed : htmlPlanMarks.ok;
+      const seconds = num(record.ms) / 1000;
+      const took =
+        seconds >= 60 ? formatElapsed(record.ms) : `${Math.round(seconds)} s`;
+      return `<div class="zr-reqlog__row${esc(rowClass)}">
+          <span class="zr-reqlog__mark">${htmlMark}</span>
+          <span class="zr-reqlog__what">${esc(reqlogWhatText(record))}</span>
+          <span class="zr-reqlog__cost">${esc(reqlogCostText(record))}</span>
+          <span class="zr-reqlog__state">${esc(took)}</span>
+        </div>`;
+    })
+    .join('');
+}
+
+/** What stopping now keeps, on the second line of the Stop button. */
+function setStopSub(text) {
+  if (!el.aiStopSub || !el.aiStopBtn) return;
+  el.aiStopSub.textContent = text;
+  // The base button is a one-line flex row; only a button that has something
+  // on its second line lays its two lines out itself.
+  el.aiStopBtn.classList.toggle('zr-btn--stacked', text !== '');
+}
+
+/** Everything the run meter says, from one progress snapshot. */
+function renderRunMeter(progress) {
+  if (!el.runLedger) return;
+  const state = progress || {};
+  if (el.runPosition) el.runPosition.textContent = runPositionText(state);
+  if (el.runRest) {
+    const eta = formatEta(state.etaMs);
+    el.runRest.textContent = eta === '' ? 'estimating…' : eta;
+  }
+  renderRunLedger(state);
+  drawTokenbar(
+    runTokenParts(),
+    state.promptTokens,
+    state.completionTokens,
+    state.thinkingTotal
+  );
+  if (el.runLog) el.runLog.innerHTML = htmlRequestLog(state);
+  const judged = num(state.pairsJudged);
+  setStopSub(
+    judged > 0
+      ? `keeps the ${judged} ${plural(judged, 'verdict', 'verdicts')} it already has`
+      : 'nothing is written either way'
+  );
+}
+
+/** Empties the run meter when the panel goes away. */
+function clearRunMeter() {
+  if (el.runPosition) el.runPosition.textContent = '';
+  if (el.runRest) el.runRest.textContent = '';
+  if (el.runLedger) el.runLedger.innerHTML = '';
+  if (el.runLog) el.runLog.innerHTML = '';
+  if (el.runTokenbar) el.runTokenbar.classList.add('hidden');
+  setStopSub('');
+}
+
+/* --- applying: the live checklist ----------------------------------------- */
+/* A batch merge used to be one line in the selection bar that counted up. It
+   is the most destructive thing this page does, so it gets the room: one row
+   per group, the one being written now, the rest waiting, and a failure in
+   its own colour with what Paperless-ngx said about it and a button that
+   tries that one again. Merges run one after the other on purpose — Paperless
+   gets one bulk edit at a time. */
+
+/** What the checklist is walking right now, so a retry can find its entry. */
+let applyEntries = [];
+
+/** One row of the checklist, in the state it is in. */
+function htmlApplyRow(entry, state, detail) {
+  const targetName = String(entry.target.name == null ? '' : entry.target.name);
+  const names = entry.sources
+    .map((member) => String(member.name == null ? '' : member.name))
+    .join(', ');
+  const documents = countDocuments(entry.sources);
+  const htmlMarks = {
+    waiting: htmlPlanMarks.waiting,
+    running: htmlPlanMarks.running,
+    done: htmlPlanMarks.ok,
+    failed: htmlPlanMarks.failed,
+  };
+  const rowClass =
+    state === 'running'
+      ? ' zr-reqlog__row--live'
+      : state === 'failed'
+        ? ' zr-reqlog__row--warn'
+        : '';
+  const what = `${targetName} ← ${names}`;
+  const htmlRetry =
+    state === 'failed'
+      ? `<button type="button" class="zr-btn zr-btn--ghost dup-apply-retry" data-group-id="${esc(entry.state.group.id)}">Try it now</button>`
+      : '';
+  return `<div class="zr-reqlog__row${esc(rowClass)}" data-apply-id="${esc(entry.state.group.id)}">
+      <span class="zr-reqlog__mark">${htmlMarks[state]}</span>
+      <span class="zr-reqlog__what">${esc(what)}</span>
+      <span class="zr-reqlog__cost">${esc(detail || `${documents} ${plural(documents, 'document', 'documents')}`)}</span>
+      <span class="zr-reqlog__state">${esc(state === 'running' ? 'writing' : state)}</span>
+      ${htmlRetry}
+    </div>`;
+}
+
+/** Opens the checklist over a batch that is about to run. */
+function openApply(entries) {
+  if (!el.apply || !el.applyList) return;
+  applyEntries = entries;
+  el.apply.classList.remove('hidden');
+  el.applyList.innerHTML = entries
+    .map((entry) => htmlApplyRow(entry, 'waiting', ''))
+    .join('');
+  drawApplyBar(0, entries.length);
+  el.apply.scrollIntoView({ block: 'nearest' });
+}
+
+function drawApplyBar(done, total) {
+  if (el.applyPosition) {
+    el.applyPosition.textContent =
+      done >= total
+        ? `All ${total} ${plural(total, 'group', 'groups')} written`
+        : `Group ${Math.min(done + 1, total)} of ${total}`;
+  }
+  if (el.applyFill) {
+    const share = total === 0 ? 0 : Math.round((done / total) * 100);
+    el.applyFill.style.width = `${share}%`;
+  }
+  if (el.applyRest) {
+    const left = Math.max(0, total - done);
+    el.applyRest.textContent =
+      left === 0 ? '' : `${left} ${plural(left, 'is', 'are')} waiting`;
+  }
+}
+
+/** Puts one row of the checklist into a new state. */
+function markApply(groupId, state, detail) {
+  if (!el.applyList) return;
+  const entry = applyEntries.find(
+    (candidate) => String(candidate.state.group.id) === String(groupId)
+  );
+  if (!entry) return;
+  const rows = [...el.applyList.querySelectorAll('[data-apply-id]')];
+  const row = rows.find((node) => node.dataset.applyId === String(groupId));
+  if (!row) return;
+  row.outerHTML = htmlApplyRow(entry, state, detail);
+}
+
+/** The last line of a finished batch. */
+function finishApply(summary) {
+  if (!el.applyRest) return;
+  el.applyRest.textContent = summary;
+}
+
+function closeApply() {
+  if (!el.apply) return;
+  el.apply.classList.add('hidden');
+  applyEntries = [];
+}
+
+/**
+ * Merges everything the plan proposes without asking: plain plus same. It
+ * ticks those groups and hands them to the batch the page already has, so
+ * there is one dialog, one runner and one wording for what a batch writes.
+ */
+async function mergeObvious() {
+  if (merging) return;
+  const states = planObvious();
+  if (states.length === 0) return;
+  const wanted = new Set(states.map((state) => String(state.group.id)));
+  clearSelection();
+  selectGroups((state) => wanted.has(String(state.group.id)));
+  await mergeSelected();
+}
+
+/** Tries one failed group of the checklist again, on its own. */
+async function retryApply(groupId) {
+  const entry = applyEntries.find(
+    (candidate) => String(candidate.state.group.id) === String(groupId)
+  );
+  if (!entry || merging) return;
+  markApply(groupId, 'running', '');
+  const outcome = await mergeGroup(entry.card, entry.state, {
+    copyMatchingRule: false,
+  });
+  if (outcome && outcome.status === 'done') {
+    markApply(
+      groupId,
+      'done',
+      `${num(outcome.documentsMoved)} ${plural(outcome.documentsMoved, 'document', 'documents')} moved`
+    );
+  } else {
+    markApply(
+      groupId,
+      'failed',
+      (outcome && outcome.message) || 'It failed again'
+    );
+  }
+  loadLog(true);
+  renderPlan();
+}
+
+/* --- what every writing button writes ------------------------------------- */
+
+/** The consequence line of "Merge selected". */
+function updateSelectionConsequence() {
+  if (!el.selectionConsequence) return;
+  const entries = selectedBatch();
+  if (entries.length === 0) {
+    el.selectionConsequence.classList.add('hidden');
+    el.selectionConsequence.innerHTML = '';
+    return;
+  }
+  const documents = entries.reduce(
+    (sum, entry) => sum + countDocuments(entry.sources),
+    0
+  );
+  const deleted = entries.reduce((sum, entry) => sum + entry.sources.length, 0);
+  const text = `Merging rewrites ${documents} ${plural(documents, 'document', 'documents')} in Paperless-ngx and deletes ${deleted} ${plural(deleted, 'object', 'objects')}. No model is asked. Every group can be undone from the log.`;
+  el.selectionConsequence.classList.remove('hidden');
+  el.selectionConsequence.innerHTML = `${htmlPlanMarks.cost}<span>${esc(text)}</span>`;
+}
+
+/** The consequence line of the Merge button in "Merge by hand". */
+function updateManualConsequence() {
+  if (!el.manualConsequence) return;
+  const target = manualTargetRecord();
+  const sources = manualSourceRecords();
+  if (!target || sources.length === 0) {
+    el.manualConsequence.classList.add('hidden');
+    el.manualConsequence.innerHTML = '';
+    return;
+  }
+  const documents = sources.reduce(
+    (sum, record) => sum + num(record.documentCount),
+    0
+  );
+  const name = String(target.name == null ? '' : target.name);
+  const text = `Merging rewrites ${documents} ${plural(documents, 'document', 'documents')} onto ${name} and deletes ${sources.length} ${plural(sources.length, 'object', 'objects')} in Paperless-ngx. No model is asked. One Undo puts it all back.`;
+  el.manualConsequence.classList.remove('hidden');
+  el.manualConsequence.innerHTML = `${htmlPlanMarks.cost}<span>${esc(text)}</span>`;
+}
+
+/** The consequence line of "Delete selected" in the Unused section. */
+function updateUnusedConsequence() {
+  if (!el.unusedConsequence) return;
+  const picked = unusedPicked();
+  if (picked.length === 0) {
+    el.unusedConsequence.classList.add('hidden');
+    el.unusedConsequence.innerHTML = '';
+    return;
+  }
+  const text = `Deleting removes ${picked.length} ${plural(picked.length, 'object', 'objects')} from Paperless-ngx. They carry no document, so nothing is moved and no model is asked. Undo re-creates them with new ids.`;
+  el.unusedConsequence.classList.remove('hidden');
+  el.unusedConsequence.innerHTML = `${htmlPlanMarks.cost}<span>${esc(text)}</span>`;
+}
+
+/** The consequence line inside a group card, above its Merge button. */
+function updateGroupConsequence(card, state) {
+  const holder = card.querySelector('.dup-group__consequence');
+  if (!holder) return;
+  const target = memberOf(state, state.targetId);
+  const sources = selectedSources(state);
+  if (!target || sources.length === 0) {
+    holder.classList.add('hidden');
+    holder.innerHTML = '';
+    return;
+  }
+  holder.classList.remove('hidden');
+  holder.innerHTML = `${htmlPlanMarks.cost}<span>${esc(decisionConsequenceText(state, target, false))}</span>`;
+}
+
+/* --- wiring the three surfaces -------------------------------------------- */
+
+function initPlan() {
+  if (!el.plan || !el.baskets) return;
+
+  el.baskets.addEventListener('click', (event) => {
+    const toggle = event.target.closest('.dup-basket-toggle');
+    if (toggle) {
+      const name = toggle.dataset.basket;
+      const body = el.baskets.querySelector(`[data-basket-body="${name}"]`);
+      if (!body) return;
+      const open = body.classList.contains('hidden');
+      body.classList.toggle('hidden', !open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toggle.textContent = open ? 'Hide them' : 'Show them';
+      return;
+    }
+    if (event.target.closest('.dup-basket-walk')) {
+      openStack(planBuckets().ask.map((state) => state.group.id));
+      return;
+    }
+    if (event.target.closest('.dup-basket-unused')) {
+      if (el.unused) {
+        el.unused.open = true;
+        el.unused.scrollIntoView({ block: 'start' });
+      }
+      return;
+    }
+    const drop = event.target.closest('.dup-basket-drop');
+    if (drop) {
+      planDrop(drop.dataset.groupId);
+      return;
+    }
+    const fold = event.target.closest('.dup-basket-fold');
+    if (fold) {
+      planFold(fold.dataset.groupId);
+      return;
+    }
+    const keep = event.target.closest('.dup-basket-keep');
+    if (keep) {
+      planDrop(keep.dataset.groupId);
+      return;
+    }
+    const look = event.target.closest('.dup-basket-look');
+    if (look) openStack([look.dataset.groupId]);
+  });
+
+  if (el.showAllBtn && el.everything) {
+    el.showAllBtn.addEventListener('click', () => {
+      showEverything(el.everything.classList.contains('hidden'));
+    });
+  }
+  if (el.planApplyBtn) {
+    el.planApplyBtn.addEventListener('click', () => mergeObvious());
+  }
+  if (el.planStackBtn) {
+    el.planStackBtn.addEventListener('click', () => {
+      openStack(planBuckets().ask.map((state) => state.group.id));
+    });
+  }
+  if (el.planAskBtn) {
+    el.planAskBtn.addEventListener('click', () => {
+      if (scanned) runAiReview();
+      else runAiProposal();
+    });
+  }
+  if (el.applyList) {
+    el.applyList.addEventListener('click', (event) => {
+      const retry = event.target.closest('.dup-apply-retry');
+      if (retry) retryApply(retry.dataset.groupId);
+    });
+  }
+}
+
 /* --- wiring --------------------------------------------------------------- */
 
 function init() {
@@ -4169,6 +6216,8 @@ function init() {
   initSensitivity();
   initResultsBar();
   initSelection();
+  initPlan();
+  initStack();
   initManual();
   initUnused();
   initMappings();

@@ -603,4 +603,300 @@
       flex: 1;
     }
   }
+
+  /* --- round 13: the plan, the stack and the cost layer ------------------ */
+  /* The shared review kit in layer components carries the baskets, the
+     decision card, the ledgers and the request log. Everything here is what this page puts
+     around them: where they sit, and the three surfaces the kit has no class
+     for — the header card of the plan, the preflight dialog and the apply
+     checklist. Nothing below redefines a zr- class; it only places one. */
+
+  .sim-plan {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+  }
+
+  /* The card over the baskets: the sentence, the two ledgers, the button that
+     runs the plan. It is the one thing on this page that is read first. */
+  .sim-plan__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    padding: var(--zr-5);
+    border: 1px solid var(--zr-line-strong);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface-2);
+  }
+
+  .sim-plan__head:empty {
+    display: none;
+  }
+
+  .sim-plan__headline {
+    margin: 0;
+    font-family: var(--zr-font-brand);
+    font-size: var(--zr-fs-xl);
+    line-height: 1.35;
+    color: var(--zr-text);
+  }
+
+  /* What it cost and what it will cost, side by side: the whole point of the
+     round is that those are two different currencies. */
+  .sim-plan__ledgers {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-4);
+  }
+
+  .sim-plan__ledger {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+    min-width: 0;
+  }
+
+  .sim-plan__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-3);
+  }
+
+  .sim-baskets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  /* A basket whose body is one line rather than a list of them. */
+  .sim-basket__quiet {
+    margin: 0;
+    padding: var(--zr-3) 0;
+    color: var(--zr-text-muted);
+  }
+
+  /* --- the stack -------------------------------------------------------- */
+  /* A mode, not a page: it replaces the baskets in place, so it needs no
+     overlay, no scrim and no focus trap of its own. */
+  .sim-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    outline: none;
+  }
+
+  .sim-stack__bar {
+    padding: var(--zr-3) var(--zr-4);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface-2);
+  }
+
+  .sim-stack__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .sim-stack__tally {
+    margin: 0;
+    flex-grow: 1;
+  }
+
+  /* The editable side of a decision: the same select and chips the table
+     offers, under their own labels. */
+  .sim-decision__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    margin-top: var(--zr-3);
+  }
+
+  /* The evidence: how many documents already carry a type, and the choice
+     that decides what happens to them. */
+  .sim-decision__evidence {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    margin: var(--zr-4) 0 0;
+    padding: var(--zr-3) var(--zr-4);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-sunken);
+  }
+
+  .sim-decision__evidence p {
+    margin: 0 0 var(--zr-1);
+  }
+
+  .sim-decision__radio {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    cursor: pointer;
+  }
+
+  /* --- the preflight dialog --------------------------------------------- */
+  /* Four blocks in the kernel's dialog: what it does, what it costs, what it
+     changes, and the levers that make it cheaper. */
+  .sim-preflight {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-5);
+    text-align: left;
+  }
+
+  .sim-preflight__block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+  }
+
+  .sim-preflight__steps {
+    margin: 0;
+    padding-left: var(--zr-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+  }
+
+  .sim-preflight__step {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-2) var(--zr-3);
+  }
+
+  .sim-preflight__what {
+    flex-grow: 1;
+    min-width: 0;
+    font-size: var(--zr-fs-md);
+  }
+
+  /* Every step carries its own price, and a free one says so rather than
+     saying nothing. */
+  .sim-preflight__price {
+    flex-shrink: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+    white-space: nowrap;
+  }
+
+  .sim-preflight__basis {
+    margin: 0;
+  }
+
+  .sim-preflight__levers {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+  }
+
+  .sim-preflight__lever {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    cursor: pointer;
+  }
+
+  /* --- the run meter ---------------------------------------------------- */
+  /* Five slots under the progress bar. Each one is empty until the job
+     reports the numbers it needs, and an empty slot takes no room. */
+  .sim-meter {
+    margin-top: var(--zr-3);
+  }
+
+  .sim-meter:empty {
+    display: none;
+  }
+
+  .sim-meter--log {
+    border-top: 1px solid var(--zr-line);
+    margin-top: var(--zr-4);
+  }
+
+  .sim-meter__live {
+    margin: 0;
+  }
+
+  /* --- the apply checklist ---------------------------------------------- */
+  .sim-checklist {
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+    overflow: hidden;
+  }
+
+  .sim-checklist:empty {
+    display: none;
+  }
+
+  .sim-checklist__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--zr-2);
+    padding: var(--zr-4) var(--zr-5);
+  }
+
+  /* --- round 12's group cards, one step back ---------------------------- */
+  /* They are the second way to read the same proposals, so they wait behind a
+     summary rather than sitting under the baskets. */
+  .sim-groupsblock {
+    border-top: 1px solid var(--zr-line);
+    padding-top: var(--zr-3);
+  }
+
+  .sim-groupsblock__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    cursor: pointer;
+    list-style: none;
+    color: var(--zr-text-muted);
+  }
+
+  .sim-groupsblock__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sim-groupsblock__chevron {
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .sim-groupsblock[open] .sim-groupsblock__chevron {
+    transform: rotate(90deg);
+  }
+
+  .sim-groupsblock__body {
+    padding-top: var(--zr-4);
+  }
+
+  @media (max-width: 720px) {
+    /* At 390px the two ledgers of the plan read one under the other, and every
+       button of the plan and the stack takes a full row. */
+    .sim-plan__ledgers {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sim-plan__head {
+      padding: var(--zr-4);
+    }
+
+    .sim-plan__actions .zr-btn {
+      flex: 1 1 100%;
+      justify-content: flex-start;
+    }
+
+    .sim-stack__foot .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .sim-preflight__price {
+      white-space: normal;
+    }
+  }
 }

@@ -2335,6 +2335,139 @@
             "format": "date-time"
           }
         }
+      },
+      "AiRunEstimate": {
+        "type": "object",
+        "description": "What a model-backed run will cost before it starts, plus what the\nlast run of the same task actually cost. `basis` says where the\nnumbers come from: `run` a finished run of this task, `model` the\njudge's measurement of this model, `guess` neither — the page says\nso rather than pretending.\n",
+        "properties": {
+          "items": {
+            "type": "integer",
+            "description": "items the model would be asked about",
+            "example": 1145
+          },
+          "itemsByRule": {
+            "type": "integer",
+            "description": "items a rule settles without the model",
+            "example": 42
+          },
+          "batchSize": {
+            "type": "integer",
+            "example": 50
+          },
+          "requests": {
+            "type": "integer",
+            "example": 23
+          },
+          "lanes": {
+            "type": "integer",
+            "description": "requests in flight at once",
+            "example": 3
+          },
+          "seconds": {
+            "type": "integer",
+            "example": 372
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "run",
+              "model",
+              "guess"
+            ]
+          },
+          "measuredAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tokens": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 1410000
+              },
+              "prompt": {
+                "type": "integer"
+              },
+              "completion": {
+                "type": "integer"
+              },
+              "thinking": {
+                "type": "integer"
+              }
+            }
+          },
+          "lastRun": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AiRunStats"
+              }
+            ]
+          }
+        }
+      },
+      "AiRunStats": {
+        "type": "object",
+        "description": "What one finished run of a model-backed task cost.",
+        "properties": {
+          "task": {
+            "type": "string",
+            "enum": [
+              "order",
+              "review",
+              "vocabulary",
+              "splits"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "thinking": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "items": {
+            "type": "integer"
+          },
+          "itemsByRule": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "failedRequests": {
+            "type": "integer"
+          },
+          "promptTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "completionTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "thinkingTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
@@ -7634,7 +7767,22 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "concurrency": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8,
+                        "description": "How many model requests this one review keeps in\nflight, instead of what DUPLICATES_AI_CONCURRENCY\nsays. Out of range is clamped into it rather than\nrefused; absent means \"as configured\".\n"
+                      }
+                    }
+                  }
+                ]
               }
             }
           }
@@ -7697,7 +7845,22 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "concurrency": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8,
+                        "description": "How many model requests this one review keeps in\nflight, instead of what DUPLICATES_AI_CONCURRENCY\nsays. Out of range is clamped into it rather than\nrefused; absent means \"as configured\".\n"
+                      }
+                    }
+                  }
+                ]
               }
             }
           }
@@ -8725,6 +8888,144 @@
         }
       }
     },
+    "/api/duplicates/ai-review/estimate": {
+      "get": {
+        "summary": "What the next AI review would cost, before it starts",
+        "description": "Answers the question the page asks before it spends anything: how\nmany requests, how many tokens, how long. Nothing here asks a model\nand nothing scans — the page calls this again on every move of a\nlever, so it may only read what is already there.\n\nA scan is a walk over every tag and every correspondent of the\narchive, so this never starts one. It answers from the scan the merge\nservice still holds for these options, and when there is none it\nanswers `needsScan: true` with `items: 0` and `basis: \"guess\"` — the\npage then says \"scan first, then I can tell you\" instead of showing a\nnumber nobody measured.\n\n`basis` says where the numbers come from: `run` a finished review of\nthis archive, `model` what the judge measured about this model,\n`guess` neither. `requests` is the judging pass alone; `extra` names\nwhat comes on top — the requests a semantic sweep would add, and the\nentities whose documents would be read for excerpts, which are reads\nof Paperless-ngx rather than model requests.\n\n`items` counts the pairs of the scan's groups that the model would be\nasked about. A review that also asks about the candidate band asks\nabout more: the band needs the entity list, and reading it is exactly\nthe cost this endpoint exists to avoid.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents",
+                "all"
+              ]
+            },
+            "description": "What the review would look at; `all` by default"
+          },
+          {
+            "in": "query",
+            "name": "threshold",
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "The sensitivity the scan was made with"
+          },
+          {
+            "in": "query",
+            "name": "sweep",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "The semantic sweep is on"
+          },
+          {
+            "in": "query",
+            "name": "excerpts",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "Document excerpts are read as evidence"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the review would cost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/AiRunEstimate"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "model": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "thinking": {
+                              "type": "boolean"
+                            },
+                            "groups": {
+                              "type": "integer",
+                              "description": "scan groups the review would judge"
+                            },
+                            "pairs": {
+                              "type": "integer",
+                              "description": "every pair of those groups — what the model is\nasked about plus what a spelling rule settled\n"
+                            },
+                            "needsScan": {
+                              "type": "boolean",
+                              "description": "no cached scan answers for these options"
+                            },
+                            "extra": {
+                              "type": "object",
+                              "properties": {
+                                "sweepRequests": {
+                                  "type": "integer"
+                                },
+                                "excerptReads": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind, or a threshold outside [0, 1]"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "503": {
+            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW), or no AI\nprovider is configured; the message names which of the two\n"
+          }
+        }
+      }
+    },
     "/simplify": {
       "get": {
         "summary": "Simplify tags page",
@@ -9342,7 +9643,31 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TagOrderProposeRequest"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/TagOrderProposeRequest"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "skipDecided": {
+                        "type": "boolean",
+                        "description": "Leave the tags with a proposal the user has already\naccepted or applied out of the model pass. Their\nproposals are kept as they are.\n"
+                      },
+                      "minDocuments": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Leave the tags on fewer documents than this out of the\nmodel pass; they come back as `keep` with a reason\nthat says so.\n"
+                      },
+                      "concurrency": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8,
+                        "description": "How many model requests this one run keeps in flight,\ninstead of DUPLICATES_AI_CONCURRENCY. Clamped, not\nrefused; absent means \"as configured\".\n"
+                      }
+                    }
+                  }
+                ]
               }
             }
           }
@@ -9385,6 +9710,133 @@
           },
           "501": {
             "description": "The order proposal is not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/order/estimate": {
+      "get": {
+        "summary": "What the next run of the proposed order would cost",
+        "description": "The same question the Duplicates page asks before its review, for the\norder: how many tags reach the model, how many requests that is, what\nit costs and how long it takes. Nothing here asks a model — the page\ncalls it again on every move of a lever.\n\nThe rule pass is the one the run itself runs before it asks anything,\nso `itemsByRule` and `items` are what the run would really do. The\ntag list it reads is cached for a minute.\n\n`skippable` is what each of the two levers would save, counted over\nthe tags that would otherwise reach the model: `decided` the ones\nwith a proposal the user has already accepted or applied,\n`lowDocument` the ones below `minDocuments` — or below three when the\nrequest named no floor, so the page has a real number to offer before\nanybody has moved anything.\n\n`requests` is the ordering pass alone. `extra.vocabularyRequests` is\nwhat proposing a new vocabulary adds on top, and is zero when\n`keepVocabulary` is set.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keepVocabulary",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "Use the saved vocabulary instead of proposing a new one"
+          },
+          {
+            "in": "query",
+            "name": "skipDecided",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "Leave out the tags the user has already decided on"
+          },
+          {
+            "in": "query",
+            "name": "minDocuments",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Leave out the tags on fewer documents than this"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the run would cost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/AiRunEstimate"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "tags": {
+                              "type": "integer",
+                              "description": "every tag of the archive"
+                            },
+                            "model": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "thinking": {
+                              "type": "boolean"
+                            },
+                            "skippable": {
+                              "type": "object",
+                              "properties": {
+                                "decided": {
+                                  "type": "integer"
+                                },
+                                "lowDocument": {
+                                  "type": "integer"
+                                }
+                              }
+                            },
+                            "extra": {
+                              "type": "object",
+                              "properties": {
+                                "vocabularyRequests": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "The proposed order is not available on this build"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          },
+          "503": {
+            "description": "No AI provider is configured"
           }
         }
       }
