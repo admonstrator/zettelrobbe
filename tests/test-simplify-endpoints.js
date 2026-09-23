@@ -244,7 +244,7 @@ async function main() {
           const html = await response.text();
           assert.ok(
             html.includes(
-              'Turn compound tags into a document type and topic tags. Nothing here runs on its own.'
+              'Split compound tags into a document type and topics.'
             ),
             'the head sentence of the page is missing'
           );
