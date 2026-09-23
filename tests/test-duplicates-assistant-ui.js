@@ -93,7 +93,7 @@ test('Every component of the kit is shown once', () => {
     'zr-reqlog__row--live',
     'zr-reqlog__row--warn',
     // What this page is built from since it has two modes.
-    'zr-emptycard',
+    'zr-start',
     'zr-resulthead',
     'zr-checklist',
     'zr-historyline',
@@ -683,31 +683,60 @@ test('The gate names what the advanced page adds, in three lines', () => {
 
 /* ── 4. the empty card ────────────────────────────────────────────────────── */
 
-test('The page opens on one card with one button', () => {
+test('The page opens on one start with one button', () => {
   [page, offered].forEach((markup) => {
     const card =
-      /<div class="zr-emptycard dup-empty" id="dupEmpty" data-simple>([\s\S]*?)<\/div>/.exec(
+      /<section class="zr-start dup-start" id="dupEmpty" data-simple>([\s\S]*?)<\/section>/.exec(
         markup
       );
-    assert.ok(card, 'the empty card is missing');
-    assert.match(
-      card[1],
-      /icons\.svg#i-wand/,
-      'the card has no icon of its own'
+    assert.ok(card, 'the start is missing');
+    assert.ok(
+      card[1].includes('<span class="zr-start__icon">') &&
+        /icons\.svg#i-wand/.test(card[1]),
+      'the start has no icon of its own'
+    );
+    // The sentence of the page is the title of the start; the line above
+    // it is drawn only with a result.
+    assert.ok(
+      card[1].includes(
+        '<h2 class="zr-start__title">Merge tags and correspondents that mean the same thing.</h2>'
+      )
     );
     assert.ok(
       card[1].includes(
-        '<button class="zr-btn zr-btn--primary" id="dupFindBtn" type="button">Find duplicates</button>'
+        '<button class="zr-btn zr-btn--primary zr-btn--lg" id="dupFindBtn" type="button">Find duplicates</button>'
       ),
-      'the card has no primary "Find duplicates"'
+      'the start has no primary "Find duplicates"'
     );
     assert.strictEqual(
       (card[1].match(/<button/g) || []).length,
       1,
-      'one card, one button'
+      'one start, one button'
     );
-    assert.ok(!card[1].includes('<p'), 'the card explains nothing');
+    assert.ok(
+      card[1].includes(
+        '<p class="zr-start__facts hidden" id="dupStartFacts"></p>'
+      ),
+      "the facts line is the script's"
+    );
   });
+  // The line with the model names its pass; the line without does not.
+  assert.ok(
+    offered.includes(
+      'A scan by spelling, a pass by the model, one list to tick. Nothing is written before Merge.'
+    )
+  );
+  assert.ok(
+    page.includes(
+      'A scan by spelling, one list to tick. Nothing is written before Merge.'
+    )
+  );
+  assert.ok(
+    functionBody('updateSimpleSurface').includes(
+      "el.lede.classList.toggle('hidden', !showResult)"
+    ),
+    'the sentence above the start would say it twice'
+  );
   assert.match(
     functionBody('initSimple'),
     /el\.findBtn\.addEventListener\('click', findDuplicates\)/,
@@ -2232,7 +2261,7 @@ test('No paragraph on the page explains anything', () => {
     // The sentence under the title, and the Undo of the history line; every
     // other paragraph is a place the script writes numbers into.
     assert.deepStrictEqual(
-      prose,
+      prose.filter((text) => !text.startsWith('A scan by spelling')),
       ['Merge tags and correspondents that mean the same thing.', '· Undo'],
       `a paragraph of prose is back: ${prose.join(' | ')}`
     );
@@ -2274,10 +2303,55 @@ test('The page names the model, and speaks to nobody', () => {
   });
 });
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  process.exitCode = 1;
-}
+test('The start says what the last run cost, from the run the estimate carries', () => {
+  const { startFactsText } = helpers(
+    ['startFactsText', 'num', 'count', 'plural', 'parseDay', 'shortDay'],
+    { constants: ['MONTHS'] }
+  );
+  const now = new Date(2026, 8, 23, 12, 0, 0);
+  // No run kept: no line at all, so the start does not claim a measurement.
+  assert.strictEqual(startFactsText(null, now), '');
+  assert.strictEqual(startFactsText({ requests: 0, items: 40 }, now), '');
+  assert.strictEqual(
+    startFactsText(
+      {
+        requests: 12,
+        items: 275,
+        promptTokens: 30000,
+        completionTokens: 6000,
+        thinkingTokens: 2000,
+        seconds: 372,
+        finishedAt: '2026-09-20T09:12:00.000Z',
+      },
+      now
+    ),
+    'Last run 20 Sep · 275 pairs · 38k tokens · ~6 min'
+  );
+  // Tokens nobody reported are not a measured zero: the part is left out.
+  assert.strictEqual(
+    startFactsText(
+      {
+        requests: 1,
+        items: 1,
+        promptTokens: null,
+        completionTokens: null,
+        thinkingTokens: null,
+        seconds: 4,
+        finishedAt: '2025-12-31T23:00:00.000Z',
+      },
+      now
+    ),
+    'Last run 31 Dec 2025 · 1 pair · under a minute'
+  );
+  assert.ok(
+    functionBody('loadStartFacts').includes('aiReviewOffered()'),
+    'without a model there is no run to speak of'
+  );
+  assert.ok(
+    functionBody('init').includes('loadStartFacts();'),
+    'the facts are read when the page opens'
+  );
+});
 
 test('Every action is a bordered button, never a text button or a bare link', () => {
   // A button with no border reads as a link, and a link is not a way to
@@ -2287,8 +2361,14 @@ test('Every action is a bordered button, never a text button or a bare link', ()
     read('public', 'js', 'modules', 'review-sheet.js'),
     read('public', 'js', 'modules', 'review-mode.js'),
   ].join('\n');
+  // The shell around the page keeps its icon buttons; the page root is
+  // what this rule is about.
+  const root = page.slice(
+    page.indexOf('<div class="dup-page"'),
+    page.indexOf('<script type="module" src="/js/duplicates.js">')
+  );
   for (const [name, text] of [
-    ['view', page],
+    ['view', root],
     ['script', SCRIPT],
     ['modules', modules],
   ]) {
@@ -2304,3 +2384,8 @@ test('Every action is a bordered button, never a text button or a bare link', ()
     []
   );
 });
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed > 0) {
+  process.exitCode = 1;
+}

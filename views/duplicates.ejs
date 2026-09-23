@@ -88,11 +88,21 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     </div>
                 </div>
 
-                <!-- Simple: the card the page opens on, and its one button. -->
-                <div class="zr-emptycard dup-empty" id="dupEmpty" data-simple>
-                    <svg class="zr-icon zr-emptycard__icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
-                    <button class="zr-btn zr-btn--primary" id="dupFindBtn" type="button">Find duplicates</button>
-                </div>
+                <!-- Simple: the start, before anything was run. The sentence of
+                     the page is its title here, so the line above it is only
+                     drawn with a result. The facts line says what the last
+                     run cost, when there was one. -->
+                <section class="zr-start dup-start" id="dupEmpty" data-simple>
+                    <span class="zr-start__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg></span>
+                    <h2 class="zr-start__title">Merge tags and correspondents that mean the same thing.</h2>
+<% if (dupAiReviewEnabled) { -%>
+                    <p class="zr-start__text">A scan by spelling, a pass by the model, one list to tick. Nothing is written before Merge.</p>
+<% } else { -%>
+                    <p class="zr-start__text">A scan by spelling, one list to tick. Nothing is written before Merge.</p>
+<% } -%>
+                    <button class="zr-btn zr-btn--primary zr-btn--lg" id="dupFindBtn" type="button">Find duplicates</button>
+                    <p class="zr-start__facts hidden" id="dupStartFacts"></p>
+                </section>
 
 <% if (dupAiReviewEnabled) { -%>
                 <!-- Both modes: a run while it runs. A reloaded page attaches

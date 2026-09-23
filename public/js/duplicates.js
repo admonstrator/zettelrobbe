@@ -287,8 +287,10 @@ const el = {
   aiStopBtn: document.getElementById('dupAiStopBtn'),
   aiForgetBtn: document.getElementById('dupAiForgetBtn'),
   // Simple mode: the card the page opens on, and what a run found.
+  lede: document.querySelector('.dup-lede'),
   empty: document.getElementById('dupEmpty'),
   findBtn: document.getElementById('dupFindBtn'),
+  startFacts: document.getElementById('dupStartFacts'),
   result: document.getElementById('dupResult'),
   resultHeadline: document.getElementById('dupResultHeadline'),
   resultCost: document.getElementById('dupResultCost'),
@@ -4390,6 +4392,9 @@ function updateSimpleSurface() {
   const held = simple.held === true;
   const showResult = scanned && !proposing && !live && !held;
   if (el.result) el.result.classList.toggle('hidden', !showResult);
+  // The start carries the sentence of the page as its title, so the line
+  // above it is drawn only with a result.
+  if (el.lede) el.lede.classList.toggle('hidden', !showResult);
   if (el.empty) {
     el.empty.classList.toggle(
       'hidden',
@@ -4529,6 +4534,40 @@ function historyOf(entries, now) {
 }
 
 /** Reads the merges of the log for the history line. */
+/**
+ * The line under the start button: what the last run of this task cost,
+ * from the run stats the estimate carries. Pure; '' when no run was kept.
+ *
+ * @param {object|null} lastRun  `lastRun` of an estimate
+ * @param {Date} [now]
+ * @returns {string}
+ */
+function startFactsText(lastRun, now) {
+  const run = lastRun || {};
+  if (num(run.requests) <= 0) return '';
+  const items = num(run.items);
+  const tokens =
+    num(run.promptTokens) + num(run.completionTokens) + num(run.thinkingTokens);
+  const parts = [`Last run ${shortDay(run.finishedAt, now)}`];
+  if (items > 0)
+    parts.push(`${count(items)} ${plural(items, 'pair', 'pairs')}`);
+  if (tokens > 0) parts.push(`${formatTokens(tokens)} tokens`);
+  if (num(run.seconds) > 0) parts.push(roughTime(num(run.seconds)));
+  return parts.join(' · ');
+}
+
+/** Reads the last run for the start's facts line; nothing without a model. */
+async function loadStartFacts() {
+  if (!el.startFacts || !aiReviewOffered()) return;
+  const estimate = await fetchRunEstimate({
+    kind: 'all',
+    threshold: currentThreshold(),
+  });
+  const text = startFactsText(estimate.lastRun, new Date());
+  el.startFacts.textContent = text;
+  el.startFacts.classList.toggle('hidden', text === '');
+}
+
 async function loadHistory() {
   if (!el.historyLine) return;
   try {
@@ -5745,6 +5784,7 @@ function init() {
   initResultsBar();
   initSelection();
   initSimple();
+  loadStartFacts();
   initStack();
   initManual();
   initUnused();
