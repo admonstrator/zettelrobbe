@@ -48,7 +48,7 @@ Connect to OpenAI, Ollama, or any OpenAI-compatible API. We've moved beyond simp
 
 ### 🧹 Duplicates: merge tags and correspondents that drifted apart
 
-Years of tagging leave "Amazon", "amazon" and "Amazon EU S.a.r.l." side by side. The **Duplicates** page scans your Paperless-ngx on request, groups names that mean the same thing (case and umlaut spellings, legal forms, singular/plural, word order, typos), tells you _why_ it thinks so and how sure it is, and merges each group into the survivor you pick: documents move first, the leftover objects are deleted only once they are empty. Every merge is logged locally and can be undone from the same page. Nothing runs on its own.
+Years of tagging leave "Amazon", "amazon" and "Amazon EU S.a.r.l." side by side. The **Duplicates** page scans your Paperless-ngx on request, groups names that mean the same thing (case and umlaut spellings, legal forms, singular/plural, word order, typos), tells you _why_ it thinks so and how sure it is, and merges each group into the survivor you pick: documents move first, the leftover objects are deleted only once they are empty. Every merge is logged locally and can be undone from the same page. The page opens in a simple mode (one button, one sheet that says what a run costs before it starts, one list of what will happen); an advanced mode behind a switch keeps the whole toolset. Nothing runs on its own.
 
 ### 👓 Flexible OCR Vision (Mistral + Local)
 

@@ -395,6 +395,13 @@ const TITLE_LIMIT = 3;
 const TITLE_CONCURRENCY = 4;
 /** Excerpt reads in flight; one read per entity, so the same budget as above. */
 const EXCERPT_CONCURRENCY = 4;
+/**
+ * Prompt tokens the titles and neighbours of one pair take, as a guess for
+ * the sheet: a handful of titles and a few neighbour names for each of the
+ * two entities. Only a run measures the real number.
+ */
+const GUESS_TITLES_TOKENS_PER_PAIR = 90;
+
 /** Documents one neighbourhood read looks at. */
 const NEIGHBOUR_DOCUMENTS = 30;
 
@@ -4075,12 +4082,16 @@ class EntityMatchAiService {
     let asked = 0;
     let settledByRule = 0;
     let sweepRequests = 0;
+    // The job batches per kind, so a kind with a single pair is a request of
+    // its own; a sum over kinds and one ceil would say one request too few.
+    let requests = 0;
     const excerptEntities = new Set();
     for (const one of kinds) {
       const groups = (scan.groups || []).filter((group) => group.kind === one);
       groupCount += groups.length;
       const built = this._pairsForKind(one, groups, []);
       asked += built.pairs.length;
+      requests += Math.ceil(built.pairs.length / batchSize);
       settledByRule += built.settled.size;
       if (excerpts) {
         for (const pair of built.pairs) {
@@ -4103,6 +4114,7 @@ class EntityMatchAiService {
       ...estimateRun({
         items: asked,
         batchSize,
+        requests,
         lanes,
         calibration,
         lastRun,
@@ -4116,7 +4128,19 @@ class EntityMatchAiService {
       needsScan: false,
       // What comes on top of `requests`: the sweep asks its own, and the
       // excerpts are reads of Paperless-ngx rather than model requests.
-      extra: { sweepRequests, excerptReads: excerptEntities.size },
+      extra: {
+        sweepRequests,
+        excerptReads: excerptEntities.size,
+        // What the two context levers put into the prompt, as a guess the
+        // sheet can take off again when a lever is turned off: an excerpt
+        // read is a few documents of a few hundred characters, and titles
+        // with neighbours are a handful of lines for each of the two names.
+        excerptTokens:
+          excerptEntities.size *
+          this.excerptDocuments() *
+          Math.ceil(this.excerptChars() / 4),
+        titlesTokens: asked * GUESS_TITLES_TOKENS_PER_PAIR,
+      },
     });
   }
 

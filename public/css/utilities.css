@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Utilities — the deliberately few state classes. They sit in the last layer
+   Utilities: the deliberately few state classes. They sit in the last layer
    because they have to win over whatever component they are put on: a colour
    that reports validation, a class the JS toggles to hide something, a
    viewport gate.
@@ -14,7 +14,7 @@
     color: var(--zr-text-muted);
   }
   /* Validation feedback has to beat the colour the component underneath it
-     already sets — .zr-field__hint carries one at the same specificity. The
+     already sets; .zr-field__hint carries one at the same specificity. The
      utilities layer is the last one, so it wins on layer order alone and no
      longer depends on sitting further down a single stylesheet. */
   .zr-danger-text {
@@ -33,6 +33,13 @@
   /* Plain `hidden` is kept as a class because the app's JS toggles it at runtime in
      ~100 places. It is a generic utility here, not a leftover of any CSS framework. */
   .hidden {
+    display: none !important;
+  }
+  /* The two modes of a review page (js/modules/review-mode.js): what
+     belongs to the other mode is not drawn. Next to .hidden on purpose, so
+     no module or page rule that sets a display can outrank it. */
+  [data-mode='simple'] [data-advanced],
+  [data-mode='advanced'] [data-simple] {
     display: none !important;
   }
   .zr-sr {

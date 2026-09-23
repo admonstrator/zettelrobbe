@@ -148,6 +148,8 @@ const TESTS = {
   'ai-run-cost': 'test-ai-run-cost.js',
   'duplicates-assistant-ui': 'test-duplicates-assistant-ui.js',
   'simplify-assistant-ui': 'test-simplify-assistant-ui.js',
+  'review-sheet': 'test-review-sheet.js',
+  'review-voice': 'test-review-voice.js',
 };
 
 const AREAS = {
@@ -276,6 +278,7 @@ const AREAS = {
     'simplify-groups',
     'simplify-assistant-ui',
   ],
+  review: ['review-sheet', 'review-voice'],
 };
 
 // Tests intentionally excluded from the auto-discovery drift check below.

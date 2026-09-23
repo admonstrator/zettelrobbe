@@ -1,28 +1,35 @@
 /**
  * Test: duplicates-assistant-ui
  *
- * The Duplicates page as an assistant: what a scan found read as baskets, one
- * pair at a time where it matters, and every button saying what it writes
- * before it is pressed.
+ * The Duplicates page in two modes. The simple mode opens on one card with
+ * one button, prices a run in the shared sheet before the model is asked
+ * anything, and reads what a run found as a head with one button, three
+ * checklists and one line of history. The advanced mode sits behind the gate
+ * and carries the tools of the page, without prose.
  *
  * At contract level this checks the one thing that rots quietly: the
  * styleguide. /styleguide is where anyone looks before inventing a class, so
  * a kit component that never appears there does not exist in practice. The
- * page's own surfaces are checked below that as they are built.
+ * page's own surfaces are checked below that, with the view rendered through
+ * the real shell and the page script's pure helpers run on fixtures.
  *
  * Covers:
- *  1. the styleguide has a section for the review kit and links to it
- *  2. every component of the kit is shown there at least once
- *  3. the examples are real controls, not divs with a click handler
- *  4. the view carries the three surfaces, and the full list folds away
- *  5. which basket a group lands in, for every kind of group there is
- *  6. the four baskets rendered from a scan fixture, empty ones included,
- *     and the sentence each kind of line is built into
- *  7. the decision card of the stack, its per-member ticks and its keys
- *  8. the preflight dialog: three blocks and the levers, needsScan both ways
- *  9. a lever changes the numbers it is priced with
- * 10. the run meter reading a progress fixture, an empty request and all
- * 11. every button that writes says what it writes
+ *  1. the styleguide shows every component of the kit, as real controls
+ *  2. the modes: the page names itself, marks each half, and no page rule
+ *     decides whether a marked element shows
+ *  3. the gate into the advanced mode and the switch in the top bar
+ *  4. the empty card, its one button, and when the page trades it for the
+ *     result
+ *  5. the sheet's model built from an estimate fixture: after a scan, before
+ *     one, with the sweep and at every lane count
+ *  6. which checklist a group lands in, its chip and its reason
+ *  7. the three checklists sorted from a groups fixture, and the numbers of
+ *     the result head following the ticks
+ *  8. the history line
+ *  9. the stack: the decision card, its keys, and decisions that only tick
+ * 10. the run meter reading a progress fixture, empty requests and all
+ * 11. applying a batch as a checklist
+ * 12. the advanced page carries its controls without hint paragraphs
  */
 
 const assert = require('assert');
@@ -53,6 +60,8 @@ const GUIDE = read('views', 'styleguide.ejs');
 const SCRIPT = read('public', 'js', 'duplicates.js');
 const CSS = read('public', 'css', 'pages', 'duplicates.css');
 
+/* ── 1. the styleguide ────────────────────────────────────────────────────── */
+
 test('The styleguide has the section and a way to reach it', () => {
   assert.ok(
     GUIDE.includes('id="sg-review"'),
@@ -73,9 +82,7 @@ test('Every component of the kit is shown once', () => {
     'zr-ledger',
     'zr-tokenbar__seg--prompt',
     'zr-tokenbar__seg--thinking',
-    'zr-basket__mark--ok',
-    'zr-basket--ask',
-    'zr-basket__choices',
+    'zr-tokenbar--mini',
     'zr-decision__sides',
     'zr-decision__side--from',
     'zr-decision__note',
@@ -85,8 +92,13 @@ test('Every component of the kit is shown once', () => {
     'zr-runbar__fill',
     'zr-reqlog__row--live',
     'zr-reqlog__row--warn',
-    'zr-btn--stacked',
-    'zr-btn__sub',
+    // What this page is built from since it has two modes.
+    'zr-emptycard',
+    'zr-resulthead',
+    'zr-checklist',
+    'zr-historyline',
+    'zr-sheet',
+    'zr-gate',
   ].forEach((className) => {
     assert.ok(
       GUIDE.includes(className),
@@ -201,11 +213,42 @@ function functionBody(name) {
   return source.slice(source.indexOf('{'));
 }
 
-/** The whole source of a top-level const whose value is an object literal. */
+/**
+ * The whole statement of a top-level const: an object, an array or a
+ * number. Only the page's own values are read, so a renamed label or a
+ * changed limit fails here rather than in a copy of it.
+ */
 function constantSource(name) {
-  const start = SCRIPT.indexOf(`const ${name} = {`);
+  const start = SCRIPT.indexOf(`\nconst ${name} = `);
   assert.notStrictEqual(start, -1, `${name} is gone from the page script`);
-  return `${balanced(start)};`;
+  let depth = 0;
+  let quote = null;
+  for (let i = start + 1; i < SCRIPT.length; i += 1) {
+    const character = SCRIPT[i];
+    const pair = SCRIPT.slice(i, i + 2);
+    // A comment may carry an apostrophe; it is skipped whole.
+    if (!quote && pair === '//') {
+      i = SCRIPT.indexOf('\n', i);
+      continue;
+    }
+    if (!quote && pair === '/*') {
+      i = SCRIPT.indexOf('*/', i) + 1;
+      continue;
+    }
+    if (quote) {
+      if (character === '\\') i += 1;
+      else if (character === quote) quote = null;
+    } else if (character === "'" || character === '"' || character === '`') {
+      quote = character;
+    } else if ('([{'.includes(character)) {
+      depth += 1;
+    } else if (')]}'.includes(character)) {
+      depth -= 1;
+    } else if (character === ';' && depth === 0) {
+      return SCRIPT.slice(start + 1, i + 1);
+    }
+  }
+  throw new Error(`${name} is not terminated`);
 }
 
 /** The escaper the module imports, so a helper taken out of it still escapes. */
@@ -223,43 +266,78 @@ const escForTest = (value) =>
   );
 
 /**
- * The named helpers of the page script, evaluated out of their module.
+ * A browser module of the kit, loaded the way tests/test-review-sheet.js
+ * loads it: the imports dropped, the exports made plain declarations.
+ */
+function loadModule(file, names, globals = {}) {
+  const source = read(...file.split('/'))
+    .replace(/^import .*$/gm, '')
+    .replace(/^export (const|function) /gm, '$1 ');
+  const keys = Object.keys(globals);
+  return new Function(
+    'esc',
+    ...keys,
+    `${source}\nreturn { ${names.join(', ')} };`
+  )(escForTest, ...keys.map((key) => globals[key]));
+}
+
+/** What the page imports from the shared sheet module. */
+const SHEET = loadModule('public/js/modules/review-sheet.js', [
+  'formatTokens',
+  'roughTime',
+  'htmlSheet',
+]);
+
+/**
+ * The named helpers of the page script, evaluated out of their module, with
+ * what the module imports handed in.
+ *
+ * `expose` returns constants as well, for a test that has to look at the
+ * state the helpers keep.
  *
  * @param {string[]} names
- * @param {{constants?: string[], globals?: object}} [extra]
+ * @param {{constants?: string[], globals?: object, expose?: string[]}} [extra]
  */
 function helpers(names, extra = {}) {
   const constants = (extra.constants || []).map(constantSource).join('\n');
   const source = names.map(functionSource).join('\n');
-  const globals = Object.assign({ esc: escForTest }, extra.globals || {});
+  const returned = names.concat(extra.expose || []);
+  const globals = Object.assign(
+    {
+      esc: escForTest,
+      formatTokens: SHEET.formatTokens,
+      roughTime: SHEET.roughTime,
+    },
+    extra.globals || {}
+  );
   const keys = Object.keys(globals);
   return new Function(
     ...keys,
-    `${constants}\n${source}\nreturn { ${names.join(', ')} };`
+    `${constants}\n${source}\nreturn { ${returned.join(', ')} };`
   )(...keys.map((key) => globals[key]));
 }
 
-/** The string constants the helpers read; they are values, not object literals. */
-const WIRE = {
-  PLAIN_SCORE: 0.95,
-  BASKET_PLAIN: 'plain',
-  BASKET_SAME: 'same',
-  BASKET_ASK: 'ask',
-  ASK_WARNINGS: [
-    'has-matching-rule',
-    'configured-tag',
-    'no-permission',
-    'owner-differs',
-  ],
-  AI_REASON_MAX: 200,
-  AI_SOURCE_RULE: 'spelling-rule',
-  AI_RULE_LABEL: 'Spelling rule',
-  AI_RULE_TONE: 'dup-verdict--rule',
-  AI_CANDIDATE_SOURCE: 'ai-candidate',
-  DECISION_SAMPLES: 3,
-  RUN_LANE_OPTIONS: [1, 3, 5, 8],
-  currentThreshold: () => 0.85,
-};
+/** A classList that remembers, for the helpers that toggle one. */
+function fakeElement(classes = []) {
+  const set = new Set(classes);
+  return {
+    textContent: '',
+    innerHTML: '',
+    disabled: false,
+    style: {},
+    classList: {
+      add: (name) => set.add(name),
+      remove: (name) => set.delete(name),
+      contains: (name) => set.has(name),
+      toggle: (name, on) => {
+        const next = on === undefined ? !set.has(name) : Boolean(on);
+        if (next) set.add(name);
+        else set.delete(name);
+        return next;
+      },
+    },
+  };
+}
 
 /** One group of the fixture below, with the page's own defaults applied. */
 function stateOf(group) {
@@ -275,7 +353,29 @@ function stateOf(group) {
   };
 }
 
-/* One scan, with one group of every kind the plan has to read. */
+/** Two members, for the cases that only differ in how they were found. */
+function pairOf(id, extra) {
+  const numeric = Number(String(id).replace(/\D/g, '')) || 1;
+  return stateOf(
+    Object.assign(
+      {
+        id,
+        kind: 'tags',
+        confidence: 0.9,
+        reasons: ['fuzzy'],
+        warnings: [],
+        suggestedTargetId: numeric * 10,
+        members: [
+          { id: numeric * 10, name: `Keep ${id}`, documentCount: 10 },
+          { id: numeric * 10 + 1, name: `Away ${id}`, documentCount: 2 },
+        ],
+      },
+      extra
+    )
+  );
+}
+
+/* One scan, with one group of every kind the page has to read. */
 const FIXTURE = {
   plain: stateOf({
     id: 'tags:1-2',
@@ -375,350 +475,1102 @@ const FIXTURE = {
   }),
 };
 
-/* ── 4. the view ──────────────────────────────────────────────────────────── */
+/* The unused objects of the same scan, in the shape unusedFromScan() makes. */
+const UNUSED = [
+  { kind: 'tags', record: { id: 70, name: 'Old <b>' } },
+  { kind: 'correspondents', record: { id: 71, name: 'Nobody' } },
+];
+
+/* ── 2. the modes ─────────────────────────────────────────────────────────── */
 
 let page = '';
 let offered = '';
 
-test('The view carries the plan, the stack and the checklist', () => {
+/** The opening tag of the element with this id. */
+function openingTag(markup, id) {
+  const tag = new RegExp(`<[a-z]+[^>]*\\sid="${id}"[^>]*>`).exec(markup);
+  assert.ok(tag, `#${id} is missing from the view`);
+  return tag[0];
+}
+
+test('The page names itself and opens in the simple mode', () => {
   page = renderSync('duplicates.ejs', LOCALS);
   offered = renderSync(
     'duplicates.ejs',
     Object.assign({}, LOCALS, { aiReviewEnabled: true })
   );
-  [
-    'dupPlan',
-    'dupPlanSentence',
-    'dupPlanLedger',
-    'dupPlanTokenbar',
-    'dupBaskets',
-    'dupShowAllBtn',
-    'dupEverything',
-    'dupStack',
-    'dupStackCard',
-    'dupStackUndoBtn',
-    'dupStackObviousBtn',
-    'dupApply',
-    'dupApplyList',
-  ].forEach((id) => {
-    assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
-    assert.ok(
-      SCRIPT.includes(`'${id}'`),
-      `the page script never looks up #${id}`
-    );
-  });
-  // Three of them come up hidden: a plan of nothing, a stack over nothing and
-  // a checklist of nothing would all read as an answer that was never given.
-  ['dupPlan', 'dupStack', 'dupApply'].forEach((id) => {
+  [page, offered].forEach((markup) => {
     assert.match(
-      page,
-      new RegExp(`hidden" id="${id}"`),
-      `#${id} must come up hidden`
+      markup,
+      /<div class="dup-page" data-review-page="duplicates" data-mode="simple"\s+data-default-threshold="0\.85">/,
+      'the root must name the page, start simple and carry the default threshold'
     );
   });
-  // The full list is not hidden at load: before a scan its empty state is the
-  // only thing the page has to say.
+  // The mode the page was left in is read by the kit; the page only names
+  // itself and where the switch goes.
+  const init = functionBody('initMode');
+  ["page: 'duplicates'", 'root: el.page', 'gate: GATE_LINES'].forEach(
+    (part) => {
+      assert.ok(init.includes(part), `the switch is mounted without ${part}`);
+    }
+  );
+  assert.ok(
+    init.includes("document.getElementById('zrTopbarActions')"),
+    'the switch belongs in the top bar'
+  );
+  assert.ok(
+    init.includes('onChange: () => renderSimple()'),
+    'the simple page must read the cards again when it comes back'
+  );
   assert.match(
-    page,
-    /class="dup-everything" id="dupEverything"/,
-    'the card list must be visible until a plan replaces it'
-  );
-  assert.ok(
-    page.indexOf('id="dupPlan"') < page.indexOf('id="dupEverything"'),
-    'the plan belongs above the list it replaces'
-  );
-  // The run button costs tokens, so it only exists where a model does.
-  assert.ok(
-    offered.includes('id="dupPlanAskBtn"'),
-    'the header card has no run button although the review is offered'
-  );
-  assert.ok(
-    !page.includes('id="dupPlanAskBtn"'),
-    'the run button must not exist without the review'
+    functionBody('init'),
+    /\{\n\s+if \(!el\.results\) return;\n\n\s+initMode\(\);/,
+    'the mode is set before anything else draws'
   );
 });
 
-test('The run meter grows around the bar the panel already had', () => {
-  [
-    'dupRunPosition',
-    'dupRunRest',
-    'dupRunLedger',
-    'dupRunTokenbar',
-    'dupRunLog',
-    'dupAiStopSub',
-  ].forEach((id) => {
+test('Each half of the page is marked, and what both modes need is not', () => {
+  [page, offered].forEach((markup) => {
+    // The simple half: the sentence, the card and the result.
     assert.ok(
-      offered.includes(`id="${id}"`),
-      `#${id} is missing although the review is offered`
+      markup.includes('<div class="dup-lede" data-simple>'),
+      'the sentence of the simple page is not marked'
+    );
+    ['dupEmpty', 'dupResult'].forEach((id) => {
+      assert.ok(
+        /\sdata-simple[\s>]/.test(openingTag(markup, id)),
+        `#${id} belongs to the simple page only`
+      );
+    });
+    // The advanced half: the scan row, and one wrapper around every tool.
+    assert.ok(
+      /\sdata-advanced[\s>]/.test(openingTag(markup, 'dupControls')),
+      'the scan row belongs to the advanced page only'
+    );
+    const tools = markup.indexOf('<div data-advanced>');
+    assert.notStrictEqual(tools, -1, 'the tools have no marked wrapper');
+    [
+      'dupManual',
+      'dupEverything',
+      'dupUnused',
+      'dupLog',
+      'dupMappings',
+      'dupDismissals',
+    ].forEach((id) => {
+      assert.ok(
+        markup.indexOf(`id="${id}"`) > tools,
+        `#${id} sits outside the advanced wrapper`
+      );
+    });
+    assert.ok(
+      markup.indexOf('id="dupResult"') < tools,
+      'the result of the simple page must close before the tools begin'
+    );
+    // What a run and a merge show belongs to both modes.
+    ['dupAiNotice', 'dupApply', 'dupStack'].forEach((id) => {
+      assert.ok(
+        !/data-(simple|advanced)/.test(openingTag(markup, id)),
+        `#${id} must show in both modes`
+      );
+    });
+    assert.strictEqual(
+      (markup.match(/\sdata-simple[\s>]/g) || []).length,
+      3,
+      'three parts are the simple page: the sentence, the card, the result'
+    );
+    assert.strictEqual(
+      (markup.match(/\sdata-advanced[\s>]/g) || []).length,
+      2,
+      'two parts are the advanced page: the scan row and the tools'
     );
   });
-  // The bar is the same bar, inside the kit's run bar: one bar, with the
-  // position on its left and what is left of the wait on its right.
-  assert.match(
-    offered,
-    /class="zr-runbar dup-progress__runbar"/,
-    'the progress bar is not inside a run bar'
+  assert.ok(
+    !/\sdata-(simple|advanced)/.test(openingTag(offered, 'dupAiProgress')),
+    'the run meter shows in both modes while a run runs'
   );
-  assert.match(
-    offered,
-    /class="dup-progress__bar zr-runbar__track" id="dupAiProgressBar"/,
-    'the existing bar is no longer the track of the run bar'
+  // A finished run's meter is a detail of the advanced page; a new run brings
+  // it back to both.
+  assert.ok(
+    functionBody('renderProgressOutcome').includes(
+      "el.aiProgress.setAttribute('data-advanced', '')"
+    ),
+    'a finished meter stays on the simple page'
   );
   assert.ok(
-    offered.indexOf('id="dupRunPosition"') <
-      offered.indexOf('id="dupAiProgressBar"') &&
-      offered.indexOf('id="dupAiProgressBar"') <
-        offered.indexOf('id="dupRunRest"'),
-    'the position, the bar and the time left are in the wrong order'
-  );
-  // Stop says what stopping keeps, and only then lays out two lines.
-  assert.match(
-    functionBody('setStopSub'),
-    /classList\.toggle\('zr-btn--stacked', text !== ''\)/,
-    'the Stop button stacks even when it has nothing on its second line'
+    functionBody('showProgressPanel').includes(
+      "el.aiProgress.removeAttribute('data-advanced')"
+    ),
+    'a new run does not show its meter in the simple mode'
   );
 });
 
-/* ── 5. which basket a group lands in ─────────────────────────────────────── */
+test('No page rule decides whether a marked element shows', () => {
+  // The rule that hides the other mode sits in the utilities layer next to
+  // .hidden, so no module or page display can outrank it; this stylesheet
+  // still must not set a display on a marked element, or the intent is lost.
+  const utilities = read('public', 'css', 'utilities.css');
+  assert.ok(
+    utilities.includes("[data-mode='simple'] [data-advanced],") &&
+      utilities.includes("[data-mode='advanced'] [data-simple] {"),
+    'the marks mean nothing without the rule of the utilities layer'
+  );
+  const marked = [
+    ...page.matchAll(/<[a-z]+[^>]*\sdata-(?:simple|advanced)[^>]*>/g),
+  ];
+  const classes = new Set();
+  marked.forEach((tag) => {
+    const attribute = /class="([^"]*)"/.exec(tag[0]);
+    if (!attribute) return;
+    attribute[1]
+      .split(/\s+/)
+      .filter((name) => name.startsWith('dup-'))
+      .forEach((name) => classes.add(name));
+  });
+  assert.ok(classes.size >= 4, 'the marked elements lost their classes');
+  const rules = [
+    ...CSS.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g),
+  ];
+  const offenders = [];
+  rules.forEach((rule) => {
+    const selectors = rule[1].split(',').map((selector) => selector.trim());
+    const hit = selectors.find((selector) =>
+      classes.has(selector.replace(/^\./, ''))
+    );
+    if (hit && /(^|[\s;])display\s*:/.test(rule[2])) offenders.push(hit);
+  });
+  assert.deepStrictEqual(
+    offenders,
+    [],
+    `a page rule sets display on a marked element: ${offenders.join(', ')}`
+  );
+});
 
-test('Every kind of group lands in the basket that fits it', () => {
-  const { planBasketOf } = helpers(['planBasketOf', 'isSureSame', 'num'], {
-    globals: WIRE,
-  });
-  assert.strictEqual(planBasketOf(FIXTURE.plain), 'plain', 'same name');
-  assert.strictEqual(planBasketOf(FIXTURE.three), 'plain', 'above 0.95');
-  assert.strictEqual(
-    planBasketOf(FIXTURE.same),
-    'same',
-    'the model confirmed it'
-  );
-  assert.strictEqual(
-    planBasketOf(FIXTURE.ask),
-    'ask',
-    'unsure and a rule warning'
-  );
-  // A verdict of "different" is an answer: the group stays as it is and is in
-  // no basket at all.
-  assert.strictEqual(planBasketOf(FIXTURE.apart), '', 'called apart');
-  // A warning only the user can settle outranks a perfect score.
-  const warned = stateOf({
-    ...FIXTURE.plain.group,
-    id: 'tags:1-2-warned',
-    warnings: ['has-matching-rule'],
-  });
-  assert.strictEqual(
-    planBasketOf(warned),
-    'ask',
-    'a rule warning is a question'
-  );
-  // An inbox tag is a note, not a question: it does not move a group.
-  const noted = stateOf({
-    ...FIXTURE.plain.group,
-    id: 'tags:1-2-noted',
-    warnings: ['inbox-tag', 'large-group'],
-  });
-  assert.strictEqual(planBasketOf(noted), 'plain', 'a note is not a question');
-  // A "same" the model is not sure about, below the sensitivity, is a question.
-  const shaky = stateOf({
-    ...FIXTURE.same.group,
-    id: 'correspondents:5-6-shaky',
-    confidence: 0.7,
-    aiVerdict: { verdict: 'same', confidence: 'low', basis: 'synonym' },
-  });
-  assert.strictEqual(planBasketOf(shaky), 'ask', 'below the sensitivity');
-  // Nothing falls through: a group nothing settled is a question, never a
-  // proposal that slipped past every rule.
-  const bare = stateOf({
-    id: 'tags:40-41',
-    kind: 'tags',
-    confidence: 0.9,
-    reasons: ['token-order'],
-    warnings: [],
-    suggestedTargetId: 40,
-    members: [
-      { id: 40, name: 'Haus Versicherung', documentCount: 3 },
-      { id: 41, name: 'Versicherung Haus', documentCount: 2 },
+/* ── 3. the gate ──────────────────────────────────────────────────────────── */
+
+test('The gate names what the advanced page adds, in three lines', () => {
+  const { GATE_LINES } = new Function(
+    `${constantSource('GATE_LINES')}\nreturn { GATE_LINES };`
+  )();
+  assert.deepStrictEqual(
+    GATE_LINES.map((line) => line.text),
+    [
+      'Sensitivity and threshold',
+      'Pair anything by hand',
+      'Every group as a list, sort and select',
     ],
+    'the gate lines are the three things only the advanced page has'
+  );
+  const icons = read('public', 'icons.svg');
+  GATE_LINES.forEach((line) => {
+    assert.ok(
+      icons.includes(`<symbol id="${line.icon}"`),
+      `the gate line "${line.text}" points at a missing icon`
+    );
   });
-  assert.strictEqual(planBasketOf(bare), 'ask', 'the ask basket is the floor');
+  // The kit draws them; the page hands them over as they are.
+  const mode = loadModule('public/js/modules/review-mode.js', ['htmlGate'], {
+    confirmDialog: () => Promise.resolve(false),
+    window: {},
+  });
+  const gate = mode.htmlGate(GATE_LINES);
+  GATE_LINES.forEach((line) => {
+    assert.ok(
+      gate.includes(line.text),
+      `the gate does not read "${line.text}"`
+    );
+  });
 });
 
-/* ── 6. the four baskets, and the sentences in them ───────────────────────── */
+/* ── 4. the empty card ────────────────────────────────────────────────────── */
 
-/** The four basket builders with everything they read, out of the module. */
-function basketHelpers(unusedEntries) {
+test('The page opens on one card with one button', () => {
+  [page, offered].forEach((markup) => {
+    const card =
+      /<div class="zr-emptycard dup-empty" id="dupEmpty" data-simple>([\s\S]*?)<\/div>/.exec(
+        markup
+      );
+    assert.ok(card, 'the empty card is missing');
+    assert.match(
+      card[1],
+      /icons\.svg#i-wand/,
+      'the card has no icon of its own'
+    );
+    assert.ok(
+      card[1].includes(
+        '<button class="zr-btn zr-btn--primary" id="dupFindBtn" type="button">Find duplicates</button>'
+      ),
+      'the card has no primary "Find duplicates"'
+    );
+    assert.strictEqual(
+      (card[1].match(/<button/g) || []).length,
+      1,
+      'one card, one button'
+    );
+    assert.ok(!card[1].includes('<p'), 'the card explains nothing');
+  });
+  assert.match(
+    functionBody('initSimple'),
+    /el\.findBtn\.addEventListener\('click', findDuplicates\)/,
+    'the button does not start the one flow of the simple page'
+  );
+});
+
+test('The one button scans first, on the meter, and the sheet opens on its numbers', () => {
+  const body = functionBody('findDuplicates');
+  const scan = body.indexOf('await runScan(options, { meter: true });');
+  const held = body.indexOf('simple.held = true;');
+  const sheet = body.indexOf('if (!(await confirmRun(options))) return;');
+  const released = body.indexOf('simple.held = false;');
+  const ask = body.indexOf('askForVerdicts({ includeCandidates: true }');
+  assert.ok(scan > -1, 'the scan does not come first');
+  assert.ok(
+    scan < held && held < sheet && sheet < released && released < ask,
+    'scan, then the sheet over the card, then Start lets the run show'
+  );
+  // The scan phase is the run meter's own: its phase line, no Stop.
+  const phase = functionBody('showScanPhase');
+  assert.ok(
+    phase.includes("phaseHeadline({ phase: 'scanning' })"),
+    'the meter does not name the scan'
+  );
+  assert.ok(
+    phase.includes("el.aiStopBtn.classList.add('hidden')"),
+    'a scan cannot be stopped, so the meter offers no Stop'
+  );
+  const runScan = functionBody('runScan');
+  assert.ok(
+    runScan.includes('if (meter) showScanPhase();') &&
+      runScan.includes('if (meter) hideProgressPanel();'),
+    'the scan phase is not shown and taken down around the scan'
+  );
+  // Any new scan, and any answer, lets the result show again.
+  assert.ok(runScan.includes('simple.held = false;'));
+  assert.ok(functionBody('applyReviewResult').includes('simple.held = false;'));
+});
+
+test('The card gives way to the run and the result, and comes back with neither', () => {
+  const run = (flags) => {
+    const el = {
+      result: fakeElement(['hidden']),
+      empty: fakeElement(),
+      findBtn: fakeElement(),
+      aiProgress: fakeElement(flags.live ? ['dup-progress--live'] : []),
+    };
+    const { updateSimpleSurface } = helpers(['updateSimpleSurface'], {
+      globals: Object.assign(
+        {
+          el,
+          scanned: false,
+          proposing: false,
+          scanning: false,
+          aiReviewing: false,
+          merging: false,
+          simple: { held: flags.held === true },
+        },
+        flags.state
+      ),
+    });
+    updateSimpleSurface();
+    return {
+      result: !el.result.classList.contains('hidden'),
+      empty: !el.empty.classList.contains('hidden'),
+      button: el.findBtn.textContent,
+      disabled: el.findBtn.disabled,
+    };
+  };
+  // Nothing found yet: the card, and its button ready.
+  assert.deepStrictEqual(run({ state: {} }), {
+    result: false,
+    empty: true,
+    button: 'Find duplicates',
+    disabled: false,
+  });
+  // The scan before a run: the card says so on its button.
+  assert.deepStrictEqual(run({ state: { scanning: true, proposing: true } }), {
+    result: false,
+    empty: true,
+    button: 'Scanning…',
+    disabled: true,
+  });
+  // The scan of the one button runs on the meter: the card steps aside.
+  assert.deepStrictEqual(
+    run({ live: true, state: { scanning: true, proposing: true } }),
+    { result: false, empty: false, button: 'Scanning…', disabled: true }
+  );
+  // The sheet after the scan: the card stays behind it, its button waiting.
+  assert.deepStrictEqual(
+    run({ held: true, state: { scanned: true, proposing: true } }),
+    { result: false, empty: true, button: 'Find duplicates', disabled: true }
+  );
+  // Cancel: the card again, ready, and the scan's result not shown.
+  assert.deepStrictEqual(run({ held: true, state: { scanned: true } }), {
+    result: false,
+    empty: true,
+    button: 'Find duplicates',
+    disabled: false,
+  });
+  // Start: between the scan and the job the page shows neither.
+  assert.deepStrictEqual(run({ state: { scanned: true, proposing: true } }), {
+    result: false,
+    empty: false,
+    button: 'Find duplicates',
+    disabled: true,
+  });
+  // The model is asked: the meter is the page, the card steps aside.
+  assert.deepStrictEqual(
+    run({ live: true, state: { scanned: true, proposing: true } }),
+    { result: false, empty: false, button: 'Find duplicates', disabled: true }
+  );
+  // What was found: the result, and no card.
+  assert.deepStrictEqual(run({ state: { scanned: true } }), {
+    result: true,
+    empty: false,
+    button: 'Find duplicates',
+    disabled: false,
+  });
+});
+
+/* ── 5. the sheet ─────────────────────────────────────────────────────────── */
+
+/* What GET /api/duplicates/ai-review/estimate answers after a scan: 96 pairs
+   in 12 requests at the server's 3 lanes, with the last run of this task. */
+const ESTIMATE = {
+  items: 96,
+  requests: 12,
+  lanes: 3,
+  seconds: 40,
+  tokens: { prompt: 24000, completion: 6000, thinking: 8000 },
+  basis: 'model',
+  tokenBudget: 200000,
+  needsScan: false,
+  extra: { sweepRequests: 4, excerptReads: 31 },
+  lastRun: {
+    requests: 10,
+    items: 80,
+    promptTokens: 20000,
+    completionTokens: 5000,
+    thinkingTokens: 7000,
+    seconds: 150,
+  },
+};
+
+/* The same endpoint before a scan: the pairs are not known yet. */
+const BEFORE_SCAN = Object.assign({}, ESTIMATE, {
+  items: 0,
+  requests: 0,
+  seconds: 0,
+  tokens: { prompt: 0, completion: 0, thinking: 0 },
+  basis: 'guess',
+  needsScan: true,
+});
+
+const DRAFT = { titles: true, excerpts: true, sweep: false, lanes: 3 };
+
+function sheetHelpers() {
+  return helpers(['num', 'count', 'plural', 'sheetModel']);
+}
+
+test('The sheet reads an estimate after a scan: pairs, requests, tokens, time', () => {
+  const { sheetModel } = sheetHelpers();
+  const model = sheetModel(ESTIMATE, DRAFT);
+  assert.strictEqual(model.sub, '96 pairs · 12 requests');
+  assert.strictEqual(model.requests, 12);
+  assert.deepStrictEqual(model.tokens, {
+    prompt: 24000,
+    completion: 6000,
+    thinking: 8000,
+  });
+  assert.strictEqual(model.limit, 200000, 'the run is held against its limit');
+  // 40 s at the server's 3 lanes is 10 s a request; 12 requests at 3 lanes
+  // are 4 rounds.
+  assert.strictEqual(model.seconds, 40);
+  assert.strictEqual(model.lanes, 3);
+  assert.strictEqual(model.basis, 'model');
+  assert.deepStrictEqual(
+    model.switches.map((one) => [one.id, one.label, one.price, one.on]),
+    [
+      ['dupAiTitles', 'Titles as context', '', true],
+      ['dupAiExcerpts', 'Excerpts · 31 reads', '', true],
+      ['dupAiSweep', 'Synonym sweep', '+4 requests · +13k', false],
+    ],
+    'the three levers, what each costs, and the sweep off'
+  );
+  // The model is the one the kit draws: every number reaches the markup.
+  const sheet = SHEET.htmlSheet(model);
+  ['96 pairs · 12 requests', '38k', '200k limit', 'Synonym sweep'].forEach(
+    (text) => {
+      assert.ok(sheet.includes(text), `the drawn sheet does not say ${text}`);
+    }
+  );
+});
+
+test('A lever moves the numbers: the sweep adds requests, lanes change time only', () => {
+  const { sheetModel } = sheetHelpers();
+  const swept = sheetModel(ESTIMATE, Object.assign({}, DRAFT, { sweep: true }));
+  assert.strictEqual(swept.sub, '96 pairs · 16 requests');
+  assert.strictEqual(swept.requests, 16);
+  // Four requests more, each at what a request cost on average.
+  assert.deepStrictEqual(swept.tokens, {
+    prompt: 32000,
+    completion: 8000,
+    thinking: 10667,
+  });
+  assert.strictEqual(swept.seconds, 60, '16 requests at 3 lanes are 6 rounds');
+  assert.strictEqual(
+    swept.switches.find((one) => one.id === 'dupAiSweep').on,
+    true
+  );
+
+  // The lanes change the time and never the tokens.
+  [
+    [1, 120],
+    [3, 40],
+    [5, 30],
+    [8, 20],
+  ].forEach(([lanes, seconds]) => {
+    const model = sheetModel(ESTIMATE, Object.assign({}, DRAFT, { lanes }));
+    assert.strictEqual(model.seconds, seconds, `${lanes} lanes`);
+    assert.strictEqual(model.lanes, lanes);
+    assert.deepStrictEqual(model.tokens, sheetModel(ESTIMATE, DRAFT).tokens);
+  });
+
+  // The two evidence levers are a choice without a price the estimate knows.
+  const bare = sheetModel(
+    ESTIMATE,
+    Object.assign({}, DRAFT, { titles: false, excerpts: false })
+  );
+  assert.deepStrictEqual(
+    bare.switches.map((one) => one.on),
+    [false, false, false]
+  );
+  assert.strictEqual(bare.requests, 12, 'the evidence does not add requests');
+});
+
+test('Before a scan the sheet shows the last run, as measured, or nothing', () => {
+  const { sheetModel } = sheetHelpers();
+  const model = sheetModel(BEFORE_SCAN, DRAFT);
+  assert.strictEqual(model.sub, '80 pairs · 10 requests');
+  assert.strictEqual(model.requests, 10);
+  assert.deepStrictEqual(model.tokens, {
+    prompt: 20000,
+    completion: 5000,
+    thinking: 7000,
+  });
+  // 150 s for 10 requests at the lanes it ran with; 10 requests at 3 lanes
+  // are 4 rounds of 15 s.
+  assert.strictEqual(model.seconds, 60);
+  assert.strictEqual(model.basis, 'run', 'a measured run says so');
+  assert.strictEqual(
+    model.switches.find((one) => one.id === 'dupAiSweep').price,
+    '+4 requests · +13k'
+  );
+
+  // No run behind it either: no numbers are invented.
+  const unknown = sheetModel(
+    Object.assign({}, BEFORE_SCAN, { lastRun: null }),
+    DRAFT
+  );
+  assert.strictEqual(unknown.sub, '', 'nothing known is nothing said');
+  assert.strictEqual(unknown.requests, 0);
+  assert.strictEqual(unknown.seconds, 0);
+  assert.strictEqual(unknown.basis, 'guess');
+  // An estimate without excerpt reads names the lever plainly.
+  const noReads = sheetModel(
+    Object.assign({}, ESTIMATE, { extra: { sweepRequests: 0 } }),
+    DRAFT
+  );
+  assert.deepStrictEqual(
+    noReads.switches.map((one) => [one.label, one.price]),
+    [
+      ['Titles as context', ''],
+      ['Excerpts', ''],
+      ['Synonym sweep', ''],
+    ]
+  );
+});
+
+test('The sheet opens before every run, and Start keeps what it chose', () => {
+  const body = functionBody('confirmRun');
+  // Every way here comes after a scan, so the title never promises one.
+  assert.ok(
+    body.includes("title: 'Ask the model',"),
+    'the sheet is not titled "Ask the model"'
+  );
+  assert.ok(
+    !SCRIPT.includes('Scan, then ask the model'),
+    'the sheet still offers to scan first'
+  );
+  [
+    "confirmLabel: 'Start',",
+    "cancelLabel: 'Cancel',",
+    "className: 'zr-dialog--sheet',",
+  ].forEach((part) => {
+    assert.ok(body.includes(part), `the sheet is opened without ${part}`);
+  });
+  assert.ok(
+    body.includes('html: htmlSheet(sheetModel(estimate, draft)),'),
+    'the sheet is not drawn by the kit from the page model'
+  );
+  // A lever redraws at once and asks again; only the newest answer draws.
+  assert.ok(
+    body.includes('if (ticket !== asked || !dialog.open) return;'),
+    'an older answer could paint over a newer choice'
+  );
+  // Cancel forgets the draft; Start keeps it for the run.
+  assert.ok(
+    body.indexOf('if (!confirmed) return false;') <
+      body.indexOf('Object.assign(levers, draft);'),
+    'a cancelled sheet must not change the levers'
+  );
+  // The estimate is asked with both levers on, so it can price them.
+  const fetch = functionBody('fetchRunEstimate');
+  ["sweep: 'true',", "excerpts: 'true',"].forEach((part) => {
+    assert.ok(fetch.includes(part), `the estimate is asked without ${part}`);
+  });
+  assert.ok(
+    fetch.includes('`/api/duplicates/ai-review/estimate?${params}`'),
+    'the sheet does not ask the estimate route'
+  );
+});
+
+/* ── 6. which checklist a group lands in ──────────────────────────────────── */
+
+function checklistHelpers() {
   return helpers(
     [
       'num',
       'pct',
+      'count',
       'plural',
       'normalizeKind',
       'memberOf',
       'selectedSources',
-      'groupDocuments',
       'countDocuments',
-      'shortReason',
-      'aiReviewOffered',
-      'planMovingDocuments',
-      'planPhrase',
-      'planQuestion',
-      'htmlPlanSources',
-      'htmlPlanTarget',
-      'htmlPlanLine',
-      'htmlPlanQuestion',
-      'htmlBasket',
-      'htmlBasketPlain',
-      'htmlBasketSame',
-      'htmlBasketAsk',
-      'htmlBasketLeftovers',
+      'isSureSame',
+      'isRuleVerdict',
+      'basisLabel',
+      'checklistOf',
+      'checklistChip',
+      'checklistReason',
+      'clip',
+      'checklistRow',
+      'unusedChecklistRow',
+      'compareRows',
+      'buildChecklists',
+      'isTicked',
+      'tickTotals',
+      'mergeLabel',
+      'resultHeadline',
+      'resultCost',
+      'htmlMiniBar',
+      'htmlChecklistRow',
+      'htmlChecklist',
     ],
     {
-      constants: ['AI_BASIS_PHRASES', 'REASON_PHRASES', 'htmlPlanMarks'],
-      globals: {
-        ...WIRE,
-        unusedEntries,
-        el: { aiReviewBtn: {}, reviewThenMergeBtn: null },
-      },
+      constants: [
+        'PLAIN_SCORE',
+        'ASK_WARNINGS',
+        'CHIP_BY_BASIS',
+        'CHIP_BY_REASON',
+        'REASON_BY_WARNING',
+        'CHECKLIST_REASON_MAX',
+        'CHECKLIST_ROWS',
+        'AI_BASIS_LABELS',
+        'AI_SOURCE_RULE',
+      ],
     }
   );
 }
 
-test('The four baskets are rendered, the empty ones included', () => {
-  const kit = basketHelpers([
-    { kind: 'tags', record: { id: 77, name: 'Altpapier', documentCount: 0 } },
-    {
-      kind: 'correspondents',
-      record: { id: 78, name: 'Ex-Vermieter', documentCount: 0 },
-    },
-  ]);
-  const markup = [
-    kit.htmlBasketPlain([FIXTURE.plain, FIXTURE.three]),
-    kit.htmlBasketSame([]),
-    kit.htmlBasketAsk([FIXTURE.ask]),
-    kit.htmlBasketLeftovers(),
-  ].join('');
-
-  ['plain', 'same', 'ask', 'leftovers'].forEach((name) => {
-    assert.ok(
-      markup.includes(`data-basket="${name}"`),
-      `the ${name} basket was not rendered at all`
-    );
-  });
-  assert.ok(
-    markup.includes('The same thing, plainly — 2 groups'),
-    'the plain basket does not count what is in it'
-  );
-  // An empty basket keeps its heading and says so; a basket that disappeared
-  // would read as a basket nobody looked in.
-  assert.ok(
-    markup.includes('The model says it is the same — 0 groups'),
-    'the empty basket lost its heading'
-  );
-  assert.ok(
-    markup.includes('The model has confirmed nothing here yet.'),
-    'the empty basket does not say it is empty'
-  );
-  assert.ok(
-    markup.includes('zr-basket--quiet'),
-    'an empty basket is not toned down'
-  );
-  // Only the basket that needs answers wears the amber edge.
+test('Every kind of group lands in the list that fits it', () => {
+  const { checklistOf } = checklistHelpers();
+  const at = (state) => checklistOf(state.group, 0.85);
+  // Settled by the spelling, or by a model that is sure.
+  assert.strictEqual(at(FIXTURE.plain), 'proposed', 'an exact match');
+  assert.strictEqual(at(FIXTURE.three), 'proposed', 'at or above 95%');
+  assert.strictEqual(at(FIXTURE.same), 'proposed', 'a sure "same"');
+  // What only a person can settle.
+  assert.strictEqual(at(FIXTURE.ask), 'unsure', 'the model is unsure');
+  assert.strictEqual(at(FIXTURE.apart), 'unsure', 'the model says different');
   assert.strictEqual(
-    (markup.match(/zr-basket--ask/g) || []).length,
-    1,
-    'exactly the ask basket carries the amber edge'
+    at(pairOf('fuzzy:1', { confidence: 0.88 })),
+    'unsure',
+    'nothing settled a spelling match below 95%'
   );
-  // The plain basket is collapsed behind its own button.
-  assert.ok(markup.includes('Show them'), 'the plain basket cannot be opened');
-  assert.ok(
-    markup.includes(
-      'class="zr-basket__body dup-basket__body hidden" data-basket-body="plain"'
+  assert.strictEqual(
+    at(pairOf('owner:2', { confidence: 1, warnings: ['owner-differs'] })),
+    'unsure',
+    'a warning that is a question outweighs the score'
+  );
+  assert.strictEqual(
+    at(
+      pairOf('inbox:3', {
+        confidence: 1,
+        warnings: ['inbox-tag', 'large-group'],
+      })
     ),
-    'the plain basket must come up collapsed'
+    'proposed',
+    'a warning that is a note does not'
   );
-  assert.ok(
-    markup.includes('Leftovers — 2 objects') &&
-      markup.includes('1 tag and 1 correspondent carry no document'),
-    'the leftovers basket does not count both kinds'
+  // A "same" the model is not sure about carries only what the scan would
+  // have proposed anyway.
+  const lowSame = { verdict: 'same', confidence: 'low', basis: 'typo' };
+  assert.strictEqual(
+    at(pairOf('low:4', { confidence: 0.9, aiVerdict: lowSame })),
+    'proposed'
   );
-  // Nothing is preselected and nothing carries an inline handler.
-  assert.ok(
-    !/\son(click|change)\s*=/.test(markup),
-    'a basket built an inline handler'
+  assert.strictEqual(
+    at(pairOf('low:5', { confidence: 0.8, aiVerdict: lowSame })),
+    'unsure'
+  );
+  // A pair only the model found, and is sure about.
+  assert.strictEqual(
+    at(
+      pairOf('candidate:6', {
+        source: 'ai-candidate',
+        reasons: ['semantic'],
+        confidence: 0.4,
+        aiVerdict: {
+          verdict: 'same',
+          confidence: 'high',
+          basis: 'translation',
+        },
+      })
+    ),
+    'proposed'
   );
 });
 
-test('Each kind of line is built into a sentence with its numbers in it', () => {
-  const kit = basketHelpers([]);
+test('A proposed row names its rule in a word, an unsure row its reason', () => {
+  const { checklistChip, checklistReason } = checklistHelpers();
+  assert.strictEqual(checklistChip(FIXTURE.plain.group), 'case');
+  assert.strictEqual(checklistChip(FIXTURE.three.group), 'umlaut');
+  assert.strictEqual(checklistChip(FIXTURE.same.group), 'legal form');
+  assert.strictEqual(
+    checklistChip({
+      reasons: ['semantic'],
+      aiVerdict: { verdict: 'same', confidence: 'high', basis: 'translation' },
+    }),
+    'translation'
+  );
+  assert.strictEqual(
+    checklistChip({ aiVerdict: { verdict: 'same', confidence: 'high' } }),
+    'model',
+    'a sure model without a basis is named as the model'
+  );
+  assert.strictEqual(
+    checklistChip({
+      reasons: ['plural'],
+      aiVerdict: { verdict: 'same', source: 'spelling-rule' },
+    }),
+    'plural',
+    'a spelling rule is named by what the matcher found'
+  );
+  assert.strictEqual(checklistChip({ reasons: ['token-order'] }), 'word order');
+  assert.strictEqual(checklistChip({ reasons: [] }), 'spelling');
 
-  // A plain fold: what goes into what, how much moves, and why.
-  const plain = kit.htmlPlanLine(FIXTURE.plain);
+  // The model's own sentence first, then its basis, then the warning, then
+  // the score.
+  assert.strictEqual(
+    checklistReason(FIXTURE.ask.group),
+    'Kontoauszug and Kontoumzug are not obviously the same word.'
+  );
+  assert.strictEqual(checklistReason(FIXTURE.apart.group), 'different thing');
+  assert.strictEqual(
+    checklistReason({ warnings: ['has-matching-rule'], confidence: 1 }),
+    'matching rule on a source'
+  );
+  assert.strictEqual(
+    checklistReason({
+      confidence: 0.8,
+      aiVerdict: { verdict: 'same', confidence: 'low' },
+    }),
+    'low confidence'
+  );
+  assert.strictEqual(checklistReason({ confidence: 0.88 }), '88% alike');
+});
+
+/* ── 7. the three checklists and the head ─────────────────────────────────── */
+
+const STATES = [
+  FIXTURE.plain,
+  FIXTURE.same,
+  FIXTURE.ask,
+  FIXTURE.three,
+  FIXTURE.apart,
+];
+
+test('The three checklists are sorted from a scan, most documents first', () => {
+  const { buildChecklists } = checklistHelpers();
+  const lists = buildChecklists(STATES, UNUSED, 0.85);
+  assert.deepStrictEqual(
+    lists.proposed.map((row) => [
+      row.target,
+      row.documents,
+      row.writes,
+      row.chip,
+    ]),
+    [
+      ['Rechnung', 37, 38, 'case'],
+      ['Müller GmbH', 9, 10, 'legal form'],
+      ['Bücherei', 8, 10, 'umlaut'],
+    ],
+    'proposed: what moves, what it writes and why, most documents first'
+  );
+  assert.deepStrictEqual(
+    lists.unsure.map((row) => [row.target, row.documents, row.writes]),
+    [
+      ['Auto', 12, 13],
+      ['Kontoauszug', 4, 5],
+    ]
+  );
+  assert.deepStrictEqual(
+    lists.unused.map((row) => [row.key, row.name, row.writes]),
+    [
+      ['u:tags:70', 'Old <b>', 1],
+      ['u:correspondents:71', 'Nobody', 1],
+    ],
+    'unused: in the order of the scan, one deletion each'
+  );
+  // An unused object a group on the list merges is that row's, not a second
+  // deletion: once as a source, once as the name the merge keeps.
+  const overlap = buildChecklists(
+    STATES,
+    UNUSED.concat([
+      { kind: 'tags', record: { id: 2, name: 'rechnungen' } },
+      { kind: 'correspondents', record: { id: 5, name: 'Müller GmbH' } },
+      { kind: 'correspondents', record: { id: 2, name: 'Not a tag' } },
+    ]),
+    0.85
+  );
+  assert.deepStrictEqual(
+    overlap.unused.map((row) => row.key),
+    ['u:tags:70', 'u:correspondents:71', 'u:correspondents:2'],
+    'a group member is not offered for deletion as well; the kind counts'
+  );
+  // A group merged already is off the lists, and its names stay off Unused.
+  const merged = buildChecklists(
+    STATES.filter((state) => state !== FIXTURE.plain),
+    [{ kind: 'tags', record: { id: 2, name: 'rechnungen' } }],
+    0.85,
+    STATES
+  );
+  assert.deepStrictEqual(merged.unused, [], 'a merged-away name is not left');
+  const three = lists.proposed[2];
+  assert.deepStrictEqual(three.sources, ['Buecherei', 'buecherei']);
+  assert.strictEqual(three.key, 'g:tags:20-21-22');
+  assert.strictEqual(three.groupId, 'tags:20-21-22');
+  // A long sentence of the model is cut for the row and kept whole as its
+  // title.
+  const long = 'x'.repeat(90);
+  const cut = buildChecklists(
+    [
+      pairOf('long:1', {
+        aiVerdict: { verdict: 'unsure', reason: long },
+      }),
+    ],
+    [],
+    0.85
+  ).unsure[0];
+  assert.strictEqual(cut.reason.length, 64);
+  assert.ok(cut.reason.endsWith('…'), 'a cut reason says it was cut');
+  assert.strictEqual(cut.reasonTitle, long);
+});
+
+test('The head counts what is ticked, and follows every tick', () => {
+  const { buildChecklists, isTicked, tickTotals, mergeLabel } =
+    checklistHelpers();
+  const lists = buildChecklists(STATES, UNUSED, 0.85);
+  const ticks = new Map();
+  // Proposed and unused start ticked, unsure does not.
+  assert.strictEqual(isTicked(lists.proposed[0], ticks), true);
+  assert.strictEqual(isTicked(lists.unsure[0], ticks), false);
+  assert.strictEqual(isTicked(lists.unused[0], ticks), true);
+  let totals = tickTotals(lists, ticks);
+  assert.deepStrictEqual(totals, { merges: 3, writes: 60 });
+  assert.strictEqual(
+    mergeLabel(totals.merges, totals.writes),
+    'Merge 3 · 60 writes'
+  );
+  // Untick a proposed row, tick an unsure one: both numbers move.
+  ticks.set(lists.proposed[0].key, false);
+  ticks.set(lists.unsure[0].key, true);
+  totals = tickTotals(lists, ticks);
+  assert.deepStrictEqual(totals, { merges: 3, writes: 35 });
+  // An unused object deletes; it is a write, not a merge.
+  ticks.set(lists.unused[0].key, false);
+  ticks.set(lists.unused[1].key, false);
+  assert.deepStrictEqual(tickTotals(lists, ticks), { merges: 3, writes: 33 });
+  assert.strictEqual(mergeLabel(1, 1), 'Merge 1 · 1 write');
+  assert.strictEqual(mergeLabel(1234, 5678), 'Merge 1,234 · 5,678 writes');
+  // The button follows the ticks, and nothing else does.
+  const change =
+    /el\.checklists\.addEventListener\('change', \(event\) => \{[\s\S]*?\n {4}\}\);/.exec(
+      functionBody('initSimple')
+    );
+  assert.ok(change, 'the checklists have no change handler');
   assert.ok(
-    plain.includes(
-      '<strong>rechnungen</strong> folded into <strong>Rechnung</strong>'
+    change[0].includes('simple.ticks.set(box.dataset.key, box.checked);') &&
+      change[0].includes('updateResultButton();') &&
+      !change[0].includes('renderSimple'),
+    'a tick must move the numbers of the button, not redraw the lists'
+  );
+  assert.ok(
+    functionBody('updateResultButton').includes(
+      'el.resultMergeBtn.textContent = mergeLabel(totals.merges, totals.writes);'
     ),
-    `the plain sentence does not read as one: ${plain}`
+    'the button does not say its numbers'
   );
-  assert.ok(
-    plain.includes('37 of 486 documents move, the same name'),
-    `the plain sentence lost its numbers: ${plain}`
-  );
-  assert.ok(
-    plain.includes('Not the same'),
-    'a proposal cannot be dropped from the plan'
-  );
+});
 
-  // A model verdict words itself from the rule the model named.
-  const same = kit.htmlPlanLine(FIXTURE.same);
-  assert.ok(
-    same.includes('9 of 149 documents move'),
-    `the model line lost its numbers: ${same}`
+test('The headline counts what was scanned and what is proposed', () => {
+  const { resultHeadline, resultCost } = checklistHelpers();
+  assert.strictEqual(
+    resultHeadline({ tags: 200, correspondents: 75 }, 34),
+    '275 scanned · 34 merges proposed'
   );
-  assert.ok(
-    same.includes('the legal form is the only difference'),
-    `the model line does not say what the model went on: ${same}`
+  assert.strictEqual(
+    resultHeadline({ tags: 1 }, 1),
+    '1 scanned · 1 merge proposed'
   );
+  assert.strictEqual(resultHeadline(null, 0), '0 merges proposed');
 
-  // A group of three folds both of the others in, and says so.
-  const three = kit.htmlPlanLine(FIXTURE.three);
-  assert.ok(
-    three.includes(
-      '<strong>Buecherei</strong>, <strong>buecherei</strong> folded into <strong>Bücherei</strong>'
-    ),
-    `a group of three does not name both sources: ${three}`
+  // What the run behind the result cost, and the split of its tokens.
+  const cost = resultCost(
+    { requests: 12, tokens: 38000 },
+    {
+      elapsedMs: 120000,
+      promptTokens: 24000,
+      completionTokens: 6000,
+      thinkingTotal: 8000,
+    },
+    true
   );
-  assert.ok(
-    three.includes('8 of 39 documents move'),
-    `a group of three counts the wrong documents: ${three}`
-  );
-
-  // A question says why it is one, and offers real answers.
-  const question = kit.htmlPlanQuestion(FIXTURE.ask);
-  assert.ok(
-    question.includes('zr-basket__question'),
-    'a question is not built as one'
-  );
-  assert.ok(
-    question.includes(
-      'one of them carries a matching rule the survivor does not'
-    ),
-    `the question does not say why it is being asked: ${question}`
-  );
-  ['Fold into Kontoauszug', 'Keep both', 'Look at it'].forEach((answer) => {
-    assert.ok(question.includes(answer), `the question has no "${answer}"`);
+  assert.strictEqual(cost.text, '12 requests · 38k tokens · ~2 min');
+  assert.deepStrictEqual(cost.split, {
+    prompt: 24000,
+    completion: 6000,
+    thinking: 8000,
   });
-  // The one answer that writes says what it writes.
+  assert.deepStrictEqual(resultCost({ requests: 1, tokens: 0 }, null, true), {
+    text: '1 request',
+    split: null,
+  });
+  // No run behind the result: no cost line, whatever the instance offers.
+  assert.deepStrictEqual(resultCost(null, null), { text: '', split: null });
+  assert.deepStrictEqual(resultCost(null, null, false), {
+    text: '',
+    split: null,
+  });
+});
+
+test('A checklist draws ten rows, its count, and a button for the rest', () => {
+  const { buildChecklists, htmlChecklist, htmlMiniBar } = checklistHelpers();
+  const many = Array.from({ length: 12 }, (_, index) =>
+    pairOf(`many:${index + 1}`, { confidence: 1 })
+  );
+  const lists = buildChecklists(many, [], 0.85);
+  const closed = htmlChecklist('proposed', 'Proposed', lists.proposed, {
+    ticks: new Map(),
+    open: false,
+  });
   assert.ok(
-    question.includes('4 documents · 1 deletion · undoable'),
-    `the folding answer does not price itself: ${question}`
+    closed.includes('Proposed <span class="zr-checklist__count">· 12</span>'),
+    'the head does not count its rows'
+  );
+  assert.strictEqual(
+    (closed.match(/class="zr-checklist__row/g) || []).length,
+    10,
+    'ten rows before the rest is asked for'
   );
   assert.ok(
-    question.includes('nothing is written in Paperless-ngx'),
-    'keeping both does not say that it writes nothing'
+    closed.includes('data-list="proposed">2 more</button>'),
+    'the rest is not offered'
+  );
+  const open = htmlChecklist('proposed', 'Proposed', lists.proposed, {
+    ticks: new Map(),
+    open: true,
+  });
+  assert.strictEqual(
+    (open.match(/class="zr-checklist__row/g) || []).length,
+    12
+  );
+  assert.ok(!open.includes('more</button>'));
+  assert.strictEqual(
+    htmlChecklist('unsure', 'Unsure', [], { ticks: new Map(), open: false }),
+    '',
+    'an empty list is not drawn'
+  );
+
+  // One row of each list: ticked or not, dim or not, and escaped.
+  const mixed = buildChecklists(STATES, UNUSED, 0.85);
+  const proposed = htmlChecklist('proposed', 'Proposed', mixed.proposed, {
+    ticks: new Map(),
+    open: false,
+  });
+  assert.ok(
+    proposed.includes('data-key="g:tags:1-2" checked>'),
+    'a proposed row starts ticked'
+  );
+  assert.ok(
+    proposed.includes(
+      'rechnungen<span class="dup-checklist__arrow"> → </span><span class="zr-checklist__name">Rechnung</span>'
+    ),
+    'a row reads as what goes into what'
+  );
+  assert.ok(
+    proposed.includes('Müller GmbH &amp; Co. KG'),
+    'names are user data and must be escaped'
+  );
+  assert.ok(proposed.includes('<span class="zr-checklist__chip">case</span>'));
+  const unsure = htmlChecklist('unsure', 'Unsure', mixed.unsure, {
+    ticks: new Map(),
+    open: false,
+    htmlAction: '<button type="button">x</button>',
+  });
+  assert.ok(
+    unsure.includes('zr-checklist__row--dim') && !unsure.includes(' checked>'),
+    'an unsure row starts dim and unticked'
+  );
+  assert.ok(
+    unsure.includes('title="different thing">different thing</span>'),
+    'an unsure row says why it is unsure'
+  );
+  const unused = htmlChecklist('unused', 'Unused', mixed.unused, {
+    ticks: new Map(),
+    open: false,
+  });
+  assert.ok(unused.includes('Old &lt;b&gt;'));
+  assert.ok(unused.includes('0 documents · delete'));
+
+  // The small bar of the cost line splits the run's own tokens.
+  const bar = htmlMiniBar({ prompt: 24000, completion: 6000, thinking: 10000 });
+  assert.ok(bar.includes('zr-tokenbar zr-tokenbar--mini'));
+  assert.ok(bar.includes('style="width: 60%"'));
+  assert.ok(bar.includes('style="width: 25%"'));
+  assert.ok(bar.includes('24k question · 6k answer · 10k thinking'));
+});
+
+test('The result is one head, three lists and one button that asks once', () => {
+  const render = functionBody('renderSimple');
+  [
+    "htmlChecklist('proposed', 'Proposed', lists.proposed,",
+    "htmlChecklist('unsure', 'Unsure', lists.unsure,",
+    "htmlChecklist('unused', 'Unused', lists.unused,",
+  ].forEach((call) => {
+    assert.ok(render.includes(call), `the result does not draw ${call}`);
+  });
+  assert.ok(
+    render.includes('Review one by one'),
+    'the unsure list has no way into the stack'
+  );
+  assert.ok(
+    render.includes('lists.unsure.length > 0'),
+    'the stack is offered only when something is unsure'
+  );
+  // The one button: one question, then the merges, then the deletes.
+  const merge = functionBody('mergeTicked');
+  assert.ok(
+    merge.indexOf('await confirmMerge(entries, unused)') <
+      merge.indexOf('await runBatch(entries, answer.copyMatchingRule)'),
+    'nothing is written before the one question'
+  );
+  assert.ok(
+    merge.indexOf('await runBatch(') <
+      merge.indexOf('await deleteUnusedEntries('),
+    'the merges come before the deletes'
+  );
+  assert.ok(
+    !/ai-review|askForVerdicts/.test(merge),
+    'merging what is ticked never asks the model'
+  );
+  // The rows are the cards of the advanced page read another way.
+  assert.ok(
+    functionBody('currentChecklists').includes('eachGroupCard('),
+    'the lists are built from something other than the cards'
   );
 });
 
-/* ── 7. the stack ─────────────────────────────────────────────────────────── */
+/* ── 8. the history line ──────────────────────────────────────────────────── */
+
+test('The history line counts the merges of the newest day', () => {
+  const { historyOf, shortDay } = helpers(
+    [
+      'num',
+      'count',
+      'plural',
+      'isDeleteEntry',
+      'isSplitEntry',
+      'parseDay',
+      'shortDay',
+      'historyOf',
+    ],
+    {
+      constants: ['MONTHS', 'LOG_ACTION_DELETE', 'LOG_ACTION_SPLIT'],
+    }
+  );
+  const now = new Date(2026, 8, 23, 12, 0, 0);
+  const history = historyOf(
+    [
+      { id: 9, status: 'done', createdAt: '2026-09-19 10:00:00' },
+      { id: 10, status: 'partial', createdAt: '2026-09-20 09:12:00' },
+      { id: 11, status: 'done', createdAt: '2026-09-20 15:00:00' },
+      {
+        id: 12,
+        action: 'delete',
+        status: 'done',
+        createdAt: '2026-09-21 08:00:00',
+      },
+      {
+        id: 13,
+        action: 'split',
+        status: 'done',
+        createdAt: '2026-09-22 08:00:00',
+      },
+      { id: 14, status: 'undone', createdAt: '2026-09-22 09:00:00' },
+    ],
+    now
+  );
+  assert.strictEqual(history.text, 'History · 2 merges on 20 Sep');
+  assert.strictEqual(history.entry.id, 11, 'Undo takes back the newest merge');
+  assert.strictEqual(
+    historyOf(
+      [{ id: 1, status: 'undo_failed', createdAt: '2026-09-23 08:00:00' }],
+      now
+    ).text,
+    'History · 1 merge on 23 Sep',
+    'a failed undo can be tried again, so it still counts'
+  );
+  assert.strictEqual(historyOf([], now), null, 'no merges, no line');
+  assert.strictEqual(
+    historyOf([{ id: 2, action: 'delete', status: 'done' }], now),
+    null,
+    'a delete is not a merge'
+  );
+  assert.strictEqual(shortDay('2025-12-31 10:00:00', now), '31 Dec 2025');
+  assert.strictEqual(shortDay('', now), '');
+  assert.strictEqual(shortDay('nonsense', now), '');
+
+  // The view carries the line hidden, and the script reads merges only.
+  assert.match(
+    page,
+    /<p class="zr-historyline hidden" id="dupHistoryLine">[\s\S]*?id="dupHistoryText"[\s\S]*?id="dupHistoryUndoBtn" type="button">Undo<\/button>/,
+    'the line needs its text and its Undo'
+  );
+  assert.ok(
+    functionBody('loadHistory').includes(
+      "new URLSearchParams({ action: 'merge', limit: '100' })"
+    ),
+    'the line must ask the log for merges only'
+  );
+  assert.match(
+    functionBody('loadLog'),
+    /loadHistory\(\)/,
+    'the line must follow the log whenever it is reloaded'
+  );
+});
+
+/* ── 9. the stack ─────────────────────────────────────────────────────────── */
 
 /** The decision card with the whole vocabulary it reads. */
 function decisionHelpers() {
@@ -726,12 +1578,12 @@ function decisionHelpers() {
     [
       'num',
       'pct',
+      'count',
       'plural',
       'normalizeKind',
       'memberOf',
       'selectedSources',
       'countDocuments',
-      'groupOffersCopy',
       'shortReason',
       'basisLabel',
       'isRuleVerdict',
@@ -745,8 +1597,7 @@ function decisionHelpers() {
       'htmlDecisionSide',
       'htmlDecisionHead',
       'htmlDecisionMembers',
-      'htmlDecisionCopy',
-      'decisionConsequenceText',
+      'mergeFactsText',
       'htmlDecisionCard',
     ],
     {
@@ -759,16 +1610,21 @@ function decisionHelpers() {
         'AI_VERDICT_TONES',
         'AI_BASIS_LABELS',
         'AI_CONFIDENCE_LABELS',
+        'AI_SOURCE_RULE',
+        'AI_RULE_LABEL',
+        'AI_RULE_TONE',
+        'AI_CANDIDATE_SOURCE',
+        'AI_REASON_MAX',
+        'DECISION_SAMPLES',
         'htmlIcons',
         'htmlVerdictIcons',
-        'htmlPlanMarks',
+        'htmlMarks',
       ],
-      globals: WIRE,
     }
   );
 }
 
-test('A decision card shows the two sides, the evidence and the consequence', () => {
+test('A decision card shows the two sides, the evidence and what merging writes', () => {
   const kit = decisionHelpers();
   const card = kit.htmlDecisionCard(FIXTURE.same);
   assert.ok(
@@ -776,29 +1632,30 @@ test('A decision card shows the two sides, the evidence and the consequence', ()
     'the card is not the kit card'
   );
   assert.ok(
-    card.includes('>STAYS<') && card.includes('>GOES AWAY<'),
+    card.includes('>Keep<') && card.includes('>Merge away<'),
     'the two sides are not labelled'
   );
   assert.ok(
     card.includes('Müller GmbH') && card.includes('Müller GmbH &amp; Co. KG'),
     'the card does not name both sides, escaped'
   );
-  // Each side carries its documents and its matching rule.
   assert.ok(
     card.includes('140 documents · no matching rule'),
-    'the surviving side does not say what it holds'
+    'the side that stays does not say what it holds'
   );
   assert.ok(
-    card.includes('9 documents · rule: Any word'),
-    'the side that goes away does not say what it matches'
+    card.includes('9 documents · rule: Any word “mueller”'),
+    'the side that goes does not say what it matches'
   );
-  // Up to three document titles, where the review fetched any.
   assert.ok(
     card.includes('zr-decision__samples') &&
       card.includes('Rechnung 2024-08-14'),
     'the evidence under a name is missing'
   );
-  // The model's own sentence, and what pressing the button writes.
+  assert.ok(
+    card.includes('88% alike'),
+    'the head does not say how alike the names are'
+  );
   assert.ok(
     card.includes(
       '<p class="zr-decision__note">The same company with and without its legal form.</p>'
@@ -806,14 +1663,16 @@ test('A decision card shows the two sides, the evidence and the consequence', ()
     'the model does not get to say why'
   );
   assert.ok(
-    card.includes(
-      'Merging rewrites 9 documents in Paperless-ngx and deletes 1 correspondent. No model is asked. One Undo puts it all back.'
-    ),
-    `the consequence line is wrong: ${card}`
+    card.includes('1 object · 9 document rewrites · 1 deletion'),
+    `the numbers of a merge are missing: ${card}`
   );
-  // Three buttons and the keys that do the same.
-  ['dup-stack-merge', 'dup-stack-keep', 'dup-stack-later'].forEach((hook) => {
+  [
+    ['dup-stack-merge', 'Merge'],
+    ['dup-stack-keep', 'Keep both'],
+    ['dup-stack-later', 'Later'],
+  ].forEach(([hook, label]) => {
     assert.ok(card.includes(hook), `the card has no ${hook} button`);
+    assert.ok(card.includes(label), `the card has no "${label}"`);
   });
   assert.ok(
     card.includes('<span class="zr-decision__keys">Enter · Esc · L</span>'),
@@ -821,50 +1680,17 @@ test('A decision card shows the two sides, the evidence and the consequence', ()
   );
 });
 
-test('A rule only the source has becomes an amber checkbox, ticked', () => {
-  const kit = decisionHelpers();
-  const card = kit.htmlDecisionCard(FIXTURE.ask);
-  assert.ok(
-    card.includes('dup-decision__copy'),
-    'the rule warning did not become a checkbox in the card'
-  );
-  assert.match(
-    card,
-    /class="zr-check dup-stack-copy" checked/,
-    'the copy offer must come up ticked where it applies'
-  );
-  assert.ok(
-    card.includes('Copy the matching rule over to Kontoauszug'),
-    'the checkbox does not say what it copies where'
-  );
-  assert.ok(
-    card.includes(', copies the matching rule over'),
-    'the consequence does not mention the rule it copies'
-  );
-  // A group without the warning gets no checkbox at all.
-  assert.ok(
-    !kit.htmlDecisionCard(FIXTURE.plain).includes('dup-stack-copy'),
-    'a group with nothing to copy must not be asked about it'
-  );
-  // The amber lives in the page stylesheet, on the page's own class.
-  assert.match(
-    CSS,
-    /\.dup-decision__copy \{[^}]*background: var\(--zr-warn-soft\)/,
-    'the copy offer is not amber'
-  );
-});
-
 test('A group of three keeps its ticks, and its target stays choosable', () => {
   const kit = decisionHelpers();
   const card = kit.htmlDecisionCard(FIXTURE.three);
   assert.ok(
-    card.includes('dup-decision__members'),
+    card.includes('3 names · keep · merge away'),
     'a group of three does not show its members'
   );
   assert.strictEqual(
     (card.match(/class="zr-check dup-stack-target"/g) || []).length,
     3,
-    'every member has to be choosable as the survivor'
+    'every member has to be choosable as the one that stays'
   );
   assert.strictEqual(
     (card.match(/class="zr-check dup-stack-source"/g) || []).length,
@@ -876,6 +1702,10 @@ test('A group of three keeps its ticks, and its target stays choosable', () => {
     /class="zr-check dup-stack-target" name="dupStackTarget" value="20" checked/,
     'the suggested target is not the one that comes up chosen'
   );
+  assert.ok(
+    card.includes('2 objects · 8 document rewrites · 2 deletions'),
+    'the numbers do not count both names that go'
+  );
   // Two members need no list: the two sides already are the whole group.
   assert.ok(
     !kit.htmlDecisionCard(FIXTURE.plain).includes('dup-decision__members'),
@@ -883,7 +1713,113 @@ test('A group of three keeps its ticks, and its target stays choosable', () => {
   );
 });
 
-test('The keys of the stack fire on the card, never inside a field', () => {
+test('A decision ticks or unticks a row, comes round again, and is taken back', () => {
+  const groups = new Map(['a', 'b', 'c'].map((id) => [id, { group: { id } }]));
+  const simple = { ticks: new Map() };
+  const noop = () => {};
+  const kit = helpers(
+    [
+      'num',
+      'count',
+      'stackState',
+      'stackTally',
+      'stackTallyText',
+      'stackAnswered',
+      'stackAdvance',
+      'stackDecide',
+      'stackLater',
+      'stackUndo',
+    ],
+    {
+      constants: ['stack'],
+      expose: ['stack'],
+      globals: {
+        groups,
+        simple,
+        renderSimple: noop,
+        renderStack: noop,
+        renderStackBar: noop,
+      },
+    }
+  );
+  const { stack } = kit;
+  stack.ids = ['a', 'b', 'c'];
+  stack.total = 3;
+  const at = () => (kit.stackState() ? kit.stackState().group.id : null);
+
+  assert.strictEqual(at(), 'a');
+  kit.stackDecide(true);
+  assert.strictEqual(simple.ticks.get('g:a'), true, 'Merge ticks the row');
+  assert.strictEqual(at(), 'b');
+  kit.stackLater();
+  assert.strictEqual(at(), 'c', 'Later moves on');
+  kit.stackDecide(false);
+  assert.strictEqual(simple.ticks.get('g:c'), false, 'Keep both unticks it');
+  // The end of the queue brings back what was put off.
+  assert.strictEqual(at(), 'b', 'a pair put off comes round again');
+  assert.strictEqual(
+    kit.stackTallyText(),
+    '1 to merge · 1 kept apart · 1 later'
+  );
+  kit.stackDecide(true);
+  assert.strictEqual(at(), null, 'every pair has its answer');
+  assert.strictEqual(
+    kit.stackTallyText(),
+    '2 to merge · 1 kept apart · 0 later'
+  );
+
+  // Undo takes back the last decision and puts the stack where it was made.
+  kit.stackUndo();
+  assert.strictEqual(at(), 'b');
+  assert.strictEqual(simple.ticks.has('g:b'), false, 'the tick goes with it');
+  assert.strictEqual(
+    kit.stackTallyText(),
+    '1 to merge · 1 kept apart · 1 later'
+  );
+  kit.stackUndo();
+  assert.strictEqual(at(), 'c');
+  assert.strictEqual(simple.ticks.has('g:c'), false);
+
+  // Nothing of this sends a request: a decision is a tick, and the one
+  // button of the result head writes.
+  ['stackDecide', 'stackLater', 'stackUndo', 'stackAdvance'].forEach((name) => {
+    const body = functionBody(name);
+    ['postJson(', 'requestJson(', 'fetch(', 'mergeGroup('].forEach((call) => {
+      assert.ok(!body.includes(call), `${name}() must not call ${call}`);
+    });
+  });
+});
+
+test('The stack counts its pairs, and names one by the number it first had', () => {
+  const bar = functionBody('renderStackBar');
+  assert.ok(
+    bar.includes('`Pair ${count(number)} of ${count(total)}`') &&
+      bar.includes('`All ${count(total)} answered`'),
+    'the bar does not say where the stack is'
+  );
+  assert.ok(
+    bar.includes('stack.ids.indexOf(String(state.group.id)) + 1'),
+    'a pair that comes round again must keep its number'
+  );
+  assert.ok(
+    bar.includes('`${count(left)} left`'),
+    'the bar does not say how many are left'
+  );
+  assert.ok(
+    functionBody('openStack').includes(
+      'stack.total = new Set(stack.ids).size;'
+    ),
+    'a pair must be counted once, however often it comes round'
+  );
+  // "Review one by one" opens the stack on the unsure rows.
+  assert.match(
+    functionBody('initSimple'),
+    /openStack\(currentChecklists\(\)\.unsure\.map\(\(row\) => row\.groupId\)\)/,
+    'the stack does not open on the unsure list'
+  );
+});
+
+test('The keys of the stack fire on the stack, never inside a field', () => {
   const body = functionBody('stackKeydown');
   assert.match(
     body,
@@ -891,8 +1827,8 @@ test('The keys of the stack fire on the card, never inside a field', () => {
     'a key pressed in a field must stay in that field'
   );
   [
-    ["event.key === 'Enter'", 'stackMerge()'],
-    ["event.key === 'Escape'", 'stackKeep()'],
+    ["event.key === 'Enter'", 'stackDecide(true)'],
+    ["event.key === 'Escape'", 'stackDecide(false)'],
     ["event.key === 'l'", 'stackLater()'],
   ].forEach(([key, call]) => {
     assert.ok(body.includes(key), `the stack does not listen for ${key}`);
@@ -902,7 +1838,6 @@ test('The keys of the stack fire on the card, never inside a field', () => {
     body.includes("event.key === 'L'"),
     'a capital L has to work like a small one'
   );
-  // Bound on the stack container, and only while the stack is open.
   assert.match(
     functionBody('initStack'),
     /el\.stack\.addEventListener\('keydown', stackKeydown\)/,
@@ -913,315 +1848,37 @@ test('The keys of the stack fire on the card, never inside a field', () => {
     /el\.stack\.classList\.contains\('hidden'\)\) return;/,
     'a closed stack must not answer keys'
   );
-  // The card itself is delegated, like everything else on this page.
+  // The buttons of the card do what the keys do, through one listener.
+  const init = functionBody('initStack');
+  [
+    ["'.dup-stack-merge'", 'stackDecide(true)'],
+    ["'.dup-stack-keep'", 'stackDecide(false)'],
+    ["'.dup-stack-later'", 'stackLater()'],
+  ].forEach(([hook, call]) => {
+    assert.ok(
+      init.includes(hook) && init.includes(call),
+      `${hook} does not do ${call}`
+    );
+  });
   assert.ok(
     !/\son(click|keydown)\s*=/.test(SCRIPT),
     'the page script built an inline handler'
   );
-});
-
-test('The stack undoes the last decision in the terms it was made', () => {
-  const body = functionBody('stackUndo');
-  // A merge is undone in Paperless-ngx, through the log route the page has.
+  // The view: the stack is focusable, and its foot has Undo and Close.
   assert.match(
-    body,
-    /\/api\/duplicates\/log\/\$\{num\(decision\.mergeId\)\}\/undo/,
-    'a merge is not undone through the log'
+    page,
+    /<section class="dup-stack hidden" id="dupStack" tabindex="-1"/,
+    'the stack cannot take the focus its keys need'
   );
-  // Re-created objects get new ids, so that pair cannot simply be asked again.
-  assert.ok(
-    body.includes('back in Paperless-ngx with new ids'),
-    'the undo does not say what it left behind'
-  );
-  // "Decide later" wrote nothing, so taking it back writes nothing either.
   assert.match(
-    body,
-    /if \(decision\.action === 'later'\)[\s\S]{0,260}return;/,
-    'taking back a "decide later" must not send a request'
+    page,
+    /id="dupStackUndoBtn" type="button" disabled>[\s\S]*?Undo\s*<\/button>/,
+    'the stack has no Undo'
   );
   assert.ok(
-    functionBody('undoDismissal').includes('/api/duplicates/dismissals'),
-    'a "keep both" is not taken back through the dismissals'
+    page.includes('id="dupStackCloseBtn" type="button">Back</button>'),
+    'the stack has no Close'
   );
-});
-
-/* ── 8. and 9. the preflight ──────────────────────────────────────────────── */
-
-const ESTIMATE = {
-  groups: 2,
-  pairs: 31,
-  needsScan: false,
-  items: 31,
-  itemsByRule: 0,
-  batchSize: 25,
-  lanes: 3,
-  requests: 4,
-  seconds: 38,
-  tokens: { total: 96000, prompt: 12000, completion: 23000, thinking: 61000 },
-  basis: 'model',
-  measuredAt: null,
-  model: 'qwen3:30b',
-  thinking: true,
-  extra: { sweepRequests: 4, excerptReads: 12 },
-  lastRun: null,
-};
-
-function preflightHelpers() {
-  return helpers(
-    [
-      'num',
-      'plural',
-      'formatTokens',
-      'formatSeconds',
-      'htmlLedgerItem',
-      'estimateBasisText',
-      'roughTime',
-      'preflightLede',
-      'htmlPreflightHero',
-      'htmlEstimateLevers',
-      'htmlPreflight',
-      'preflightOptions',
-    ],
-    {
-      constants: ['htmlPlanMarks'],
-      globals: { ...WIRE, el: { sensitivity: { options: [] } } },
-    }
-  );
-}
-
-test('The preflight is one sentence, one number, one bar and one promise', () => {
-  const kit = preflightHelpers();
-  const levers = { sweep: true, excerpts: true, sensitivity: '', lanes: 3 };
-  const markup = kit.htmlPreflight(ESTIMATE, levers);
-
-  // One sentence instead of four labelled sections of prose.
-  assert.ok(
-    markup.includes(
-      'I ask the model about 31 pairs the spelling alone cannot settle, out of 2 groups it found.'
-    ),
-    'the lede does not say what the run asks about'
-  );
-  ['What I actually do', 'What it costs', 'What it changes', 'Cheaper'].forEach(
-    (heading) => {
-      assert.ok(
-        !markup.includes(heading),
-        `"${heading}" is a section header the dialog no longer needs`
-      );
-    }
-  );
-
-  // The hero: the time a person feels, the price under it, the one graphic.
-  assert.ok(
-    markup.includes('class="zr-preflight__time">under a minute<'),
-    'the time is the big number, and 38 seconds is not "0:38"'
-  );
-  assert.ok(
-    markup.includes('4 requests · 96k tokens'),
-    'the price sits under it in one line'
-  );
-  assert.ok(
-    markup.includes('class="zr-tokenbar__track"'),
-    'the token split is the graphic of the dialog'
-  );
-  assert.ok(
-    markup.includes('Measured on qwen3:30b'),
-    'and one short line says where the numbers come from'
-  );
-  assert.ok(
-    !markup.includes('class="zr-ledger'),
-    'the ledger belonged to the old four-section layout'
-  );
-
-  // The promise, in five words.
-  assert.ok(
-    markup.includes('class="zr-preflight__safe"'),
-    'the dialog does not say that nothing is merged'
-  );
-  assert.ok(
-    markup.includes('Nothing is merged while this runs.'),
-    'word for word'
-  );
-
-  // Everything adjustable is folded away.
-  assert.ok(
-    markup.includes('<details class="zr-preflight__options">'),
-    'the levers are not folded away'
-  );
-  assert.ok(markup.includes('Options</summary>'), 'and the fold has a name');
-
-  // The time rounds, and says so in words where a number would lie.
-  assert.strictEqual(kit.roughTime(20), 'under a minute');
-  assert.strictEqual(kit.roughTime(75), '1 min');
-  assert.strictEqual(kit.roughTime(372), '6 min');
-
-  // Where the numbers come from, in a handful of words.
-  assert.strictEqual(
-    kit.estimateBasisText({ ...ESTIMATE, basis: 'run' }),
-    'Measured on your last run'
-  );
-  assert.ok(
-    kit
-      .estimateBasisText({ ...ESTIMATE, basis: 'guess' })
-      .includes('rough guess'),
-    'an unmeasured estimate has to say so plainly'
-  );
-});
-
-test('The levers are folded away, each with what it costs', () => {
-  const kit = preflightHelpers();
-  const levers = { sweep: false, excerpts: true, sensitivity: '', lanes: 3 };
-  const markup = kit.htmlEstimateLevers(ESTIMATE, levers);
-  ['dupRunSweep', 'dupRunExcerpts', 'dupRunSensitivity', 'dupRunLanes'].forEach(
-    (id) => {
-      assert.ok(markup.includes(`id="${id}"`), `the levers have no #${id}`);
-    }
-  );
-  assert.ok(
-    markup.includes('+4 requests'),
-    'the sweep does not say what switching it on costs'
-  );
-  assert.ok(
-    markup.includes('12 document reads'),
-    'the excerpts do not say what they cost'
-  );
-  // A price nobody would pay is not printed at all.
-  const free = kit.htmlEstimateLevers(
-    { ...ESTIMATE, extra: { sweepRequests: 0, excerptReads: 0 } },
-    levers
-  );
-  assert.ok(
-    !free.includes('+0 requests') && !free.includes('0 document reads'),
-    'a lever that costs nothing does not say "+0"'
-  );
-  // The lanes are the four the page offers, with the current one selected.
-  WIRE.RUN_LANE_OPTIONS.forEach((lanes) => {
-    assert.ok(
-      markup.includes(`<option value="${lanes}"`),
-      `the lanes select is missing ${lanes}`
-    );
-  });
-  assert.ok(
-    markup.includes('<option value="3" selected>3</option>'),
-    'the lanes select does not show what is in force'
-  );
-  // Only the one that is on comes up ticked.
-  assert.ok(
-    markup.includes('id="dupRunExcerpts" checked') &&
-      !markup.includes('id="dupRunSweep" checked'),
-    'the levers do not show their own state'
-  );
-});
-
-test('When nothing has been scanned the dialog says so instead of inventing', () => {
-  const kit = preflightHelpers();
-  const levers = { sweep: false, excerpts: false, sensitivity: '', lanes: 1 };
-  const needs = kit.htmlPreflight({ ...ESTIMATE, needsScan: true }, levers);
-  assert.ok(
-    needs.includes('Nothing has been scanned yet'),
-    'the dialog does not say that there is nothing to judge'
-  );
-  assert.ok(
-    needs.includes('Nothing is merged. The scan only looks.'),
-    'and a scan that only looks has to say so'
-  );
-  assert.ok(
-    !kit
-      .htmlPreflight(ESTIMATE, levers)
-      .includes('Nothing has been scanned yet'),
-    'a scanned page must not be told to scan'
-  );
-  // And the button offers to do both, in one line.
-  const both = kit.preflightOptions(
-    { ...ESTIMATE, needsScan: true },
-    levers,
-    'Ask the AI'
-  );
-  assert.strictEqual(both.confirmLabel, 'Scan, then ask');
-  assert.strictEqual(both.title, 'Scan, then ask the AI');
-  const plain = kit.preflightOptions(ESTIMATE, levers, 'Ask the AI');
-  assert.strictEqual(plain.confirmLabel, 'Ask the AI');
-  assert.strictEqual(plain.title, 'Ask the AI');
-});
-
-test('A lever changes the numbers the run is priced with', () => {
-  const groups = new Map([
-    ['tags:1-2', FIXTURE.plain],
-    ['tags:20-21-22', FIXTURE.three],
-  ]);
-  const kit = helpers(['num', 'reviewPairCount', 'localRunEstimate'], {
-    globals: {
-      groups,
-      scanned: true,
-      GUESS_BATCH_SIZE: 25,
-      GUESS_PROMPT_BASE: 900,
-      GUESS_PROMPT_PER_ITEM: 18,
-      GUESS_TOKENS_PER_ITEM: 26,
-      GUESS_THINKING_PER_REQUEST: 1800,
-      GUESS_TOKENS_PER_SECOND: 45,
-      GUESS_SWEEP_BATCH: 60,
-    },
-  });
-  const base = { sweep: false, excerpts: false, sensitivity: '', lanes: 1 };
-  const plain = kit.localRunEstimate(base);
-  const swept = kit.localRunEstimate({ ...base, sweep: true });
-  const read = kit.localRunEstimate({ ...base, excerpts: true });
-  const fast = kit.localRunEstimate({ ...base, lanes: 8 });
-
-  assert.strictEqual(plain.pairs, 3, 'a group of three is two pairs, not one');
-  assert.ok(
-    swept.requests > plain.requests,
-    'the sweep must cost requests of its own'
-  );
-  assert.ok(
-    swept.tokens.total > plain.tokens.total,
-    'the sweep must cost tokens of its own'
-  );
-  assert.strictEqual(
-    swept.extra.sweepRequests,
-    1,
-    'the sweep does not count its own requests'
-  );
-  // Reading excerpts is Paperless-ngx work, not model work: document reads go
-  // up, the request count does not.
-  assert.strictEqual(read.extra.excerptReads, 5, 'the reads are not counted');
-  assert.strictEqual(
-    read.requests,
-    plain.requests,
-    'reading an excerpt must not cost a model request'
-  );
-  // Lanes buy time, never tokens.
-  assert.ok(fast.seconds < plain.seconds, 'more lanes must finish sooner');
-  assert.strictEqual(
-    fast.tokens.total,
-    plain.tokens.total,
-    'more lanes must cost exactly the same'
-  );
-  // A page that has measured nothing says so.
-  assert.strictEqual(plain.basis, 'guess');
-});
-
-test('The estimate has one seam, and it falls back rather than lying', () => {
-  const body = functionBody('fetchRunEstimate');
-  assert.ok(
-    body.includes('/api/duplicates/ai-review/estimate?'),
-    'the page does not ask the estimate endpoint at all'
-  );
-  ['kind:', 'threshold:', 'sweep:', 'excerpts:', 'lanes:'].forEach((field) => {
-    assert.ok(body.includes(field), `the estimate request carries no ${field}`);
-  });
-  assert.match(
-    body,
-    /return localRunEstimate\(levers\);/,
-    'without an endpoint the page has to fall back to its own arithmetic'
-  );
-  // Both run buttons open the dialog first, and neither sends a request itself.
-  ['runAiReview', 'runAiProposal'].forEach((name) => {
-    assert.match(
-      functionBody(name),
-      /if \(!\(await confirmRun\(/,
-      `${name}() starts a run without saying what it costs`
-    );
-  });
 });
 
 /* ── 10. the run meter ────────────────────────────────────────────────────── */
@@ -1291,7 +1948,6 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
     [
       'num',
       'plural',
-      'formatTokens',
       'formatElapsed',
       'reqlogWhatText',
       'reqlogCostText',
@@ -1299,7 +1955,7 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
       'htmlRequestLog',
       'runPositionText',
     ],
-    { constants: ['htmlPlanMarks'], globals: WIRE }
+    { constants: ['htmlMarks'] }
   );
 
   assert.strictEqual(kit.runPositionText(PROGRESS), 'Request 13 of 23');
@@ -1315,48 +1971,46 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
     log.indexOf('zr-reqlog__row--live') < log.indexOf('Request 12'),
     'the request in flight belongs at the top of the log'
   );
-  // An answered request says what it asked and what came back, with the share
-  // of its tokens that went into reasoning.
+  // An answered request says what it asked and what came back, with the
+  // share of its tokens that went into reasoning.
   assert.ok(
-    log.includes('Request 12 — 50 pairs, 50 answered'),
+    log.includes('Request 12 · 50 pairs · 50 answered'),
     `an answered request is not worded: ${log}`
   );
   assert.ok(
     log.includes('61k · 38k of it thinking'),
     'an answered request does not split its tokens'
   );
-  // A partial one says the rest were asked again.
   assert.ok(
-    log.includes(
-      'Request 11 — 50 pairs, 31 answered; the rest were asked again'
-    ),
+    log.includes('Request 11 · 50 pairs · 31 answered · the rest asked again'),
     'a partial request reads like a finished one'
   );
-  // The two that wasted tokens are marked, and say what happened in words.
+  // The two that wasted tokens are marked, and say what happened in numbers.
   assert.strictEqual(
     (log.match(/zr-reqlog__row--warn/g) || []).length,
     2,
     'an empty and a failed request must both be marked'
   );
   assert.ok(
-    log.includes('Request 9 — thought for 25k tokens and answered nothing'),
+    log.includes('Request 9 · 25k tokens of thinking · no answer'),
     `an empty request does not say what it cost for nothing: ${log}`
   );
   assert.ok(
-    log.includes('Request 8 — the provider or the budget ended it'),
-    'a failed request does not say what ended it'
+    log.includes('Request 8 · failed · 50 pairs marked unsure'),
+    'a failed request does not say where its pairs went'
   );
   assert.ok(
     log.includes('1:52'),
     'a request over a minute is not shown as a clock'
   );
+  assert.ok(log.includes('44 s'), 'a short request is shown in seconds');
   assert.strictEqual(
     kit.htmlRequestLog({}),
     '',
     'an empty log renders nothing'
   );
-  // The request in flight is the first row of the log, which is where "the
-  // model is thinking" belongs — on the request that is thinking.
+  // The request in flight is the first row of the log, which is where
+  // "thinking" belongs: on the request that is thinking.
   const live = kit.htmlRequestLog({
     requestsDone: 12,
     requestPairs: 50,
@@ -1370,11 +2024,11 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
     'the running request has no row'
   );
   assert.ok(
-    live.includes('Request 13 — 50 pairs, 21 answered so far'),
+    live.includes('Request 13 · 50 pairs · 21 answered'),
     'the running row does not say where it is'
   );
   assert.ok(
-    live.includes('89.1k so far, thinking'),
+    live.includes('89k so far · thinking'),
     'the running row does not say what it has spent, or that it is thinking'
   );
   assert.strictEqual(
@@ -1384,31 +2038,30 @@ test('The run meter reads a progress snapshot, empty requests and all', () => {
   );
 });
 
-test('The run meter counts what is spent against what was promised', () => {
+test('The run meter counts what is spent against what was estimated', () => {
   const ledger = functionBody('renderRunLedger');
   assert.ok(
     ledger.includes('estimatedTokens'),
     'what has been spent is not held against what was estimated'
   );
   assert.ok(
-    ledger.includes("'elapsed'") && ledger.includes("'pairs'"),
+    ledger.includes("'elapsed'") &&
+      ledger.includes("'pairs'") &&
+      ledger.includes("'tokens'"),
     'three numbers: how long, how far, how much'
   );
-  // The budget belongs to the run, not to the request in flight, and it is
-  // only named once it is close enough to matter.
-  assert.ok(
-    !ledger.includes("'this request'"),
-    "a single question was never allowed the whole run's budget"
-  );
+  // The limit belongs to the run, and it is only named once it is close
+  // enough to matter.
   const ceiling = functionBody('renderRunCeiling');
   assert.ok(
-    ceiling.includes('tokenBudget') &&
-      ceiling.includes('CEILING_SHOWN_ABOVE') &&
-      ceiling.includes('this run may spend'),
+    ceiling.includes('CEILING_SHOWN_ABOVE') &&
+      ceiling.includes(
+        '`${formatTokens(spent)} of the ${formatTokens(budget)} limit`'
+      ),
     "the ceiling is not named as the run's, or is named too early"
   );
-  // The split comes from the three counts the job reports separately, and the
-  // reasoning is the run's total rather than the request in flight.
+  // The split comes from the three counts the job reports separately, and
+  // the reasoning is the run's total rather than the request in flight.
   const meter = functionBody('renderRunMeter');
   ['promptTokens', 'completionTokens', 'thinkingTotal'].forEach((field) => {
     assert.ok(meter.includes(field), `the split ignores ${field}`);
@@ -1421,83 +2074,27 @@ test('The run meter counts what is spent against what was promised', () => {
     meter.includes('htmlRequestLog(state)'),
     'the meter never draws the request log'
   );
-  // Stopping says what it keeps, in three words.
-  assert.ok(
-    meter.includes("plural(judged, 'verdict', 'verdicts')") &&
-      meter.includes("'nothing is written either way'"),
-    'Stop does not say what stopping keeps'
-  );
-  // And every progress event redraws it.
   assert.ok(
     functionBody('renderProgress').includes('renderRunMeter(state)'),
     'a progress event does not reach the run meter'
   );
-});
-
-/* ── 11. what every button that writes writes ─────────────────────────────── */
-
-test('Every button that writes says what it writes first', () => {
-  // The four writing surfaces of the page, each with the line above it.
+  // The view keeps the meter's markup and ids.
   [
-    ['updateSelectionConsequence', 'Merge selected'],
-    ['updateManualConsequence', 'Merge by hand'],
-    ['updateUnusedConsequence', 'Delete selected'],
-    ['updateGroupConsequence', 'a group card'],
-  ].forEach(([name, what]) => {
-    const body = functionBody(name);
-    assert.ok(
-      body.includes('zr-consequence') || body.includes('htmlPlanMarks.cost'),
-      `${what} has no consequence line`
-    );
-    assert.ok(
-      body.includes("classList.add('hidden')"),
-      `${what} keeps an empty consequence line on the page`
-    );
-  });
-  // Documents, deletions, whether a model is asked, and whether it can be
-  // undone — in every one of them.
-  [
-    functionBody('updateSelectionConsequence'),
-    functionBody('updateManualConsequence'),
-    functionBody('decisionConsequenceText'),
-  ].forEach((body) => {
-    assert.ok(
-      body.includes('No model is asked'),
-      'it does not say who is asked'
-    );
-    assert.ok(
-      /Undo|undone/.test(body),
-      'it does not say whether it can be taken back'
-    );
-    assert.ok(body.includes('deletes'), 'it does not say what is deleted');
-  });
-  // Deleting an unused object moves nothing, and says that rather than
-  // promising documents that do not exist.
-  const unused = functionBody('updateUnusedConsequence');
-  assert.ok(
-    unused.includes('nothing is moved and no model is asked'),
-    'the delete line promises documents that are not there'
-  );
-  assert.ok(
-    unused.includes('re-creates them with new ids'),
-    'the delete line does not say what an undo gives back'
-  );
-  // The three elements the lines are written into exist in the view.
-  [
-    'dupSelectionConsequence',
-    'dupManualConsequence',
-    'dupUnusedConsequence',
+    'dupRunLedger',
+    'dupRunTokenbar',
+    'dupRunSegPrompt',
+    'dupRunSegAnswer',
+    'dupRunSegThinking',
+    'dupRunLegend',
+    'dupRunLog',
   ].forEach((id) => {
-    assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
+    assert.ok(offered.includes(`id="${id}"`), `#${id} is missing`);
   });
-  // And the card's own line is part of the card template.
-  assert.ok(
-    SCRIPT.includes('<p class="zr-consequence dup-group__consequence hidden">'),
-    'a group card has no room for what its Merge button writes'
-  );
 });
 
-test('Applying is a checklist, and it never asks a model', () => {
+/* ── 11. applying ─────────────────────────────────────────────────────────── */
+
+test('Applying is a checklist of groups, and it never asks the model', () => {
   const body = functionBody('runBatch');
   assert.ok(body.includes('openApply(entries)'), 'a batch opens no checklist');
   assert.match(
@@ -1506,60 +2103,174 @@ test('Applying is a checklist, and it never asks a model', () => {
     'the group being written is not marked as such'
   );
   assert.ok(
-    body.includes("'done'") && body.includes('in ${seconds} s'),
+    body.includes("'done'") && body.includes('· ${seconds} s`'),
     'a finished row does not say how long it took'
   );
   assert.ok(
-    body.includes("'failed'") && body.includes('Paperless-ngx refused it'),
+    body.includes("'failed'") && body.includes("'Refused by Paperless-ngx'"),
     'a failed row does not say what happened'
-  );
-  // A failure keeps its row and the button that tries it again.
-  assert.ok(
-    functionBody('htmlApplyRow').includes('dup-apply-retry'),
-    'a failed row offers no way to try it again'
   );
   assert.match(
     body,
     /if \(failed === 0\) closeApply\(\);/,
     'a batch that failed must keep its rows on the page'
   );
-  // The line above it, in the view, says what this step costs.
   assert.ok(
-    page.includes('0 tokens — this step never asks the model'),
-    'the checklist does not say that applying asks nobody'
+    !/ai-review|askForVerdicts/.test(body),
+    'writing never asks the model'
   );
   assert.ok(
-    page.includes('The document scan is standing by'),
-    'the checklist does not say what would refuse a merge'
+    body.includes('renderSimple();'),
+    'the simple page does not follow what a batch merged'
+  );
+
+  const { htmlApplyRow } = helpers(
+    ['num', 'count', 'plural', 'countDocuments', 'htmlApplyRow'],
+    { constants: ['htmlMarks'] }
+  );
+  const entry = {
+    state: { group: { id: 'tags:1-2' } },
+    target: { name: 'Rechnung' },
+    sources: [{ name: 'rechnungen <b>', documentCount: 37 }],
+  };
+  const waiting = htmlApplyRow(entry, 'waiting', '');
+  assert.ok(waiting.includes('rechnungen &lt;b&gt; → Rechnung'));
+  assert.ok(waiting.includes('37 documents'));
+  assert.ok(waiting.includes('>waiting</span>'));
+  assert.ok(
+    htmlApplyRow(entry, 'running', '').includes('>writing</span>'),
+    'the row being written says so'
+  );
+  const refused = htmlApplyRow(entry, 'failed', 'Refused by Paperless-ngx');
+  assert.ok(refused.includes('zr-reqlog__row--warn'));
+  assert.ok(
+    refused.includes('dup-apply-retry') && refused.includes('>Retry</button>'),
+    'a failed row offers no way to try it again'
+  );
+
+  // The bar above the rows counts groups, not sentences.
+  const el = {
+    applyPosition: fakeElement(),
+    applyFill: fakeElement(),
+    applyRest: fakeElement(),
+  };
+  const { drawApplyBar } = helpers(['num', 'count', 'drawApplyBar'], {
+    globals: { el },
+  });
+  drawApplyBar(0, 3);
+  assert.strictEqual(el.applyPosition.textContent, 'Group 1 of 3');
+  assert.strictEqual(el.applyRest.textContent, '3 waiting');
+  drawApplyBar(3, 3);
+  assert.strictEqual(el.applyPosition.textContent, 'All 3 written');
+  assert.strictEqual(el.applyRest.textContent, '');
+  assert.strictEqual(el.applyFill.style.width, '100%');
+
+  // The section is the bar and the rows, and no line of prose.
+  const section =
+    /<section class="dup-apply hidden" id="dupApply"[\s\S]*?<\/section>/.exec(
+      page
+    );
+  assert.ok(section, 'the checklist has no place on the page');
+  assert.ok(!section[0].includes('<p'), 'the checklist explains nothing');
+});
+
+/* ── 12. the advanced page ────────────────────────────────────────────────── */
+
+/** The rendered page between its root and its script, tags stripped. */
+function visibleText(markup) {
+  const start = markup.indexOf('<div class="dup-page"');
+  const end = markup.indexOf('<script type="module" src="/js/duplicates.js">');
+  return markup
+    .slice(start, end)
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+test('The advanced page carries its controls, named in a word or two', () => {
+  const tools = offered.slice(offered.indexOf('id="dupControls"'));
+  [
+    '>Look at<',
+    '>Sensitivity<',
+    '>Threshold<',
+    '<span>Include hidden pairs</span>',
+    'Scan',
+    'Ask the model',
+    '>Merge by hand<',
+    'Every group',
+    'Unused',
+    'History',
+    'Names mapped while processing',
+    'Hidden pairs',
+    '>Clear verdict memory<',
+  ].forEach((label) => {
+    assert.ok(tools.includes(label), `the advanced page has no "${label}"`);
+  });
+  // The switch of the scan row is a toggle, the way the kit draws one.
+  assert.match(
+    offered,
+    /<input type="checkbox" class="zr-toggle" id="dupIncludeDismissed">/,
+    'hidden pairs are not a switch'
   );
 });
 
-test('The plan folds the full list away, and gives it back', () => {
-  const body = functionBody('showEverything');
-  assert.ok(
-    body.includes("classList.toggle('hidden', !visible)"),
-    'the full list cannot be folded away'
-  );
-  assert.ok(
-    body.includes('aria-expanded') && body.includes('Show every group'),
-    'the toggle does not say what it does, or say it to a screen reader'
-  );
-  // A scan that produced cards puts the plan in front of them.
-  assert.match(
-    functionBody('renderGroups'),
-    /renderPlan\(\);\n\s+showEverything\(false\);/,
-    'a scan must leave the plan in front of the card list'
-  );
-  // The plan is built from the cards, so every one of its buttons can find one.
-  assert.ok(
-    functionBody('planBuckets').includes('eachGroupCard('),
-    'the plan is built from something other than the cards'
-  );
-  ['planFold', 'planDrop'].forEach((name) => {
-    assert.ok(
-      functionBody(name).includes('planEntry('),
-      `${name}() acts on something other than the card it belongs to`
+test('No paragraph on the page explains anything', () => {
+  [page, offered].forEach((markup) => {
+    const root = markup.slice(
+      markup.indexOf('<div class="dup-page"'),
+      markup.indexOf('<script type="module" src="/js/duplicates.js">')
     );
+    const prose = [...root.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/g)]
+      .map((match) =>
+        match[1]
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      )
+      .filter((text) => text !== '');
+    // The sentence under the title, and the Undo of the history line; every
+    // other paragraph is a place the script writes numbers into.
+    assert.deepStrictEqual(
+      prose,
+      ['Merge tags and correspondents that mean the same thing.', '· Undo'],
+      `a paragraph of prose is back: ${prose.join(' | ')}`
+    );
+  });
+  // What the page used to say at length is gone from the script as well;
+  // its comments may still say how the page works.
+  const code = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(
+    /^\s*\/\/.*$/gm,
+    ''
+  );
+  [
+    'Nothing here runs on its own',
+    'Tip:',
+    'Most useful at Strict sensitivity',
+    'can be undone',
+    'Undo re-creates',
+  ].forEach((sentence) => {
+    assert.ok(
+      !code.includes(sentence) && !page.includes(sentence),
+      `"${sentence}" explains what the numbers already say`
+    );
+  });
+});
+
+/* The two dashes the voice rules out, built from their code points so this
+   file does not carry them itself. */
+const DASHES = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
+
+test('The page names the model, and speaks to nobody', () => {
+  [page, offered].forEach((markup) => {
+    const text = visibleText(markup);
+    assert.ok(
+      !/\bAI\b/.test(text),
+      'the page says "AI" where it means the model'
+    );
+    assert.ok(!/\byou(r)?\b/i.test(text), 'the page speaks to someone');
+    assert.ok(!text.includes('!'), 'the page exclaims');
+    assert.ok(!DASHES.test(text), 'the page uses a dash');
   });
 });
 
@@ -1567,3 +2278,29 @@ console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) {
   process.exitCode = 1;
 }
+
+test('Every action is a bordered button, never a text button or a bare link', () => {
+  // A button with no border reads as a link, and a link is not a way to
+  // cancel, undo or open anything on these pages. The kit's own modules
+  // are held to the same rule.
+  const modules = [
+    read('public', 'js', 'modules', 'review-sheet.js'),
+    read('public', 'js', 'modules', 'review-mode.js'),
+  ].join('\n');
+  for (const [name, text] of [
+    ['view', page],
+    ['script', SCRIPT],
+    ['modules', modules],
+  ]) {
+    assert.ok(!text.includes('zr-btn--ghost'), `a text button in the ${name}`);
+  }
+  // A link opens a document in Paperless-ngx or the log of the other page;
+  // it never carries an action of this page.
+  const actionLinks = [
+    ...SCRIPT.matchAll(/<a class="zr-link[^>]*>\$\{esc\('([^']+)'\)\}<\/a>/g),
+  ];
+  assert.deepStrictEqual(
+    actionLinks.map((m) => m[1]),
+    []
+  );
+});

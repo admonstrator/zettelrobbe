@@ -1,16 +1,133 @@
 /* ==========================================================================
-   The Simplify tags page: the vocabulary editor, the progress panel of the
-   two jobs it can start, and the table of split proposals.
+   The Simplify tags page, in its two modes.
    @layer pages: above the framework layers, below utilities.
 
-   Only what the framework does not already carry lives here — the two-column
-   vocabulary editor, the chip that carries a remove button, the progress
-   panel (the Duplicates one, under this page's own names), the column widths
-   of the proposal table on a wide screen, and the muted look of a row that has
-   been applied. Everything else is a framework class.
+   The review kit (css/review.css, layer components) draws the empty card,
+   the result head, the checklists, the history line, the run meter, the
+   decision card and the request log. This file only places them, and keeps
+   what the page has that the kit has no class for: the vocabulary editor,
+   the table of proposals, the group cards and the apply checklist.
+
+   One rule matters more than the rest: an element that carries data-simple or
+   data-advanced gets no display from this file. This layer outranks the
+   kit's rule that hides the other mode, so a display here would show both.
    ========================================================================== */
 
 @layer pages {
+  /* --- the page --------------------------------------------------------- */
+  /* The parts of both modes stand in one column, and the gap spaces them;
+     the framework's margin between two modules would double it. */
+  .sim-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+  }
+
+  /* The simple page reads as one column, as the board has it. */
+  .sim-page[data-mode='simple'] {
+    width: 100%;
+    max-width: 1060px;
+    margin-inline: auto;
+  }
+
+  .sim-page .zr-module + .zr-module {
+    margin-top: 0;
+  }
+
+  /* The one line under the title in simple mode. */
+  .sim-sub {
+    margin: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  /* --- simple mode: the card, the result and the checklists ------------- */
+  /* The fact on the empty card when no model is configured. */
+  .sim-emptycard__note {
+    margin: 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  /* The result head sits on a card of its own, as the checklists do. */
+  .sim-resultcard {
+    padding: var(--zr-6);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  /* Two columns of checklists: Split beside Merge, Delete beside Unsure,
+     and Unchanged across both. */
+  .sim-lists {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-4) var(--zr-5);
+    align-items: start;
+  }
+
+  .sim-lists:empty {
+    display: none;
+  }
+
+  .sim-list {
+    min-width: 0;
+  }
+
+  .sim-list--unchanged {
+    grid-column: 1 / -1;
+  }
+
+  .sim-list .zr-checklist__head {
+    padding: 0 var(--zr-4);
+  }
+
+  /* The rows of a checklist on one card; the first row needs no rule above
+     it, the card's edge is one. */
+  .sim-list__card {
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+    overflow: hidden;
+  }
+
+  .sim-list__card .zr-checklist__row {
+    padding: 0 var(--zr-4);
+  }
+
+  .sim-list__card > :first-child {
+    border-top: 0;
+  }
+
+  /* "804 more" starts where the names start: past the box and its gap. */
+  .sim-list__card .zr-checklist__more {
+    padding: var(--zr-1) var(--zr-4) var(--zr-1) var(--zr-8);
+  }
+
+  /* The arrow of a row is quiet, as on the Duplicates page and the board. */
+  .sim-list__arrow {
+    color: var(--zr-text-faint);
+  }
+
+  /* A row without a box: the unchanged tags, and the line that counts them. */
+  .sim-list__row--plain {
+    cursor: default;
+  }
+
+  .sim-list__summary {
+    padding-right: var(--zr-2);
+  }
+
+  @media (max-width: 720px) {
+    .sim-lists {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sim-resultcard {
+      padding: var(--zr-4);
+    }
+  }
+
   /* --- the vocabulary editor -------------------------------------------- */
   /* A module clips what leaves it, so that a table keeps the rounded corners
      of its card. This one holds no table but a picker, whose dropdown is
@@ -19,8 +136,8 @@
     overflow: visible;
   }
 
-  /* Since round 12 the block is a details: the order above it is what the page
-     is read for, and the vocabulary is what it was built from. */
+  /* The block is a details: the order is what the page is read for, and the
+     vocabulary is what it was built from. */
   .sim-vocab__summary {
     cursor: pointer;
     list-style: none;
@@ -93,7 +210,7 @@
     gap: var(--zr-2);
   }
 
-  /* The offer to take over the existing document types: the sentence on the
+  /* The offer to take over the existing document types: the fact on the
      left, the one button on the right, and nothing of it while it is empty. */
   .sim-adopt {
     align-items: center;
@@ -137,32 +254,20 @@
     }
 
     /* The offer keeps its button on its own line rather than squeezing the
-       sentence next to it. */
+       fact next to it. */
     .sim-adopt {
       flex-wrap: wrap;
     }
   }
 
-  /* --- the progress panel of a running job ------------------------------ */
-  /* The same panel the Duplicates page shows for a review, under this page's
-     own names: both pages watch the one job service, so both say where it is
-     the same way. A bar over three lines of text, and the button that ends
-     it; the lines keep their height so the table below does not move. */
-  /* The panel is the shared run meter; the page only gives it its rule and
-     its room. The two-column grid it used to be held a Stop button beside
-     three stacked lines of text, and none of that is left. */
+  /* --- the run meter ---------------------------------------------------- */
+  /* The shared run meter on a card of its own: it stands between the parts
+     of both modes rather than inside one of them. */
   .sim-progress {
-    width: 100%;
-    padding-top: var(--zr-3);
-    border-top: 1px solid var(--zr-line);
-  }
-
-  .sim-progress__fill {
-    width: 0;
-    height: 100%;
-    background: var(--zr-brand);
-    border-radius: inherit;
-    transition: width 200ms var(--zr-ease);
+    padding: var(--zr-4) var(--zr-5);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
   }
 
   /* Before the plan knows how many requests it needs there is no share to
@@ -189,10 +294,15 @@
     }
   }
 
-  @media (max-width: 720px) {
-    .sim-progress {
-      grid-template-columns: 1fr;
-    }
+  /* The slots of the meter. Each one is empty until the job reports the
+     numbers it needs, and an empty slot takes no room. */
+  .sim-meter:empty {
+    display: none;
+  }
+
+  .sim-meter--log {
+    border-top: 1px solid var(--zr-line);
+    padding-top: var(--zr-1);
   }
 
   /* --- filters ---------------------------------------------------------- */
@@ -306,7 +416,7 @@
   /* The switch that sets the document type even where one is set, with the
      number of documents that would otherwise keep theirs. Under the select,
      never beside it: the two belong together and a narrow column would break
-     the sentence in the middle. */
+     the line in the middle. */
   .sim-overwrite-row {
     display: flex;
     flex-wrap: wrap;
@@ -321,8 +431,8 @@
     flex: 0 0 auto;
   }
 
-  /* A reason is one sentence from a rule or from the model; it may be long,
-     and it must not push the actions off the row. */
+  /* A reason is one line from a rule or from the model; it may be long, and
+     it must not push the actions off the row. */
   .sim-reason {
     display: block;
     min-width: 16ch;
@@ -343,7 +453,7 @@
     font-size: var(--zr-fs-sm);
   }
 
-  /* --- the apply bar ---------------------------------------------------- */
+  /* --- the apply bar of the table --------------------------------------- */
   .sim-apply {
     display: flex;
     flex-wrap: wrap;
@@ -375,17 +485,7 @@
     }
   }
 
-  /* --- the confirmation of an apply ------------------------------------- */
-  /* The dialog lists what the run will do in full sentences; the list needs
-     the same spacing the Duplicates dialogs use. */
-  .sim-dialog__list {
-    margin: var(--zr-2) 0 0;
-    padding-left: var(--zr-4);
-    display: grid;
-    gap: 4px;
-  }
-
-  /* --- the proposed order ----------------------------------------------- */
+  /* --- the order row of advanced mode ----------------------------------- */
   /* The head carries the title, the counts and the one button that applies
      everything accepted; below 720px that is one line too many, so it wraps
      rather than pushing the title out of the card. */
@@ -400,12 +500,12 @@
 
   .sim-order__keep {
     align-items: center;
-    gap: 6px;
+    gap: var(--zr-2);
     cursor: pointer;
   }
 
-  /* The one line a finished run leaves behind. It is read next to the panel
-     above it, so it carries no card of its own. */
+  /* The one line a finished run leaves behind. It is read next to the
+     buttons above it, so it carries no card of its own. */
   .sim-order__summary {
     margin: 0;
     color: var(--zr-text-muted);
@@ -428,7 +528,8 @@
     gap: 4px;
   }
 
-  /* The view switch sits above the filters and reads like one of them. */
+  /* The view switch sits above the groups and reads like one of the
+     filters. */
   .sim-view {
     display: flex;
     flex-direction: column;
@@ -443,9 +544,13 @@
     gap: var(--zr-3);
   }
 
-  /* The head carries four things of very different widths — the kind badge,
-     the name, the counts and the status badges. A wrapping flex row keeps them
-     readable down to 320px without a media query. */
+  .sim-groups:empty {
+    display: none;
+  }
+
+  /* The head carries four things of very different widths: the kind badge,
+     the name, the counts and the status badges. A wrapping flex row keeps
+     them readable down to 320px without a media query. */
   .sim-group__head {
     flex-wrap: wrap;
     row-gap: var(--zr-2);
@@ -467,11 +572,25 @@
   /* The member list is closed until it is asked for: 200 rows are the detail,
      the decision is made on the head and the foot. */
   .sim-group__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
     padding: var(--zr-2) var(--zr-3);
     font-size: var(--zr-fs-sm);
     color: var(--zr-text-muted);
     cursor: pointer;
     list-style: none;
+  }
+
+  /* The fold reads as one: a chevron that turns when the members show. */
+  .sim-group__chevron {
+    flex-shrink: 0;
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .sim-group__members[open] .sim-group__chevron {
+    transform: rotate(90deg);
   }
 
   /* A closed card is head, one line and foot; the line only becomes a border
@@ -501,7 +620,7 @@
   }
 
   /* What happens to a tag is the one cell the eye looks for, so it keeps the
-     type and the topics on one line and never wraps mid-name. */
+     type and the topics on one line and never wraps mid name. */
   .sim-member__outcome {
     display: inline-block;
     font-size: var(--zr-fs-sm);
@@ -571,79 +690,8 @@
     }
   }
 
-  /* --- round 13: the plan, the stack and the cost layer ------------------ */
-  /* The shared review kit in layer components carries the baskets, the
-     decision card, the ledgers and the request log. Everything here is what this page puts
-     around them: where they sit, and the three surfaces the kit has no class
-     for — the header card of the plan, the preflight dialog and the apply
-     checklist. Nothing below redefines a zr- class; it only places one. */
-
-  .sim-plan {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-4);
-  }
-
-  /* The card over the baskets: the sentence, the two ledgers, the button that
-     runs the plan. It is the one thing on this page that is read first. */
-  .sim-plan__head {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-4);
-    padding: var(--zr-5);
-    border: 1px solid var(--zr-line-strong);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface-2);
-  }
-
-  .sim-plan__head:empty {
-    display: none;
-  }
-
-  .sim-plan__headline {
-    margin: 0;
-    font-family: var(--zr-font-brand);
-    font-size: var(--zr-fs-xl);
-    line-height: 1.35;
-    color: var(--zr-text);
-  }
-
-  /* What it cost and what it will cost, side by side: the whole point of the
-     round is that those are two different currencies. */
-  .sim-plan__ledgers {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--zr-4);
-  }
-
-  .sim-plan__ledger {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-2);
-    min-width: 0;
-  }
-
-  .sim-plan__actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--zr-3);
-  }
-
-  .sim-baskets {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-  }
-
-  /* A basket whose body is one line rather than a list of them. */
-  .sim-basket__quiet {
-    margin: 0;
-    padding: var(--zr-3) 0;
-    color: var(--zr-text-muted);
-  }
-
   /* --- the stack -------------------------------------------------------- */
-  /* A mode, not a page: it replaces the baskets in place, so it needs no
+  /* A mode, not a page: it takes the place of the result, so it needs no
      overlay, no scrim and no focus trap of its own. */
   .sim-stack {
     display: flex;
@@ -703,27 +751,11 @@
     cursor: pointer;
   }
 
-  /* --- the preflight dialog --------------------------------------------- */
-  /* Four blocks in the kernel's dialog: what it does, what it costs, what it
-     changes, and the levers that make it cheaper. */
-
-  /* Every step carries its own price, and a free one says so rather than
-     saying nothing. */
-
-  /* --- the run meter ---------------------------------------------------- */
-  /* The slots of the shared meter. Each one is empty until the job reports
-     the numbers it needs, and an empty slot takes no room. */
-  .sim-meter {
-    margin-top: var(--zr-3);
-  }
-
-  .sim-meter:empty {
-    display: none;
-  }
-
-  .sim-meter--log {
-    border-top: 1px solid var(--zr-line);
-    margin-top: var(--zr-4);
+  @media (max-width: 720px) {
+    .sim-stack__foot .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
   }
 
   /* --- the apply checklist ---------------------------------------------- */
@@ -745,61 +777,5 @@
     justify-content: space-between;
     gap: var(--zr-2);
     padding: var(--zr-4) var(--zr-5);
-  }
-
-  /* --- round 12's group cards, one step back ---------------------------- */
-  /* They are the second way to read the same proposals, so they wait behind a
-     summary rather than sitting under the baskets. */
-  .sim-groupsblock {
-    border-top: 1px solid var(--zr-line);
-    padding-top: var(--zr-3);
-  }
-
-  .sim-groupsblock__summary {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-2);
-    cursor: pointer;
-    list-style: none;
-    color: var(--zr-text-muted);
-  }
-
-  .sim-groupsblock__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .sim-groupsblock__chevron {
-    color: var(--zr-text-faint);
-    transition: transform var(--zr-dur) var(--zr-ease);
-  }
-
-  .sim-groupsblock[open] .sim-groupsblock__chevron {
-    transform: rotate(90deg);
-  }
-
-  .sim-groupsblock__body {
-    padding-top: var(--zr-4);
-  }
-
-  @media (max-width: 720px) {
-    /* At 390px the two ledgers of the plan read one under the other, and every
-       button of the plan and the stack takes a full row. */
-    .sim-plan__ledgers {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .sim-plan__head {
-      padding: var(--zr-4);
-    }
-
-    .sim-plan__actions .zr-btn {
-      flex: 1 1 100%;
-      justify-content: flex-start;
-    }
-
-    .sim-stack__foot .zr-btn {
-      flex: 1;
-      justify-content: center;
-    }
   }
 }
