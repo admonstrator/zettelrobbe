@@ -28,6 +28,33 @@
   .zr-dialog--wide {
     width: min(600px, calc(100vw - 32px));
   }
+  /* The sheet before a run and the gate into advanced mode: wider, rounder,
+     the title without a rule under it and the buttons without a bar behind
+     them. The contents come from js/modules/review-sheet.js and review-mode.js. */
+  .zr-dialog--sheet {
+    width: min(520px, calc(100vw - 32px));
+    border-radius: 20px;
+  }
+  .zr-dialog--gate {
+    width: min(420px, calc(100vw - 32px));
+    border-radius: 20px;
+  }
+  .zr-dialog--sheet .zr-dialog__head,
+  .zr-dialog--gate .zr-dialog__head {
+    padding: var(--zr-5) var(--zr-5) 0;
+    border-bottom: 0;
+    font-size: var(--zr-fs-lg);
+  }
+  .zr-dialog--sheet .zr-dialog__body,
+  .zr-dialog--gate .zr-dialog__body {
+    padding: var(--zr-3) var(--zr-5) var(--zr-5);
+    color: var(--zr-text);
+  }
+  .zr-dialog--sheet .zr-dialog__foot,
+  .zr-dialog--gate .zr-dialog__foot {
+    padding: var(--zr-4) var(--zr-5);
+    background: transparent;
+  }
   /* The head lays its own contents out — a title, sometimes a badge or a close
      button beside it — so it does not need .zr-row on top. The three flex
      declarations are exactly what that utility contributes. */

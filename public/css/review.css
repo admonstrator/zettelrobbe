@@ -73,6 +73,7 @@
   .zr-tokenbar__seg {
     height: 100%;
     min-width: 0;
+    transition: width 350ms var(--zr-ease);
   }
 
   .zr-tokenbar__seg--prompt {
@@ -644,6 +645,393 @@
     opacity: 0.85;
   }
 
+  /* The sheet before a run.
+
+     One line of facts, one big number with the time beside it, the bar that
+     is the run's token limit with the estimate as its fill, the requests
+     side by side, the switches that move all of it, and one fact line. The
+     dialog around it is the kernel's (.zr-dialog--sheet); the markup comes
+     from js/modules/review-sheet.js, and both pages use it unchanged. */
+  .zr-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+  }
+
+  .zr-sheet__sub {
+    margin: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-sheet__numbers {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--zr-4);
+  }
+
+  .zr-sheet__big {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--zr-2);
+  }
+
+  .zr-sheet__big .zr-sheet__value {
+    font-size: 2.75rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text);
+  }
+
+  .zr-sheet__unit {
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-sheet__time {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .zr-sheet__time .zr-sheet__value {
+    font-size: var(--zr-fs-xl);
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text);
+  }
+
+  .zr-sheet__timesub {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  /* The bar with the limit: the track is the ceiling, the fill the estimate,
+     and the label at the right end names the ceiling. */
+  .zr-tokenbar__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-3);
+  }
+
+  .zr-tokenbar__limit {
+    flex-shrink: 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+    white-space: nowrap;
+  }
+
+  .zr-tokenbar__limit:empty {
+    display: none;
+  }
+
+  /* The bar at its smallest: inline in a cost line, no legend. */
+  .zr-tokenbar--mini {
+    display: inline-flex;
+    width: 160px;
+    vertical-align: middle;
+  }
+
+  .zr-tokenbar--mini .zr-tokenbar__track {
+    height: 6px;
+  }
+
+  /* The requests side by side: one row per lane, one block per request. The
+     same work does not get cheaper next to itself, only shorter, which is
+     why this picture moves with the lanes and the bar above it does not. */
+  .zr-lanes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .zr-lanes__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-3);
+  }
+
+  .zr-lanes__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 6px;
+  }
+
+  .zr-lanes__row {
+    display: flex;
+    gap: 3px;
+    height: 6px;
+    transition: width 350ms var(--zr-ease);
+  }
+
+  .zr-lanes__block {
+    flex: 1;
+    min-width: 0;
+    border-radius: 3px;
+    background: var(--zr-brand);
+    opacity: 0.6;
+  }
+
+  /* The levers: each a row of its name, what it costs and the framework's
+     own switch (.zr-toggle from forms.css). Hairlines, not boxes: a sheet
+     reads as one surface. */
+  .zr-sheet__levers {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .zr-sheet__levers:empty {
+    display: none;
+  }
+
+  .zr-sheet__lever {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    min-height: 40px;
+    border-bottom: 1px solid var(--zr-line);
+    font-size: var(--zr-fs-base);
+    cursor: pointer;
+  }
+
+  .zr-sheet__leverlabel {
+    flex-grow: 1;
+    min-width: 0;
+    color: var(--zr-text);
+  }
+
+  .zr-sheet__leverprice {
+    flex-shrink: 0;
+    font-size: var(--zr-fs-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text-faint);
+  }
+
+  /* The one fact, and where the numbers come from, on one line. */
+  .zr-sheet__fact {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    margin: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text);
+  }
+
+  .zr-sheet__check {
+    flex-shrink: 0;
+    color: var(--zr-ok);
+  }
+
+  .zr-sheet__basis {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .zr-sheet__basis::before {
+    content: '·';
+    margin-right: var(--zr-2);
+  }
+
+  /* The gate into advanced mode: three lines, each an icon and a phrase. */
+  .zr-gate {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .zr-gate__row {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    min-height: 36px;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text);
+  }
+
+  .zr-gate__row .zr-icon {
+    flex-shrink: 0;
+    color: var(--zr-brand);
+  }
+
+  /* The mode. The button sits in the top bar; the page root carries
+     data-mode, and what belongs to the other mode is not drawn. */
+  .zr-modebtn {
+    font-weight: 600;
+    color: var(--zr-brand);
+  }
+
+  [data-mode='simple'] [data-advanced],
+  [data-mode='advanced'] [data-simple] {
+    display: none;
+  }
+
+  /* The card a simple page opens on: an icon and the one button. */
+  .zr-emptycard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--zr-4);
+    width: min(520px, 100%);
+    margin: var(--zr-6) auto;
+    padding: var(--zr-6);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  .zr-emptycard__icon {
+    color: var(--zr-brand);
+  }
+
+  /* The head of a result: the headline of numbers, what the run cost, and
+     the one button whose numbers follow the ticks. */
+  .zr-resulthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-4);
+  }
+
+  .zr-resulthead__text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+    min-width: 0;
+  }
+
+  .zr-resulthead__headline {
+    margin: 0;
+    font-size: var(--zr-fs-xl);
+    font-weight: 600;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text);
+  }
+
+  .zr-resulthead__cost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+    margin: 0;
+    font-size: var(--zr-fs-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text-faint);
+  }
+
+  .zr-resulthead__action {
+    flex-shrink: 0;
+  }
+
+  /* A checklist: a label row with a count, then rows of a box, a name, its
+     meta and a chip. A dim row is one the model was not sure of; it comes
+     back to full strength the moment it is ticked. */
+  .zr-checklist {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .zr-checklist__head {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    min-height: 36px;
+  }
+
+  .zr-checklist__head .zr-label {
+    flex-grow: 1;
+  }
+
+  .zr-checklist__count {
+    font-weight: 400;
+    color: var(--zr-text-faint);
+  }
+
+  .zr-checklist__row {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    min-height: 44px;
+    border-top: 1px solid var(--zr-line);
+    font-size: var(--zr-fs-base);
+    cursor: pointer;
+    transition: opacity var(--zr-dur) var(--zr-ease);
+  }
+
+  .zr-checklist__row--dim {
+    opacity: 0.6;
+  }
+
+  .zr-checklist__row--dim:has(.zr-checklist__box:checked) {
+    opacity: 1;
+  }
+
+  .zr-checklist__box {
+    flex-shrink: 0;
+    margin: 0;
+  }
+
+  .zr-checklist__text {
+    flex-grow: 1;
+    min-width: 0;
+  }
+
+  .zr-checklist__name {
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  .zr-checklist__meta {
+    color: var(--zr-text-faint);
+  }
+
+  .zr-checklist__meta::before {
+    content: '·';
+    margin: 0 var(--zr-2);
+  }
+
+  .zr-checklist__reason {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .zr-checklist__chip {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: var(--zr-r-full);
+    background: var(--zr-surface-sunken);
+    font-size: var(--zr-fs-xs);
+    font-weight: 600;
+    color: var(--zr-text-muted);
+  }
+
+  .zr-checklist__more {
+    padding: var(--zr-2) 0;
+    border-top: 1px solid var(--zr-line);
+  }
+
+  /* One line of history under a simple page, with the way back. */
+  .zr-historyline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--zr-2);
+    margin: var(--zr-4) 0 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
   @media (max-width: 720px) {
     .zr-decision {
       padding: var(--zr-4);
@@ -691,6 +1079,15 @@
     }
 
     .zr-runbar {
+      flex-wrap: wrap;
+    }
+
+    .zr-resulthead {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .zr-sheet__numbers {
       flex-wrap: wrap;
     }
   }
