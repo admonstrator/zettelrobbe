@@ -41,6 +41,8 @@ function test(name, fn) {
 const FILES = [
   'public/js/modules/review-sheet.js',
   'public/js/modules/review-mode.js',
+  'views/simplify.ejs',
+  'public/js/simplify.js',
 ];
 
 const RULES = [
