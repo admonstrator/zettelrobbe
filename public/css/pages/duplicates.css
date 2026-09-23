@@ -1,23 +1,45 @@
 /* ==========================================================================
-   The Duplicates page: the scan controls, the group cards with their member
-   table, the merge log and the hidden-pair drawer.
+   The Duplicates page in two modes: the simple page (the empty card, the
+   result head, three checklists, the history line) and the advanced one (the
+   scan row, merge by hand, the group cards, the log, the mapped names and the
+   hidden pairs), with the run meter, the stack and the apply progress shared.
    @layer pages: above the framework layers, below utilities.
 
-   Only what the framework does not already carry lives here — the controls
-   row, the group card head, the meter width, the member column widths on a
-   wide screen, and the spacing of the blocks the confirm dialog is filled
-   with. Everything else on the page is a framework class.
+   The kit in css/review.css draws every zr- surface of the round; what lives
+   here only places it. One rule holds for every element that carries
+   data-simple or data-advanced: nothing here gives it a display, because a
+   display in this layer would beat the rule in review.css that hides the
+   other mode. Such an element is spaced by its parent's gap or by margins.
    ========================================================================== */
 
 @layer pages {
-  /* --- controls --------------------------------------------------------- */
-  /* One row on a desktop, a stack on a phone. The action button is pushed to
-     the far end so the primary action always sits at the same edge. */
+  /* --- the page ---------------------------------------------------------- */
+  /* The root carries data-mode, not a mode marker, so it may be the column
+     that spaces everything; a part the mode hides is no flex item at all. */
+  .dup-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  /* The sub line spaces itself through the column, not its own margin. */
+  .dup-lede .zr-viewhead {
+    margin-bottom: 0;
+  }
+
+  /* An empty notice would still be a flex item, and a gap on each side. */
+  .dup-ai-notice:empty {
+    display: none;
+  }
+
+  /* --- the scan row ------------------------------------------------------ */
+  /* One row on a desktop, a stack on a phone. The two runs are pushed to the
+     far end so the primary action always sits at the same edge. */
   .dup-controls {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: var(--zr-3);
+    gap: var(--zr-3) var(--zr-5);
   }
 
   .dup-controls__field {
@@ -27,13 +49,36 @@
     min-width: 0;
   }
 
-  /* The checkbox has no label above it, so it lines up with the controls that
-     do rather than with their labels. */
-  .dup-controls__field--check {
-    padding-bottom: 5px;
+  .dup-controls__select {
+    width: 120px;
+  }
+
+  /* The threshold and its unit read as one control. */
+  .dup-controls__percent {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  .dup-controls__custom .zr-input {
+    width: 72px;
+  }
+
+  /* The switch has no label above it, so it lines up with the controls that
+     do: their height, at the bottom of the row. */
+  .dup-controls__switch {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    min-height: 36px;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text);
+    cursor: pointer;
   }
 
   .dup-controls__field--action {
+    flex-direction: row;
+    gap: var(--zr-2);
     margin-left: auto;
   }
 
@@ -51,90 +96,23 @@
     .dup-controls__field .zr-segment button {
       flex: 1;
     }
-    .dup-controls__field--action .zr-btn {
+    .dup-controls__select {
       width: 100%;
+    }
+    .dup-controls__field--action .zr-btn {
+      flex: 1;
       justify-content: center;
     }
   }
 
-  /* The threshold behind the "Custom" preset. A number of at most three digits
-     next to a select that is far wider would read as a text field. */
-  .dup-controls__custom .zr-input {
-    width: 96px;
-  }
-
-  /* --- the AI review row ------------------------------------------------ */
-  /* A line of its own under the scan controls: the scan is the page's own
-     answer, the review is a second question that only makes sense after it.
-     width: 100% breaks the flex row of .dup-controls without a media query. */
-  .dup-ai-controls {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--zr-3);
-    width: 100%;
-    padding-top: var(--zr-3);
-    border-top: 1px solid var(--zr-line);
-  }
-
-  /* Takes the rest of the row and wraps to its own line on a phone rather
-     than squeezing the button and the checkbox. */
-  .dup-ai-hint {
-    flex: 1 1 240px;
-    min-width: 0;
-  }
-
-  /* The one button of the AI row that touches no model and no document: it
-     empties the judge's memory. Its row takes the whole width under the
-     options, so it never reads as a third way to start a review. */
-  .dup-ai-forget-row {
-    display: flex;
-    flex: 1 0 100%;
-  }
-
-  .dup-ai-forget {
-    flex: 0 0 auto;
-  }
-
-  /* The one-click path speaks in the line under the buttons: what it does
-     while it is idle, what it is doing while it runs. A line of its own,
-     because the row above it is already four controls wide. */
-  .dup-ai-proposal {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--zr-2) var(--zr-3);
-    width: 100%;
-  }
-
-  .dup-ai-proposal__status {
-    color: var(--zr-brand-text);
-    font-weight: 600;
-  }
-
-  .dup-stats {
-    margin-top: var(--zr-3);
-  }
-
-  /* The line the review speaks through: what it is asking, what failed, or
-     why it did not run. Empty the rest of the time. */
-  .dup-ai-notice:not(:empty) {
-    margin-top: var(--zr-3);
-  }
-
-  /* --- the progress panel of a running review --------------------------- */
-  /* A review is many model requests in a row, so it says where it is: a bar
-     over three lines of text, and the button that ends it. It lives in the AI
-     row rather than in a modal, because the page stays usable while the model
-     thinks. The three lines keep their height when they are empty, so the
-     stat tiles below do not move while the numbers come in. */
-  /* The panel is the shared run meter; the page only gives it its rule and
-     its room. The two-column grid it used to be held a Stop button beside
-     four stacked lines of text, and none of that is left. */
+  /* --- the run meter ----------------------------------------------------- */
+  /* The shared run meter, as a card of its own between the page's head and
+     what the run finds. The bar, the ledger and the log are the kit's. */
   .dup-progress {
-    width: 100%;
-    padding-top: var(--zr-3);
-    border-top: 1px solid var(--zr-line);
+    padding: var(--zr-4) var(--zr-5);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
   }
 
   .dup-progress__bar {
@@ -153,7 +131,7 @@
   }
 
   /* Before the plan knows how many requests it needs there is no share to
-     show, so the bar says "working" instead of lying about a percentage. */
+     show, so the bar says "working" instead of claiming a percentage. */
   .dup-progress__fill--indeterminate {
     width: 32%;
     transition: none;
@@ -188,12 +166,6 @@
     }
   }
 
-  /* An empty line still takes its row: the panel must not resize under the
-     stats while a review reports. */
-
-  /* All three lines carry something while a review runs, so only the panel
-     that has finished — one outcome line and nothing else — collapses. */
-
   @media (prefers-reduced-motion: reduce) {
     .dup-progress__fill--indeterminate {
       animation: none;
@@ -204,43 +176,243 @@
     }
   }
 
-  /* On a phone the counters already wrap over three lines; a button beside
-     them would squeeze both. It gets a row of its own. */
-  @media (max-width: 720px) {
-    .dup-progress {
-      grid-template-columns: 1fr;
-    }
+  .dup-progress__runbar {
+    width: 100%;
   }
 
-  /* --- merge by hand ---------------------------------------------------- */
+  .dup-progress__ledger,
+  .dup-progress__tokenbar {
+    margin-top: var(--zr-2);
+  }
+
+  /* The log runs from edge to edge of the card, under its padding. */
+  .dup-progress__reqlog {
+    margin: var(--zr-2) calc(var(--zr-5) * -1) 0;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  /* --- the stack --------------------------------------------------------- */
+  /* One pair per screen. The card itself is .zr-decision from the kit; the
+     bar above it, the footer under it and the per-member ticks inside it are
+     what this page adds. */
+  .dup-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    padding: var(--zr-5);
+    border: 1px solid var(--zr-line-strong);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface-2);
+    /* Scrolled into view under the sticky top bar, not behind it. */
+    scroll-margin-top: calc(var(--zr-topbar-h) + var(--zr-3));
+  }
+
+  .dup-stack:focus-visible {
+    outline: 2px solid var(--zr-focus);
+    outline-offset: 2px;
+  }
+
+  .dup-stack__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .dup-stack__tally {
+    margin-right: auto;
+  }
+
+  /* What the stack says once every pair has had an answer. */
+  .dup-stack__done {
+    margin: 0;
+    padding: var(--zr-5);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+    font-size: var(--zr-fs-md);
+    color: var(--zr-text);
+  }
+
+  /* The ticks a group of more than two members keeps inside its card, so the
+     target stays choosable without leaving the stack. */
+  .dup-decision__members {
+    margin-top: var(--zr-5);
+    padding-top: var(--zr-4);
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .dup-decision__memberlist {
+    list-style: none;
+    margin: var(--zr-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+  }
+
+  .dup-decision__member {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    padding: var(--zr-1) 0;
+  }
+
+  /* The target's row has no merge tick; the space keeps the names aligned. */
+  .dup-decision__nopick {
+    flex: none;
+    width: 16px;
+  }
+
+  .dup-decision__membername {
+    flex-grow: 1;
+    min-width: 0;
+  }
+
+  .dup-decision__consequence {
+    margin: var(--zr-4) 0 0;
+  }
+
+  /* --- applying ---------------------------------------------------------- */
+  /* The most destructive thing this page does, with the room to say so. */
+  .dup-apply {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+    padding: var(--zr-4) var(--zr-5);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  .dup-apply__list {
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  /* --- the simple result ------------------------------------------------- */
+  /* The head in a card, then the checklists, then the one line of history.
+     The section is a mode's own part, so it is spaced by margins. */
+  .dup-result__card {
+    padding: var(--zr-6);
+  }
+
+  .dup-result__lists {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    margin-top: var(--zr-5);
+  }
+
+  .dup-result__lists:empty {
+    display: none;
+  }
+
+  /* The head of a list sits over the card of its rows, indented as far as
+     the rows are. */
+  .dup-checklist .zr-checklist__head {
+    padding: 0 var(--zr-4);
+  }
+
+  .dup-checklist__rows {
+    padding: 0 var(--zr-4);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  /* The card draws the top edge; the first row needs no line of its own. */
+  .dup-checklist__rows > .zr-checklist__row:first-child {
+    border-top: 0;
+  }
+
+  /* "24 more" starts where the names start, past the tick. */
+  .dup-checklist__rows .zr-checklist__more {
+    padding-left: 22px;
+  }
+
+  .dup-checklist__arrow {
+    color: var(--zr-text-faint);
+  }
+
+  /* --- the advanced toolset ---------------------------------------------- */
+  /* The column inside the marked wrapper: every module one gap apart. */
+  .dup-tools {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-everything {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  /* A column's gap spaces its modules already; the margin the framework puts
+     between two stacked modules would double it. */
+  .dup-tools > .zr-module,
+  .dup-results > .zr-module {
+    margin-top: 0;
+  }
+
+  /* The count after a section's name: "History · 12". */
+  .dup-summary__count {
+    font-weight: 400;
+    color: var(--zr-text-faint);
+  }
+
+  /* The one text button at the very end of the page. */
+  .dup-forget {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  /* --- merge by hand ----------------------------------------------------- */
   /* The one module on this page that opens a layer above the others: its two
      search fields drop a list over whatever follows them. .zr-module clips its
      content and, through container-type, paints as its own stacking context,
-     so the module has to opt out of the clipping and lift itself above the
-     cards below — a z-index on the dropdown alone would never leave the
-     module's own box. */
+     so the module opts out of the clipping and lifts itself above the cards
+     below; a z-index on the dropdown alone would never leave the module's own
+     box. */
   .dup-manual {
     position: relative;
     z-index: 2;
     overflow: visible;
-    margin-top: var(--zr-3);
   }
 
-  .dup-manual__summary {
+  .dup-manual__summary,
+  .dup-unused__summary,
+  .dup-log__summary,
+  .dup-mappings__summary,
+  .dup-hidden__summary {
     cursor: pointer;
     list-style: none;
   }
 
-  .dup-manual__summary::-webkit-details-marker {
+  .dup-manual__summary::-webkit-details-marker,
+  .dup-unused__summary::-webkit-details-marker,
+  .dup-log__summary::-webkit-details-marker,
+  .dup-mappings__summary::-webkit-details-marker,
+  .dup-hidden__summary::-webkit-details-marker {
     display: none;
   }
 
-  .dup-manual__chevron {
+  .dup-manual__chevron,
+  .dup-unused__chevron,
+  .dup-log__chevron,
+  .dup-mappings__chevron,
+  .dup-hidden__chevron {
     color: var(--zr-text-faint);
     transition: transform var(--zr-dur) var(--zr-ease);
   }
 
-  .dup-manual[open] .dup-manual__chevron {
+  .dup-manual[open] .dup-manual__chevron,
+  .dup-unused[open] .dup-unused__chevron,
+  .dup-log[open] .dup-log__chevron,
+  .dup-mappings[open] .dup-mappings__chevron,
+  .dup-hidden[open] .dup-hidden__chevron {
     transform: rotate(90deg);
   }
 
@@ -250,8 +422,16 @@
     gap: var(--zr-3);
   }
 
-  .dup-manual__hint {
-    margin: 0;
+  /* Keep and Merge away side by side, each the width of a name. */
+  .dup-manual__pair {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--zr-3) var(--zr-6);
+  }
+
+  .dup-manual__pair .dup-manual__field {
+    flex: 0 1 340px;
   }
 
   /* flex-start, or the segment of two options stretches across the whole card
@@ -264,6 +444,10 @@
     min-width: 0;
   }
 
+  .dup-manual__field .zr-picker {
+    align-self: stretch;
+  }
+
   /* Empty until something is picked; without this the gap of the column would
      show up as a hole under the field. */
   .dup-manual__chips:not(:empty) {
@@ -274,6 +458,10 @@
      card's own padding. Inside the module body that padding is already there. */
   .dup-manual__warnings .dup-group__warnings {
     padding: 0;
+  }
+
+  .dup-manual__consequence {
+    margin: 0;
   }
 
   .dup-manual__actions {
@@ -292,38 +480,49 @@
     .dup-manual__field .zr-segment button {
       flex: 1;
     }
+    .dup-manual__pair .dup-manual__field {
+      flex-basis: 100%;
+    }
     .dup-manual__actions .zr-btn {
       flex: 1;
       justify-content: center;
     }
   }
 
-  /* --- the results toolbar ---------------------------------------------- */
-  /* Sits above the selection bar and belongs to the list below it: how it is
-     ordered, and where the line between "merge it" and "look at it" runs. It
-     scrolls away with the results — unlike the selection bar, it is not needed
-     while working through a long list. */
+  /* --- every group ------------------------------------------------------- */
+  /* The head of the list: its name and count, the order, and the tick by
+     confidence. It scrolls away with the results; the selection bar below it
+     is the one that stays. */
   .dup-results-bar {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-end;
+    align-items: center;
     gap: var(--zr-2) var(--zr-4);
-    margin-top: var(--zr-3);
-    padding: var(--zr-2) var(--zr-3);
+    padding: var(--zr-2) var(--zr-4);
     background: var(--zr-surface);
     border: 1px solid var(--zr-line);
     border-radius: var(--zr-r-lg);
   }
 
-  .dup-results-bar__sort,
-  .dup-results-bar__min {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-1);
-    min-width: 0;
+  .dup-results-bar__title {
+    font-size: var(--zr-fs-base);
+    font-weight: 600;
+    color: var(--zr-text);
+    white-space: nowrap;
   }
 
-  /* The number, its unit, the button and the count read as one control. */
+  .dup-results-bar__count {
+    font-weight: 400;
+    color: var(--zr-text-faint);
+  }
+
+  /* The order is one short word; the select does not need the row. */
+  .dup-results-bar .zr-select {
+    width: auto;
+    min-width: 180px;
+  }
+
+  /* The number, its unit and the button read as one control. */
   .dup-results-bar__minrow {
     display: flex;
     flex-wrap: wrap;
@@ -332,115 +531,23 @@
     min-width: 0;
   }
 
-  .dup-results-bar__min .zr-input {
-    width: 84px;
-  }
-
-  /* --- the confidence breakdown ----------------------------------------- */
-  /* Three numbers under "Groups found"; the tile's own delta line is one line
-     of small text, and this one may need two on a narrow tile. */
-  .dup-stat__buckets {
-    line-height: 1.35;
-  }
-
-  /* --- the review dialog ------------------------------------------------ */
-  /* What the model said about each ticked group, in one table. The reason is
-     the only cell that can be long, so it is the one that gets the room. */
-  /* Six columns need more room than the 600px of the framework's wide dialog,
-     or the group column breaks every name over three lines. */
-  .dup-review-dialog {
-    width: min(900px, calc(100vw - 32px));
-  }
-
-  .dup-review-table {
-    width: 100%;
-  }
-
-  /* "AI: same" is two words and reads as one thing; it must not wrap. On a
-     card head the chip takes the far end of the row, which in a table cell —
-     and in a stacked row on a phone — would push it away from its label. */
-  .dup-review-table .zr-chip {
-    white-space: nowrap;
-  }
-
-  .dup-review-table .dup-verdict {
-    margin-left: 0;
-  }
-
-  .dup-review__pick {
-    width: 56px;
-  }
-
-  .dup-review__reason {
-    color: var(--zr-text-muted);
-    font-size: var(--zr-fs-sm);
-  }
-
-  .dup-review__names {
-    display: inline-block;
-    min-width: 0;
-  }
-
-  .dup-review__summary {
-    margin-top: var(--zr-2);
-    color: var(--zr-text);
-    font-weight: 600;
-  }
-
-  /* --- the AI proposal -------------------------------------------------- */
-  /* The same table as the guided dialog, one column wider (the basis) and with
-     every group of a scan in it rather than a handful. It therefore takes the
-     room it can get; the rule above it sets the narrower width first. */
-  .dup-proposal-dialog {
-    width: min(960px, calc(100vw - 32px));
-  }
-
-  /* Rows can be two lines high — a reason is a whole sentence — and a tick
-     floating in the middle of one reads as belonging to neither line. */
-  .dup-proposal-pick {
-    vertical-align: top;
-    padding-top: 11px;
-  }
-
-  .dup-proposal__legend {
-    margin-bottom: var(--zr-2);
-  }
-
-  /* The two shortcuts above the table; they tick and untick, nothing else. */
-  .dup-proposal__quick {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--zr-2);
-    margin-bottom: var(--zr-2);
+  .dup-results-bar__minrow .zr-input {
+    width: 72px;
   }
 
   @media (max-width: 720px) {
-    /* Stacked, the number field and its button share the width rather than
-       pushing the bar past the viewport. */
-    .dup-results-bar__sort,
-    .dup-results-bar__min {
-      width: 100%;
-    }
-    .dup-results-bar__sort .zr-select {
-      width: 100%;
-    }
     .dup-results-bar__minrow .zr-btn {
       flex: 1 1 auto;
       justify-content: center;
     }
-    /* The rows of the dialog table stack; a fixed pick column would leave the
-       label of that cell without room. */
-    .dup-review__pick {
-      width: auto;
-    }
   }
 
-  /* --- selecting several groups ----------------------------------------- */
-  /* One bar for the whole result list. It appears with the first ticked card
-     and then stays under the top bar (48px) while the cards scroll past it, so
-     "Merge selected" is reachable from anywhere in a long list. z-index 1 is
-     enough to sit above the cards, which are unpositioned; .dup-manual keeps 2
-     so its search dropdown still comes out on top. */
+  /* --- selecting several groups ------------------------------------------ */
+  /* One bar for the whole list. It appears with the first selectable card
+     and then stays under the top bar while the cards scroll past it, so
+     "Merge 6" is reachable from anywhere in a long list. z-index 1 is enough
+     to sit above the cards, which are unpositioned; .dup-manual keeps 2 so its
+     search dropdown still comes out on top. */
   .dup-selection {
     position: sticky;
     top: var(--zr-topbar-h);
@@ -449,7 +556,6 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--zr-2) var(--zr-3);
-    margin-top: var(--zr-3);
     padding: var(--zr-2) var(--zr-3);
     background: var(--zr-surface);
     border: 1px solid var(--zr-line-strong);
@@ -460,6 +566,7 @@
   .dup-selection__count {
     font-weight: 600;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
 
   /* "Merging 3 of 8…" and, at the end, the summary. Takes what is left of the
@@ -495,9 +602,15 @@
     }
   }
 
-  /* --- results ---------------------------------------------------------- */
+  /* --- results ----------------------------------------------------------- */
   .dup-results {
-    margin-top: var(--zr-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .dup-results:empty {
+    display: none;
   }
 
   .dup-skeletons {
@@ -511,10 +624,10 @@
     border-radius: var(--zr-r-lg);
   }
 
-  /* --- one duplicate group ---------------------------------------------- */
-  /* The head carries four things of very different widths — a kind badge, the
-     confidence meter, the reason chips and (stacked) the title. A wrapping
-     flex row keeps them readable down to 320px without a media query. */
+  /* --- one duplicate group ----------------------------------------------- */
+  /* The head carries four things of very different widths: a kind badge, the
+     confidence meter, the reason chips and the verdict. A wrapping flex row
+     keeps them readable down to 320px without a media query. */
   .dup-group__head {
     flex-wrap: wrap;
     row-gap: var(--zr-2);
@@ -548,6 +661,11 @@
     padding: var(--zr-3) var(--zr-3) 0;
   }
 
+  /* What the Merge button of the card writes, in numbers, over its foot. */
+  .dup-group__consequence {
+    margin: var(--zr-3) var(--zr-3) 0;
+  }
+
   .dup-group__foot {
     display: flex;
     flex-wrap: wrap;
@@ -560,7 +678,7 @@
     opacity: 0.55;
   }
 
-  /* --- what the AI said ------------------------------------------------- */
+  /* --- what the model said ----------------------------------------------- */
   /* The chip sits at the end of the head. With reason chips in front of it
      those already carry the auto margin, so it only takes one when it is the
      first thing at that end. */
@@ -574,7 +692,7 @@
   }
 
   /* The three verdicts, shared by the chip and the line under a member's
-     score — only the colour, the chip adds its own tint below. */
+     score: only the colour, the chip adds its own tint below. */
   .dup-verdict--same {
     color: var(--zr-ok);
   }
@@ -600,7 +718,7 @@
   }
 
   /* A pair a spelling rule settled: as sure as this page gets, so it wears the
-     tone of a "same" — but it says who decided, because no model saw it. */
+     tone of a "same", but it says who decided, because no model saw it. */
   .dup-verdict--rule {
     color: var(--zr-ok);
   }
@@ -610,7 +728,7 @@
   }
 
   /* How sure the model is, as a suffix of the verdict rather than a chip of
-     its own: "AI: same · high" is one statement. */
+     its own: "Model: same · high" is one statement. */
   .dup-verdict__confidence {
     margin-left: 4px;
     font-weight: 400;
@@ -632,7 +750,7 @@
     white-space: nowrap;
   }
 
-  /* A group the model called apart stays mergeable and dismissable — only the
+  /* A group the model called apart stays mergeable and dismissable; only the
      table it argues about steps back, never the buttons. */
   .dup-group[data-ai-verdict='different'] .zr-table-wrap {
     opacity: 0.6;
@@ -643,13 +761,13 @@
     white-space: nowrap;
   }
 
-  /* The band below the sensitivity the user chose: everything under this line
-     is the model's suggestion, not the scan's. */
+  /* The band below the chosen threshold: everything under this line is the
+     model's suggestion, not the scan's. */
   .dup-divider {
     display: flex;
     align-items: center;
     gap: var(--zr-3);
-    margin: var(--zr-4) 0 var(--zr-3);
+    margin: var(--zr-2) 0;
     color: var(--zr-text-faint);
   }
 
@@ -661,10 +779,10 @@
     background: var(--zr-line);
   }
 
-  /* --- the member table ------------------------------------------------- */
-  /* Keep / Merge are single controls, Documents and Match are short numbers:
-     giving them a fixed share leaves the rest of the row to the name and the
-     matching rule, which are the two cells that actually need it.
+  /* --- the member table -------------------------------------------------- */
+  /* Keep and Merge are single controls, Documents and Match are short
+     numbers: giving them a fixed share leaves the rest of the row to the name
+     and the matching rule, which are the two cells that actually need it.
 
      table-layout: fixed is what makes those widths hold. With the automatic
      layout every card measures its own content, so a card of short tags puts
@@ -696,9 +814,9 @@
     width: 96px;
   }
 
-  /* Wide enough for "92%" over "AI: same · high" on one line each. */
+  /* Wide enough for "92%" over "Model: same · high" on one line each. */
   .dup-members__score {
-    width: 132px;
+    width: 148px;
   }
 
   .dup-member__name {
@@ -739,77 +857,99 @@
     }
   }
 
-  /* --- merge log -------------------------------------------------------- */
-  .dup-log__alert:not(:empty) {
-    padding: var(--zr-3) var(--zr-3) 0;
+  /* --- the verdict dialog ------------------------------------------------ */
+  /* What the model said about each ticked group, in one table. The reason is
+     the only cell that can be long, so it is the one that gets the room. Six
+     columns need more room than the 600px of the framework's wide dialog, or
+     the group column breaks every name over three lines. */
+  .dup-review-dialog {
+    width: min(900px, calc(100vw - 32px));
   }
 
-  .dup-log__sources {
-    max-width: 320px;
+  .dup-review-table {
+    width: 100%;
   }
 
-  /* --- hidden pairs ----------------------------------------------------- */
-  .dup-hidden__summary {
-    cursor: pointer;
-    list-style: none;
+  /* A verdict is two words and reads as one thing; it must not wrap. */
+  .dup-review-table .zr-chip {
+    white-space: nowrap;
   }
 
-  .dup-hidden__summary::-webkit-details-marker {
-    display: none;
+  .dup-review-table .dup-verdict {
+    margin-left: 0;
   }
 
-  .dup-hidden__chevron {
-    color: var(--zr-text-faint);
-    transition: transform var(--zr-dur) var(--zr-ease);
+  .dup-review__pick {
+    width: 56px;
   }
 
-  .dup-hidden[open] .dup-hidden__chevron {
-    transform: rotate(90deg);
+  .dup-review__reason {
+    color: var(--zr-text-muted);
+    font-size: var(--zr-fs-sm);
   }
 
-  .dup-hidden__list {
+  .dup-review__names {
+    display: inline-block;
+    min-width: 0;
+  }
+
+  .dup-review__summary {
+    margin-top: var(--zr-2);
+    color: var(--zr-text);
+    font-weight: 600;
+  }
+
+  @media (max-width: 720px) {
+    /* The rows of the dialog table stack; a fixed pick column would leave the
+       label of that cell without room. */
+    .dup-review__pick {
+      width: auto;
+    }
+  }
+
+  /* --- confirm dialog blocks --------------------------------------------- */
+  /* The merge and undo dialogs are the kernel's confirmDialog filled with
+     markup; these give that markup the spacing a dialog body has no opinion
+     about. */
+  .dup-dialog__list {
+    max-height: 40vh;
+    overflow-y: auto;
+    margin: var(--zr-2) 0;
+    padding-left: var(--zr-4);
+    color: var(--zr-text);
+  }
+
+  /* The name of the survivor: a label over a full-width field, set off from
+     the list of names above it. */
+  .dup-dialog__field {
     display: flex;
     flex-direction: column;
-    gap: var(--zr-2);
+    gap: var(--zr-1);
+    margin-top: var(--zr-3);
   }
 
-  .dup-hidden__row {
+  .dup-dialog__field .zr-input {
+    width: 100%;
+  }
+
+  .dup-dialog__check {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--zr-2);
+    margin-top: var(--zr-3);
+    padding-top: var(--zr-3);
+    border-top: 1px solid var(--zr-line);
+    color: var(--zr-text);
   }
 
-  /* --- unused objects --------------------------------------------------- */
+  /* --- unused objects ---------------------------------------------------- */
   /* A drawer like the hidden pairs, but with a table and one dangerous
      button. The pick column stays narrow on a wide screen so the names get
      the width; the phone stack hands every cell its own line anyway. */
-  .dup-unused__summary {
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .dup-unused__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .dup-unused__chevron {
-    color: var(--zr-text-faint);
-    transition: transform var(--zr-dur) var(--zr-ease);
-  }
-
-  .dup-unused[open] .dup-unused__chevron {
-    transform: rotate(90deg);
-  }
-
   .dup-unused__body {
     display: flex;
     flex-direction: column;
     gap: var(--zr-3);
-  }
-
-  .dup-unused__hint {
-    margin: 0;
   }
 
   .dup-unused__alert:not(:empty) {
@@ -852,25 +992,33 @@
     }
   }
 
-  /* --- names the guard mapped ------------------------------------------- */
-  .dup-mappings__summary {
-    cursor: pointer;
-    list-style: none;
+  /* --- the merge log ----------------------------------------------------- */
+  .dup-log__alert:not(:empty) {
+    padding: var(--zr-3) var(--zr-3) 0;
   }
 
-  .dup-mappings__summary::-webkit-details-marker {
-    display: none;
+  .dup-log__sources {
+    max-width: 320px;
   }
 
-  .dup-mappings__chevron {
-    color: var(--zr-text-faint);
-    transition: transform var(--zr-dur) var(--zr-ease);
+  /* The target cell carries two lines for a rename, a delete and a split:
+     what survived and the name it had before, or the badge and what it
+     removed or became. */
+  .dup-log__target,
+  .dup-log__deleted,
+  .dup-log__split {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-1) var(--zr-2);
+    max-width: 320px;
   }
 
-  .dup-mappings[open] .dup-mappings__chevron {
-    transform: rotate(90deg);
+  .dup-log__renamed {
+    flex-basis: 100%;
   }
 
+  /* --- names the guard mapped -------------------------------------------- */
   .dup-mappings__body {
     display: flex;
     flex-direction: column;
@@ -890,288 +1038,29 @@
     justify-content: flex-end;
   }
 
-  /* --- log rows a delete or a rename wrote ------------------------------- */
-  /* The target cell carries two lines in both cases: what survived and the
-     name it had before, or the delete badge and what it removed. */
-  .dup-log__target,
-  .dup-log__deleted,
-  .dup-log__split {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--zr-1) var(--zr-2);
-    max-width: 320px;
-  }
-
-  .dup-log__renamed {
-    flex-basis: 100%;
-  }
-
-  /* --- confirm dialog blocks -------------------------------------------- */
-  /* The merge and undo dialogs are the kernel's confirmDialog filled with
-     markup; these three give that markup the spacing a dialog body has no
-     opinion about. */
-  .dup-dialog__list {
-    margin: var(--zr-2) 0;
-    padding-left: var(--zr-4);
-    color: var(--zr-text);
-  }
-
-  .dup-dialog__note {
-    margin-top: var(--zr-2);
-  }
-
-  /* The one line that names the guided path, in a dialog that does not need
-     it to work. Faint on purpose: an offer, not an instruction. */
-  .dup-dialog__tip {
-    margin-top: var(--zr-1);
-  }
-
-  /* The name of the survivor: a label over a full-width field, set off from
-     the list of names above it. */
-  .dup-dialog__field {
+  /* --- hidden pairs ------------------------------------------------------ */
+  .dup-hidden__list {
     display: flex;
     flex-direction: column;
-    gap: var(--zr-1);
-    margin-top: var(--zr-3);
-  }
-
-  .dup-dialog__field .zr-input {
-    width: 100%;
-  }
-
-  .dup-dialog__check {
-    display: flex;
-    align-items: flex-start;
     gap: var(--zr-2);
-    margin-top: var(--zr-3);
-    padding-top: var(--zr-3);
-    border-top: 1px solid var(--zr-line);
-    color: var(--zr-text);
   }
 
-  /* --- the plan ---------------------------------------------------------- */
-  /* Four baskets of sentences where a list of cards used to be. The kit in
-     css/review.css carries every zr- class they are built from; what belongs
-     here is only the room between them and the header card above them. */
-  .dup-plan {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-4);
-    margin-bottom: var(--zr-5);
-  }
-
-  .dup-plan__headbody {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-4);
-  }
-
-  /* The one sentence that says what a scan found. It is read, not scanned,
-     so it gets the brand face and room to breathe. */
-  .dup-plan__sentence {
-    margin: 0;
-    font-family: var(--zr-font-brand);
-    font-size: var(--zr-fs-xl);
-    line-height: 1.4;
-    color: var(--zr-text);
-  }
-
-  .dup-plan__tokenbar {
-    max-width: 520px;
-  }
-
-  .dup-plan__actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--zr-3);
-  }
-
-  /* A stacked button's first line; the price under it is .zr-btn__sub. */
-  .dup-plan__btnlabel {
-    display: block;
-  }
-
-  .dup-plan__baskets {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-  }
-
-  .dup-plan__foot {
-    display: flex;
-    justify-content: flex-start;
-  }
-
-  /* An empty basket keeps its heading and loses its body; without this the
-     padding of an empty body would leave a gap under every one of them. */
-  .dup-basket__body:empty {
-    display: none;
-  }
-
-  /* --- the stack --------------------------------------------------------- */
-  /* One pair per screen. The card itself is .zr-decision from the kit; the
-     bar above it, the footer under it and the per-member ticks inside it are
-     what this page adds. */
-  .dup-stack {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-4);
-    margin-bottom: var(--zr-5);
-    padding: var(--zr-5);
-    border: 1px solid var(--zr-line-strong);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface-2);
-  }
-
-  .dup-stack:focus-visible {
-    outline: 2px solid var(--zr-focus);
-    outline-offset: 2px;
-  }
-
-  .dup-stack__foot {
+  .dup-hidden__row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--zr-3);
-  }
-
-  .dup-stack__tally {
-    margin-right: auto;
-  }
-
-  /* The line a stack that has just undone something keeps above its card. */
-  .dup-stack__notice {
-    margin-bottom: var(--zr-4);
-  }
-
-  /* The ticks a group of more than two members keeps inside its card, so the
-     target stays choosable without leaving the stack. */
-  .dup-decision__members {
-    margin-top: var(--zr-5);
-    padding-top: var(--zr-4);
-    border-top: 1px solid var(--zr-line);
-  }
-
-  .dup-decision__memberlist {
-    list-style: none;
-    margin: var(--zr-2) 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-1);
-  }
-
-  .dup-decision__member {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-3);
-    padding: var(--zr-1) 0;
-  }
-
-  .dup-decision__membername {
-    flex-grow: 1;
-    min-width: 0;
-  }
-
-  /* Amber, because copying a matching rule changes what Paperless-ngx will
-     catch tomorrow — the one part of a merge that outlives the documents. */
-  .dup-decision__copy {
-    display: flex;
-    align-items: flex-start;
     gap: var(--zr-2);
-    margin-top: var(--zr-4);
-    padding: var(--zr-3) var(--zr-4);
-    border: 1px solid var(--zr-warn);
-    border-radius: var(--zr-r-md);
-    background: var(--zr-warn-soft);
-    color: var(--zr-warn);
-    font-size: var(--zr-fs-base);
-    line-height: 1.5;
-  }
-
-  .dup-decision__consequence {
-    margin-top: var(--zr-4);
-  }
-
-  /* --- applying ---------------------------------------------------------- */
-  /* The most destructive thing this page does, with the room to say so. */
-  .dup-apply {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-    margin-bottom: var(--zr-5);
-    padding: var(--zr-4) var(--zr-5);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface);
-  }
-
-  .dup-apply__list {
-    max-height: 340px;
-    overflow-y: auto;
-  }
-
-  /* --- the run meter ----------------------------------------------------- */
-  /* The panel keeps its bar; what is new is the position on its left, the
-     time on its right, and the bill underneath. */
-  .dup-progress__runbar {
-    width: 100%;
-  }
-
-  .dup-progress__ledger,
-  .dup-progress__tokenbar {
-    margin-top: var(--zr-2);
-  }
-
-  .dup-progress__reqlog {
-    margin: var(--zr-2) calc(var(--zr-5) * -1) 0;
-    max-height: 240px;
-    overflow-y: auto;
-  }
-
-  /* A stop button that carries a second line lays it out itself; its icon
-     then sits on the first line rather than in a flex row of its own. */
-
-  /* --- what a button writes ---------------------------------------------- */
-  /* It sits between the member table and the foot, so it takes the module's
-     own gutter rather than standing flush against the card's edge. */
-  .dup-group__consequence {
-    margin: var(--zr-3) var(--zr-3) 0;
-  }
-
-  .dup-selection__consequence {
-    flex-basis: 100%;
-    margin: var(--zr-2) 0 0;
-  }
-
-  .dup-manual__consequence,
-  .dup-unused__consequence {
-    margin: var(--zr-3) 0 0;
-  }
-
-  /* --- the preflight dialog ---------------------------------------------- */
-  /* What a run does, what it costs, what it changes, and the levers that make
-     it cheaper. Four blocks, read top to bottom. */
-
-  /* What a lever costs, under the lever rather than beside it. */
-
-  .dup-preflight__btnlabel {
-    display: block;
-  }
-
-  .dup-preflight-dialog .zr-dialog__body {
-    max-height: 70vh;
-    overflow-y: auto;
   }
 
   @media (max-width: 720px) {
-    .dup-plan__sentence {
-      font-size: var(--zr-fs-lg);
+    .dup-progress,
+    .dup-apply {
+      padding: var(--zr-3);
     }
 
-    .dup-plan__actions .zr-btn {
-      width: 100%;
+    .dup-progress__reqlog {
+      margin-left: calc(var(--zr-3) * -1);
+      margin-right: calc(var(--zr-3) * -1);
     }
 
     .dup-stack {
@@ -1182,13 +1071,8 @@
       flex: 1;
     }
 
-    .dup-apply {
-      padding: var(--zr-3);
-    }
-
-    .dup-progress__reqlog {
-      margin-left: calc(var(--zr-3) * -1);
-      margin-right: calc(var(--zr-3) * -1);
+    .dup-result__card {
+      padding: var(--zr-4);
     }
   }
 }
