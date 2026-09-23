@@ -110,6 +110,11 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                                     <p class="zr-resulthead__cost" id="simResultCost"></p>
                                 </div>
                                 <div class="zr-resulthead__action">
+<% if (simAiEnabled) { -%>
+                                    <!-- The result stays while a proposal lives, so the
+                                         next run needs a button of its own. -->
+                                    <button class="zr-btn zr-btn--ghost" id="simAgainBtn" type="button">Simplify tags</button>
+<% } -%>
                                     <button class="zr-btn zr-btn--primary" id="simApplyTickedBtn" type="button" disabled>Apply 0 · 0 writes</button>
                                 </div>
                             </div>

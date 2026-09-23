@@ -159,6 +159,10 @@ const RELEASES = [
       'New: While a run works the page says what it is doing in two words, how far it is, and three numbers: how long it has been going, how much of the work is done and what it has spent against the estimate, with the tokens split into the question, the answer and the model thinking to itself. Under it every request of the last handful with what it cost and how it ended — including the one in flight, and one that thought for tokens and answered nothing. The ceiling that would end the run is named in the dialog beforehand and again once the run is near it',
       'New: Every button that writes says what it writes before it is pressed: how many documents change, how many objects are deleted, whether a model is asked, and whether it can be undone. Applying a plan runs as a live checklist, three at a time, with a failed step shown red and retryable',
       'New: What each finished run cost is written down (requests, prompt, answer and reasoning tokens, seconds), so the next estimate is measured instead of guessed; a stopped run counts too. The Simplify run can skip tags you already decided on and tags below a document count',
+      'New: Duplicates and Simplify tags open in a simple mode: one button, the sheet before a run, and the result as lists of what will happen with everything the model was sure of ticked. Untick what should not happen; the one button says how many and how many writes, and follows the ticks',
+      'New: An advanced mode behind a deliberate switch keeps the whole toolset (sensitivity and threshold, merge by hand, every group as a list, the vocabulary and the table) without the explanations. The choice is kept per page',
+      "Changed: The sheet before a run is one big number with the time beside it, a bar that is the run's token limit with the estimate as its fill, the requests side by side per lane, and switches that visibly move all of it. Cancel and Start",
+      'Changed: Both pages speak like software: no first person, no reassurance, numbers before words, no dashes',
     ],
   },
 ];

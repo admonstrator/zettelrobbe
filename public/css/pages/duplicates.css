@@ -22,6 +22,13 @@
     gap: var(--zr-3);
   }
 
+  /* The simple page reads as one column, as the board has it. */
+  .dup-page[data-mode='simple'] {
+    width: 100%;
+    max-width: 1060px;
+    margin-inline: auto;
+  }
+
   /* The one line under the title in simple mode, as Simplify tags has it.
      The column's gap is the advanced page's; the line keeps a little more
      air below it, as the board does. */

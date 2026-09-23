@@ -4287,11 +4287,11 @@ function resultHeadline(totals, proposed) {
  *
  * @param {object|null} review    the `aiReview` block of the last answer
  * @param {object|null} progress  the job's last progress, for time and split
- * @param {boolean} offered       the instance offers the model at all
  * @returns {{text: string, split: object|null}}
  */
-function resultCost(review, progress, offered) {
-  if (!review) return { text: offered ? 'Cost not recorded' : '', split: null };
+function resultCost(review, progress) {
+  // A result nobody asked a model about has no cost line at all.
+  if (!review) return { text: '', split: null };
   const state = progress || {};
   const requests = num(review.requests);
   const tokens = num(review.tokens);
@@ -4412,7 +4412,7 @@ function updateResultButton(lists) {
 
 function renderResultCost() {
   if (!el.resultCost) return;
-  const cost = resultCost(lastRunReview, lastRunProgress, aiReviewOffered());
+  const cost = resultCost(lastRunReview, lastRunProgress);
   const htmlBar = cost.split ? htmlMiniBar(cost.split) : '';
   el.resultCost.classList.toggle('hidden', cost.text === '');
   el.resultCost.innerHTML =
@@ -5148,8 +5148,18 @@ function sheetModel(estimate, draft) {
   const added = draft.sweep === true ? sweepRequests : 0;
   const requests = base + added;
   const perRequest = (value) => (base > 0 ? value / base : 0);
+  // The estimate is priced with both context levers on; a lever turned off
+  // takes its guess out of the prompt again.
+  const titlesTokens = num(extra.titlesTokens);
+  const excerptTokens = num(extra.excerptTokens);
+  const off =
+    (draft.titles === false ? titlesTokens : 0) +
+    (draft.excerpts === false ? excerptTokens : 0);
   const tokens = {
-    prompt: Math.round(parts.prompt + perRequest(parts.prompt) * added),
+    prompt: Math.max(
+      0,
+      Math.round(parts.prompt + perRequest(parts.prompt) * added - off)
+    ),
     completion: Math.round(
       parts.completion + perRequest(parts.completion) * added
     ),
@@ -5179,7 +5189,7 @@ function sheetModel(estimate, draft) {
       {
         id: 'dupAiTitles',
         label: 'Titles as context',
-        price: '',
+        price: titlesTokens > 0 ? `+${formatTokens(titlesTokens)}` : '',
         on: draft.titles !== false,
       },
       {
@@ -5188,7 +5198,7 @@ function sheetModel(estimate, draft) {
           reads > 0
             ? `Excerpts · ${count(reads)} ${plural(reads, 'read', 'reads')}`
             : 'Excerpts',
-        price: '',
+        price: excerptTokens > 0 ? `+${formatTokens(excerptTokens)}` : '',
         on: draft.excerpts !== false,
       },
       {

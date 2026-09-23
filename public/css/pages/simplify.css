@@ -23,6 +23,13 @@
     gap: var(--zr-4);
   }
 
+  /* The simple page reads as one column, as the board has it. */
+  .sim-page[data-mode='simple'] {
+    width: 100%;
+    max-width: 1060px;
+    margin-inline: auto;
+  }
+
   .sim-page .zr-module + .zr-module {
     margin-top: 0;
   }

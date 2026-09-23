@@ -1356,11 +1356,8 @@ test('The headline counts what was scanned and what is proposed', () => {
     text: '1 request',
     split: null,
   });
-  // No run behind the result: said where a model exists, silent where not.
-  assert.deepStrictEqual(resultCost(null, null, true), {
-    text: 'Cost not recorded',
-    split: null,
-  });
+  // No run behind the result: no cost line, whatever the instance offers.
+  assert.deepStrictEqual(resultCost(null, null), { text: '', split: null });
   assert.deepStrictEqual(resultCost(null, null, false), {
     text: '',
     split: null,
@@ -1879,7 +1876,7 @@ test('The keys of the stack fire on the stack, never inside a field', () => {
     'the stack has no Undo'
   );
   assert.ok(
-    page.includes('id="dupStackCloseBtn" type="button">Close</button>'),
+    page.includes('id="dupStackCloseBtn" type="button">Back</button>'),
     'the stack has no Close'
   );
 });

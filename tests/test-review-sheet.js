@@ -299,8 +299,10 @@ test('updateSheet moves the numbers, the bar, the rows and the switches in place
     selected.map((b) => b.dataset.lanes),
     ['8']
   );
-  assert.strictEqual(root.switches.get('sweep').checked, true);
-  assert.strictEqual(root.switches.get('excerpts').checked, true);
+  const levers = root.nodes.get('switches').innerHTML;
+  assert.ok(levers.includes('data-switch="sweep" checked>'), 'the sweep is on');
+  assert.ok(levers.includes('data-switch="excerpts" checked>'));
+  assert.ok(levers.includes('Synonym sweep'), 'the label follows the model');
   sheet.updateSheet(null, MODEL);
 });
 

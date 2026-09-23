@@ -1024,7 +1024,13 @@ test('The cost line is the last run, or says that it is not recorded', () => {
   );
   assert.match(
     page,
-    /<div class="zr-resulthead__action">\s*<button class="zr-btn zr-btn--primary" id="simApplyTickedBtn" type="button" disabled>Apply 0 · 0 writes<\/button>/
+    /<div class="zr-resulthead__action">[\s\S]*?<button class="zr-btn zr-btn--primary" id="simApplyTickedBtn" type="button" disabled>Apply 0 · 0 writes<\/button>/
+  );
+  // The result stays while a proposal lives, so the next run has a button
+  // of its own, before the one that writes.
+  assert.match(
+    page,
+    /<button class="zr-btn zr-btn--ghost" id="simAgainBtn" type="button">Simplify tags<\/button>[\s\S]*?id="simApplyTickedBtn"/
   );
   assert.match(
     page,

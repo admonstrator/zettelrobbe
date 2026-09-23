@@ -284,15 +284,10 @@ export function updateSheet(root, model) {
       );
     }
   }
+  // A lever's label and price follow the estimate too, so the levers are
+  // drawn again rather than patched; a toggle keeps no state of its own.
   const switches = at('switches');
-  if (switches) {
-    for (const lever of model.switches || []) {
-      const box = switches.querySelector(
-        `[data-switch="${CSS.escape(String(lever.id))}"]`
-      );
-      if (box) box.checked = lever.on === true;
-    }
-  }
+  if (switches) switches.innerHTML = htmlSwitches(model.switches);
 }
 
 /**

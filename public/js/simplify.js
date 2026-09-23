@@ -266,6 +266,7 @@ const el = {
   // Simple mode: the card before a run, the result after it.
   emptyCard: document.getElementById('simEmptyCard'),
   startBtn: document.getElementById('simStartBtn'),
+  againBtn: document.getElementById('simAgainBtn'),
   result: document.getElementById('simResult'),
   resultHeadline: document.getElementById('simResultHeadline'),
   resultCost: document.getElementById('simResultCost'),
@@ -1646,6 +1647,7 @@ function modelReady() {
 function setOrderBusy(busy) {
   if (el.orderBtn) el.orderBtn.disabled = busy;
   if (el.startBtn) el.startBtn.disabled = busy || !modelReady();
+  if (el.againBtn) el.againBtn.disabled = busy;
   if (el.reproposeBtn) el.reproposeBtn.disabled = busy;
   updateApplyAcceptedButton();
   updateProposeSplitsButton();
@@ -4117,6 +4119,7 @@ function initMode() {
 /** The simple mode: the card's button, the ticks, the lists and the apply. */
 function initSimple() {
   if (el.startBtn) el.startBtn.addEventListener('click', proposeOrder);
+  if (el.againBtn) el.againBtn.addEventListener('click', proposeOrder);
   if (el.applyTickedBtn) {
     el.applyTickedBtn.addEventListener('click', applyTicked);
   }

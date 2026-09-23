@@ -78,6 +78,8 @@ function perRequest(lastRun) {
  * @param {object} options
  * @param {number} options.items        items the model is asked about
  * @param {number} options.batchSize    items per request
+ * @param {number} [options.requests]   the request count when the caller
+ *   knows it better than items ÷ batchSize, say because it batches per kind
  * @param {number} [options.lanes]      requests in flight at once, default 1
  * @param {object|null} [options.calibration] `getAiCalibration` of the model
  * @param {object|null} [options.lastRun]     `getLastAiRunStats` of the task
@@ -89,6 +91,7 @@ function perRequest(lastRun) {
 function estimateRun({
   items,
   batchSize,
+  requests: given = null,
   lanes = 1,
   calibration = null,
   lastRun = null,
@@ -97,7 +100,7 @@ function estimateRun({
   const count = whole(items);
   const size = Math.max(1, whole(batchSize) || 1);
   const inFlight = Math.max(1, whole(lanes) || 1);
-  const requests = Math.ceil(count / size);
+  const requests = whole(given) > 0 ? whole(given) : Math.ceil(count / size);
 
   const measured = perRequest(lastRun);
   const perItem = positive(calibration?.tokensPerPair);
