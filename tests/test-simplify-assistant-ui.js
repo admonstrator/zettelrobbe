@@ -1076,7 +1076,7 @@ test('A row says what the tag becomes, with the target in bold', () => {
   );
   assert.ok(
     split.includes(
-      'Stromrechnung → <span class="zr-checklist__name">Rechnung</span> + Strom<span class="zr-checklist__meta">38 documents</span>'
+      'Stromrechnung<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Rechnung</span> + Strom<span class="zr-checklist__meta">38 documents</span>'
     ),
     'from, the type in bold, the topics, the documents'
   );
@@ -1090,7 +1090,7 @@ test('A row says what the tag becomes, with the target in bold', () => {
   const merge = htmlChecklistRow(FIXTURE[2], 'merge', true);
   assert.ok(
     merge.includes(
-      'rechnungen → <span class="zr-checklist__name">Rechnung</span><span class="zr-checklist__meta">37 documents</span>'
+      'rechnungen<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Rechnung</span><span class="zr-checklist__meta">37 documents</span>'
     )
   );
   assert.ok(
@@ -1151,7 +1151,7 @@ test('A tag edited in the stack keeps its edit in the row', () => {
   const row = htmlChecklistRow(edited, 'unsure', true);
   assert.ok(
     row.includes(
-      'Nebenkosten → <span class="zr-checklist__name">Rechnung</span> + Wohnung + Strom'
+      'Nebenkosten<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Rechnung</span> + Wohnung + Strom'
     )
   );
   assert.ok(row.includes(' checked>'), 'accepted in the stack is ticked');
@@ -1167,7 +1167,7 @@ test('A tag edited in the stack keeps its edit in the row', () => {
   );
   assert.ok(
     topicsOnly.includes(
-      'Stromrechnung → <span class="zr-checklist__name">Strom + Haus</span>'
+      'Stromrechnung<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Strom + Haus</span>'
     )
   );
   assert.ok(topicsOnly.includes('class="zr-checklist__chip">edited<'));

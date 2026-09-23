@@ -2844,7 +2844,7 @@ function htmlRowWhat(proposal) {
   if (action === 'delete' || action === 'keep') return esc(name);
   if (action === 'merge') {
     const target = String(proposal.mergeInto == null ? '' : proposal.mergeInto);
-    return `${esc(`${name} → `)}<span class="zr-checklist__name">${esc(target)}</span>`;
+    return `${esc(name)}<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">${esc(target)}</span>`;
   }
   const typeName = proposal.typeName == null ? '' : String(proposal.typeName);
   const topics = (
@@ -2853,7 +2853,7 @@ function htmlRowWhat(proposal) {
   const lead = typeName !== '' ? typeName : topics.join(' + ');
   const rest = typeName !== '' && topics.length > 0 ? topics.join(' + ') : '';
   const htmlRest = rest === '' ? '' : esc(` + ${rest}`);
-  return `${esc(`${name} → `)}<span class="zr-checklist__name">${esc(lead)}</span>${htmlRest}`;
+  return `${esc(name)}<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">${esc(lead)}</span>${htmlRest}`;
 }
 
 /**
