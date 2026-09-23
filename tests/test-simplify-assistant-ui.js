@@ -100,8 +100,8 @@ test('The kit is one layered block and has every class this page places', () => 
   assert.strictEqual((KIT.match(/@layer [a-z]+ \{/g) || []).length, 1);
   assert.ok(KIT.includes('@layer components {'));
   [
-    '.zr-emptycard',
-    '.zr-emptycard__icon',
+    '.zr-start',
+    '.zr-start__icon',
     '.zr-resulthead',
     '.zr-resulthead__headline',
     '.zr-resulthead__cost',
@@ -608,18 +608,34 @@ test('Before a run the simple page is the line and one card with one button', ()
   assert.ok(
     inSimple.includes('Split compound tags into a document type and topics.')
   );
-  const card = elementAt(page, page.indexOf('<div class="zr-emptycard'));
-  assert.match(card, /class="zr-emptycard hidden" id="simEmptyCard"/);
+  const card = elementAt(page, page.indexOf('<section class="zr-start'));
+  assert.match(card, /class="zr-start sim-start hidden" id="simEmptyCard"/);
   assert.ok(
-    card.includes('class="zr-icon zr-emptycard__icon"') &&
-      card.includes('#i-split'),
-    'the card wears the split icon'
+    card.includes('<span class="zr-start__icon">') && card.includes('#i-split'),
+    'the start wears the split icon'
+  );
+  // The sentence of the page is the title of the start; the line above it
+  // is drawn only with a result.
+  assert.ok(
+    card.includes(
+      '<h2 class="zr-start__title">Split compound tags into a document type and topics.</h2>'
+    )
+  );
+  assert.ok(
+    card.includes(
+      'Every tag gets a proposal: split, merge, delete or keep. Nothing is written before Apply.'
+    )
   );
   assert.match(
     card,
-    /<button class="zr-btn zr-btn--primary" id="simStartBtn" type="button">Simplify tags<\/button>/
+    /<button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button">Simplify tags<\/button>/
   );
   assert.ok(!card.includes('No model configured'));
+  assert.ok(
+    functionBody('renderSimple').includes(
+      "el.sub.classList.toggle('hidden', !showResult)"
+    )
+  );
   // The result and the history wait for proposals; the script decides.
   assert.match(page, /class="zr-col zr-col--loose hidden" id="simResult"/);
   assert.match(page, /class="zr-historyline hidden" id="simHistoryLine"/);
@@ -635,7 +651,7 @@ test('Before a run the simple page is the line and one card with one button', ()
 test('Without a model the card says so in one fact and its button is dead', () => {
   const card = elementAt(
     pageNoModel,
-    pageNoModel.indexOf('<div class="zr-emptycard')
+    pageNoModel.indexOf('<section class="zr-start')
   );
   assert.ok(card.includes('>No model configured<'));
   assert.match(card, /id="simStartBtn" type="button" disabled>Simplify tags</);
@@ -1741,7 +1757,7 @@ test('The page places the kit rather than redefining it', () => {
   assert.strictEqual((PAGE_CSS.match(/@layer [a-z]+ \{/g) || []).length, 1);
   assert.ok(PAGE_CSS.includes('@layer pages {'));
   const redefined = [
-    '.zr-emptycard',
+    '.zr-start',
     '.zr-resulthead',
     '.zr-checklist',
     '.zr-checklist__row',
@@ -1802,11 +1818,6 @@ test('The page is held to the voice, and no file of it carries a dash', () => {
   });
 });
 
-Promise.all(pending).then(() => {
-  console.log(`\n${passed} passed, ${failed} failed`);
-  process.exit(failed > 0 ? 1 : 0);
-});
-
 test('Every action is a bordered button, never a text button or a bare link', () => {
   // A button with no border reads as a link, and a link is not a way to
   // cancel, undo or open anything on these pages. The kit's own modules
@@ -1831,4 +1842,9 @@ test('Every action is a bordered button, never a text button or a bare link', ()
     actionLinks.map((m) => m[1]),
     []
   );
+});
+
+Promise.all(pending).then(() => {
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed > 0 ? 1 : 0);
 });

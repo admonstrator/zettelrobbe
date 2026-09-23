@@ -264,6 +264,7 @@ const el = {
   page: document.getElementById('simPage'),
   topbarActions: document.getElementById('zrTopbarActions'),
   // Simple mode: the card before a run, the result after it.
+  sub: document.querySelector('.sim-sub'),
   emptyCard: document.getElementById('simEmptyCard'),
   startBtn: document.getElementById('simStartBtn'),
   againBtn: document.getElementById('simAgainBtn'),
@@ -3063,6 +3064,9 @@ function renderSimple() {
   const stacking = el.stack !== null && !el.stack.classList.contains('hidden');
   const showResult = live > 0 && !ordering && !stacking;
   if (el.result) el.result.classList.toggle('hidden', !showResult);
+  // The start carries the sentence of the page as its title, so the line
+  // above it is drawn only with a result.
+  if (el.sub) el.sub.classList.toggle('hidden', !showResult);
   if (el.emptyCard) {
     el.emptyCard.classList.toggle('hidden', showResult || ordering || stacking);
   }

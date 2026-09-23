@@ -92,15 +92,19 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                 <!-- Simple: the card before a run, then the result. The script
                      shows the one that fits once the proposals are read. -->
                 <div class="zr-col zr-col--loose" data-simple>
-                    <div class="zr-emptycard hidden" id="simEmptyCard">
-                        <svg class="zr-icon zr-emptycard__icon" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                    <!-- The start, before a run: the sentence of the page as its
+                         title, so the line above it is only drawn with a result. -->
+                    <section class="zr-start sim-start hidden" id="simEmptyCard">
+                        <span class="zr-start__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-split"/></svg></span>
+                        <h2 class="zr-start__title">Split compound tags into a document type and topics.</h2>
+                        <p class="zr-start__text">Every tag gets a proposal: split, merge, delete or keep. Nothing is written before Apply.</p>
 <% if (simAiEnabled) { -%>
-                        <button class="zr-btn zr-btn--primary" id="simStartBtn" type="button">Simplify tags</button>
+                        <button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button">Simplify tags</button>
 <% } else { -%>
-                        <p class="sim-emptycard__note">No model configured</p>
-                        <button class="zr-btn zr-btn--primary" id="simStartBtn" type="button" disabled>Simplify tags</button>
+                        <button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button" disabled>Simplify tags</button>
+                        <p class="zr-start__facts">No model configured</p>
 <% } -%>
-                    </div>
+                    </section>
 
                     <div class="zr-col zr-col--loose hidden" id="simResult">
                         <div class="sim-resultcard">

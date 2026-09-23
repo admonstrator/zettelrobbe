@@ -41,14 +41,7 @@
     color: var(--zr-text-muted);
   }
 
-  /* --- simple mode: the card, the result and the checklists ------------- */
-  /* The fact on the empty card when no model is configured. */
-  .sim-emptycard__note {
-    margin: 0;
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-faint);
-  }
-
+  /* --- simple mode: the start, the result and the checklists ------------ */
   /* The result head sits on a card of its own, as the checklists do. */
   .sim-resultcard {
     padding: var(--zr-6);
