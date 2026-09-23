@@ -11184,8 +11184,8 @@ router.get('/duplicates', protectApiRoute, async (req, res) => {
       version: configFile.PAPERLESS_AI_VERSION || ' ',
       sensitivity: entityNameMatcher.SENSITIVITY,
       defaultThreshold: entityNameMatcher.DEFAULT_THRESHOLD,
-      // Decides whether the page offers "Ask the AI" at all; the review itself
-      // is only ever started by the user.
+      // Decides whether the page asks the model at all; a review is only
+      // ever started by the user.
       aiReviewEnabled: entityMatchAiService.isEnabled(),
     });
   } catch (error) {

@@ -881,7 +881,7 @@
  *           type: string
  *           nullable: true
  *           enum: [high, low]
- *           description: how sure the model is; the AI proposal pre-ticks only same with high
+ *           description: how sure the model is; the page ticks a pair the model calls same only with high
  *         source:
  *           type: string
  *           nullable: true

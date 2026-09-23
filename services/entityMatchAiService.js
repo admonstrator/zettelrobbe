@@ -186,7 +186,7 @@
  *
  * A JSON array of `{ id, verdict, basis, confidence, reason }`, where `basis`
  * is the rule the model says it applied and `confidence` is how sure it is
- * (the page's AI proposal pre-ticks only "same" with "high"). An unknown
+ * (the page ticks a pair the model calls "same" only with "high"). An unknown
  * basis or confidence becomes null rather than an argument.
  * Everything else is treated as a
  * damaged answer rather than as an instruction: a code fence is stripped, the
@@ -483,7 +483,7 @@ const SETTLED_REASON_BASES = Object.freeze({
 
 /**
  * The rule the model says it applied. A closed list, because the page renders
- * it and the AI proposal decides on it; anything else becomes null.
+ * it and its checklists decide on it; anything else becomes null.
  */
 const VERDICT_BASES = Object.freeze([
   'case-or-spacing',
