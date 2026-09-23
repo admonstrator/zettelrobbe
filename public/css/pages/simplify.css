@@ -97,6 +97,11 @@
     padding: var(--zr-1) var(--zr-4) var(--zr-1) var(--zr-8);
   }
 
+  /* The arrow of a row is quiet, as on the Duplicates page and the board. */
+  .sim-list__arrow {
+    color: var(--zr-text-faint);
+  }
+
   /* A row without a box: the unchanged tags, and the line that counts them. */
   .sim-list__row--plain {
     cursor: default;

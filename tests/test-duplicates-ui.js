@@ -1437,7 +1437,7 @@ test('The stylesheet carries the toolbar and review classes', () => {
    that the model stays an addition: the requests are the ones the job route
    knows, and nothing of the paths without a model asks one. */
 
-test('Find duplicates opens the sheet, scans, and asks about everything', () => {
+test('Find duplicates scans, opens the sheet, and asks about everything', () => {
   const body = functionBody('findDuplicates');
   // Without the model the button is a scan and nothing else.
   assert.match(
@@ -1450,16 +1450,16 @@ test('Find duplicates opens the sheet, scans, and asks about everything', () => 
     /const options = simpleOptions\(\);/,
     'the simple page scans with its own defaults, not the scan row'
   );
-  // With it, the sheet comes before anything is sent.
+  // With it, the free scan comes first, on the meter, so the sheet opens
+  // with its numbers; the model is asked only after Start.
+  const scan = body.indexOf('await runScan(options, { meter: true });');
+  const stop = body.indexOf('if (!scanned) return;');
+  const sheet = body.indexOf('await confirmRun(options)');
+  const ask = body.indexOf('askForVerdicts(');
+  assert.ok(scan > -1, 'the one button must scan on the run meter');
   assert.ok(
-    body.indexOf('await confirmRun(options)') <
-      body.indexOf('await runScan(options);\n    //'),
-    'the sheet must be answered before the scan starts'
-  );
-  assert.match(
-    body,
-    /if \(!scanned\) return;/,
-    'a failed scan must stop the run rather than ask about nothing'
+    scan < stop && stop < sheet && sheet < ask,
+    'the order must be scan, a failed scan stops, the sheet, the model'
   );
   assert.match(
     body,

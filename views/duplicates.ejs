@@ -31,9 +31,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
             <div class="dup-page" data-review-page="duplicates" data-mode="simple"
                  data-default-threshold="<%= dupDefaultThreshold %>">
                 <div class="dup-lede" data-simple>
-                    <div class="zr-viewhead">
-                        <p class="zr-viewhead__sub">Merge tags and correspondents that mean the same thing.</p>
-                    </div>
+                    <p class="dup-sub">Merge tags and correspondents that mean the same thing.</p>
                 </div>
 
                 <!-- Advanced: what a scan looks at, and the two runs. -->
@@ -164,7 +162,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                 <!-- Simple: what a run found. The head, three checklists and
                      one line of history; hidden until a scan has answered. -->
                 <section class="dup-result hidden" id="dupResult" data-simple aria-label="Result">
-                    <div class="zr-module dup-result__card">
+                    <div class="dup-result__card">
                         <div class="zr-resulthead">
                             <div class="zr-resulthead__text">
                                 <p class="zr-resulthead__headline" id="dupResultHeadline"></p>

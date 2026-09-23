@@ -9,7 +9,7 @@
  *
  * The router runs for real on a throwaway database
  * (tests/helpers/mount-router). The service methods that talk to a model or
- * to Paperless-ngx are replaced per case — the services are singletons, so a
+ * to Paperless-ngx are replaced per case: the services are singletons, so a
  * test hands in its own function and puts the real one back afterwards. What
  * is checked here is the route, not what the service does with the call.
  *
@@ -211,7 +211,7 @@ async function main() {
         assert.strictEqual(anonymous.status, 302, `${url} -> /login`);
         assert.strictEqual(anonymous.headers.get('location'), '/login');
       }
-      // The page needs a session, an API key is not enough — the same guard
+      // The page needs a session, an API key is not enough, the same guard
       // /duplicates uses.
       const withApiKey = await call('GET', '/simplify');
       assert.strictEqual(withApiKey.status, 401);
@@ -1240,7 +1240,7 @@ async function main() {
       );
 
       // Until the backend of the round lands, the service's own 501 is the
-      // answer — with its status, not a 500.
+      // answer, with its status, not a 500.
       await withStubs(
         tagSimplifyService,
         {

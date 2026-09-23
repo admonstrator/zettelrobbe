@@ -1,5 +1,4 @@
 /**
-/**
  * Duplicates page: tags and correspondents that mean the same thing, and the
  * merges that fold them into one name in Paperless-ngx.
  *
@@ -427,8 +426,10 @@ let lastScanTotals = null;
 /**
  * The ticks of the simple checklists, by row key, and the lists that show
  * every row. A row that is not in `ticks` carries the tick of its list.
+ * `held` keeps the card up over a scan of the one button: while its sheet
+ * is open, and after Cancel, until the next scan or run.
  */
-const simple = { ticks: new Map(), open: new Set() };
+const simple = { ticks: new Map(), open: new Set(), held: false };
 /** The log entry the history line undoes, or null when there is none. */
 let historyEntry = null;
 
@@ -1230,19 +1231,24 @@ function initSensitivity() {
  * advanced mode, the defaults in the simple one.
  *
  * @param {{kind: string, threshold: number, includeDismissed: boolean}} [options]
+ * @param {{meter?: boolean}} [show]  `meter` puts the scan on the run meter,
+ *   for the one button of the simple page, which has no scan row to say so
  */
-async function runScan(options) {
+async function runScan(options, show) {
   if (scanning || aiReviewing) return;
   const asked = options || controlOptions();
+  const meter = Boolean(show && show.meter);
   // A new scan is a new question: every verdict of the last review goes with
-  // the cards it belonged to.
+  // the cards it belonged to, and the simple page shows what it finds.
   scanned = false;
+  simple.held = false;
   clearAiNotice();
   // The panel belongs to the review it reported on; a new scan is a new
   // question and starts without it.
   hideProgressPanel();
   setScanning(true);
   showSkeletons();
+  if (meter) showScanPhase();
   try {
     const params = new URLSearchParams({
       kind: asked.kind,
@@ -1274,8 +1280,27 @@ async function runScan(options) {
       el.aiNotice.innerHTML = htmlAlert('danger', 'Scan failed', error.message);
     }
   } finally {
+    if (meter) hideProgressPanel();
     setScanning(false);
   }
+}
+
+/**
+ * The run meter while the one button scans: the phase, a bar that slides,
+ * and no Stop, because a scan ends in seconds and asks nobody.
+ */
+function showScanPhase() {
+  if (!el.aiProgress) return;
+  showProgressPanel();
+  if (el.aiStopBtn) el.aiStopBtn.classList.add('hidden');
+  if (el.aiProgressMessage) {
+    el.aiProgressMessage.textContent = phaseHeadline({ phase: 'scanning' });
+  }
+  if (el.aiProgressFill) {
+    el.aiProgressFill.classList.add('dup-progress__fill--indeterminate');
+    el.aiProgressFill.style.width = '';
+  }
+  if (el.aiProgressBar) el.aiProgressBar.removeAttribute('aria-valuenow');
 }
 
 /* --- the model ------------------------------------------------------------ */
@@ -1700,6 +1725,8 @@ function applyReviewResult(data) {
   lastRunReview = data.aiReview || null;
   lastRunProgress = progressJob ? progressJob.progress || null : null;
   if (data.totals) lastScanTotals = data.totals;
+  // An answer is a result, whichever button asked for it.
+  simple.held = false;
   renderGroups(data.groups);
   renderUnused(data);
   refreshMappingLinks();
@@ -2879,10 +2906,12 @@ async function reviewThenMerge() {
 }
 
 /* --- the one button of the simple page ------------------------------------ */
-/* "Find duplicates" scans both kinds at the default sensitivity and has the
-   model judge every group and the band below it; the result is the head and
-   the checklists of the simple page. Without a model the button is a scan,
-   and the result is what the spelling rules settled. */
+/* "Find duplicates" scans both kinds at the default sensitivity, opens the
+   sheet with what the scan left for the model, and on Start has the model
+   judge every group and the band below it; the result is the head and the
+   checklists of the simple page. The scan comes first because it is free
+   and takes seconds, and without it the sheet has no numbers. Without a
+   model the button is a scan, and the result is what the spelling settled. */
 
 function setProposalBusy(active) {
   proposing = active;
@@ -2896,15 +2925,19 @@ async function findDuplicates() {
     await runScan(options);
     return;
   }
-  // The sheet first: what the run costs, and the levers that move it.
-  if (!(await confirmRun(options))) return;
   setProposalBusy(true);
   clearAiNotice();
   try {
-    await runScan(options);
+    await runScan(options, { meter: true });
     // A failed scan has already said so in the notice; there is nothing to
     // ask the model about.
     if (!scanned) return;
+    // The sheet, with the scan's numbers. The card stays behind it, and
+    // Cancel leaves the page on the card.
+    simple.held = true;
+    updateSimpleSurface();
+    if (!(await confirmRun(options))) return;
+    simple.held = false;
     setAiReviewing(true);
     let outcome;
     try {
@@ -4181,14 +4214,32 @@ function compareRows(a, b) {
  * The three checklists of the simple page. Pure: the groups that can still
  * be merged, the unused objects of the scan, and the sensitivity it ran at.
  *
+ * An unused object that is also in a group belongs to that group: listed
+ * under Unused as well it would be deleted after the merge already had, or
+ * deleted as the name the merge keeps. `grouped` is every group on the page,
+ * the merged ones included; without it, the listed ones.
+ *
  * @returns {{proposed: object[], unsure: object[], unused: object[]}}
  */
-function buildChecklists(states, unused, threshold) {
-  const rows = (states || []).map((state) => checklistRow(state, threshold));
+function buildChecklists(states, unused, threshold, grouped) {
+  const listed = states || [];
+  const inGroup = new Set();
+  (grouped || listed).forEach((state) => {
+    const kind = normalizeKind(state.group.kind);
+    (state.group.members || []).forEach((member) => {
+      inGroup.add(`${kind}:${num(member.id)}`);
+    });
+  });
+  const rows = listed.map((state) => checklistRow(state, threshold));
   return {
     proposed: rows.filter((row) => row.list === 'proposed').sort(compareRows),
     unsure: rows.filter((row) => row.list === 'unsure').sort(compareRows),
-    unused: (unused || []).map(unusedChecklistRow),
+    unused: (unused || [])
+      .filter(
+        (entry) =>
+          !inGroup.has(`${normalizeKind(entry.kind)}:${num(entry.record.id)}`)
+      )
+      .map(unusedChecklistRow),
   };
 }
 
@@ -4322,11 +4373,13 @@ function htmlChecklist(name, title, rows, options) {
 /** The checklists of the cards on the page, as they stand now. */
 function currentChecklists() {
   const states = [];
+  const all = [];
   eachGroupCard((card, state) => {
+    all.push(state);
     if (selectBlockReason(card, state) === '') states.push(state);
   });
   const threshold = scanOptions ? scanOptions.threshold : currentThreshold();
-  return buildChecklists(states, unusedEntries, threshold);
+  return buildChecklists(states, unusedEntries, threshold, all);
 }
 
 /** Which of the simple page's parts show: the card, or the result. */
@@ -4334,12 +4387,13 @@ function updateSimpleSurface() {
   const live = Boolean(
     el.aiProgress && el.aiProgress.classList.contains('dup-progress--live')
   );
-  const showResult = scanned && !proposing && !live;
+  const held = simple.held === true;
+  const showResult = scanned && !proposing && !live && !held;
   if (el.result) el.result.classList.toggle('hidden', !showResult);
   if (el.empty) {
     el.empty.classList.toggle(
       'hidden',
-      showResult || live || (scanned && proposing)
+      showResult || live || (scanned && proposing && !held)
     );
   }
   if (el.findBtn) {
@@ -5170,11 +5224,10 @@ const SWITCH_LEVERS = {
 async function confirmRun(options) {
   const draft = { ...levers };
   let estimate = await fetchRunEstimate(options);
+  // Both ways here come after a scan: the one button scans first, and the
+  // advanced page's button waits for one.
   const answer = confirmDialog({
-    title:
-      estimate.needsScan === true
-        ? 'Scan, then ask the model'
-        : 'Ask the model',
+    title: 'Ask the model',
     html: htmlSheet(sheetModel(estimate, draft)),
     confirmLabel: 'Start',
     cancelLabel: 'Cancel',

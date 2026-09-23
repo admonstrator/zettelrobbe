@@ -715,6 +715,39 @@ test('The page opens on one card with one button', () => {
   );
 });
 
+test('The one button scans first, on the meter, and the sheet opens on its numbers', () => {
+  const body = functionBody('findDuplicates');
+  const scan = body.indexOf('await runScan(options, { meter: true });');
+  const held = body.indexOf('simple.held = true;');
+  const sheet = body.indexOf('if (!(await confirmRun(options))) return;');
+  const released = body.indexOf('simple.held = false;');
+  const ask = body.indexOf('askForVerdicts({ includeCandidates: true }');
+  assert.ok(scan > -1, 'the scan does not come first');
+  assert.ok(
+    scan < held && held < sheet && sheet < released && released < ask,
+    'scan, then the sheet over the card, then Start lets the run show'
+  );
+  // The scan phase is the run meter's own: its phase line, no Stop.
+  const phase = functionBody('showScanPhase');
+  assert.ok(
+    phase.includes("phaseHeadline({ phase: 'scanning' })"),
+    'the meter does not name the scan'
+  );
+  assert.ok(
+    phase.includes("el.aiStopBtn.classList.add('hidden')"),
+    'a scan cannot be stopped, so the meter offers no Stop'
+  );
+  const runScan = functionBody('runScan');
+  assert.ok(
+    runScan.includes('if (meter) showScanPhase();') &&
+      runScan.includes('if (meter) hideProgressPanel();'),
+    'the scan phase is not shown and taken down around the scan'
+  );
+  // Any new scan, and any answer, lets the result show again.
+  assert.ok(runScan.includes('simple.held = false;'));
+  assert.ok(functionBody('applyReviewResult').includes('simple.held = false;'));
+});
+
 test('The card gives way to the run and the result, and comes back with neither', () => {
   const run = (flags) => {
     const el = {
@@ -732,6 +765,7 @@ test('The card gives way to the run and the result, and comes back with neither'
           scanning: false,
           aiReviewing: false,
           merging: false,
+          simple: { held: flags.held === true },
         },
         flags.state
       ),
@@ -756,6 +790,30 @@ test('The card gives way to the run and the result, and comes back with neither'
     result: false,
     empty: true,
     button: 'Scanning…',
+    disabled: true,
+  });
+  // The scan of the one button runs on the meter: the card steps aside.
+  assert.deepStrictEqual(
+    run({ live: true, state: { scanning: true, proposing: true } }),
+    { result: false, empty: false, button: 'Scanning…', disabled: true }
+  );
+  // The sheet after the scan: the card stays behind it, its button waiting.
+  assert.deepStrictEqual(
+    run({ held: true, state: { scanned: true, proposing: true } }),
+    { result: false, empty: true, button: 'Find duplicates', disabled: true }
+  );
+  // Cancel: the card again, ready, and the scan's result not shown.
+  assert.deepStrictEqual(run({ held: true, state: { scanned: true } }), {
+    result: false,
+    empty: true,
+    button: 'Find duplicates',
+    disabled: false,
+  });
+  // Start: between the scan and the job the page shows neither.
+  assert.deepStrictEqual(run({ state: { scanned: true, proposing: true } }), {
+    result: false,
+    empty: false,
+    button: 'Find duplicates',
     disabled: true,
   });
   // The model is asked: the meter is the page, the card steps aside.
@@ -933,10 +991,14 @@ test('Before a scan the sheet shows the last run, as measured, or nothing', () =
 
 test('The sheet opens before every run, and Start keeps what it chose', () => {
   const body = functionBody('confirmRun');
+  // Every way here comes after a scan, so the title never promises one.
   assert.ok(
-    body.includes("? 'Scan, then ask the model'") &&
-      body.includes(": 'Ask the model',"),
-    'the title does not say whether a scan comes first'
+    body.includes("title: 'Ask the model',"),
+    'the sheet is not titled "Ask the model"'
+  );
+  assert.ok(
+    !SCRIPT.includes('Scan, then ask the model'),
+    'the sheet still offers to scan first'
   );
   [
     "confirmLabel: 'Start',",
@@ -1170,6 +1232,30 @@ test('The three checklists are sorted from a scan, most documents first', () => 
     ],
     'unused: in the order of the scan, one deletion each'
   );
+  // An unused object a group on the list merges is that row's, not a second
+  // deletion: once as a source, once as the name the merge keeps.
+  const overlap = buildChecklists(
+    STATES,
+    UNUSED.concat([
+      { kind: 'tags', record: { id: 2, name: 'rechnungen' } },
+      { kind: 'correspondents', record: { id: 5, name: 'Müller GmbH' } },
+      { kind: 'correspondents', record: { id: 2, name: 'Not a tag' } },
+    ]),
+    0.85
+  );
+  assert.deepStrictEqual(
+    overlap.unused.map((row) => row.key),
+    ['u:tags:70', 'u:correspondents:71', 'u:correspondents:2'],
+    'a group member is not offered for deletion as well; the kind counts'
+  );
+  // A group merged already is off the lists, and its names stay off Unused.
+  const merged = buildChecklists(
+    STATES.filter((state) => state !== FIXTURE.plain),
+    [{ kind: 'tags', record: { id: 2, name: 'rechnungen' } }],
+    0.85,
+    STATES
+  );
+  assert.deepStrictEqual(merged.unused, [], 'a merged-away name is not left');
   const three = lists.proposed[2];
   assert.deepStrictEqual(three.sources, ['Buecherei', 'buecherei']);
   assert.strictEqual(three.key, 'g:tags:20-21-22');
