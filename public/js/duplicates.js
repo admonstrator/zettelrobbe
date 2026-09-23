@@ -775,7 +775,7 @@ function htmlGroupCard(state) {
     <p class="zr-sm zr-faint dup-group__consequence hidden"></p>
     <div class="zr-module__foot dup-group__foot">
       <button type="button" class="zr-btn zr-btn--primary dup-merge-btn"></button>
-      <button type="button" class="zr-btn zr-btn--ghost dup-dismiss-btn">Not a duplicate</button>
+      <button type="button" class="zr-btn dup-dismiss-btn">Not a duplicate</button>
     </div>
   </section>`;
 }
@@ -3954,7 +3954,7 @@ function htmlDismissalRows(list) {
       return `<div class="dup-hidden__row" data-dismissal-id="${num(item.id)}">
         <span class="zr-badge">${htmlIcons[kind]}${esc(KIND_LABELS[kind])}</span>
         <span class="zr-grow zr-truncate" title="${esc(pair)}">${esc(pair)}</span>
-        <button type="button" class="zr-btn zr-btn--ghost dup-restore-btn" data-id="${num(item.id)}">Show again</button>
+        <button type="button" class="zr-btn dup-restore-btn" data-id="${num(item.id)}">Show again</button>
       </div>`;
     })
     .join('');
@@ -4358,7 +4358,7 @@ function htmlChecklist(name, title, rows, options) {
     .join('');
   const htmlMore =
     hidden > 0
-      ? `<div class="zr-checklist__more"><button type="button" class="zr-btn zr-btn--ghost dup-checklist-more" data-list="${esc(name)}">${esc(`${count(hidden)} more`)}</button></div>`
+      ? `<div class="zr-checklist__more"><button type="button" class="zr-btn dup-checklist-more" data-list="${esc(name)}">${esc(`${count(hidden)} more`)}</button></div>`
       : '';
   const htmlAction = options.htmlAction || '';
   return `<section class="zr-checklist dup-checklist" data-list="${esc(name)}" aria-label="${esc(title)}">
@@ -4433,7 +4433,7 @@ function renderSimple() {
   renderResultCost();
   const htmlReview =
     lists.unsure.length > 0
-      ? '<button type="button" class="zr-btn zr-btn--ghost dup-review-one">Review one by one</button>'
+      ? '<button type="button" class="zr-btn dup-review-one">Review one by one</button>'
       : '';
   el.checklists.innerHTML = [
     htmlChecklist('proposed', 'Proposed', lists.proposed, {
@@ -4772,7 +4772,7 @@ function htmlDecisionCard(state) {
       <div class="zr-decision__actions">
         <button type="button" class="zr-btn zr-btn--primary dup-stack-merge">${htmlIcons.merge}<span>Merge</span></button>
         <button type="button" class="zr-btn dup-stack-keep">Keep both</button>
-        <button type="button" class="zr-btn zr-btn--ghost dup-stack-later">Later</button>
+        <button type="button" class="zr-btn dup-stack-later">Later</button>
         <span class="zr-decision__keys">Enter · Esc · L</span>
       </div>
     </div>`;
@@ -5507,7 +5507,7 @@ function htmlApplyRow(entry, state, detail) {
   const what = `${names} → ${targetName}`;
   const htmlRetry =
     state === 'failed'
-      ? `<button type="button" class="zr-btn zr-btn--ghost dup-apply-retry" data-group-id="${esc(entry.state.group.id)}">Retry</button>`
+      ? `<button type="button" class="zr-btn dup-apply-retry" data-group-id="${esc(entry.state.group.id)}">Retry</button>`
       : '';
   return `<div class="zr-reqlog__row${esc(rowClass)}" data-apply-id="${esc(entry.state.group.id)}">
       <span class="zr-reqlog__mark">${htmlStateMarks[state]}</span>

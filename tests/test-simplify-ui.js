@@ -1470,7 +1470,9 @@ test('A group card says what it is, how big it is and what can be done', () => {
     'the apply of a card is a verb and the number it writes'
   );
   assert.ok(
-    card.includes('<summary class="sim-group__summary">Show 1 tag</summary>')
+    card.includes(
+      '<summary class="sim-group__summary"><svg class="zr-icon zr-icon--sm sim-group__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>Show 1 tag</summary>'
+    )
   );
   assert.ok(!card.includes('<details class="sim-group__members" open>'));
   assert.ok(
@@ -1554,9 +1556,7 @@ test('A member row says what happens to the tag', () => {
   assert.ok(row.includes('>Stromrechnung<'));
   assert.ok(row.includes('>12<'));
   assert.ok(row.includes('<span class="zr-badge zr-badge--ok">rule</span>'));
-  assert.ok(
-    row.includes('class="zr-btn zr-btn--ghost zr-btn--icon sim-member-remove"')
-  );
+  assert.ok(row.includes('class="zr-btn zr-btn--icon sim-member-remove"'));
   assert.ok(row.includes('title="Take out of the group"'));
   assert.ok(row.includes('>Skip<'));
   assert.ok(

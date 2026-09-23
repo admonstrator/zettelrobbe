@@ -1752,7 +1752,7 @@ test('The run meter is rendered only where the model is offered', () => {
   );
   assert.match(
     offered,
-    /class="zr-btn zr-btn--ghost" id="dupAiStopBtn"/,
+    /class="zr-btn" id="dupAiStopBtn"/,
     'Stop is the quiet button of the row, one word and no second line'
   );
   assert.match(
@@ -3122,7 +3122,7 @@ test('The advanced page offers to clear the verdict memory', () => {
   const offered = renderOffered();
   assert.match(
     offered,
-    /class="zr-btn zr-btn--ghost" id="dupAiForgetBtn"/,
+    /class="zr-btn" id="dupAiForgetBtn"/,
     'clearing is a ghost button, never a third way to start a run'
   );
   assert.ok(

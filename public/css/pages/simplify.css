@@ -572,11 +572,25 @@
   /* The member list is closed until it is asked for: 200 rows are the detail,
      the decision is made on the head and the foot. */
   .sim-group__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
     padding: var(--zr-2) var(--zr-3);
     font-size: var(--zr-fs-sm);
     color: var(--zr-text-muted);
     cursor: pointer;
     list-style: none;
+  }
+
+  /* The fold reads as one: a chevron that turns when the members show. */
+  .sim-group__chevron {
+    flex-shrink: 0;
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .sim-group__members[open] .sim-group__chevron {
+    transform: rotate(90deg);
   }
 
   /* A closed card is head, one line and foot; the line only becomes a border

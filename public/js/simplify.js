@@ -981,7 +981,7 @@ function htmlProposalRow(proposal, types) {
     ? `<label class="sim-overwrite-row"><input type="checkbox" class="zr-check sim-overwrite" data-tag-id="${num(proposal.tagId)}"${htmlChecked}>${esc('overwrite type')}${htmlNote}</label>`
     : '';
   const htmlUndo = applied
-    ? `<a class="zr-link zr-sm" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`
+    ? `<a class="zr-btn" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`
     : '';
   const htmlError = proposal.error
     ? `<span class="sim-error">${esc(proposal.error)}</span>`
@@ -1216,11 +1216,11 @@ function htmlMemberRow(group, member) {
   const htmlRemove =
     String(group.kind || '') === 'keep' || status === 'applied'
       ? ''
-      : `<button type="button" class="zr-btn zr-btn--ghost zr-btn--icon sim-member-remove" data-tag-id="${num(member.tagId)}" title="Take out of the group" aria-label="Take ${esc(name)} out of the group">${htmlIconMarkup('i-x')}</button>`;
+      : `<button type="button" class="zr-btn zr-btn--icon sim-member-remove" data-tag-id="${num(member.tagId)}" title="Take out of the group" aria-label="Take ${esc(name)} out of the group">${htmlIconMarkup('i-x')}</button>`;
   const htmlSkip =
     status === 'applied'
       ? ''
-      : `<button type="button" class="zr-btn zr-btn--ghost zr-sm sim-member-skip" data-tag-id="${num(member.tagId)}" data-status="${esc(status)}">${esc(status === 'skipped' ? 'Reopen' : 'Skip')}</button>`;
+      : `<button type="button" class="zr-btn zr-sm sim-member-skip" data-tag-id="${num(member.tagId)}" data-status="${esc(status)}">${esc(status === 'skipped' ? 'Reopen' : 'Skip')}</button>`;
   return `<tr class="sim-member" data-tag-id="${num(member.tagId)}">
         <td data-label="Tag" class="zr-truncate" title="${esc(name)}">${esc(name)}</td>
         <td data-label="Documents" class="zr-mono">${esc(grouped(documents))}</td>
@@ -1261,7 +1261,7 @@ function htmlGroupCard(group, state) {
   const htmlMore =
     rest === 0
       ? ''
-      : `<div class="sim-group__morewrap"><button type="button" class="zr-btn zr-btn--ghost sim-group__more">${esc(`${rest} more`)}</button></div>`;
+      : `<div class="sim-group__morewrap"><button type="button" class="zr-btn sim-group__more">${esc(`${rest} more`)}</button></div>`;
   // A keep group decides nothing and applies nothing: its tags are the ones
   // the order leaves alone.
   const htmlAccept =
@@ -1275,8 +1275,8 @@ function htmlGroupCard(group, state) {
   const htmlReopen =
     decided === 0
       ? ''
-      : `<button type="button" class="zr-btn zr-btn--ghost sim-group-reopen">${esc('Reopen')}</button>`;
-  const htmlSkip = `<button type="button" class="zr-btn zr-btn--ghost sim-group-skip"${htmlDecideDisabled}>${esc('Skip')}</button>`;
+      : `<button type="button" class="zr-btn sim-group-reopen">${esc('Reopen')}</button>`;
+  const htmlSkip = `<button type="button" class="zr-btn sim-group-skip"${htmlDecideDisabled}>${esc('Skip')}</button>`;
   return `<section class="zr-module sim-group" data-group-key="${esc(group.key)}" data-kind="${esc(kind)}">
     <div class="zr-module__head sim-group__head">
       <span class="zr-badge ${esc(GROUP_KIND_TONES[kind] || '')}">${htmlIconMarkup(GROUP_KIND_ICONS[kind] || 'i-tag')}${esc(GROUP_KIND_LABELS[kind] || kind)}</span>
@@ -1285,7 +1285,7 @@ function htmlGroupCard(group, state) {
       <span class="zr-chips sim-group__status">${htmlGroupStatusBadges(group)}</span>
     </div>
     <details class="sim-group__members"${htmlOpen}>
-      <summary class="sim-group__summary">${esc(`Show ${members.length} ${plural(members.length, 'tag', 'tags')}`)}</summary>
+      <summary class="sim-group__summary"><svg class="zr-icon zr-icon--sm sim-group__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>${esc(`Show ${members.length} ${plural(members.length, 'tag', 'tags')}`)}</summary>
       <div class="zr-table-wrap">
         <table class="zr-table zr-table--stack sim-members">
           <thead>
@@ -2931,14 +2931,14 @@ function htmlSection(kind, rows, state) {
   const htmlHead = `<span class="zr-label">${esc(SECTION_TITLES[kind] || kind)} <span class="zr-checklist__count">${esc(`· ${grouped(count)}`)}</span></span>`;
   const htmlReview =
     kind === 'unsure'
-      ? `<button class="zr-btn zr-btn--ghost sim-stack-open" type="button">${esc('Review one by one')}</button>`
+      ? `<button class="zr-btn sim-stack-open" type="button">${esc('Review one by one')}</button>`
       : '';
 
   let htmlBody;
   if (kind === 'unchanged') {
     const shown = options.shown === true;
     const htmlExpanded = shown ? 'true' : 'false';
-    const htmlLine = `<div class="zr-checklist__row sim-list__row--plain sim-list__summary"><span class="zr-checklist__text">${esc(`${grouped(count)} ${plural(count, 'tag stays as it is', 'tags stay as they are')}`)}</span><button class="zr-btn zr-btn--ghost sim-unchanged-toggle" type="button" aria-expanded="${htmlExpanded}">${esc(shown ? 'Hide' : 'Show')}</button></div>`;
+    const htmlLine = `<div class="zr-checklist__row sim-list__row--plain sim-list__summary"><span class="zr-checklist__text">${esc(`${grouped(count)} ${plural(count, 'tag stays as it is', 'tags stay as they are')}`)}</span><button class="zr-btn sim-unchanged-toggle" type="button" aria-expanded="${htmlExpanded}">${esc(shown ? 'Hide' : 'Show')}</button></div>`;
     htmlBody = shown
       ? `${htmlLine}${htmlSectionRows(kind, list, options)}`
       : htmlLine;
@@ -2959,7 +2959,7 @@ function htmlSectionRows(kind, list, options) {
   const rest = list.length - shown.length;
   const htmlMore =
     rest > 0
-      ? `<div class="zr-checklist__more"><button class="zr-btn zr-btn--ghost sim-list-more" type="button" data-section="${esc(kind)}">${esc(`${grouped(rest)} more`)}</button></div>`
+      ? `<div class="zr-checklist__more"><button class="zr-btn sim-list-more" type="button" data-section="${esc(kind)}">${esc(`${grouped(rest)} more`)}</button></div>`
       : '';
   return `${htmlRows}${htmlMore}`;
 }
@@ -3047,7 +3047,7 @@ function shortDate(date, now) {
 function htmlHistoryLine(date, now) {
   const day = shortDate(date, now);
   if (day === '') return '';
-  return `<span>${esc(`History · last apply ${day}`)}</span><span aria-hidden="true">·</span><a class="zr-btn zr-btn--ghost" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`;
+  return `<span>${esc(`History · last apply ${day}`)}</span><span aria-hidden="true">·</span><a class="zr-btn" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`;
 }
 
 /** The simple mode from the proposals as they stand. */
@@ -3231,7 +3231,7 @@ function htmlStackBar(at, total, clear) {
   const sure = num(clear);
   const htmlAccept =
     sure > 0
-      ? `<button class="zr-btn zr-btn--ghost sim-stack-acceptclear" type="button">${esc(`Accept the ${grouped(sure)} clear ${plural(sure, 'one', 'ones')}`)}</button>`
+      ? `<button class="zr-btn sim-stack-acceptclear" type="button">${esc(`Accept the ${grouped(sure)} clear ${plural(sure, 'one', 'ones')}`)}</button>`
       : '';
   return `<div class="zr-runbar"><span class="zr-runbar__position">${esc(`Tag ${position} of ${size}`)}</span><div class="zr-runbar__track"><div class="zr-runbar__fill" style="width: ${num(percent)}%"></div></div><span class="zr-runbar__rest">${esc(`${left} left`)}</span>${htmlAccept}</div>`;
 }
@@ -3288,7 +3288,7 @@ function htmlDecision(proposal, types) {
       : action === 'delete'
         ? 'Delete'
         : 'Split';
-  const htmlActions = `<div class="zr-decision__actions"><button class="zr-btn zr-btn--primary sim-stack-accept" type="button" data-tag-id="${num(proposal.tagId)}">${esc(primary)}</button><button class="zr-btn sim-stack-keep" type="button" data-tag-id="${num(proposal.tagId)}">${esc('Keep')}</button><button class="zr-btn zr-btn--ghost sim-stack-later" type="button" data-tag-id="${num(proposal.tagId)}">${esc('Later')}</button><span class="zr-decision__keys">${esc('Enter · Esc · L')}</span></div>`;
+  const htmlActions = `<div class="zr-decision__actions"><button class="zr-btn zr-btn--primary sim-stack-accept" type="button" data-tag-id="${num(proposal.tagId)}">${esc(primary)}</button><button class="zr-btn sim-stack-keep" type="button" data-tag-id="${num(proposal.tagId)}">${esc('Keep')}</button><button class="zr-btn sim-stack-later" type="button" data-tag-id="${num(proposal.tagId)}">${esc('Later')}</button><span class="zr-decision__keys">${esc('Enter · Esc · L')}</span></div>`;
 
   return `<div class="zr-decision" data-tag-id="${num(proposal.tagId)}"><div class="zr-decision__head">${htmlBadges}</div><div class="zr-decision__sides">${htmlFrom}<div class="zr-decision__arrow">${htmlIconMarkup('i-arrow-right')}</div>${htmlTo}</div>${htmlNote}${htmlEvidence}${htmlConsequence(consequenceText(proposal), false)}${htmlActions}</div>`;
 }
@@ -3306,8 +3306,8 @@ function htmlStackFoot(decided, undo) {
   const htmlUndo =
     undo === null
       ? ''
-      : `<button class="zr-btn zr-btn--ghost sim-stack-undo" type="button">${esc(`Undo ${String(undo.tagName)}`)}</button>`;
-  return `<p class="zr-sm zr-faint sim-stack__tally">${esc(`${count} decided`)}</p>${htmlUndo}<button class="zr-btn zr-btn--ghost sim-stack-close" type="button">${esc('Back')}</button>`;
+      : `<button class="zr-btn sim-stack-undo" type="button">${esc(`Undo ${String(undo.tagName)}`)}</button>`;
+  return `<p class="zr-sm zr-faint sim-stack__tally">${esc(`${count} decided`)}</p>${htmlUndo}<button class="zr-btn sim-stack-close" type="button">${esc('Back')}</button>`;
 }
 
 /** The proposals the stack still has to ask about, in the queue's order. */
@@ -4022,7 +4022,7 @@ function htmlChecklist(rows) {
               ? 'failed'
               : 'waiting';
       const htmlRetry = warn
-        ? `<button class="zr-btn zr-btn--ghost sim-checklist-retry" type="button" data-tag-id="${num(row.tagId)}">${esc('Retry')}</button>`
+        ? `<button class="zr-btn sim-checklist-retry" type="button" data-tag-id="${num(row.tagId)}">${esc('Retry')}</button>`
         : '';
       return `<div class="zr-reqlog__row${htmlClass}">${htmlMark}<span class="zr-reqlog__what">${esc(what)}</span>${htmlRetry}<span class="zr-reqlog__state">${esc(when)}</span></div>`;
     })

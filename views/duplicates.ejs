@@ -101,7 +101,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                 <div class="dup-progress zr-runmeter hidden" id="dupAiProgress" role="status" aria-live="polite">
                     <div class="zr-runmeter__head">
                         <span class="zr-runmeter__phase" id="dupAiProgressMessage"></span>
-                        <button class="zr-btn zr-btn--ghost" id="dupAiStopBtn" type="button">
+                        <button class="zr-btn" id="dupAiStopBtn" type="button">
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
                             <span class="dup-progress__stop-label">Stop</span>
                         </button>
@@ -151,7 +151,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     <div class="dup-stack__card" id="dupStackCard"></div>
                     <div class="dup-stack__foot">
                         <span class="zr-sm zr-faint dup-stack__tally" id="dupStackTally"></span>
-                        <button class="zr-btn zr-btn--ghost" id="dupStackUndoBtn" type="button" disabled>
+                        <button class="zr-btn" id="dupStackUndoBtn" type="button" disabled>
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-undo"/></svg>
                             Undo
                         </button>
@@ -177,7 +177,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     <p class="zr-historyline hidden" id="dupHistoryLine">
                         <span id="dupHistoryText"></span>
                         <span aria-hidden="true">·</span>
-                        <button class="zr-btn zr-btn--ghost" id="dupHistoryUndoBtn" type="button">Undo</button>
+                        <button class="zr-btn" id="dupHistoryUndoBtn" type="button">Undo</button>
                     </p>
                 </section>
 
@@ -313,7 +313,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 </table>
                             </div>
                             <div class="dup-unused__actions">
-                                <button class="zr-btn zr-btn--ghost" id="dupUnusedSelectAllBtn" type="button">Select all</button>
+                                <button class="zr-btn" id="dupUnusedSelectAllBtn" type="button">Select all</button>
                                 <button class="zr-btn zr-btn--danger" id="dupUnusedDeleteBtn" type="button" disabled>
                                     <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
                                     Delete 0
@@ -386,7 +386,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                                 </table>
                             </div>
                             <div class="dup-mappings__actions">
-                                <button class="zr-btn zr-btn--ghost" id="dupMappingsClearBtn" type="button">
+                                <button class="zr-btn" id="dupMappingsClearBtn" type="button">
                                     <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
                                     Clear
                                 </button>
@@ -406,7 +406,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     <!-- Empties the model's memory of earlier verdicts; the
                          next run asks about every pair again. -->
                     <div class="dup-forget">
-                        <button class="zr-btn zr-btn--ghost" id="dupAiForgetBtn" type="button">Clear verdict memory</button>
+                        <button class="zr-btn" id="dupAiForgetBtn" type="button">Clear verdict memory</button>
                     </div>
 <% } -%>
                 </div>

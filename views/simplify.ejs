@@ -64,7 +64,7 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                 <div class="sim-progress zr-runmeter hidden" id="simProgress" role="status" aria-live="polite">
                     <div class="zr-runmeter__head">
                         <span class="zr-runmeter__phase" id="simProgressMessage"></span>
-                        <button class="zr-btn zr-btn--ghost" id="simStopBtn" type="button">
+                        <button class="zr-btn" id="simStopBtn" type="button">
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
                             <span class="sim-progress__stop-label">Stop</span>
                         </button>
@@ -113,7 +113,7 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
 <% if (simAiEnabled) { -%>
                                     <!-- The result stays while a proposal lives, so the
                                          next run needs a button of its own. -->
-                                    <button class="zr-btn zr-btn--ghost" id="simAgainBtn" type="button">Simplify tags</button>
+                                    <button class="zr-btn" id="simAgainBtn" type="button">Simplify tags</button>
 <% } -%>
                                     <button class="zr-btn zr-btn--primary" id="simApplyTickedBtn" type="button" disabled>Apply 0 · 0 writes</button>
                                 </div>
@@ -321,8 +321,8 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                             <div class="sim-apply">
                                 <span class="zr-sm sim-apply__status hidden" id="simApplyStatus" aria-live="polite"></span>
                                 <div class="sim-apply__actions">
-                                    <button class="zr-btn zr-btn--ghost" id="simSelectOpenBtn" type="button">Select all open</button>
-                                    <button class="zr-btn zr-btn--ghost" id="simClearSelectionBtn" type="button">Clear</button>
+                                    <button class="zr-btn" id="simSelectOpenBtn" type="button">Select all open</button>
+                                    <button class="zr-btn" id="simClearSelectionBtn" type="button">Clear</button>
                                     <button class="zr-btn" id="simSkipBtn" type="button" disabled>
                                         <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>
                                         Skip
@@ -366,7 +366,7 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                                                    aria-label="Add a document type">
                                             <div class="zr-picker__list hidden" id="simTypeList" role="listbox" aria-label="Document types in Paperless-ngx"></div>
                                         </div>
-                                        <button class="zr-btn zr-btn--ghost zr-btn--icon" id="simTypesReloadBtn" type="button" aria-label="Reload document types">
+                                        <button class="zr-btn zr-btn--icon" id="simTypesReloadBtn" type="button" aria-label="Reload document types">
                                             <svg class="zr-icon zr-icon--sm" id="simTypesReloadIcon" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
                                         </button>
                                     </div>

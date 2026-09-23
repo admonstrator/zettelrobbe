@@ -1030,7 +1030,7 @@ test('The cost line is the last run, or says that it is not recorded', () => {
   // of its own, before the one that writes.
   assert.match(
     page,
-    /<button class="zr-btn zr-btn--ghost" id="simAgainBtn" type="button">Simplify tags<\/button>[\s\S]*?id="simApplyTickedBtn"/
+    /<button class="zr-btn" id="simAgainBtn" type="button">Simplify tags<\/button>[\s\S]*?id="simApplyTickedBtn"/
   );
   assert.match(
     page,
@@ -1197,7 +1197,7 @@ test('A checklist shows eight rows, then the rest by number', () => {
   assert.strictEqual((capped.match(/zr-checklist__box/g) || []).length, 8);
   assert.ok(
     capped.includes(
-      '<div class="zr-checklist__more"><button class="zr-btn zr-btn--ghost sim-list-more" type="button" data-section="split">804 more</button></div>'
+      '<div class="zr-checklist__more"><button class="zr-btn sim-list-more" type="button" data-section="split">804 more</button></div>'
     )
   );
   const full = htmlSection('split', many, { full: true, overrides: new Map() });
@@ -1220,7 +1220,7 @@ test('Unsure carries the way into the stack, Unchanged is one line', () => {
   });
   assert.ok(
     unsure.includes(
-      '<span class="zr-label">Unsure <span class="zr-checklist__count">· 2</span></span><button class="zr-btn zr-btn--ghost sim-stack-open" type="button">Review one by one</button>'
+      '<span class="zr-label">Unsure <span class="zr-checklist__count">· 2</span></span><button class="zr-btn sim-stack-open" type="button">Review one by one</button>'
     )
   );
   const keep = Array.from({ length: 124 }, (unused, at) =>
@@ -1230,7 +1230,7 @@ test('Unsure carries the way into the stack, Unchanged is one line', () => {
   assert.ok(closed.includes('>124 tags stay as they are<'));
   assert.ok(
     closed.includes(
-      'class="zr-btn zr-btn--ghost sim-unchanged-toggle" type="button" aria-expanded="false">Show<'
+      'class="zr-btn sim-unchanged-toggle" type="button" aria-expanded="false">Show<'
     )
   );
   assert.ok(!closed.includes('type="checkbox"'));
@@ -1339,7 +1339,7 @@ test('The history line says when the last apply landed and leads to its undo', (
   assert.strictEqual(shortDate(new Date(2025, 11, 2), now), '2 Dec 2025');
   assert.strictEqual(
     htmlHistoryLine(here, now),
-    '<span>History · last apply 14 Sep</span><span aria-hidden="true">·</span><a class="zr-btn zr-btn--ghost" href="/duplicates#dupLog">Undo</a>',
+    '<span>History · last apply 14 Sep</span><span aria-hidden="true">·</span><a class="zr-btn" href="/duplicates#dupLog">Undo</a>',
     'the undo of an apply lives in the merge log, as it did before'
   );
   assert.strictEqual(htmlHistoryLine(null, now), '');
@@ -1592,7 +1592,7 @@ test('The running screen keeps its shape and loses its subject', () => {
   // Stop is one word with nothing under it.
   const stop = elementAt(
     page,
-    page.indexOf('<button class="zr-btn zr-btn--ghost" id="simStopBtn"')
+    page.indexOf('<button class="zr-btn" id="simStopBtn"')
   );
   assert.ok(stop.includes('>Stop</span>'));
   assert.ok(!stop.includes('zr-btn__sub') && !page.includes('simStopSub'));
@@ -1805,4 +1805,30 @@ test('The page is held to the voice, and no file of it carries a dash', () => {
 Promise.all(pending).then(() => {
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
+});
+
+test('Every action is a bordered button, never a text button or a bare link', () => {
+  // A button with no border reads as a link, and a link is not a way to
+  // cancel, undo or open anything on these pages. The kit's own modules
+  // are held to the same rule.
+  const modules = [
+    read('public', 'js', 'modules', 'review-sheet.js'),
+    read('public', 'js', 'modules', 'review-mode.js'),
+  ].join('\n');
+  for (const [name, text] of [
+    ['view', VIEW],
+    ['script', SCRIPT],
+    ['modules', modules],
+  ]) {
+    assert.ok(!text.includes('zr-btn--ghost'), `a text button in the ${name}`);
+  }
+  // A link opens a document in Paperless-ngx or the log of the other page;
+  // it never carries an action of this page.
+  const actionLinks = [
+    ...SCRIPT.matchAll(/<a class="zr-link[^>]*>\$\{esc\('([^']+)'\)\}<\/a>/g),
+  ];
+  assert.deepStrictEqual(
+    actionLinks.map((m) => m[1]),
+    []
+  );
 });

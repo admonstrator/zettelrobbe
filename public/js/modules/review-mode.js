@@ -68,7 +68,7 @@ export function htmlModeButton(mode) {
   const toAdvanced = mode !== 'advanced';
   const icon = toAdvanced ? 'i-sliders' : 'i-wand';
   const label = toAdvanced ? 'Advanced' : 'Simple';
-  return `<button class="zr-btn zr-btn--ghost zr-modebtn" type="button" data-mode-switch="${esc(toAdvanced ? 'advanced' : 'simple')}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#${esc(icon)}"/></svg>${esc(label)}</button>`;
+  return `<button class="zr-btn zr-modebtn" type="button" data-mode-switch="${esc(toAdvanced ? 'advanced' : 'simple')}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#${esc(icon)}"/></svg>${esc(label)}</button>`;
 }
 
 /**

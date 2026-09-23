@@ -2278,3 +2278,29 @@ console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) {
   process.exitCode = 1;
 }
+
+test('Every action is a bordered button, never a text button or a bare link', () => {
+  // A button with no border reads as a link, and a link is not a way to
+  // cancel, undo or open anything on these pages. The kit's own modules
+  // are held to the same rule.
+  const modules = [
+    read('public', 'js', 'modules', 'review-sheet.js'),
+    read('public', 'js', 'modules', 'review-mode.js'),
+  ].join('\n');
+  for (const [name, text] of [
+    ['view', page],
+    ['script', SCRIPT],
+    ['modules', modules],
+  ]) {
+    assert.ok(!text.includes('zr-btn--ghost'), `a text button in the ${name}`);
+  }
+  // A link opens a document in Paperless-ngx or the log of the other page;
+  // it never carries an action of this page.
+  const actionLinks = [
+    ...SCRIPT.matchAll(/<a class="zr-link[^>]*>\$\{esc\('([^']+)'\)\}<\/a>/g),
+  ];
+  assert.deepStrictEqual(
+    actionLinks.map((m) => m[1]),
+    []
+  );
+});

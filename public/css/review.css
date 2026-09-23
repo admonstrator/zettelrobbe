@@ -601,8 +601,9 @@
     color: var(--zr-brand);
   }
 
-  /* The mode. The button sits in the top bar; the page root carries
-     data-mode, and utilities.css hides what belongs to the other mode. */
+  /* The mode. The button sits in the top bar, bordered like every other
+     button; the page root carries data-mode, and utilities.css hides what
+     belongs to the other mode. */
   .zr-modebtn {
     font-weight: 600;
     color: var(--zr-brand);
@@ -751,15 +752,6 @@
   .zr-checklist__more {
     padding: var(--zr-2) 0;
     border-top: 1px solid var(--zr-line);
-  }
-
-  /* The text buttons of a result read in the brand colour, as the mode
-     button does: they are ways on, not tools. */
-  .zr-checklist__head .zr-btn--ghost,
-  .zr-checklist__more .zr-btn--ghost,
-  .zr-historyline .zr-btn--ghost {
-    font-weight: 600;
-    color: var(--zr-brand);
   }
 
   /* One line of history under a simple page, with the way back. */
