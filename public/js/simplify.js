@@ -3045,7 +3045,7 @@ function shortDate(date, now) {
 function htmlHistoryLine(date, now) {
   const day = shortDate(date, now);
   if (day === '') return '';
-  return `<span>${esc(`History · last apply ${day}`)}</span><a class="zr-btn zr-btn--ghost" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`;
+  return `<span>${esc(`History · last apply ${day}`)}</span><span aria-hidden="true">·</span><a class="zr-btn zr-btn--ghost" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`;
 }
 
 /** The simple mode from the proposals as they stand. */

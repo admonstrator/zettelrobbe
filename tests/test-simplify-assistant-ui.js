@@ -1333,7 +1333,7 @@ test('The history line says when the last apply landed and leads to its undo', (
   assert.strictEqual(shortDate(new Date(2025, 11, 2), now), '2 Dec 2025');
   assert.strictEqual(
     htmlHistoryLine(here, now),
-    '<span>History · last apply 14 Sep</span><a class="zr-btn zr-btn--ghost" href="/duplicates#dupLog">Undo</a>',
+    '<span>History · last apply 14 Sep</span><span aria-hidden="true">·</span><a class="zr-btn zr-btn--ghost" href="/duplicates#dupLog">Undo</a>',
     'the undo of an apply lives in the merge log, as it did before'
   );
   assert.strictEqual(htmlHistoryLine(null, now), '');

@@ -22,9 +22,17 @@
     gap: var(--zr-3);
   }
 
-  /* The sub line spaces itself through the column, not its own margin. */
-  .dup-lede .zr-viewhead {
-    margin-bottom: 0;
+  /* The one line under the title in simple mode, as Simplify tags has it.
+     The column's gap is the advanced page's; the line keeps a little more
+     air below it, as the board does. */
+  .dup-lede {
+    margin-bottom: var(--zr-1);
+  }
+
+  .dup-sub {
+    margin: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
   }
 
   /* An empty notice would still be a flex item, and a gap on each side. */
@@ -296,6 +304,9 @@
      The section is a mode's own part, so it is spaced by margins. */
   .dup-result__card {
     padding: var(--zr-6);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
   }
 
   .dup-result__lists {
@@ -316,10 +327,15 @@
   }
 
   .dup-checklist__rows {
-    padding: 0 var(--zr-4);
     border: 1px solid var(--zr-line);
     border-radius: var(--zr-r-lg);
     background: var(--zr-surface);
+    overflow: hidden;
+  }
+
+  /* A row's rule runs from edge to edge of the card, as on Simplify tags. */
+  .dup-checklist__rows .zr-checklist__row {
+    padding: 0 var(--zr-4);
   }
 
   /* The card draws the top edge; the first row needs no line of its own. */
@@ -329,7 +345,7 @@
 
   /* "24 more" starts where the names start, past the tick. */
   .dup-checklist__rows .zr-checklist__more {
-    padding-left: 22px;
+    padding: var(--zr-1) var(--zr-4) var(--zr-1) var(--zr-8);
   }
 
   .dup-checklist__arrow {

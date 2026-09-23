@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Review surfaces — the pieces both Duplicates and Simplify tags are built
+   Review surfaces: the pieces both Duplicates and Simplify tags are built
    from once they stopped being tables.
 
    Four ideas, and every class here serves one of them:
@@ -7,7 +7,7 @@
    1. A number that costs something is never bare. `.zr-ledger` puts requests,
       tokens, seconds and writes in one row with what each one is, and
       `.zr-tokenbar` splits a token count into the question, the answer and
-      the model thinking to itself — the three parts the provider reports
+      the model thinking to itself, the three parts the provider reports
       separately and the only honest answer to "where did those go?".
    2. A result is read, not scanned. `.zr-resulthead` is the headline of
       numbers with the one button, and `.zr-checklist` is what will happen,
@@ -346,7 +346,7 @@
   /* A run while it runs.
 
      It used to be six lines of text that said the same things in different
-     words — a message, a monospace counts line, a note about the batch size,
+     words: a message, a monospace counts line, a note about the batch size,
      an eta, and a five-item ledger that included the run's whole budget
      labelled "this request". What someone waiting actually reads is: what is
      it doing, how far is it, how much longer. So the panel is a headline with
@@ -374,7 +374,7 @@
   }
 
   /* The ceiling that would end the run. Shown only once it is close enough to
-     matter — a budget nobody is near is a number nobody needs. */
+     matter; a budget nobody is near is a number nobody needs. */
   .zr-runmeter__ceiling {
     margin: 0;
     font-size: var(--zr-fs-sm);
