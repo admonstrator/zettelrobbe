@@ -37,7 +37,11 @@ import {
   formatTokens,
   roughTime,
 } from '/js/modules/review-sheet.js';
-import { mountModeSwitch } from '/js/modules/review-mode.js';
+import {
+  applyMode,
+  htmlModeButton,
+  mountModeSwitch,
+} from '/js/modules/review-mode.js';
 
 /* --- interpolation helpers ------------------------------------------------ */
 
@@ -5616,6 +5620,16 @@ function initMode() {
     // advanced page was open shows when it comes back.
     onChange: () => renderSimple(),
   });
+  // A link from elsewhere to the log (the Undo of Simplify tags) lands on
+  // the advanced page for this visit, with the log open. The stored mode
+  // stays what it was.
+  if (window.location.hash === '#dupLog') {
+    applyMode(el.page, 'advanced');
+    const slot = document.getElementById('zrTopbarActions');
+    if (slot) slot.innerHTML = htmlModeButton('advanced');
+    const log = document.getElementById('dupLog');
+    if (log) log.open = true;
+  }
 }
 
 function init() {

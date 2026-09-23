@@ -83,9 +83,6 @@ test('Every component of the kit is shown once', () => {
     'zr-tokenbar__seg--prompt',
     'zr-tokenbar__seg--thinking',
     'zr-tokenbar--mini',
-    'zr-basket__mark--ok',
-    'zr-basket--ask',
-    'zr-basket__choices',
     'zr-decision__sides',
     'zr-decision__side--from',
     'zr-decision__note',
@@ -95,8 +92,6 @@ test('Every component of the kit is shown once', () => {
     'zr-runbar__fill',
     'zr-reqlog__row--live',
     'zr-reqlog__row--warn',
-    'zr-btn--stacked',
-    'zr-btn__sub',
     // What this page is built from since it has two modes.
     'zr-emptycard',
     'zr-resulthead',
@@ -610,14 +605,14 @@ test('Each half of the page is marked, and what both modes need is not', () => {
 });
 
 test('No page rule decides whether a marked element shows', () => {
-  // The kit hides the other mode from the components layer. A later layer
-  // wins regardless of specificity, so a display set by this stylesheet on a
-  // marked element would show it in both modes.
-  const review = read('public', 'css', 'review.css');
+  // The rule that hides the other mode sits in the utilities layer next to
+  // .hidden, so no module or page display can outrank it; this stylesheet
+  // still must not set a display on a marked element, or the intent is lost.
+  const utilities = read('public', 'css', 'utilities.css');
   assert.ok(
-    review.includes("[data-mode='simple'] [data-advanced],") &&
-      review.includes("[data-mode='advanced'] [data-simple] {"),
-    'the marks mean nothing without the rule of the kit'
+    utilities.includes("[data-mode='simple'] [data-advanced],") &&
+      utilities.includes("[data-mode='advanced'] [data-simple] {"),
+    'the marks mean nothing without the rule of the utilities layer'
   );
   const marked = [
     ...page.matchAll(/<[a-z]+[^>]*\sdata-(?:simple|advanced)[^>]*>/g),

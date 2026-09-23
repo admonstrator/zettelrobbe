@@ -9,10 +9,9 @@
       `.zr-tokenbar` splits a token count into the question, the answer and
       the model thinking to itself — the three parts the provider reports
       separately and the only honest answer to "where did those go?".
-   2. A result is read, not scanned. `.zr-basket` is one bucket of a proposal:
-      a heading that says how sure the model is, and lines that are sentences.
-      The ask variant carries the amber edge, because a bucket that needs an
-      answer has to look different from one that does not.
+   2. A result is read, not scanned. `.zr-resulthead` is the headline of
+      numbers with the one button, and `.zr-checklist` is what will happen,
+      row by row, ticked where the model was sure and dim where it was not.
    3. A decision is one thing at a time. `.zr-decision` is the card of the
       stack: two sides, an arrow, the evidence under each name, the model's
       sentence, three buttons and the keys that do the same.
@@ -119,110 +118,6 @@
 
   .zr-tokenbar__dot--thinking {
     background: var(--zr-cat-3);
-  }
-
-  /* One bucket of a proposal. */
-  .zr-basket {
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface);
-    overflow: hidden;
-  }
-
-  .zr-basket--ask {
-    border-color: var(--zr-warn);
-  }
-
-  .zr-basket--quiet {
-    background: var(--zr-surface-2);
-  }
-
-  .zr-basket__head {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-3);
-    padding: var(--zr-4) var(--zr-5);
-  }
-
-  .zr-basket__mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    border-radius: var(--zr-r-full);
-    background: var(--zr-brand-soft);
-    color: var(--zr-brand-text);
-  }
-
-  .zr-basket__mark--ok {
-    background: var(--zr-ok-soft);
-    color: var(--zr-ok);
-  }
-
-  .zr-basket__mark--ask {
-    background: var(--zr-warn-soft);
-    color: var(--zr-warn);
-  }
-
-  .zr-basket__titles {
-    flex-grow: 1;
-    min-width: 0;
-  }
-
-  .zr-basket__title {
-    /* Both of these are spans inside one cell, so without this the note runs
-       straight into the title and its margin does nothing. */
-    display: block;
-    font-size: var(--zr-fs-lg);
-    font-weight: 600;
-    color: var(--zr-text);
-  }
-
-  .zr-basket__note {
-    display: block;
-    margin-top: 2px;
-    font-size: var(--zr-fs-base);
-    color: var(--zr-text-muted);
-  }
-
-  .zr-basket__body {
-    padding: 0 var(--zr-5) var(--zr-2) 60px;
-  }
-
-  /* One proposal, written as a sentence. The button at its end drops it from
-     the plan; it is never the way a proposal is opened. */
-  .zr-basket__line {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-3);
-    padding: var(--zr-3) 0;
-    border-top: 1px solid var(--zr-surface-sunken);
-  }
-
-  .zr-basket__sentence {
-    flex-grow: 1;
-    min-width: 0;
-    margin: 0;
-    font-size: var(--zr-fs-md);
-    line-height: 1.45;
-  }
-
-  .zr-basket__aside {
-    color: var(--zr-text-muted);
-  }
-
-  .zr-basket__question {
-    padding: var(--zr-3) 0;
-    border-top: 1px solid var(--zr-surface-sunken);
-  }
-
-  .zr-basket__choices {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--zr-2);
-    margin-top: var(--zr-2);
   }
 
   /* The card of the stack. */
@@ -486,165 +381,6 @@
     color: var(--zr-warn);
   }
 
-  /* The dialog every model-backed run opens first.
-
-     It used to be four labelled sections of prose and a button with a second
-     line of numbers on it. What a person wants to know before pressing Start
-     is how long this takes, what it costs and whether it breaks anything —
-     in that order and in that many words. So: one sentence, one big number
-     with the token split under it as the only graphic, one green line, and
-     everything adjustable folded away. The button says Start. */
-  .zr-preflight {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-5);
-  }
-
-  .zr-preflight__lede {
-    margin: 0;
-    font-size: var(--zr-fs-md);
-    line-height: 1.55;
-    color: var(--zr-text-muted);
-  }
-
-  .zr-preflight__hero {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--zr-2);
-    padding: var(--zr-5) var(--zr-4);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface-2);
-  }
-
-  .zr-preflight__time {
-    font-family: var(--zr-font-brand);
-    font-size: var(--zr-fs-2xl);
-    font-weight: 600;
-    line-height: 1.1;
-    color: var(--zr-text);
-  }
-
-  .zr-preflight__sub {
-    font-size: var(--zr-fs-base);
-    color: var(--zr-text-muted);
-  }
-
-  .zr-preflight .zr-tokenbar {
-    width: 100%;
-    margin-top: var(--zr-2);
-  }
-
-  .zr-preflight .zr-tokenbar__legend {
-    justify-content: center;
-  }
-
-  .zr-preflight__basis {
-    margin: 0;
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-faint);
-  }
-
-  /* The one sentence that takes the fear out, and it is allowed to be plain. */
-  .zr-preflight__safe {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--zr-2);
-    margin: 0;
-    padding: var(--zr-3) var(--zr-4);
-    border-radius: var(--zr-r-md);
-    background: var(--zr-ok-soft);
-    color: var(--zr-ok);
-    font-size: var(--zr-fs-md);
-    font-weight: 600;
-  }
-
-  .zr-preflight__warn {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--zr-2);
-    margin: 0;
-    padding: var(--zr-3) var(--zr-4);
-    border-radius: var(--zr-r-md);
-    background: var(--zr-warn-soft);
-    color: var(--zr-warn);
-    font-size: var(--zr-fs-base);
-    line-height: 1.5;
-  }
-
-  .zr-preflight__options {
-    border-top: 1px solid var(--zr-line);
-    padding-top: var(--zr-3);
-  }
-
-  .zr-preflight__summary {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-2);
-    cursor: pointer;
-    list-style: none;
-    font-size: var(--zr-fs-base);
-    color: var(--zr-text-muted);
-  }
-
-  .zr-preflight__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .zr-preflight__chevron {
-    transition: transform var(--zr-dur) var(--zr-ease);
-  }
-
-  .zr-preflight__options[open] .zr-preflight__chevron {
-    transform: rotate(90deg);
-  }
-
-  .zr-preflight__levers {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-    padding-top: var(--zr-4);
-  }
-
-  .zr-preflight__lever {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-3);
-    font-size: var(--zr-fs-base);
-    cursor: pointer;
-  }
-
-  .zr-preflight__lever > span:first-of-type {
-    flex-grow: 1;
-  }
-
-  .zr-preflight__lever .zr-select {
-    flex-shrink: 0;
-    width: auto;
-    min-width: 5rem;
-    margin-left: auto;
-  }
-
-  /* A button that carries its price on a second line. The base button is a
-     one-line flex row, so a stacked one lays its two lines out itself. */
-  .zr-btn--stacked {
-    display: inline-block;
-    height: auto;
-    min-height: 44px;
-    padding: var(--zr-2) var(--zr-4);
-    text-align: left;
-    line-height: 1.3;
-  }
-
-  .zr-btn__sub {
-    display: block;
-    margin-top: 1px;
-    font-size: var(--zr-fs-xs);
-    font-weight: 400;
-    opacity: 0.85;
-  }
-
   /* The sheet before a run.
 
      One line of facts, one big number with the time beside it, the bar that
@@ -865,15 +601,10 @@
   }
 
   /* The mode. The button sits in the top bar; the page root carries
-     data-mode, and what belongs to the other mode is not drawn. */
+     data-mode, and utilities.css hides what belongs to the other mode. */
   .zr-modebtn {
     font-weight: 600;
     color: var(--zr-brand);
-  }
-
-  [data-mode='simple'] [data-advanced],
-  [data-mode='advanced'] [data-simple] {
-    display: none;
   }
 
   /* The card a simple page opens on: an icon and the one button. */
@@ -1058,14 +789,6 @@
 
     .zr-decision__keys {
       display: none;
-    }
-
-    .zr-basket__body {
-      padding-left: var(--zr-5);
-    }
-
-    .zr-basket__line {
-      flex-wrap: wrap;
     }
 
     .zr-reqlog__row {

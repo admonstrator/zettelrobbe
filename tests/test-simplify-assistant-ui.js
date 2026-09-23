@@ -132,10 +132,12 @@ test('The kit is one layered block and has every class this page places', () => 
       `${selector} has no rule in the kit`
     );
   });
+  // The rule lives in the utilities layer next to .hidden, where no module
+  // or page display can outrank it.
   assert.match(
-    KIT,
-    /\[data-mode='simple'\] \[data-advanced\],\n\s+\[data-mode='advanced'\] \[data-simple\] \{\n\s+display: none;/,
-    "the kit hides the other mode by the root's data-mode"
+    read('public', 'css', 'utilities.css'),
+    /\[data-mode='simple'\] \[data-advanced\],\n\s+\[data-mode='advanced'\] \[data-simple\] \{\n\s+display: none !important;/,
+    "the utilities layer hides the other mode by the root's data-mode"
   );
 });
 

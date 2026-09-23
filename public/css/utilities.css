@@ -35,6 +35,13 @@
   .hidden {
     display: none !important;
   }
+  /* The two modes of a review page (js/modules/review-mode.js): what
+     belongs to the other mode is not drawn. Next to .hidden on purpose, so
+     no module or page rule that sets a display can outrank it. */
+  [data-mode='simple'] [data-advanced],
+  [data-mode='advanced'] [data-simple] {
+    display: none !important;
+  }
   .zr-sr {
     position: absolute;
     width: 1px;
