@@ -38,7 +38,10 @@ export function readMode(page) {
  */
 export function writeMode(page, mode) {
   try {
-    window.localStorage.setItem(KEY(page), MODES.includes(mode) ? mode : 'simple');
+    window.localStorage.setItem(
+      KEY(page),
+      MODES.includes(mode) ? mode : 'simple'
+    );
   } catch {
     // A browser that keeps nothing still gets the mode for this visit.
   }
