@@ -135,7 +135,9 @@ const RELEASES = [
     entries: [
       'New: Duplicates finds tags and correspondents that mean the same thing (case, umlauts, legal forms, plurals, word order, typos) and merges them in Paperless-ngx. Unused ones can be deleted there too. Every merge and every deletion is logged and can be undone',
       'New: Simplify tags gives every tag one action: split it into a document type and topics ("Stromrechnung" becomes the type "Rechnung" and the tag "Strom"), merge it into another tag, keep it or delete it. Rules decide first, the model decides the rest, and every change can be undone',
-      'New: Both pages open in a simple mode: one button, a sheet that shows what a run costs before it starts, and the result as checklists to tick. An advanced mode holds the full toolset',
+      'Changed: Duplicates and Simplify tags are one page again. The assistant sits at the top and says what happens now, why, and how the tools below are used once it is done; the tools are there from the first second, dimmed until a result exists, and the proposal lands in them as ticks. The two modes and the switch between them are gone',
+      'Changed: While a run goes, the page shows its steps, a sentence per step, what the model has answered so far (same, different, unsure) and one row per request that says what it read (pairs, names or tags)',
+      'Changed: A pair only the model proposed (the synonym sweep) is never ticked on its own: it needs a second sign. Its "same" is no longer remembered for later runs either',
       'New: The model judges pairs on evidence (document titles, neighbouring tags, short excerpts) and can look for synonyms and translations. A run streams its progress, can be stopped, keeps to a token budget and remembers its verdicts',
       'New: Document analysis reuses an existing tag or correspondent instead of creating another spelling of it (DUPLICATES_GUARD_NEW_NAMES)',
       'New: Settings sections for Duplicates and Simplify tags',
