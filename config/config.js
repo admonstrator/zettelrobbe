@@ -626,6 +626,13 @@ module.exports = {
   },
   openai: {
     apiKey: process.env.OPENAI_API_KEY,
+    serviceTier: ['auto', 'default', 'flex', 'priority'].includes(
+      String(process.env.OPENAI_SERVICE_TIER || '')
+        .trim()
+        .toLowerCase()
+    )
+      ? String(process.env.OPENAI_SERVICE_TIER).trim().toLowerCase()
+      : 'auto',
   },
   ollama: {
     apiUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',

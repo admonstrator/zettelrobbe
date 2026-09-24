@@ -74,8 +74,9 @@ class ManualService {
             }
             ],
             ...(model !== 'o3-mini' && { temperature: config.aiTemperatureAnalysis }),
+            service_tier: config.openai.serviceTier,
         });
-    
+
         let jsonContent = extractChatMessageContent(response?.choices?.[0]?.message, 'ManualService/OpenAI');
         if (!jsonContent) {
             throw new Error('Invalid API response structure');

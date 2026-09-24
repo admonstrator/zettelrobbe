@@ -3838,6 +3838,7 @@ const ENV_EXPORT_GROUPS = [
       'AI_PROVIDER',
       'OPENAI_API_KEY',
       'OPENAI_MODEL',
+      'OPENAI_SERVICE_TIER',
       'OLLAMA_API_URL',
       'OLLAMA_API_KEY',
       'OLLAMA_MODEL',
@@ -4002,6 +4003,7 @@ function toEnvPreviewLines(config) {
     'AI_PROVIDER',
     'OPENAI_API_KEY',
     'OPENAI_MODEL',
+    'OPENAI_SERVICE_TIER',
     'OLLAMA_API_URL',
     'OLLAMA_API_KEY',
     'OLLAMA_MODEL',
@@ -6923,6 +6925,7 @@ router.get('/settings', async (req, res) => {
     AI_PROVIDER: process.env.AI_PROVIDER || 'openai',
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
     OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    OPENAI_SERVICE_TIER: process.env.OPENAI_SERVICE_TIER || 'auto',
     OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
     OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
     OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
@@ -8348,6 +8351,11 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: OpenAI model to use for analysis
  *                 example: "gpt-4"
+ *               openaiServiceTier:
+ *                 type: string
+ *                 description: OpenAI service_tier to request for chat completions
+ *                 enum: ["auto", "default", "flex", "priority"]
+ *                 example: "flex"
  *               ollamaUrl:
  *                 type: string
  *                 description: URL for Ollama API (required when aiProvider is 'ollama')
@@ -8635,6 +8643,7 @@ router.post('/settings', express.json(), async (req, res) => {
       aiProvider,
       openaiKey,
       openaiModel,
+      openaiServiceTier,
       ollamaUrl,
       ollamaApiKey,
       ollamaModel,
@@ -8725,6 +8734,7 @@ router.post('/settings', express.json(), async (req, res) => {
       AI_PROVIDER: process.env.AI_PROVIDER || '',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
       OPENAI_MODEL: process.env.OPENAI_MODEL || '',
+      OPENAI_SERVICE_TIER: process.env.OPENAI_SERVICE_TIER || 'auto',
       OLLAMA_API_URL: process.env.OLLAMA_API_URL || '',
       OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
       OLLAMA_MODEL: process.env.OLLAMA_MODEL || '',
@@ -9032,6 +9042,22 @@ router.post('/settings', express.json(), async (req, res) => {
           updatedConfig.OPENAI_API_KEY = effectiveOpenAiKey;
         }
         if (openaiModel) updatedConfig.OPENAI_MODEL = openaiModel;
+        if (openaiServiceTier !== undefined) {
+          const normalizedServiceTier = String(openaiServiceTier)
+            .trim()
+            .toLowerCase();
+          if (
+            !['auto', 'default', 'flex', 'priority'].includes(
+              normalizedServiceTier
+            )
+          ) {
+            return res.status(400).json({
+              error:
+                'Invalid OpenAI Service Tier. Allowed values are auto, default, flex and priority.',
+            });
+          }
+          updatedConfig.OPENAI_SERVICE_TIER = normalizedServiceTier;
+        }
       } else if (selectedAiProvider === 'ollama') {
         const effectiveOllamaUrl = ollamaUrl || currentConfig.OLLAMA_API_URL;
         const effectiveOllamaModel = ollamaModel || currentConfig.OLLAMA_MODEL;

@@ -5747,6 +5747,17 @@
                     "description": "OpenAI model to use for analysis",
                     "example": "gpt-4"
                   },
+                  "openaiServiceTier": {
+                    "type": "string",
+                    "description": "OpenAI service_tier to request for chat completions",
+                    "enum": [
+                      "auto",
+                      "default",
+                      "flex",
+                      "priority"
+                    ],
+                    "example": "flex"
+                  },
                   "ollamaUrl": {
                     "type": "string",
                     "description": "URL for Ollama API (required when aiProvider is 'ollama')",

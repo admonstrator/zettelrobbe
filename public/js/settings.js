@@ -2776,6 +2776,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#aiProvider', envKey: 'AI_PROVIDER' },
     { selector: '#openaiKey', envKey: 'OPENAI_API_KEY' },
     { selector: '#openaiModel', envKey: 'OPENAI_MODEL' },
+    { selector: '#openaiServiceTier', envKey: 'OPENAI_SERVICE_TIER' },
     { selector: '#ollamaUrl', envKey: 'OLLAMA_API_URL' },
     { selector: '#ollamaApiKey', envKey: 'OLLAMA_API_KEY' },
     { selector: '#ollamaModel', envKey: 'OLLAMA_MODEL' },

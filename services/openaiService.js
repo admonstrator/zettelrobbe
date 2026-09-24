@@ -288,6 +288,7 @@ class OpenAIService {
         ...(model !== 'o3-mini' && {
           temperature: config.aiTemperatureAnalysis,
         }),
+        service_tier: config.openai.serviceTier,
       });
 
       assertCompletionNotTruncated(
@@ -492,6 +493,7 @@ class OpenAIService {
         ...(model !== 'o3-mini' && {
           temperature: config.aiTemperatureAnalysis,
         }),
+        service_tier: config.openai.serviceTier,
       });
 
       // Handle response
@@ -633,6 +635,7 @@ class OpenAIService {
         temperature: hasNumber(options.temperature)
           ? options.temperature
           : config.aiTemperatureGeneration,
+        service_tier: config.openai.serviceTier,
       };
       // Without a cap the model answers with whatever the deployment allows,
       // which is what every caller before the AI review wanted.

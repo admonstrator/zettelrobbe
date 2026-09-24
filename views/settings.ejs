@@ -471,6 +471,16 @@ const quickstartKeyStored =
                                         </select>
                                         <p class="zr-field__hint">Restart required</p>
                                     </div>
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="openaiServiceTier" class="zr-field__name">OpenAI Service Tier</label>
+                                        <select id="openaiServiceTier" name="openaiServiceTier" class="zr-input">
+                                            <option value="auto" <%= config.OPENAI_SERVICE_TIER === 'auto' ? 'selected' : '' %>>Auto</option>
+                                            <option value="default" <%= config.OPENAI_SERVICE_TIER === 'default' ? 'selected' : '' %>>Default</option>
+                                            <option value="flex" <%= config.OPENAI_SERVICE_TIER === 'flex' ? 'selected' : '' %>>Flex</option>
+                                            <option value="priority" <%= config.OPENAI_SERVICE_TIER === 'priority' ? 'selected' : '' %>>Priority</option>
+                                        </select>
+                                        <p class="zr-field__hint">Restart required</p>
+                                    </div>
                                 </div>
 
                                 <div id="ollamaSettings" class="zr-col zr-col--loose hidden">
