@@ -1718,8 +1718,12 @@ async function runOrderJob(vocabularyMode) {
       concurrency: runLevers.lanes,
     });
     const { result, stopped } = await followJob(job);
+    const ended = progressJob;
     // A new order is a new list: what the model was sure of lands as ticks.
     await finishOrder(result || {}, stopped === true);
+    if (stopped === true && el.applyResult) {
+      el.applyResult.innerHTML = htmlStopNotice(ended);
+    }
     toast(stopped ? 'Stopped' : 'Order ready', {
       tone: stopped ? 'warn' : 'ok',
     });
@@ -1736,6 +1740,37 @@ async function runOrderJob(vocabularyMode) {
   } finally {
     setOrderBusy(false);
   }
+}
+
+/**
+ * What an order that ended early says in the assistant, as a stop does on
+ * the Duplicates page: how far it got, and how many tags the model was
+ * never asked about. They stay as they are, so the headline alone would
+ * not show them. Pure on purpose.
+ *
+ * @param {?object} job the job as it ended
+ * @returns {string} markup
+ */
+function htmlStopNotice(job) {
+  const state = (job && job.progress) || {};
+  const done = num(state.requestsDone);
+  const planned = num(state.requestsPlanned);
+  const tags = num(state.pairsTotal);
+  const missing = Math.max(0, tags - num(state.pairsJudged));
+  const requests = plural(planned > 0 ? planned : done, 'request', 'requests');
+  const tail =
+    tags > 0
+      ? ` · ${grouped(missing)} ${plural(missing, 'tag', 'tags')} not asked`
+      : '';
+  const of = planned > 0 ? ` of ${grouped(planned)}` : '';
+  const reason = job ? String(job.stopReason || '') : '';
+  let text = `Stopped after ${grouped(done)}${of} ${requests}${tail}`;
+  if (reason === 'token-budget') {
+    text = `Stopped at the ${formatTokens(state.tokenBudget)} limit after ${grouped(done)} ${plural(done, 'request', 'requests')}${tail}`;
+  } else if (reason === 'idle') {
+    text = `Stopped · no page was watching${tail}`;
+  }
+  return htmlAlert('warn', 'Stopped early', text);
 }
 
 /** The assistant's run: the sheet first, then the job with its levers. */
@@ -1947,8 +1982,9 @@ async function applyAllAccepted() {
     (proposal) => String(proposal.action || 'split') !== 'keep'
   );
   if (list.length === 0) return;
+  // The title is the button that was pressed, with its numbers.
   const confirmed = await confirmDialog({
-    title: `Apply ${grouped(list.length)} accepted`,
+    title: applyLabel({ tags: list.length, writes: planWrites(list).writes }),
     body: applySummaryText(list),
     confirmLabel: 'Apply',
     cancelLabel: 'Cancel',
@@ -2380,7 +2416,11 @@ async function reattachJob() {
       return;
     }
     if (task === JOB_TASKS.ORDER) {
+      const ended = progressJob;
       await finishOrder(result || {}, stopped === true);
+      if (stopped === true && el.applyResult) {
+        el.applyResult.innerHTML = htmlStopNotice(ended);
+      }
       return;
     }
     if (task === JOB_TASKS.APPLY) {
@@ -2616,14 +2656,13 @@ function splitShares(split) {
 function htmlTokenbar(split) {
   const part = splitShares(split);
   if (part.total <= 0) return '';
-  // A part that cost nothing is left out of the legend: "0 answer" next to a
-  // bar with no green in it is a reading exercise, not information.
+  // The legend names all three, a zero included, as the Duplicates page
+  // does: "0 thinking" says the model thought nothing, which is a fact.
   const htmlKeys = [
     { part: 'prompt', value: split.prompt, word: 'read' },
     { part: 'answer', value: split.answer, word: 'written' },
     { part: 'thinking', value: split.thinking, word: 'thinking' },
   ]
-    .filter((key) => num(key.value) > 0)
     .map(
       (key) =>
         `<span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--${esc(key.part)}"></span>${esc(`${formatTokens(key.value)} ${key.word}`)}</span>`
@@ -3908,9 +3947,23 @@ function reqlogCost(record) {
   const tokens = num(entry.tokens);
   const thinking = num(entry.thinkingTokens);
   if (tokens <= 0) return '0 tokens';
-  if (thinking <= 0) return `${formatTokens(tokens)} tokens`;
+  if (thinking <= 0) {
+    return `${formatTokens(tokens)} ${plural(tokens, 'token', 'tokens')}`;
+  }
   if (thinking >= tokens) return `${formatTokens(tokens)} · all thinking`;
   return `${formatTokens(tokens)} · ${formatTokens(thinking)} thinking`;
+}
+
+/**
+ * How long a request took, as the Duplicates page says it: "9 s" under a
+ * minute, "1:24" from one on. Pure on purpose.
+ *
+ * @param {number} ms
+ * @returns {string}
+ */
+function requestTime(ms) {
+  const seconds = num(ms) / 1000;
+  return seconds >= 60 ? formatElapsed(ms) : `${Math.round(seconds)} s`;
 }
 
 /** The last handful of requests, newest first. Pure on purpose. */
@@ -3923,7 +3976,7 @@ function htmlReqLog(list) {
       const warn = outcome === 'empty' || outcome === 'failed';
       const htmlClass = warn ? ' zr-reqlog__row--warn' : '';
       const htmlMark = `<span class="zr-reqlog__mark">${htmlIconMarkup(warn ? 'i-alert' : 'i-check')}</span>`;
-      return `<div class="zr-reqlog__row${htmlClass}">${htmlMark}<span class="zr-reqlog__what">${esc(reqlogText(record))}</span><span class="zr-reqlog__cost">${esc(reqlogCost(record))}</span><span class="zr-reqlog__state">${esc(formatElapsed(num(record.ms)))}</span></div>`;
+      return `<div class="zr-reqlog__row${htmlClass}">${htmlMark}<span class="zr-reqlog__what">${esc(reqlogText(record))}</span><span class="zr-reqlog__cost">${esc(reqlogCost(record))}</span><span class="zr-reqlog__state">${esc(requestTime(record.ms))}</span></div>`;
     })
     .join('');
   return `<div class="zr-reqlog">${htmlRows}</div>`;
