@@ -1,0 +1,868 @@
+/* ==========================================================================
+   Review surfaces: the pieces both Duplicates and Simplify tags are built
+   from once they stopped being tables.
+
+   Four ideas, and every class here serves one of them:
+
+   1. A number that costs something is never bare. `.zr-ledger` puts requests,
+      tokens, seconds and writes in one row with what each one is, and
+      `.zr-tokenbar` splits a token count into the question, the answer and
+      the model thinking to itself, the three parts the provider reports
+      separately and the only honest answer to "where did those go?".
+   2. A result is read, not scanned. `.zr-assist` is the zone at the top of
+      a page: what it does before a run, the run itself, and after it the
+      headline of numbers with how the tools below are used.
+   3. A decision is one thing at a time. `.zr-decision` is the card of the
+      stack: two sides, an arrow, the evidence under each name, the model's
+      sentence, three buttons and the keys that do the same.
+   4. Nothing is pressed blind. `.zr-consequence` is the line above a button
+      that says what it writes, and `.zr-runbar` plus `.zr-reqlog` are what a
+      run looks like while it costs money.
+
+   Everything is in layer components, so a page stylesheet still overrides it
+   without doubling a selector. Both pages use the same classes: a change here
+   lands on both, which is the point of the file.
+   ========================================================================== */
+
+@layer components {
+  /* The row of numbers. Values are the size of a stat tile's value but never
+     boxed: a ledger sits inside something that already has a border. */
+  .zr-ledger {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-2) var(--zr-6);
+  }
+
+  .zr-ledger__item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--zr-2);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-ledger__value {
+    font-size: var(--zr-fs-lg);
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  .zr-ledger__value--quiet {
+    color: var(--zr-text-muted);
+    font-weight: 400;
+  }
+
+  /* Prompt, answer and reasoning as one bar. The segments are widths in
+     percent, set inline by the page script: they are data, not theme. */
+  .zr-tokenbar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+  }
+
+  .zr-tokenbar__track {
+    display: flex;
+    height: 8px;
+    border-radius: var(--zr-r-full);
+    background: var(--zr-surface-sunken);
+    overflow: hidden;
+  }
+
+  .zr-tokenbar__seg {
+    height: 100%;
+    min-width: 0;
+    transition: width 350ms var(--zr-ease);
+  }
+
+  .zr-tokenbar__seg--prompt {
+    background: var(--zr-cat-2);
+  }
+
+  .zr-tokenbar__seg--answer {
+    background: var(--zr-cat-1);
+  }
+
+  .zr-tokenbar__seg--thinking {
+    background: var(--zr-cat-3);
+  }
+
+  .zr-tokenbar__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-1) var(--zr-4);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-tokenbar__key {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  .zr-tokenbar__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--zr-line-strong);
+  }
+
+  .zr-tokenbar__dot--prompt {
+    background: var(--zr-cat-2);
+  }
+
+  .zr-tokenbar__dot--answer {
+    background: var(--zr-cat-1);
+  }
+
+  .zr-tokenbar__dot--thinking {
+    background: var(--zr-cat-3);
+  }
+
+  /* The card of the stack. */
+  .zr-decision {
+    background: var(--zr-surface);
+    border: 1px solid var(--zr-line);
+    border-radius: 14px;
+    box-shadow: var(--zr-shadow-md);
+    padding: var(--zr-6) var(--zr-6);
+  }
+
+  .zr-decision__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+    margin-bottom: var(--zr-5);
+  }
+
+  .zr-decision__sides {
+    display: flex;
+    align-items: stretch;
+    gap: var(--zr-5);
+  }
+
+  .zr-decision__side {
+    flex: 1 1 0;
+    min-width: 0;
+    border: 1px solid var(--zr-line-strong);
+    border-radius: var(--zr-r-lg);
+    padding: var(--zr-4);
+  }
+
+  .zr-decision__side--from {
+    border-style: dashed;
+    background: var(--zr-surface-2);
+  }
+
+  .zr-decision__label {
+    font-size: var(--zr-fs-xs);
+    letter-spacing: 0.06em;
+    color: var(--zr-text-faint);
+    margin-bottom: var(--zr-2);
+  }
+
+  .zr-decision__name {
+    font-family: var(--zr-font-brand);
+    font-size: var(--zr-fs-2xl);
+    font-weight: 600;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .zr-decision__name--from {
+    color: var(--zr-text-muted);
+  }
+
+  .zr-decision__meta {
+    margin-top: var(--zr-2);
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-decision__samples {
+    list-style: none;
+    margin: var(--zr-3) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+  }
+
+  .zr-decision__samples li {
+    padding-left: var(--zr-3);
+    border-left: 2px solid var(--zr-line);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-decision__arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 44px;
+    color: var(--zr-brand);
+  }
+
+  /* What the model said, in its own words. */
+  .zr-decision__note {
+    margin: var(--zr-5) 0 0;
+    padding: var(--zr-3) var(--zr-4);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-brand-soft);
+    color: var(--zr-brand-text);
+    font-size: var(--zr-fs-md);
+    line-height: 1.5;
+  }
+
+  .zr-decision__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    margin-top: var(--zr-6);
+  }
+
+  .zr-decision__keys {
+    margin-left: auto;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  /* The line above a button that says what pressing it writes. */
+  .zr-consequence {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+    padding: var(--zr-3) var(--zr-4);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-sunken);
+    font-size: var(--zr-fs-base);
+    line-height: 1.5;
+    color: var(--zr-text-muted);
+  }
+
+  .zr-consequence--free {
+    background: var(--zr-ok-soft);
+    color: var(--zr-ok);
+  }
+
+  .zr-consequence__icon {
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* A run, while it costs something. */
+  .zr-runbar {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-4);
+  }
+
+  .zr-runbar__position {
+    font-size: var(--zr-fs-base);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .zr-runbar__track {
+    flex-grow: 1;
+    height: 6px;
+    border-radius: var(--zr-r-full);
+    background: var(--zr-surface-sunken);
+    overflow: hidden;
+  }
+
+  .zr-runbar__fill {
+    height: 100%;
+    border-radius: var(--zr-r-full);
+    background: var(--zr-brand);
+    transition: width var(--zr-dur) var(--zr-ease);
+  }
+
+  .zr-runbar__rest {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+    white-space: nowrap;
+  }
+
+  /* What each request cost, newest first. */
+  .zr-reqlog {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .zr-reqlog__row {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    padding: var(--zr-3) var(--zr-5);
+    border-top: 1px solid var(--zr-surface-sunken);
+    font-size: var(--zr-fs-md);
+  }
+
+  .zr-reqlog__row--live {
+    background: var(--zr-surface-2);
+  }
+
+  .zr-reqlog__row--warn {
+    background: var(--zr-warn-soft);
+    color: var(--zr-warn);
+  }
+
+  .zr-reqlog__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+  }
+
+  .zr-reqlog__what {
+    flex-grow: 1;
+    min-width: 0;
+  }
+
+  .zr-reqlog__cost {
+    flex-shrink: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-reqlog__state {
+    flex-shrink: 0;
+    width: 84px;
+    text-align: right;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-reqlog__row--warn .zr-reqlog__cost,
+  .zr-reqlog__row--warn .zr-reqlog__state {
+    color: var(--zr-warn);
+  }
+
+  /* A run while it runs.
+
+     It used to be six lines of text that said the same things in different
+     words: a message, a monospace counts line, a note about the batch size,
+     an eta, and a five-item ledger that included the run's whole budget
+     labelled "this request". What someone waiting actually reads is: what is
+     it doing, how far is it, how much longer. So the panel is a headline with
+     the Stop next to it, one bar, three numbers, the token split, and the
+     last requests. Everything else moved into the request log, where it
+     belongs to the request it describes. */
+  .zr-runmeter {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .zr-runmeter__head {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .zr-runmeter__phase {
+    flex-grow: 1;
+    min-width: 0;
+    font-size: var(--zr-fs-lg);
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  /* The ceiling that would end the run. Shown only once it is close enough to
+     matter; a budget nobody is near is a number nobody needs. */
+  .zr-runmeter__ceiling {
+    margin: 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-warn);
+  }
+
+  /* The sheet before a run.
+
+     One line of facts, one big number with the time beside it, the bar that
+     is the run's token limit with the estimate as its fill, the requests
+     side by side, the switches that move all of it, and one fact line. The
+     dialog around it is the kernel's (.zr-dialog--sheet); the markup comes
+     from js/modules/review-sheet.js, and both pages use it unchanged. */
+  .zr-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+  }
+
+  .zr-sheet__sub {
+    margin: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-sheet__numbers {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--zr-4);
+  }
+
+  .zr-sheet__big {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--zr-2);
+  }
+
+  .zr-sheet__big .zr-sheet__value {
+    font-size: 2.75rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text);
+  }
+
+  .zr-sheet__unit {
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text-muted);
+  }
+
+  .zr-sheet__time {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .zr-sheet__time .zr-sheet__value {
+    font-size: var(--zr-fs-xl);
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text);
+  }
+
+  .zr-sheet__timesub {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  /* The bar with the limit: the track is the ceiling, the fill the estimate,
+     and the label at the right end names the ceiling. */
+  .zr-tokenbar__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-3);
+  }
+
+  .zr-tokenbar__limit {
+    flex-shrink: 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+    white-space: nowrap;
+  }
+
+  .zr-tokenbar__limit:empty {
+    display: none;
+  }
+
+  /* The bar at its smallest: inline in a cost line, no legend. */
+  .zr-tokenbar--mini {
+    display: inline-flex;
+    width: 160px;
+    vertical-align: middle;
+  }
+
+  .zr-tokenbar--mini .zr-tokenbar__track {
+    height: 6px;
+  }
+
+  /* The requests side by side: one row per lane, one block per request. The
+     same work does not get cheaper next to itself, only shorter, which is
+     why this picture moves with the lanes and the bar above it does not. */
+  .zr-lanes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .zr-lanes__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-3);
+  }
+
+  .zr-lanes__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 6px;
+  }
+
+  .zr-lanes__row {
+    display: flex;
+    gap: 3px;
+    height: 6px;
+    transition: width 350ms var(--zr-ease);
+  }
+
+  .zr-lanes__block {
+    flex: 1;
+    min-width: 0;
+    border-radius: 3px;
+    background: var(--zr-brand);
+    opacity: 0.6;
+  }
+
+  /* The levers: each a row of its name, what it costs and the framework's
+     own switch (.zr-toggle from forms.css). Hairlines, not boxes: a sheet
+     reads as one surface. */
+  .zr-sheet__levers {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .zr-sheet__levers:empty {
+    display: none;
+  }
+
+  .zr-sheet__lever {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    min-height: 40px;
+    border-bottom: 1px solid var(--zr-line);
+    font-size: var(--zr-fs-base);
+    cursor: pointer;
+  }
+
+  .zr-sheet__leverlabel {
+    min-width: 0;
+    color: var(--zr-text);
+  }
+
+  /* The price sits right behind the name; the switch stays at the edge. */
+  .zr-sheet__leverprice {
+    flex-grow: 1;
+    flex-shrink: 0;
+    font-size: var(--zr-fs-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--zr-text-faint);
+  }
+
+  /* The one fact, and where the numbers come from, on one line. */
+  .zr-sheet__fact {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    margin: 0;
+    font-size: var(--zr-fs-base);
+    color: var(--zr-text);
+  }
+
+  .zr-sheet__check {
+    flex-shrink: 0;
+    color: var(--zr-ok);
+  }
+
+  .zr-sheet__basis {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .zr-sheet__basis::before {
+    content: '·';
+    margin-right: var(--zr-2);
+  }
+
+  /* The assistant: the zone at the top of a review page. Before a run it is
+     the start (icon, the sentence of the page as title, one line, the one
+     button, the last run under it); during a run the run meter takes its
+     place; after a run it is the headline of numbers, the cost, and the
+     lines that say how the tools under it are used. */
+  .zr-assist {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-5);
+    padding: var(--zr-5) var(--zr-6);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  .zr-assist__icon {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--zr-brand-soft);
+    color: var(--zr-brand-text);
+  }
+
+  .zr-assist__icon .zr-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .zr-assist__text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .zr-assist__title {
+    margin: 0;
+    font-size: var(--zr-fs-lg);
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .zr-assist__line {
+    margin: 2px 0 0;
+    font-size: var(--zr-fs-md);
+    line-height: 1.5;
+    color: var(--zr-text-muted);
+  }
+
+  .zr-assist__facts {
+    margin: 4px 0 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .zr-assist__headline {
+    margin: 0;
+    font-size: var(--zr-fs-xl);
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .zr-assist__cost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+    margin: 4px 0 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
+
+  /* How the tools below are used: short lines, read once. */
+  .zr-assist__next {
+    margin: var(--zr-3) 0 0;
+    padding-left: 1.1em;
+    font-size: var(--zr-fs-md);
+    line-height: 1.5;
+    color: var(--zr-text-muted);
+  }
+
+  .zr-assist__next li + li {
+    margin-top: 2px;
+  }
+
+  .zr-assist__actions {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+    justify-content: flex-end;
+  }
+
+  /* The steps of a run, above the run meter's headline: done ones ticked,
+     the current one numbered, the ones ahead empty. */
+  .zr-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 0;
+    margin: 0 0 var(--zr-3);
+    padding: 0;
+    list-style: none;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .zr-steps__step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 0;
+  }
+
+  .zr-steps__step + .zr-steps__step::before {
+    content: '';
+    width: 18px;
+    height: 1px;
+    margin-right: 10px;
+    background: var(--zr-line-strong);
+  }
+
+  .zr-steps__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--zr-line-strong);
+    border-radius: 50%;
+    font-size: 10px;
+  }
+
+  .zr-steps__step--done {
+    color: var(--zr-text-muted);
+  }
+
+  .zr-steps__step--done .zr-steps__mark {
+    border-color: var(--zr-brand);
+    background: var(--zr-brand);
+    color: var(--zr-on-brand);
+  }
+
+  .zr-steps__step--now {
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  .zr-steps__step--now .zr-steps__mark {
+    border-color: var(--zr-brand);
+    color: var(--zr-brand);
+    box-shadow: 0 0 0 3px var(--zr-brand-soft);
+  }
+
+  .zr-steps__sub {
+    font-weight: 400;
+    color: var(--zr-text-faint);
+  }
+
+  /* Inside the run meter, which spaces its parts with its own gap, the
+     strip and the sentence keep no margin of their own below. */
+  .zr-runmeter > .zr-steps,
+  .zr-runmeter > .zr-runmeter__sentence {
+    margin-bottom: 0;
+  }
+
+  /* Under the headline of a running assistant: what happens now, and why. */
+  .zr-runmeter__sentence {
+    max-width: 88ch;
+    margin: 2px 0 var(--zr-3);
+    font-size: var(--zr-fs-md);
+    line-height: 1.5;
+    color: var(--zr-text-muted);
+  }
+
+  /* The workspace under the assistant while no result exists: every tool is
+     drawn and dimmed, and one line says why. The assistant and the line
+     stay at full strength, and so does a tool marked data-awake (the log
+     with its Undo, a vocabulary to edit before a run); a wrapper marked
+     data-tools is looked through so its tools are dimmed one by one. */
+  .zr-workspace--waiting
+    > :not(
+      .zr-assist,
+      .zr-workspace__note,
+      [data-assist],
+      [data-tools],
+      [data-awake]
+    ),
+  .zr-workspace--waiting [data-tools] > :not([data-awake]) {
+    opacity: 0.42;
+    filter: saturate(0.4);
+    pointer-events: none;
+  }
+
+  .zr-workspace__note {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    margin: 0 0 var(--zr-3);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  /* One line under the head of a tool: what it is for. */
+  .zr-module__caption {
+    margin: 0 0 var(--zr-3);
+    font-size: var(--zr-fs-sm);
+    line-height: 1.5;
+    color: var(--zr-text-faint);
+  }
+
+  @media (max-width: 720px) {
+    /* The assistant stacks: the icon and the text, then the buttons across
+       the whole width, the one that writes at the bottom. */
+    .zr-assist {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--zr-3);
+      padding: var(--zr-4);
+    }
+
+    .zr-assist__icon {
+      width: 40px;
+      height: 40px;
+    }
+
+    .zr-assist > .zr-btn,
+    .zr-assist__actions {
+      width: 100%;
+    }
+
+    .zr-assist__actions {
+      flex-direction: column;
+    }
+
+    .zr-assist > .zr-btn,
+    .zr-assist__actions .zr-btn {
+      justify-content: center;
+    }
+
+    .zr-decision {
+      padding: var(--zr-4);
+    }
+
+    .zr-decision__sides {
+      flex-direction: column;
+      gap: var(--zr-3);
+    }
+
+    .zr-decision__arrow {
+      width: auto;
+      height: 24px;
+      transform: rotate(90deg);
+    }
+
+    .zr-decision__actions {
+      flex-wrap: wrap;
+    }
+
+    .zr-decision__actions .zr-btn {
+      flex: 1;
+    }
+
+    .zr-decision__keys {
+      display: none;
+    }
+
+    .zr-reqlog__row {
+      flex-wrap: wrap;
+      row-gap: var(--zr-1);
+    }
+
+    .zr-reqlog__what {
+      flex-basis: 100%;
+      order: -1;
+    }
+
+    .zr-runbar {
+      flex-wrap: wrap;
+    }
+
+    .zr-sheet__numbers {
+      flex-wrap: wrap;
+    }
+  }
+}

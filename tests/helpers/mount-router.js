@@ -165,6 +165,24 @@ function stubPaperless(paperlessService) {
   paperlessService.listCorrespondentsNames = async () => [];
   paperlessService.listTagNames = async () => [];
   paperlessService.getPublicBaseUrl = async () => 'http://paperless.test';
+  // Kind-neutral entity access behind the Duplicates page. These throw in the
+  // real service when Paperless-ngx is unreachable, so the harness answers
+  // "nothing there" instead — a test that wants data overrides them.
+  paperlessService.listEntities = async () => [];
+  paperlessService.getEntity = async () => null;
+  paperlessService.findEntityByExactName = async () => null;
+  paperlessService.createEntity = async () => null;
+  paperlessService.updateEntity = async () => null;
+  paperlessService.deleteEntity = async () => false;
+  paperlessService.getDocumentIdsByEntity = async () => [];
+  paperlessService.getDocumentsByIds = async () => [];
+  paperlessService.bulkEditDocuments = async () => ({ edited: 0 });
+  paperlessService.clearEntityCaches = () => {};
+  // Context for the AI review. Inert here: the real ones answer [] on every
+  // problem anyway, so a harness without documents says the same thing.
+  paperlessService.getRecentDocumentTitlesByEntity = async () => [];
+  paperlessService.getRecentDocumentExcerptsByEntity = async () => [];
+  paperlessService.getEntityNeighbourhood = async () => [];
 }
 
 module.exports = { mountRouter, DEFAULT_ENV, REPO_ROOT };

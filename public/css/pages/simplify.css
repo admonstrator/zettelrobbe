@@ -1,0 +1,713 @@
+/* ==========================================================================
+   The Simplify tags page: one page, the assistant on top.
+   @layer pages: above the framework layers, below utilities.
+
+   The review kit (css/review.css, layer components) draws the assistant,
+   the steps, the run meter, the decision card, the request log and the
+   waiting workspace. This file only places them, and keeps what the page
+   has that the kit has no class for: the vocabulary editor, the table of
+   proposals, the group cards and the apply checklist.
+   ========================================================================== */
+
+@layer pages {
+  /* --- the page --------------------------------------------------------- */
+  /* The assistant and the tools stand in one column, and the gap spaces
+     them; the framework's margin between two modules would double it. */
+  .sim-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+  }
+
+  .sim-page .zr-module + .zr-module {
+    margin-top: 0;
+  }
+
+  /* The line that says the tools wait sits under the assistant; the column
+     gap already spaces it. */
+  .sim-page > .zr-workspace__note {
+    margin: 0;
+  }
+
+  /* --- the assistant ---------------------------------------------------- */
+  /* The zone at the top: its card, the run meter, the apply and the stack
+     stand in one column of their own. A part with nothing in it takes no
+     room. */
+  .sim-assist {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+    min-width: 0;
+  }
+
+  .sim-assist__card:empty {
+    display: none;
+  }
+
+  /* The link to the log that undoes an apply sits at the end of its line. */
+  .sim-apply-result .zr-alert {
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .sim-apply-result__undo {
+    flex: none;
+  }
+
+  @media (max-width: 720px) {
+    .sim-progress {
+      padding: var(--zr-4);
+    }
+
+    .sim-apply-result .zr-alert {
+      flex-wrap: wrap;
+    }
+  }
+
+  /* --- the vocabulary editor -------------------------------------------- */
+  /* A module clips what leaves it, so that a table keeps the rounded corners
+     of its card. This one holds no table but a picker, whose dropdown is
+     absolutely positioned and would be cut off after two rows. */
+  .sim-vocab-module {
+    overflow: visible;
+  }
+
+  /* The block is a details: the order is what the page is read for, and the
+     vocabulary is what it was built from. */
+  .sim-vocab__summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .sim-vocab__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sim-vocab__chevron {
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .sim-vocab-module[open] .sim-vocab__chevron {
+    transform: rotate(90deg);
+  }
+
+  /* Two lists side by side on a desktop, stacked on a phone: the document
+     types and the topics are edited the same way, so they look the same. */
+  .sim-vocab {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-3);
+  }
+
+  .sim-vocab__col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  /* The list keeps its height when it is empty, so the input below it does
+     not jump up the moment the last chip is removed. */
+  .sim-chips {
+    align-content: flex-start;
+    min-height: 28px;
+  }
+
+  .sim-chip {
+    max-width: 100%;
+  }
+
+  .sim-chip__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sim-vocab__input {
+    width: 100%;
+  }
+
+  /* The type field and its reload button on one line. The picker itself caps
+     its width at 460px, so the button sits beside it rather than at the far
+     edge of a wide column. */
+  .sim-vocab__pick {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+  }
+
+  /* One line under a field: what a typed topic is, or why the document types
+     could not be read. Empty means no line at all. */
+  .sim-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  /* The offer to take over the existing document types: the fact on the
+     left, the one button on the right, and nothing of it while it is empty. */
+  .sim-adopt {
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .sim-adopt .zr-alert__body {
+    flex: 1 1 auto;
+  }
+
+  .sim-adopt .zr-btn {
+    flex: none;
+  }
+
+  .sim-vocab__empty {
+    color: var(--zr-text-faint);
+    font-size: var(--zr-fs-sm);
+  }
+
+  .sim-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  /* Where a notice about the vocabulary goes: a model proposal that is not
+     saved yet, or the reason a save failed. Empty means no row at all. */
+  .sim-notice:empty {
+    display: none;
+  }
+
+  @media (max-width: 720px) {
+    .sim-vocab {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sim-actions .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    /* The offer keeps its button on its own line rather than squeezing the
+       fact next to it. */
+    .sim-adopt {
+      flex-wrap: wrap;
+    }
+  }
+
+  /* --- the run meter ---------------------------------------------------- */
+  /* The shared run meter on a card of its own, in the assistant's place
+     while a job runs. */
+  .sim-progress {
+    padding: var(--zr-4) var(--zr-5);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  /* Before the plan knows how many requests it needs there is no share to
+     show, so the bar says "working" instead of lying about a percentage. */
+  .sim-progress__fill--indeterminate {
+    width: 32%;
+    transition: none;
+    animation: simProgressSlide 1.4s ease-in-out infinite;
+  }
+
+  @keyframes simProgressSlide {
+    from {
+      transform: translateX(-110%);
+    }
+
+    to {
+      transform: translateX(320%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sim-progress__fill--indeterminate {
+      animation: none;
+    }
+  }
+
+  /* The slots of the meter. Each one is empty until the job reports the
+     numbers it needs, and an empty slot takes no room. */
+  .sim-meter:empty {
+    display: none;
+  }
+
+  .sim-meter--log {
+    border-top: 1px solid var(--zr-line);
+    padding-top: var(--zr-1);
+  }
+
+  /* --- filters ---------------------------------------------------------- */
+  .sim-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--zr-3);
+  }
+
+  .sim-filters__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  @media (max-width: 720px) {
+    .sim-filters__field {
+      width: 100%;
+    }
+
+    .sim-filters__field .zr-segment {
+      display: flex;
+    }
+
+    .sim-filters__field .zr-segment button {
+      flex: 1;
+    }
+  }
+
+  /* --- the proposal table ----------------------------------------------- */
+  .sim-proposals__alert:empty {
+    display: none;
+  }
+
+  .sim-proposals__pickcol {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  /* What the order does with the row, as its first column: four short words,
+     none of which may wrap. */
+  .sim-proposals__actioncol {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  .sim-action {
+    color: var(--zr-text-muted);
+  }
+
+  /* The two editable cells carry a control each, so they need room the text
+     columns do not, and the reason must not squeeze them out. A table lays
+     itself out by content, so the widths go on the header row. */
+  @media (min-width: 900px) {
+    .sim-proposals__table .sim-proposals__typecol {
+      width: 200px;
+    }
+
+    .sim-proposals__table .sim-proposals__topicscol {
+      width: 220px;
+    }
+
+    .sim-proposals__table .sim-proposals__reasoncol {
+      width: 26ch;
+    }
+  }
+
+  /* An applied row carries the link back to the log under its badge. A table
+     lays itself out by content, so the column only gets the room the link
+     needs if the link refuses to be broken. */
+  .sim-proposals__statuscol {
+    white-space: nowrap;
+  }
+
+  .sim-row--applied .zr-link {
+    display: block;
+    margin-top: 4px;
+    white-space: nowrap;
+  }
+
+  /* The select and the overwrite switch are one thing, so the cell holds one
+     box rather than two: a stacked table lays a cell out as a flex row, and
+     two items would sit side by side on a phone. */
+  .sim-typecell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  .sim-type {
+    width: 100%;
+    min-width: 8rem;
+    max-width: 200px;
+  }
+
+  .sim-topics {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  .sim-topics__input {
+    width: 100%;
+    max-width: 240px;
+  }
+
+  /* The switch that sets the document type even where one is set, with the
+     number of documents that would otherwise keep theirs. Under the select,
+     never beside it: the two belong together and a narrow column would break
+     the line in the middle. */
+  .sim-overwrite-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: var(--zr-2);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .sim-overwrite-row .sim-overwrite {
+    flex: 0 0 auto;
+  }
+
+  /* A reason is one line from a rule or from the model; it may be long, and
+     it must not push the actions off the row. */
+  .sim-reason {
+    display: block;
+    min-width: 16ch;
+    max-width: 32ch;
+    overflow-wrap: break-word;
+  }
+
+  /* An applied row is history: it stays visible with its numbers, dimmed, and
+     carries the one link that can take it back. */
+  .sim-row--applied {
+    opacity: 0.65;
+  }
+
+  .sim-row--failed .sim-error {
+    display: block;
+    margin-top: var(--zr-1);
+    color: var(--zr-danger);
+    font-size: var(--zr-fs-sm);
+  }
+
+  /* --- the apply bar of the table --------------------------------------- */
+  .sim-apply {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-2);
+  }
+
+  .sim-apply__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+    margin-left: auto;
+  }
+
+  .sim-apply__status {
+    color: var(--zr-text-faint);
+  }
+
+  @media (max-width: 720px) {
+    .sim-apply__actions {
+      width: 100%;
+      margin-left: 0;
+    }
+
+    .sim-apply__actions .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+  }
+
+  /* --- the order row ----------------------------------------------------- */
+  /* The head carries the title, the counts and the switch between the groups
+     and the table; below 720px that is one line too many, so it wraps rather
+     than pushing the title out of the card. */
+  .sim-order__head {
+    flex-wrap: wrap;
+    row-gap: var(--zr-2);
+  }
+
+  /* The one line a finished run leaves behind, under the head. */
+  .sim-order__summary {
+    margin: 0;
+    padding: var(--zr-3) var(--zr-4);
+    color: var(--zr-text-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .sim-order__empty {
+    padding: var(--zr-5) var(--zr-3);
+  }
+
+  /* What an apply reported: one alert, with a line per failure under it. */
+  .sim-apply-result:empty {
+    display: none;
+  }
+
+  .sim-apply-result__failures {
+    margin: var(--zr-2) 0 0;
+    padding-left: var(--zr-4);
+    display: grid;
+    gap: 4px;
+  }
+
+  /* The view switch sits at the end of the order's head, after the counts
+     that push it there. */
+  .sim-view {
+    flex: none;
+  }
+
+  /* --- one group of the order ------------------------------------------- */
+  .sim-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .sim-groups:empty {
+    display: none;
+  }
+
+  /* The head carries four things of very different widths: the kind badge,
+     the name, the counts and the status badges. A wrapping flex row keeps
+     them readable down to 320px without a media query. */
+  .sim-group__head {
+    flex-wrap: wrap;
+    row-gap: var(--zr-2);
+  }
+
+  .sim-group__name {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+
+  .sim-group__counts {
+    white-space: nowrap;
+  }
+
+  .sim-group__status {
+    margin-left: auto;
+  }
+
+  /* The member list is closed until it is asked for: 200 rows are the detail,
+     the decision is made on the head and the foot. */
+  .sim-group__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    padding: var(--zr-2) var(--zr-3);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  /* The fold reads as one: a chevron that turns when the members show. */
+  .sim-group__chevron {
+    flex-shrink: 0;
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+
+  .sim-group__members[open] .sim-group__chevron {
+    transform: rotate(90deg);
+  }
+
+  /* A closed card is head, one line and foot; the line only becomes a border
+     of its own once there is a table under it. */
+  .sim-group__members[open] .sim-group__summary {
+    border-bottom: 1px solid var(--zr-line);
+  }
+
+  .sim-group__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sim-group__summary:hover {
+    color: var(--zr-text);
+  }
+
+  .sim-group__morewrap {
+    display: flex;
+    justify-content: center;
+    padding: var(--zr-2) var(--zr-3);
+  }
+
+  .sim-group__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+  }
+
+  /* What happens to a tag is the one cell the eye looks for, so it keeps the
+     type and the topics on one line and never wraps mid name. */
+  .sim-member__outcome {
+    display: inline-block;
+    font-size: var(--zr-fs-sm);
+    overflow-wrap: anywhere;
+  }
+
+  /* The two buttons of a row belong on one line: the column is as wide as its
+     content, so a wrap here would make every row twice as tall. */
+  .sim-member__actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+
+  .sim-members__editcol {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  /* The tick of a member is the proposal; its column is as narrow as the
+     box. */
+  .sim-members__tickcol,
+  .sim-member__tick {
+    width: 1%;
+    white-space: nowrap;
+  }
+
+  @media (min-width: 900px) {
+    .sim-members .sim-members__reasoncol {
+      width: 26ch;
+    }
+
+    /* The tag name takes what is left of a wide card; what it becomes keeps
+       room enough for a type and a topic on one line. */
+    .sim-member__outcome {
+      min-width: 20ch;
+    }
+  }
+
+  @media (max-width: 720px) {
+    /* A card at 390px: the head stacks, and the buttons of the foot take a
+       full row each rather than squeezing four onto one. */
+    .sim-group__status {
+      margin-left: 0;
+    }
+
+    .sim-group__foot .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .sim-member__actions {
+      justify-content: flex-start;
+    }
+
+    /* Six choices do not fit on one 390px line; they wrap into rows of three
+       rather than sliding out of the card. */
+    .sim-filters__field--wide .zr-segment {
+      flex-wrap: wrap;
+    }
+
+    .sim-filters__field--wide .zr-segment button {
+      flex: 1 0 28%;
+    }
+
+    .sim-view {
+      display: flex;
+      width: 100%;
+      margin-left: 0;
+    }
+
+    .sim-view button {
+      flex: 1;
+    }
+  }
+
+  /* --- the stack -------------------------------------------------------- */
+  /* It takes the place of the result in the assistant, so it needs no
+     overlay, no scrim and no focus trap of its own. */
+  .sim-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    outline: none;
+  }
+
+  .sim-stack__bar {
+    padding: var(--zr-3) var(--zr-4);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface-2);
+  }
+
+  .sim-stack__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+  }
+
+  .sim-stack__tally {
+    margin: 0;
+    flex-grow: 1;
+  }
+
+  /* The editable side of a decision: the same select and chips the table
+     offers, under their own labels. */
+  .sim-decision__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    margin-top: var(--zr-3);
+  }
+
+  /* The evidence: how many documents already carry a type, and the choice
+     that decides what happens to them. */
+  .sim-decision__evidence {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    margin: var(--zr-4) 0 0;
+    padding: var(--zr-3) var(--zr-4);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-sunken);
+  }
+
+  .sim-decision__evidence p {
+    margin: 0 0 var(--zr-1);
+  }
+
+  .sim-decision__radio {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    cursor: pointer;
+  }
+
+  @media (max-width: 720px) {
+    .sim-stack__foot .zr-btn {
+      flex: 1;
+      justify-content: center;
+    }
+  }
+
+  /* --- the apply checklist ---------------------------------------------- */
+  .sim-checklist {
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+    overflow: hidden;
+  }
+
+  .sim-checklist:empty {
+    display: none;
+  }
+
+  .sim-checklist__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--zr-2);
+    padding: var(--zr-4) var(--zr-5);
+  }
+}

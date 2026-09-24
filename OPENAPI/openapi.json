@@ -199,6 +199,32 @@
           }
         }
       },
+      "TagVocabularyDocumentType": {
+        "type": "object",
+        "description": "One document type of the Paperless-ngx instance, as the picker on\nthe \"Simplify tags\" page offers it.\n",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The id in Paperless-ngx",
+            "example": 7
+          },
+          "name": {
+            "type": "string",
+            "description": "The name, exactly as Paperless-ngx spells it",
+            "example": "Rechnung"
+          },
+          "documentCount": {
+            "type": "integer",
+            "description": "How many documents carry this type",
+            "example": 128
+          },
+          "inVocabulary": {
+            "type": "boolean",
+            "description": "True when the saved vocabulary holds a document type of exactly\nthis name. Names in Paperless-ngx are case sensitive, so the\ncomparison is too.\n",
+            "example": true
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -570,6 +596,1892 @@
             "type": "string",
             "nullable": true,
             "example": "connect ECONNREFUSED 172.18.0.2:8000"
+          }
+        }
+      },
+      "EntityRecord": {
+        "type": "object",
+        "description": "One tag or correspondent as the Duplicates feature reads it — the\nPaperless-ngx object in camelCase, with nothing added. A\nDuplicateGroupMember is this record plus its score inside a group.\n",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 12
+          },
+          "name": {
+            "type": "string",
+            "example": "Amazon EU S.a.r.l."
+          },
+          "documentCount": {
+            "type": "integer",
+            "example": 41
+          },
+          "matchingAlgorithm": {
+            "type": "integer",
+            "description": "Paperless-ngx matching_algorithm, 0 = none",
+            "example": 1
+          },
+          "match": {
+            "type": "string",
+            "example": "amazon"
+          },
+          "isInsensitive": {
+            "type": "boolean"
+          },
+          "owner": {
+            "type": "integer",
+            "nullable": true
+          },
+          "userCanChange": {
+            "type": "boolean",
+            "description": "false when the API token may not modify the object"
+          },
+          "isInboxTag": {
+            "type": "boolean",
+            "description": "tags only"
+          },
+          "color": {
+            "type": "string",
+            "nullable": true,
+            "description": "tags only"
+          },
+          "lastCorrespondence": {
+            "type": "string",
+            "nullable": true,
+            "description": "correspondents only"
+          }
+        }
+      },
+      "DuplicateGroupMember": {
+        "type": "object",
+        "description": "One tag or correspondent inside a duplicate group",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 12
+          },
+          "name": {
+            "type": "string",
+            "example": "Amazon EU S.a.r.l."
+          },
+          "documentCount": {
+            "type": "integer",
+            "example": 41
+          },
+          "matchingAlgorithm": {
+            "type": "integer",
+            "description": "Paperless-ngx matching_algorithm, 0 = none",
+            "example": 1
+          },
+          "match": {
+            "type": "string",
+            "example": "amazon"
+          },
+          "isInsensitive": {
+            "type": "boolean"
+          },
+          "owner": {
+            "type": "integer",
+            "nullable": true
+          },
+          "userCanChange": {
+            "type": "boolean",
+            "description": "false when the API token may not modify the object"
+          },
+          "isInboxTag": {
+            "type": "boolean",
+            "description": "tags only"
+          },
+          "color": {
+            "type": "string",
+            "nullable": true,
+            "description": "tags only"
+          },
+          "lastCorrespondence": {
+            "type": "string",
+            "nullable": true,
+            "description": "correspondents only"
+          },
+          "scoreToTarget": {
+            "type": "number",
+            "description": "1 for the suggested target itself",
+            "example": 0.92
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "exact-normalized",
+              "umlaut-variant",
+              "legal-form",
+              "plural",
+              "token-order",
+              "prefix",
+              "fuzzy"
+            ]
+          },
+          "aiVerdict": {
+            "$ref": "#/components/schemas/AiVerdict"
+          }
+        }
+      },
+      "DuplicateGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "kind plus the member ids in ascending order",
+            "example": "tags:12-48-97"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "description": "lowest scoreToTarget in the group",
+            "example": 0.92
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggestedTargetId": {
+            "type": "integer",
+            "example": 12
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DuplicateGroupMember"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "inbox-tag",
+                "configured-tag",
+                "no-permission",
+                "has-matching-rule",
+                "owner-differs",
+                "large-group"
+              ]
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "scan",
+              "ai-candidate"
+            ],
+            "description": "present in an AI review result; ai-candidate groups scored below the threshold and were confirmed by the model"
+          },
+          "aiVerdict": {
+            "$ref": "#/components/schemas/AiVerdict"
+          }
+        }
+      },
+      "DuplicateScanResult": {
+        "type": "object",
+        "properties": {
+          "scannedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "threshold": {
+            "type": "number",
+            "example": 0.85
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "tags": {
+                "type": "integer",
+                "description": "tags loaded from Paperless-ngx (null when not scanned)",
+                "nullable": true
+              },
+              "correspondents": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DuplicateGroup"
+            }
+          },
+          "dismissedPairs": {
+            "type": "integer",
+            "description": "pairs hidden because the user marked them as not duplicates"
+          },
+          "paperlessUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "public Paperless-ngx base URL the page links its entries to",
+            "example": "https://paperless.example.org"
+          },
+          "unused": {
+            "type": "object",
+            "description": "objects of the scanned kinds that carry no document; inbox and configured tags are never listed",
+            "properties": {
+              "tags": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EntityRecord"
+                }
+              },
+              "correspondents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EntityRecord"
+                }
+              }
+            }
+          }
+        }
+      },
+      "EntityMergeRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "targetId",
+          "sourceIds"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "targetId": {
+            "type": "integer",
+            "description": "the object that survives",
+            "example": 12
+          },
+          "sourceIds": {
+            "type": "array",
+            "description": "objects whose documents move to the target and which are deleted afterwards",
+            "items": {
+              "type": "integer"
+            },
+            "example": [
+              48,
+              97
+            ]
+          },
+          "targetName": {
+            "type": "string",
+            "description": "a new name for the target, applied before the merge; empty or absent keeps its name"
+          },
+          "copyMatchingRule": {
+            "type": "boolean",
+            "description": "copy a source's matching rule to the target when the target has none",
+            "default": false
+          }
+        }
+      },
+      "EntityMergeSourceResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "documentsMoved": {
+            "type": "integer"
+          },
+          "deleted": {
+            "type": "boolean",
+            "description": "false when the source was skipped or the merge stopped before deleting it"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "EntityMergeResult": {
+        "type": "object",
+        "properties": {
+          "mergeId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "id of the log entry, usable for an undo"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "documentsMoved": {
+            "type": "integer"
+          },
+          "copiedMatchingRule": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "partial"
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityMergeSourceResult"
+            }
+          }
+        }
+      },
+      "EntityMergeLogEntry": {
+        "type": "object",
+        "description": "One merge as recorded locally, with everything an undo needs",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "targetId": {
+            "type": "integer"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "targetBefore": {
+            "type": "object",
+            "nullable": true,
+            "description": "the target's matching rule before the merge"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "snapshot": {
+                  "type": "object",
+                  "description": "the source object as it was before deletion"
+                },
+                "documentIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "documentsAlreadyOnTarget": {
+                  "type": "array",
+                  "description": "tags only; documents that carried the target before the merge",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "documentsMoved": {
+                  "type": "integer"
+                },
+                "deleted": {
+                  "type": "boolean"
+                },
+                "copiedMatchingRule": {
+                  "type": "boolean",
+                  "description": "true on the one source whose matching rule was copied to the target"
+                },
+                "error": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "documentsMoved": {
+            "type": "integer"
+          },
+          "copiedMatchingRule": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "partial",
+              "undone",
+              "undo_failed"
+            ]
+          },
+          "performedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "undoneAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "undoResult": {
+            "$ref": "#/components/schemas/EntityMergeUndoResult"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "delete",
+              "split"
+            ],
+            "description": "what the row records; a delete row lists the removed objects as its sources and can be undone like a merge"
+          },
+          "details": {
+            "type": "object",
+            "nullable": true,
+            "description": "What a split did, per document, so an undo can put exactly that\nback: the topic tags it added and the document type it set.\nNull for merges and deletes.\n",
+            "properties": {
+              "typeName": {
+                "type": "string",
+                "nullable": true
+              },
+              "typeId": {
+                "type": "integer",
+                "nullable": true
+              },
+              "topicTagIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "createdTypeId": {
+                "type": "integer",
+                "nullable": true,
+                "description": "a document type the split created, deleted again by the undo"
+              },
+              "createdTagIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "topic tags the split created, deleted again by the undo"
+              },
+              "documents": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "addedTagIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "previousTypeId": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "typeSet": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "targetRenamedFrom": {
+            "type": "string",
+            "nullable": true,
+            "description": "the target's name before this merge renamed it; null when it did not"
+          }
+        }
+      },
+      "EntityMergeUndoResult": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "undone",
+              "undo_failed"
+            ]
+          },
+          "revertedMatchingRule": {
+            "type": "boolean"
+          },
+          "performedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "who asked for the undo (username, or api-key)"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "originalId": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "restoredId": {
+                  "type": "integer",
+                  "nullable": true,
+                  "description": "the re-created object's new id, or the id of a same-named object that existed again"
+                },
+                "adoptedExisting": {
+                  "type": "boolean",
+                  "description": "true when a same-named object existed again and was reused instead of created"
+                },
+                "documentsRestored": {
+                  "type": "integer"
+                },
+                "documentsSkipped": {
+                  "type": "integer",
+                  "description": "documents that no longer exist or no longer carry the target"
+                },
+                "error": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "AiVerdict": {
+        "type": "object",
+        "nullable": true,
+        "description": "What the AI provider said about a pair or a group; null when nothing was asked",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "same",
+              "different",
+              "unsure"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "one short sentence from the model"
+          },
+          "basis": {
+            "type": "string",
+            "nullable": true,
+            "description": "the rule the model applied; one of case-or-spacing, umlaut, legal-form, plural, abbreviation, translation, synonym, typo, different-thing, different-topic, insufficient-evidence, or null when the model gave none"
+          },
+          "confidence": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "high",
+              "low"
+            ],
+            "description": "how sure the model is; the page ticks a pair the model calls same only with high"
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "model",
+              "spelling-rule"
+            ],
+            "description": "spelling-rule when the matcher's hard tier settled the pair and the model was not asked"
+          },
+          "remembered": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "true when the verdict came from the judge's memory of an earlier review instead of a request"
+          }
+        }
+      },
+      "DuplicateAiReviewRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents",
+              "all"
+            ],
+            "default": "all"
+          },
+          "threshold": {
+            "type": "number",
+            "example": 0.85
+          },
+          "includeDismissed": {
+            "type": "boolean",
+            "default": false
+          },
+          "withTitles": {
+            "type": "boolean",
+            "default": true,
+            "description": "give the model a few recent document titles per entity as context"
+          },
+          "groupIds": {
+            "type": "array",
+            "description": "judge only these groups of the scan (ids as the scan returned them); other groups come back without a verdict",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minConfidence": {
+            "type": "number",
+            "description": "judge only groups whose confidence is at least this value (0.5 to 1); combined with groupIds both must hold",
+            "example": 0.95
+          },
+          "includeCandidates": {
+            "type": "boolean",
+            "default": true,
+            "description": "false skips the band of near-misses below the threshold, so only scan groups are judged"
+          },
+          "withExcerpts": {
+            "type": "boolean",
+            "default": true,
+            "description": "give the model short content excerpts of a couple of documents per entity for pairs the matcher linked by spelling alone"
+          },
+          "semanticSweep": {
+            "type": "boolean",
+            "default": false,
+            "description": "let the model see the names of each kind and propose groups the string matcher cannot (synonyms, translations); the proposals are judged with evidence like the band"
+          }
+        }
+      },
+      "DuplicateAiReviewResult": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DuplicateScanResult"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "aiReview": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "model": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "requests": {
+                    "type": "integer"
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "nullable": true
+                  },
+                  "judged": {
+                    "type": "integer",
+                    "description": "pairs the model was asked about"
+                  },
+                  "candidates": {
+                    "type": "integer",
+                    "description": "pairs from the wider band the model was shown"
+                  },
+                  "failedRequests": {
+                    "type": "integer",
+                    "description": "model requests that answered nothing usable; their pairs are marked unsure"
+                  },
+                  "retries": {
+                    "type": "integer",
+                    "description": "extra requests made because an answer was cut off at the token limit and the batch was re-asked in smaller pieces"
+                  },
+                  "batchSize": {
+                    "type": "integer",
+                    "description": "pairs per request actually used after sizing by the token budget"
+                  },
+                  "targeted": {
+                    "type": "boolean",
+                    "description": "true when groupIds, minConfidence or includeCandidates narrowed the review"
+                  },
+                  "groupsJudged": {
+                    "type": "integer",
+                    "description": "scan groups the model was asked about"
+                  },
+                  "groupsSkipped": {
+                    "type": "integer",
+                    "description": "scan groups returned without a verdict because the targeting left them out"
+                  },
+                  "excerpts": {
+                    "type": "integer",
+                    "description": "entities whose document excerpts were fetched as evidence"
+                  },
+                  "escalated": {
+                    "type": "integer",
+                    "description": "pairs the model called unsure that were asked once more with excerpts"
+                  },
+                  "spellingRules": {
+                    "type": "integer",
+                    "description": "pairs settled by the matcher's hard tiers (exact, umlaut, legal form) without asking the model"
+                  },
+                  "stopped": {
+                    "type": "boolean",
+                    "description": "true when the review ended before every pair was judged; the verdicts it did reach are in the groups"
+                  },
+                  "stopReason": {
+                    "type": "string",
+                    "nullable": true,
+                    "enum": [
+                      "user",
+                      "token-budget",
+                      "idle"
+                    ],
+                    "description": "why a stopped review ended; null when it ran through"
+                  },
+                  "pairsNotJudged": {
+                    "type": "integer",
+                    "description": "pairs that were due but never reached the model because the review stopped"
+                  },
+                  "sweepRequests": {
+                    "type": "integer",
+                    "description": "model requests the semantic sweep made (names only)"
+                  },
+                  "sweepProposals": {
+                    "type": "integer",
+                    "description": "pairs the sweep proposed that the string matcher had not; they were judged with evidence like any candidate"
+                  },
+                  "verdictsReused": {
+                    "type": "integer",
+                    "description": "pairs answered from the judge's memory of earlier verdicts instead of a model request"
+                  },
+                  "concurrency": {
+                    "type": "integer",
+                    "description": "model requests the review kept in flight at once"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "AiReviewProgress": {
+        "type": "object",
+        "description": "Where a running review is. Every field is present; a count that is not known yet is null.",
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "scanning",
+              "evidence",
+              "sweeping",
+              "warming-up",
+              "judging",
+              "escalating",
+              "finishing"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "one line for the page, e.g. \"Asking the model, request 3 of 8\""
+          },
+          "kind": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "tags",
+              "correspondents"
+            ],
+            "description": "the kind being worked on, null between kinds"
+          },
+          "requestsDone": {
+            "type": "integer"
+          },
+          "requestsPlanned": {
+            "type": "integer",
+            "nullable": true,
+            "description": "requests the plan expects for the whole review; grows when a cut-off answer is re-asked in halves"
+          },
+          "pairsJudged": {
+            "type": "integer"
+          },
+          "pairsTotal": {
+            "type": "integer",
+            "nullable": true,
+            "description": "pairs the review will ask about across all kinds"
+          },
+          "tokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "tokens spent so far, prompt and completion"
+          },
+          "tokenBudget": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the configured ceiling for this review; null when there is none"
+          },
+          "estimatedTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "what the plan expects the whole review to cost, known once the batches are sized"
+          },
+          "elapsedMs": {
+            "type": "integer"
+          },
+          "etaMs": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the remaining time the request rate so far suggests; null before the first request answered"
+          },
+          "excerpts": {
+            "type": "integer"
+          },
+          "escalated": {
+            "type": "integer"
+          },
+          "spellingRules": {
+            "type": "integer"
+          },
+          "failedRequests": {
+            "type": "integer"
+          },
+          "retries": {
+            "type": "integer"
+          },
+          "requestPairs": {
+            "type": "integer",
+            "nullable": true,
+            "description": "pairs in the request that is being answered right now; null between requests"
+          },
+          "requestAnswers": {
+            "type": "integer",
+            "description": "verdicts that have arrived so far in the current request, read off the streamed answer"
+          },
+          "requestTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "completion tokens the current request has produced so far, streamed or estimated"
+          },
+          "thinking": {
+            "type": "boolean",
+            "description": "true while the model is writing reasoning rather than its answer"
+          },
+          "batchSize": {
+            "type": "integer",
+            "nullable": true,
+            "description": "pairs per request the judge is using now; changes once after the warm-up measured the model"
+          },
+          "calibrated": {
+            "type": "boolean",
+            "description": "true once the batch size and the answer cap come from a measurement of this model rather than from defaults"
+          },
+          "concurrency": {
+            "type": "integer",
+            "nullable": true,
+            "description": "model requests kept in flight at once"
+          },
+          "inFlight": {
+            "type": "integer",
+            "description": "model requests waiting for an answer right now"
+          },
+          "verdictsReused": {
+            "type": "integer",
+            "description": "pairs answered from remembered verdicts so far"
+          },
+          "tally": {
+            "type": "object",
+            "nullable": true,
+            "description": "what the model has answered so far; null until it answered",
+            "properties": {
+              "same": {
+                "type": "integer"
+              },
+              "different": {
+                "type": "integer"
+              },
+              "unsure": {
+                "type": "integer"
+              }
+            }
+          },
+          "thinkingTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "reasoning tokens of the current request so far, estimated from the reasoning text; null when the model wrote none"
+          }
+        }
+      },
+      "AiReviewJob": {
+        "type": "object",
+        "description": "One AI review running on the server, or the last one that finished. There is at most one at a time.",
+        "properties": {
+          "task": {
+            "type": "string",
+            "enum": [
+              "review",
+              "vocabulary",
+              "splits",
+              "order",
+              "apply"
+            ],
+            "description": "what the job runs; the Simplify tags page starts the vocabulary, splits, order and apply tasks through the same runner"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "stopping",
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "options": {
+            "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stopReason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "user",
+              "token-budget",
+              "idle"
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/AiReviewProgress"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "the message of a failed review"
+          },
+          "hasResult": {
+            "type": "boolean",
+            "description": "true when the job carries a DuplicateAiReviewResult (done, or stopped with partial verdicts)"
+          }
+        }
+      },
+      "AiReviewJobEvent": {
+        "type": "object",
+        "description": "One server-sent event of a review job. The stream ends after done, stopped or failed.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "progress",
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "job": {
+            "$ref": "#/components/schemas/AiReviewJob"
+          },
+          "data": {
+            "description": "the DuplicateAiReviewResult on done and on stopped (partial); absent otherwise",
+            "$ref": "#/components/schemas/DuplicateAiReviewResult"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "EntityDeleteRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "ids"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "ids": {
+            "type": "array",
+            "description": "unused objects to delete; an object that carries a document by now is refused, not deleted",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "EntityDeleteResult": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "logId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the merge-log row (action delete) that an undo re-creates the objects from"
+          }
+        }
+      },
+      "EntityNameMapping": {
+        "type": "object",
+        "description": "document analysis proposed a name and the creation guard used an existing object instead",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "proposedName": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "integer"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "the matcher tier that linked the names"
+          },
+          "score": {
+            "type": "number"
+          },
+          "documentId": {
+            "type": "integer",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "TagVocabularyEntry": {
+        "type": "object",
+        "description": "One entry of the target vocabulary of \"Simplify tags\"",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "type",
+              "topic"
+            ],
+            "description": "type is a document type, topic is a tag"
+          },
+          "name": {
+            "type": "string"
+          },
+          "paperlessId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the document type or tag in Paperless-ngx once it exists"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "model",
+              "user"
+            ]
+          },
+          "position": {
+            "type": "integer"
+          }
+        }
+      },
+      "TagVocabulary": {
+        "type": "object",
+        "description": "The vocabulary the archive should end up with, by dimension",
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagVocabularyEntry"
+            }
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagVocabularyEntry"
+            }
+          }
+        }
+      },
+      "TagVocabularyRequest": {
+        "type": "object",
+        "description": "The vocabulary as the user saves it; names only, order kept",
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TagSplitProposal": {
+        "type": "object",
+        "description": "What one tag stands for, as proposed by a rule, the model or the user",
+        "properties": {
+          "tagId": {
+            "type": "integer"
+          },
+          "tagName": {
+            "type": "string"
+          },
+          "documentCount": {
+            "type": "integer"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "split",
+              "merge",
+              "keep",
+              "delete"
+            ],
+            "description": "what the proposed order does with the tag; split covers a type, topics or both"
+          },
+          "mergeInto": {
+            "type": "string",
+            "nullable": true,
+            "description": "the name of the tag this one merges into; only with action merge"
+          },
+          "typeName": {
+            "type": "string",
+            "nullable": true,
+            "description": "the document type the tag encodes, null when it encodes none"
+          },
+          "topicNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "model",
+              "user"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "high",
+              "low"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "documentsWithType": {
+            "type": "integer",
+            "description": "documents of the tag that already carry a different document type; they keep it unless overwriteType is set"
+          },
+          "overwriteType": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "applied",
+              "skipped"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "TagSplitProposalPatch": {
+        "type": "object",
+        "description": "What the user may change on a proposal",
+        "properties": {
+          "typeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "topicNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "overwriteType": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "split",
+              "merge",
+              "keep",
+              "delete"
+            ]
+          },
+          "mergeInto": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "skipped"
+            ]
+          }
+        }
+      },
+      "TagOrderGroupMember": {
+        "type": "object",
+        "description": "One tag inside a group of the proposed order",
+        "properties": {
+          "tagId": {
+            "type": "integer"
+          },
+          "tagName": {
+            "type": "string"
+          },
+          "documentCount": {
+            "type": "integer"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "split",
+              "merge",
+              "keep",
+              "delete"
+            ]
+          },
+          "typeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "topicNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mergeInto": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "model",
+              "user"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "high",
+              "low"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "applied",
+              "skipped"
+            ]
+          }
+        }
+      },
+      "TagOrderGroup": {
+        "type": "object",
+        "description": "One group of the proposed order, the unit the user accepts or skips",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "type:Rechnung, topic:Strom, merge:Amazon, keep or delete"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "type",
+              "topic",
+              "merge",
+              "keep",
+              "delete"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "nullable": true,
+            "description": "the document type, topic or merge target; null for keep and delete"
+          },
+          "tags": {
+            "type": "integer",
+            "description": "member tags"
+          },
+          "documents": {
+            "type": "integer",
+            "description": "documents the members carry, summed"
+          },
+          "open": {
+            "type": "integer"
+          },
+          "accepted": {
+            "type": "integer"
+          },
+          "applied": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagOrderGroupMember"
+            }
+          }
+        }
+      },
+      "TagOrderGroups": {
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagOrderGroup"
+            }
+          },
+          "tags": {
+            "type": "integer",
+            "description": "proposals in total"
+          },
+          "open": {
+            "type": "integer"
+          },
+          "accepted": {
+            "type": "integer"
+          },
+          "applied": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          }
+        }
+      },
+      "TagOrderProposeRequest": {
+        "type": "object",
+        "properties": {
+          "vocabulary": {
+            "type": "string",
+            "enum": [
+              "propose",
+              "keep"
+            ],
+            "default": "propose",
+            "description": "propose lets the model build the vocabulary from the tag names; keep uses the saved one"
+          }
+        }
+      },
+      "TagGroupDecisionRequest": {
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "skip",
+              "reopen"
+            ]
+          }
+        }
+      },
+      "TagOrderApplyRequest": {
+        "type": "object",
+        "properties": {
+          "groupKey": {
+            "type": "string",
+            "nullable": true,
+            "description": "apply the accepted members of one group; omitted, every accepted proposal is applied"
+          }
+        }
+      },
+      "TagOrderApplyResult": {
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "array",
+            "description": "splits and deletes, as TagSplitApplyResult.applied lists them",
+            "items": {
+              "type": "object"
+            }
+          },
+          "merged": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tagId": {
+                  "type": "integer"
+                },
+                "tagName": {
+                  "type": "string"
+                },
+                "targetId": {
+                  "type": "integer"
+                },
+                "targetName": {
+                  "type": "string"
+                },
+                "logId": {
+                  "type": "integer"
+                },
+                "documentsUpdated": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tagId": {
+                  "type": "integer"
+                },
+                "tagName": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "stopped": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TagSplitImpact": {
+        "type": "object",
+        "description": "What applying one proposal would do to the documents of the tag",
+        "properties": {
+          "tagId": {
+            "type": "integer"
+          },
+          "tagName": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "integer",
+            "description": "documents that carry the tag and would get the topics"
+          },
+          "withType": {
+            "type": "integer",
+            "description": "documents that carry any document type today"
+          },
+          "withDifferentType": {
+            "type": "integer",
+            "description": "documents whose type differs from the proposed one"
+          },
+          "typeId": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the proposed type's id in Paperless-ngx, null when it does not exist yet"
+          },
+          "typeSet": {
+            "type": "integer",
+            "description": "documents whose document type the apply would set"
+          },
+          "typeKept": {
+            "type": "integer",
+            "description": "documents that would keep a differing type (0 with overwriteType)"
+          }
+        }
+      },
+      "TagSplitApplyRequest": {
+        "type": "object",
+        "required": [
+          "tagIds"
+        ],
+        "properties": {
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "proposals to apply, by tag id; at most 200 per call"
+          }
+        }
+      },
+      "TagSplitApplyResult": {
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tagId": {
+                  "type": "integer"
+                },
+                "tagName": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "split",
+                    "delete"
+                  ],
+                  "description": "a delete is a split with no targets; the documents lose the tag"
+                },
+                "logId": {
+                  "type": "integer"
+                },
+                "documentsUpdated": {
+                  "type": "integer"
+                },
+                "typeSet": {
+                  "type": "integer",
+                  "description": "documents whose document type was set"
+                },
+                "typeKept": {
+                  "type": "integer",
+                  "description": "documents that kept a differing document type"
+                }
+              }
+            }
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tagId": {
+                  "type": "integer"
+                },
+                "tagName": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "EntityMergeDismissRequest": {
+        "type": "object",
+        "required": [
+          "kind",
+          "ids"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "ids": {
+            "type": "array",
+            "description": "every pair among these ids is stored as \"not a duplicate\"",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2
+          },
+          "names": {
+            "type": "object",
+            "description": "optional id -> name map, stored with the pairs so the list stays readable",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "12": "Amazon",
+              "48": "amazon"
+            }
+          }
+        }
+      },
+      "EntityMergeDismissal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "idA": {
+            "type": "integer"
+          },
+          "idB": {
+            "type": "integer"
+          },
+          "nameA": {
+            "type": "string",
+            "nullable": true
+          },
+          "nameB": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AiRunEstimate": {
+        "type": "object",
+        "description": "What a model-backed run will cost before it starts, plus what the\nlast run of the same task actually cost. `basis` says where the\nnumbers come from: `run` a finished run of this task, `model` the\njudge's measurement of this model, `guess` neither — the page says\nso rather than pretending.\n",
+        "properties": {
+          "items": {
+            "type": "integer",
+            "description": "items the model would be asked about",
+            "example": 1145
+          },
+          "itemsByRule": {
+            "type": "integer",
+            "description": "items a rule settles without the model",
+            "example": 42
+          },
+          "batchSize": {
+            "type": "integer",
+            "example": 50
+          },
+          "requests": {
+            "type": "integer",
+            "example": 23
+          },
+          "lanes": {
+            "type": "integer",
+            "description": "requests in flight at once",
+            "example": 3
+          },
+          "seconds": {
+            "type": "integer",
+            "example": 372
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "run",
+              "model",
+              "guess"
+            ]
+          },
+          "measuredAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "tokens": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 1410000
+              },
+              "prompt": {
+                "type": "integer"
+              },
+              "completion": {
+                "type": "integer"
+              },
+              "thinking": {
+                "type": "integer"
+              }
+            }
+          },
+          "lastRun": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AiRunStats"
+              }
+            ]
+          }
+        }
+      },
+      "AiRunStats": {
+        "type": "object",
+        "description": "What one finished run of a model-backed task cost.",
+        "properties": {
+          "task": {
+            "type": "string",
+            "enum": [
+              "order",
+              "review",
+              "vocabulary",
+              "splits"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "thinking": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "items": {
+            "type": "integer"
+          },
+          "itemsByRule": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "failedRequests": {
+            "type": "integer"
+          },
+          "promptTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "completionTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "thinkingTokens": {
+            "type": "integer",
+            "nullable": true
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }
@@ -3992,6 +5904,131 @@
                     "description": "Disable automatic document processing",
                     "example": false
                   },
+                  "duplicatesAiReview": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Offer the AI review on the Duplicates page (yes/no). Default yes. Scanning and merging work without it.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiModel": {
+                    "type": "string",
+                    "description": "Model of the configured provider used only for judging duplicates. Empty means the provider's configured model.",
+                    "example": ""
+                  },
+                  "duplicatesAiReviewBatchSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Name pairs per model request (1-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 25
+                  },
+                  "duplicatesAiCandidateFloor": {
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 0.95,
+                    "description": "Lowest matcher score a pair needs to be shown to the model (0.50-0.95, default 0.6). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 0.6
+                  },
+                  "duplicatesAiExcerpts": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Send document excerpts for pairs the matcher linked by spelling alone (yes/no). Default yes.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiExcerptChars": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 500,
+                    "description": "Excerpt length in characters (50-500, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 300
+                  },
+                  "duplicatesAiExcerptDocuments": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 2
+                  },
+                  "duplicatesAiTokenBudget": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000000,
+                    "description": "The most one AI review may spend across all its requests, prompt and completion (0-10000000, default 200000). When it is reached the review stops itself and keeps the verdicts it has; 0 means no limit. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 200000
+                  },
+                  "duplicatesAiIdleStopSeconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3600,
+                    "description": "A running review that no page has been watching for this many seconds stops itself, so a closed tab cannot leave the model running (0-3600, default 60). 0 means never. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 60
+                  },
+                  "duplicatesAiThinking": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Let the judge reason before it answers (yes/no). Default no; a reasoning model otherwise spends the whole answer budget on its thoughts before the first verdict.",
+                    "example": "no"
+                  },
+                  "duplicatesAiRequestSeconds": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 300,
+                    "description": "How long one model request should take (5-300 seconds, default 30). The judge measures the model on a small first request and then sizes every later one to fit. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 30
+                  },
+                  "duplicatesAiConcurrency": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8,
+                    "description": "Model requests the judge keeps in flight at once (0-8, default 0). 0 lets the judge choose: one for Ollama, three for a hosted endpoint. Wall time divides by it, tokens do not. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 0
+                  },
+                  "duplicatesAiVerdictMemoryDays": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 365,
+                    "description": "How long a verdict about a pair of names is remembered (0-365 days, default 90). A pair the model judged is not asked again while both names are unchanged; 0 switches the memory off. Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 90
+                  },
+                  "duplicatesGuardNewNames": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Reuse an existing tag or correspondent when document analysis proposes the same name in another spelling (yes/no). Default yes; the mapping is listed on the Duplicates page.",
+                    "example": "yes"
+                  },
+                  "duplicatesAiSweepNames": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 1000,
+                    "description": "How many names the model sees per request when the semantic sweep looks at the whole list (50-1000, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 300
+                  },
+                  "simplifyTagsPerRequest": {
+                    "type": "integer",
+                    "minimum": 10,
+                    "maximum": 200,
+                    "description": "How many tag names one model request of \"Simplify tags\" decomposes into a document type and topic tags (10-200, default 50). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 50
+                  },
+                  "simplifyVocabularySize": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 100,
+                    "description": "How many entries the vocabulary proposed from the tag names should aim at, types and topics together (5-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.",
+                    "example": 25
+                  },
                   "ocrAutoProcessEnabled": {
                     "type": "string",
                     "description": "Process queued OCR documents automatically (yes/no)",
@@ -5609,6 +7646,2500 @@
           },
           "400": {
             "description": "No usable document id in the payload"
+          }
+        }
+      }
+    },
+    "/duplicates": {
+      "get": {
+        "summary": "Duplicate tags and correspondents page",
+        "description": "Renders the Duplicates page. The page scans on request through\n`/api/duplicates/scan`; nothing runs automatically.\n",
+        "tags": [
+          "Navigation",
+          "Duplicates"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Duplicates page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/scan": {
+      "get": {
+        "summary": "Find tags or correspondents whose names mean the same thing",
+        "description": "Loads every tag and/or correspondent from Paperless-ngx and groups the\nones that look like duplicates of each other. Read-only: nothing is\nchanged, and pairs the user marked as \"not a duplicate\" are left out\nunless `includeDismissed` asks for them.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents",
+                "all"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "in": "query",
+            "name": "threshold",
+            "description": "score a pair needs, between 0.5 and 1",
+            "schema": {
+              "type": "number",
+              "default": 0.85
+            }
+          },
+          {
+            "in": "query",
+            "name": "includeDismissed",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Groups found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DuplicateScanResult"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind or threshold outside [0.5, 1]"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review": {
+      "post": {
+        "summary": "Let the configured AI provider judge what the scan found",
+        "description": "Runs the same scan as `/api/duplicates/scan`, shows the configured AI\nprovider every pair of the groups plus a wider band of near-misses,\nand returns the scan result with the model's verdict attached to each\ngroup and member. Groups the model confirmed below the sensitivity\narrive as extra groups with `source: ai-candidate`.\n\nRead-only and never automatic: it runs when the user asks for it,\nnothing is merged, and a verdict is information the user decides on.\n\nTwo options say how much the model gets to see. `withTitles` gives it\na few recent document titles per entry and the entries it is usually\nfiled with; `withExcerpts` adds the beginning of a couple of documents\nper entry, but only for the pairs the matcher linked by spelling alone\n(\"Kontoauszug\" / \"Kontoumzug\"), which is where names and titles are\nnot enough. Both default to on; `withExcerpts` is capped by\nDUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS and\nDUPLICATES_AI_EXCERPT_DOCUMENTS. `aiReview.excerpts` reports how many\nentries were read.\n\nThe review can be targeted, which is what makes it cheap on a large\narchive: `groupIds` names the scan groups to judge, `minConfidence`\njudges only groups scoring at least that much, and\n`includeCandidates: false` leaves the band of near-misses out\nentirely. Together they narrow the question, not the answer — every\ngroup of the scan still comes back, the ones nobody asked about with\n`aiVerdict: null` on the group and its members. A group id this scan\ndoes not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`\nand `aiReview.groupsSkipped` report what the targeting did.\n\nThis route runs the review as the same job\n`/api/duplicates/ai-review/jobs` starts and waits for it, so there is\nstill only one review at a time: while one runs this answers 409 with\nthe running job. A review that stopped early — by the token budget,\nor because somebody pressed Stop — answers 200 with the verdicts it\nreached and `aiReview.stopped`.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "concurrency": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8,
+                        "description": "How many model requests this one review keeps in\nflight, instead of what DUPLICATES_AI_CONCURRENCY\nsays. Out of range is clamped into it rather than\nrefused; absent means \"as configured\".\n"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The reviewed scan result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DuplicateAiReviewResult"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind, threshold outside [0.5, 1], `groupIds` that is not a\nlist of at most 500 non-empty strings, `minConfidence` outside\n[0.5, 1] or an `includeCandidates` that is not a boolean\n"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW), or another\nreview is already running; in the second case `data.job` names it\n"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "502": {
+            "description": "Paperless-ngx or the AI provider could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs": {
+      "post": {
+        "summary": "Start an AI review as a job the page can watch and stop",
+        "description": "Starts the same review `POST /api/duplicates/ai-review` runs, but\nanswers at once with the job instead of waiting for it. The page then\nfollows it through `/api/duplicates/ai-review/jobs/{id}/events` and\ncan end it through `/api/duplicates/ai-review/jobs/{id}/stop`.\n\nThere is at most one review at a time. While one runs this answers\n409 and carries the running job, so a second tab attaches to it\ninstead of failing.\n\nThe body is validated exactly as the synchronous route validates it.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/DuplicateAiReviewRequest"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "concurrency": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8,
+                        "description": "How many model requests this one review keeps in\nflight, instead of what DUPLICATES_AI_CONCURRENCY\nsays. Out of range is clamped into it rather than\nrefused; absent means \"as configured\".\n"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The review was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The same refusals the synchronous review answers"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A review is already running; `data.job` is that one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/current": {
+      "get": {
+        "summary": "The AI review that is running, or the last one that finished",
+        "description": "What a reloaded page asks first: `job` is the running review, the one\nstill winding down after a stop, or the last finished one while it is\nretained, and `null` when there is none. Reading it counts as watching\nthe review, so a page that polls keeps it alive.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current job, or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "nullable": true,
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/{id}": {
+      "get": {
+        "summary": "One AI review job, with its result once it has one",
+        "description": "The polling fallback for a page whose event stream a proxy cut: it\ncarries the same job and, once the review ended, the same result the\nstream would have delivered. Reading it counts as watching the review.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job and, when it has one, its result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        },
+                        "result": {
+                          "nullable": true,
+                          "$ref": "#/components/schemas/DuplicateAiReviewResult"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/{id}/result": {
+      "get": {
+        "summary": "The result of a finished job, on its own",
+        "description": "What the stream delivered with its `done` (or partial `stopped`)\nevent, without the job around it. The Duplicates page reads the review\nresult off the stream; this is for the Simplify tags page, whose two\ntasks answer with something small — a proposed vocabulary, the counts\nof a proposal run — that is worth asking for again after a reload.\n\nA job that is still running has no result yet and answers 409.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the job returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "description": "the DuplicateAiReviewResult of a review, or what a Simplify tags task returned",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          },
+          "409": {
+            "description": "The job is still running"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/{id}/events": {
+      "get": {
+        "summary": "Follow an AI review as server-sent events",
+        "description": "One `AiReviewJobEvent` per `data:` line. The first event is the job as\nit is right now, so a page that attaches late does not wait for the\nnext change; then one `progress` event per report of the judge; then\nexactly one of `done`, `stopped` or `failed`, after which the stream\nends. A comment line every 15 seconds keeps the connection open\nthrough proxies that close a quiet stream.\n\nAn open stream is what keeps the review alive: a job nobody watches\nstops itself after DUPLICATES_AI_IDLE_STOP_SECONDS.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/jobs/{id}/stop": {
+      "post": {
+        "summary": "Stop a running AI review",
+        "description": "Asks the review to end after the request it is in. What it has judged\nso far is kept: the job ends as `stopped` and carries the partial\nresult, which the stream delivers like a complete one. Stopping a\nreview that already finished changes nothing and still answers with\nthe job.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job, now stopping or already finished",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "No job with that id"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/memory": {
+      "delete": {
+        "summary": "Forget every remembered verdict of the AI judge",
+        "description": "The judge remembers what it decided about a pair of names for\nDUPLICATES_AI_VERDICT_MEMORY_DAYS, so the next review only asks about\nwhat is new. This empties that memory, which makes the next review ask\nabout everything again — the thing to do after the model changed or\nafter a verdict turned out to be wrong.\n\nLocal only: nothing in Paperless-ngx is touched, and no merge is\nundone or repeated.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The memory is empty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "removed": {
+                          "type": "integer",
+                          "description": "verdicts that were forgotten"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/entities": {
+      "get": {
+        "summary": "Every tag or correspondent of the instance",
+        "description": "The list the \"Merge by hand\" module picks from. Read-only: it loads\none kind from Paperless-ngx and hands the records back sorted by name,\ncase-insensitively, so entries that differ only in case sit next to\neach other. Nothing is grouped, scored or filtered here.\n\nUnlike the scan, `kind` is required — there is no \"both\" list.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entries of that kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityRecord"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "kind is missing or unknown"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/merge": {
+      "post": {
+        "summary": "Merge tags or correspondents into one",
+        "description": "Moves the documents of every source onto the target and deletes the\nsources afterwards, one source after the other. A source is only\ndeleted once Paperless-ngx confirms that no document carries it any\nmore; a source that fails that check is reported and kept.\n\n`targetName` renames the survivor before the documents move, so the\ngroup can end up under a name none of its members had. The old name is\nkept in the log entry (`targetRenamedFrom`) and an undo puts it back.\n\nThe answer carries `success: false` with status 200 when the merge was\nonly partial — the log entry exists either way and can be undone.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityMergeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merge finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EntityMergeResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, or targetName longer than 128 characters"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Target or a source does not exist in Paperless-ngx"
+          },
+          "409": {
+            "description": "A document scan is running, or targetName is already taken"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/delete": {
+      "post": {
+        "summary": "Delete tags or correspondents that carry no document",
+        "description": "Removes objects the scan listed as unused. Every id is checked against\nPaperless-ngx first: an object that carries a document by now is\nrefused and kept, never deleted. What was deleted is written to the\nmerge log as one entry with `action: delete`, so the same undo\nre-creates the objects — with new ids, as any undo does.\n\nThe answer carries `success: false` with status 200 when at least one\nobject could not be deleted; the deleted ones are in `data.deleted`\neither way.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityDeleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Delete finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EntityDeleteResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind, or ids missing, empty, malformed or longer than 500"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A document scan is running"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismiss": {
+      "post": {
+        "summary": "Mark entries as \"not a duplicate\"",
+        "description": "Stores every pair among the given ids, so the scan stops offering them\ntogether until the pair is restored through\n`DELETE /api/duplicates/dismissals/{id}`.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityMergeDismissRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairs stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "dismissed": {
+                          "type": "integer",
+                          "description": "pairs newly stored; known pairs are not counted again"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismissals": {
+      "get": {
+        "summary": "List the pairs marked as \"not a duplicate\"",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dismissed pairs, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityMergeDismissal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismissals/{id}": {
+      "delete": {
+        "summary": "Restore a pair marked as \"not a duplicate\"",
+        "description": "The pair is offered by the scan again from the next run on.",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pair restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Unknown pair"
+          }
+        }
+      }
+    },
+    "/api/duplicates/log": {
+      "get": {
+        "summary": "The local merge log",
+        "description": "Every merge this instance performed, newest first, with everything an\nundo needs. `recordsTotal` counts the rows matching the filter.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "capped at 100",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "description": "Keeps only the rows that record this action. The local model pages\nthe log by kind alone, so the action is applied in the route over\nthe newest 2000 rows; `recordsTotal` counts what matched inside\nthat window.\n",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "merge",
+                "delete",
+                "split"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merge log",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityMergeLogEntry"
+                      }
+                    },
+                    "recordsTotal": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind or action"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/log/{id}/undo": {
+      "post": {
+        "summary": "Undo a logged merge",
+        "description": "Re-creates every source the merge deleted — a same-named object that\nexists again is adopted instead — and hands back the documents that\nstill carry the target. Documents that were changed since the merge\nare counted as skipped and left alone. The re-created objects get new\nids in Paperless-ngx.\n\nThe answer carries `success: false` with status 200 when at least one\nsource could not be restored.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "id of the merge log entry",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Undo finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EntityMergeUndoResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Unknown merge"
+          },
+          "409": {
+            "description": "Already undone, or a document scan is running"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/mappings": {
+      "get": {
+        "summary": "Names document analysis proposed and the guard mapped onto an existing object",
+        "description": "Every time the creation guard recognised a proposed tag or\ncorrespondent as another spelling of one that exists, it recorded the\nmapping. The list is local, newest first, and kept short; it exists so\na wrong mapping can be noticed and the setting turned off.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mappings, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityNameMapping"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Forget the recorded name mappings",
+        "description": "Clears the local list. Nothing in Paperless-ngx changes: the names were\nmapped when the documents were analysed, and this only forgets the\nrecord of it.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The list is empty again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "removed": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/estimate": {
+      "get": {
+        "summary": "What the next AI review would cost, before it starts",
+        "description": "Answers the question the page asks before it spends anything: how\nmany requests, how many tokens, how long. Nothing here asks a model\nand nothing scans — the page calls this again on every move of a\nlever, so it may only read what is already there.\n\nA scan is a walk over every tag and every correspondent of the\narchive, so this never starts one. It answers from the scan the merge\nservice still holds for these options, and when there is none it\nanswers `needsScan: true` with `items: 0` and `basis: \"guess\"` — the\npage then says \"scan first, then I can tell you\" instead of showing a\nnumber nobody measured.\n\n`basis` says where the numbers come from: `run` a finished review of\nthis archive, `model` what the judge measured about this model,\n`guess` neither. `requests` is the judging pass alone; `extra` names\nwhat comes on top — the requests a semantic sweep would add, and the\nentities whose documents would be read for excerpts, which are reads\nof Paperless-ngx rather than model requests.\n\n`items` counts the pairs of the scan's groups that the model would be\nasked about. A review that also asks about the candidate band asks\nabout more: the band needs the entity list, and reading it is exactly\nthe cost this endpoint exists to avoid.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents",
+                "all"
+              ]
+            },
+            "description": "What the review would look at; `all` by default"
+          },
+          {
+            "in": "query",
+            "name": "threshold",
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "The sensitivity the scan was made with"
+          },
+          {
+            "in": "query",
+            "name": "sweep",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "The semantic sweep is on"
+          },
+          {
+            "in": "query",
+            "name": "excerpts",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "Document excerpts are read as evidence"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the review would cost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/AiRunEstimate"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "model": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "thinking": {
+                              "type": "boolean"
+                            },
+                            "groups": {
+                              "type": "integer",
+                              "description": "scan groups the review would judge"
+                            },
+                            "pairs": {
+                              "type": "integer",
+                              "description": "every pair of those groups — what the model is\nasked about plus what a spelling rule settled\n"
+                            },
+                            "needsScan": {
+                              "type": "boolean",
+                              "description": "no cached scan answers for these options"
+                            },
+                            "extra": {
+                              "type": "object",
+                              "properties": {
+                                "sweepRequests": {
+                                  "type": "integer"
+                                },
+                                "excerptReads": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind, or a threshold outside [0, 1]"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "503": {
+            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW), or no AI\nprovider is configured; the message names which of the two\n"
+          }
+        }
+      }
+    },
+    "/simplify": {
+      "get": {
+        "summary": "Simplify tags page",
+        "description": "Renders the page that turns compound tags such as \"Stromrechnung\" into\na document type (\"Rechnung\") and topic tags (\"Strom\"). The vocabulary\nand the proposals are read through `/api/simplify/*`; nothing runs\nautomatically and no split happens without a confirmation.\n",
+        "tags": [
+          "Navigation",
+          "Simplify"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Simplify tags page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/vocabulary": {
+      "get": {
+        "summary": "The target vocabulary of document types and topic tags",
+        "description": "The couple of dozen concepts the archive should end up with, in the\norder the user put them in. Local only: these are names, not objects\nin Paperless-ngx — an entry gets its `paperlessId` when a split first\nneeds the object.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored vocabulary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagVocabulary"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace the target vocabulary",
+        "description": "Stores the vocabulary as the user edited it: names only, the order\nkept, blanks and repeats dropped. The ids a name already has in\nPaperless-ngx survive the save. A list that is not a list of at most\n200 names of at most 128 characters each is refused with 400.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagVocabularyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagVocabulary"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A list is too long, or holds something that is not a name"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/document-types": {
+      "get": {
+        "summary": "The document types Paperless-ngx already has",
+        "description": "What the \"Document type\" field of the vocabulary offers. Read-only and\ncached: the list is refreshed when it is empty, when it is older than\nTAG_CACHE_TTL_SECONDS or when `fresh` asks for it, and every write\nthat creates or deletes a document type empties it, so a type a split\njust created is listed at once.\n\n`inVocabulary` says which of them the saved vocabulary already holds;\nthe page marks those rows and does not add them a second time.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "fresh",
+            "required": false,
+            "description": "1, true or yes reads past the cache",
+            "schema": {
+              "type": "string",
+              "example": "1"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document types, sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "types": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TagVocabularyDocumentType"
+                          }
+                        },
+                        "total": {
+                          "type": "integer",
+                          "example": 8
+                        },
+                        "cachedAt": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time",
+                          "description": "When the cached list was built; null while nothing was read yet"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/simplify/vocabulary/propose": {
+      "post": {
+        "summary": "Let the model propose a vocabulary from the tag names",
+        "description": "Starts a job that shows the model every tag name and asks for the\ncouple of dozen document types and topics the archive really has. The\nroute answers at once with the job; the page follows it through\n`/api/duplicates/ai-review/jobs/{id}/events` and reads the proposal\nfrom `/api/duplicates/ai-review/jobs/{id}/result`.\n\nThe proposal is not saved: it is shown for editing, and only\n`PUT /api/simplify/vocabulary` stores anything.\n\nThere is one job at a time for the whole app, shared with the AI\nreview; while one runs this answers 409 and carries it.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The proposal was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals": {
+      "get": {
+        "summary": "What every tag stands for, as proposed",
+        "description": "One row per tag the last run looked at, by name. Read-only; the rows\nsurvive a reload and are edited one by one through the PATCH below.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "accepted",
+                "skipped",
+                "applied"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored proposals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TagSplitProposal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown status"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals/run": {
+      "post": {
+        "summary": "Propose for every tag what it stands for",
+        "description": "Starts a job that decomposes every tag against the saved vocabulary —\nfirst by rule, which needs no model at all, then by the model for what\nthe rule could not settle. The stored proposals are replaced.\n\nAnswers like the vocabulary proposal: 202 with the job, or 409 with\nthe job that is already running.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fresh": {
+                    "type": "boolean",
+                    "description": "ask the model again for tags a rule already settled"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The run was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals/{tagId}": {
+      "patch": {
+        "summary": "Change one proposal",
+        "description": "Only the fields the body names are changed. A changed target marks the\nproposal as the user's, and `status` may only move between open,\naccepted and skipped — applying is what an apply route does.\n\n`action` says what the proposed order does with the tag (split, merge,\nkeep or delete) and `mergeInto` names the tag a merge goes into; both\nmark the proposal as the user's, exactly as a changed target does.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tagId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagSplitProposalPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The proposal as it is stored now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitProposal"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field of the patch is of the wrong kind"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no proposal for that tag"
+          },
+          "409": {
+            "description": "The proposal was already applied"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/proposals/{tagId}/impact": {
+      "get": {
+        "summary": "What applying one proposal would do to the documents",
+        "description": "Read-only: it asks Paperless-ngx how many documents of the tag would\nget the topics, how many would get the document type, and how many\nalready carry a different one and would keep it. The page asks for\nevery selected tag before it shows the one confirmation of an apply.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tagId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the split would touch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitImpact"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tag id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no proposal for that tag"
+          },
+          "501": {
+            "description": "The impact preview is not available on this build"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/simplify/apply": {
+      "post": {
+        "summary": "Apply the proposals of the named tags",
+        "description": "One tag after the other: the vocabulary objects are created in\nPaperless-ngx where they are missing, the documents of the tag get the\ntopic tags and — where they carry no document type, or always with\n`overwriteType` — the document type, the compound tag is deleted, and\none merge-log row with `action: split` records what happened per\ndocument so an undo can play it back.\n\nThe answer carries `success: false` with status 200 when at least one\ntag failed; what was applied is in `data.applied` either way, and each\nfailure names its reason.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagSplitApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The run finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitApplyResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "tagIds is missing, empty, too long or not a list of ids"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A document scan is running"
+          },
+          "501": {
+            "description": "Applying splits is not available on this build"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/simplify/order/propose": {
+      "post": {
+        "summary": "Propose the whole order as one job",
+        "description": "Starts the one job that proposes the new order of the archive: it\nreads every tag and every document type, proposes the vocabulary\nitself unless `vocabulary` is `keep`, and gives every tag one action —\nsplit it into a document type and topics, merge it into another tag,\nkeep it, or delete it. The stored proposals are replaced.\n\nThe route answers at once with the job; the page follows it through\n`/api/duplicates/ai-review/jobs/{id}/events` and reads the groups from\n`GET /api/simplify/groups` when it is done. Nothing is written to\nPaperless-ngx here — a proposal is a proposal until it is accepted and\napplied.\n\nThere is one job at a time for the whole app, shared with the AI\nreview; while one runs this answers 409 and carries it.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/TagOrderProposeRequest"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "skipDecided": {
+                        "type": "boolean",
+                        "description": "Leave the tags with a proposal the user has already\naccepted or applied out of the model pass. Their\nproposals are kept as they are.\n"
+                      },
+                      "minDocuments": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Leave the tags on fewer documents than this out of the\nmodel pass; they come back as `keep` with a reason\nthat says so.\n"
+                      },
+                      "concurrency": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8,
+                        "description": "How many model requests this one run keeps in flight,\ninstead of DUPLICATES_AI_CONCURRENCY. Clamped, not\nrefused; absent means \"as configured\".\n"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The proposal was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "vocabulary is neither propose nor keep"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "The order proposal is not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/order/estimate": {
+      "get": {
+        "summary": "What the next run of the proposed order would cost",
+        "description": "The same question the Duplicates page asks before its review, for the\norder: how many tags reach the model, how many requests that is, what\nit costs and how long it takes. Nothing here asks a model — the page\ncalls it again on every move of a lever.\n\nThe rule pass is the one the run itself runs before it asks anything,\nso `itemsByRule` and `items` are what the run would really do. The\ntag list it reads is cached for a minute.\n\n`skippable` is what each of the two levers would save, counted over\nthe tags that would otherwise reach the model: `decided` the ones\nwith a proposal the user has already accepted or applied,\n`lowDocument` the ones below `minDocuments` — or below three when the\nrequest named no floor, so the page has a real number to offer before\nanybody has moved anything.\n\n`requests` is the ordering pass alone. `extra.vocabularyRequests` is\nwhat proposing a new vocabulary adds on top, and is zero when\n`keepVocabulary` is set.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keepVocabulary",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "Use the saved vocabulary instead of proposing a new one"
+          },
+          {
+            "in": "query",
+            "name": "skipDecided",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "Leave out the tags the user has already decided on"
+          },
+          {
+            "in": "query",
+            "name": "minDocuments",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Leave out the tags on fewer documents than this"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the run would cost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/AiRunEstimate"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "tags": {
+                              "type": "integer",
+                              "description": "every tag of the archive"
+                            },
+                            "model": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "thinking": {
+                              "type": "boolean"
+                            },
+                            "skippable": {
+                              "type": "object",
+                              "properties": {
+                                "decided": {
+                                  "type": "integer"
+                                },
+                                "lowDocument": {
+                                  "type": "integer"
+                                }
+                              }
+                            },
+                            "extra": {
+                              "type": "object",
+                              "properties": {
+                                "vocabularyRequests": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "The proposed order is not available on this build"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          },
+          "503": {
+            "description": "No AI provider is configured"
+          }
+        }
+      }
+    },
+    "/api/simplify/groups": {
+      "get": {
+        "summary": "The proposed order, as groups",
+        "description": "The stored proposals seen from the other side: one group per document\ntype (`type:Rechnung`), one per topic (`topic:Strom`), one per merge\ntarget (`merge:Amazon`), and the two buckets `keep` and `delete`. A\ntag with a type and two topics is a member of three groups, so the\nnumbers of the groups add up to more than the number of tags — the\ntotals next to `groups` are the ones per tag.\n\nRead-only, local and instant: this is the same SQLite table the\nproposals route lists, no request leaves the machine.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The groups of the proposed order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagOrderGroups"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "The group view is not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/groups/{key}/decision": {
+      "post": {
+        "summary": "Accept, skip or reopen one group",
+        "description": "One decision for every open member of the group: `accept` marks them\nas accepted so an apply picks them up, `skip` puts them aside, and\n`reopen` takes either back. Members that were already applied are left\nalone — a decision never undoes anything.\n\nThe key is the one the group carries (`type:Rechnung`, `topic:Strom`,\n`merge:Amazon`, `keep` or `delete`), URL-encoded in the path. The\nanswer says how many proposals changed and hands the group back as it\nstands now.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "description": "The group key, URL-encoded",
+            "schema": {
+              "type": "string",
+              "example": "type%3ARechnung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagGroupDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the decision changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "changed": {
+                          "type": "integer",
+                          "description": "proposals whose status the decision moved"
+                        },
+                        "group": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/TagOrderGroup"
+                            }
+                          ],
+                          "nullable": true,
+                          "description": "the group as it stands now; null once it holds nothing"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The key is missing or too long, or the decision is unknown"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no group of that key"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "Group decisions are not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/groups/{key}/members/{tagId}": {
+      "delete": {
+        "summary": "Take one tag out of a group",
+        "description": "The exception to the group decision: one tag does not belong here, the\nrest of the group does. Out of a type group the tag loses its document\ntype, out of a topic group that one topic, out of a merge group it\nbecomes `keep`, and out of `delete` it becomes `keep` as well. A tag\nthat is left with nothing to do becomes `keep`.\n\nNothing is deleted in Paperless-ngx: this edits the proposal, which is\na local row, and hands it back as it now stands.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "description": "The group key, URL-encoded",
+            "schema": {
+              "type": "string",
+              "example": "topic%3AStrom"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tagId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The proposal as it is stored now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagSplitProposal"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The key is missing or too long, or the tag id is not one"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "There is no such group, or the tag is not a member of it"
+          },
+          "409": {
+            "description": "The proposal was already applied"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "Group edits are not available on this build"
+          }
+        }
+      }
+    },
+    "/api/simplify/order/apply": {
+      "post": {
+        "summary": "Apply what was accepted, as one job",
+        "description": "Writes the accepted proposals to Paperless-ngx, one tag after the\nother: a split creates the vocabulary objects where they are missing,\ngives the documents their topic tags and document type and deletes the\ncompound tag; a merge goes through the same merge the Duplicates page\nuses; a delete takes the tag off its documents. Every one of them\nwrites a merge-log row, so every one of them can be taken back.\n\n`groupKey` narrows the run to the accepted members of one group;\nwithout it every accepted proposal is applied. A tag that fails is\nlisted in `failed` with its reason and the run goes on, so the job\nfinishes as `done` with a partial result rather than failing.\n\nAnswers like the other jobs: 202 with the job, or 409 with the job\nthat is already running. The result of the job\n(`/api/duplicates/ai-review/jobs/{id}/result`) is a TagOrderApplyResult.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagOrderApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The run was started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "$ref": "#/components/schemas/AiReviewJob"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "groupKey is there but not a non-empty string"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "409": {
+            "description": "A job is already running; `data.job` is that one"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "501": {
+            "description": "Applying the order is not available on this build"
           }
         }
       }

@@ -75,4 +75,7 @@
   <symbol id="i-code" viewBox="0 0 24 24"><path d="M8.5 4.5H7A2.5 2.5 0 0 0 4.5 7v3L3 12l1.5 2v3A2.5 2.5 0 0 0 7 19.5h1.5"/><path d="M15.5 4.5H17A2.5 2.5 0 0 1 19.5 7v3L21 12l-1.5 2v3a2.5 2.5 0 0 1-2.5 2.5h-1.5"/></symbol>
   <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19.5v-15M6 10.5l6-6 6 6"/></symbol>
   <symbol id="i-login" viewBox="0 0 24 24"><path d="M14 17l5-5-5-5M19 12H8"/><path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><path d="M4 3.5V8l8 6 8-6V3.5"/><path d="M12 14v6.5"/><path d="m8.5 17 3.5 3.5 3.5-3.5"/></symbol>
+  <symbol id="i-split" viewBox="0 0 24 24"><path d="M12 20.5V14"/><path d="M12 14 6 8V3.5"/><path d="m12 14 6-6V3.5"/><path d="m3 6.5 3-3 3 3"/><path d="m15 6.5 3-3 3 3"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M3 6h8M17 6h4M3 12h3M11 12h10M3 18h12M20 18h1"/><circle cx="14" cy="6" r="2.5"/><circle cx="8" cy="12" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/></symbol>
 </svg>

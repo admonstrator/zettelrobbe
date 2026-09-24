@@ -433,7 +433,7 @@ startupLog(logLevel, 'info', 'Configuration loaded:', {
 });
 
 module.exports = {
-  PAPERLESS_AI_VERSION: 'v2026.09.01',
+  PAPERLESS_AI_VERSION: 'v2026.09.02',
   CONFIGURED: false,
   configSourceMode: CONFIG_SOURCE_MODE,
   getApiKey,
@@ -502,6 +502,105 @@ module.exports = {
   ),
   addAIProcessedTag: process.env.ADD_AI_PROCESSED_TAG || 'no',
   addAIProcessedTags: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
+  // Duplicates page: the configured AI provider may judge candidate pairs on
+  // request (Find duplicates, Ask the model). `no` keeps the model off the
+  // page, which then scans only; nothing runs on its own either way. The batch size is pairs per model request; the floor is the
+  // lowest matcher score a pair needs to be shown to the model at all.
+  duplicatesAiReview: parseEnvBoolean(process.env.DUPLICATES_AI_REVIEW, 'yes'),
+  duplicatesAiReviewBatchSize: parseInt(
+    process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
+    10
+  ),
+  duplicatesAiCandidateFloor: parseFloat(
+    process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6'
+  ),
+  // Evidence for the judge beyond names and titles: a short excerpt of the
+  // content of a couple of documents per entity, only for pairs the matcher
+  // linked by spelling alone (typo-like distance, prefix, word order). That
+  // is where a name pair such as "Kontoauszug" / "Kontoumzug" reads like a
+  // typo but means two different things.
+  duplicatesAiExcerpts: parseEnvBoolean(
+    process.env.DUPLICATES_AI_EXCERPTS,
+    'yes'
+  ),
+  duplicatesAiExcerptChars: parseInt(
+    process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
+    10
+  ),
+  duplicatesAiExcerptDocuments: parseInt(
+    process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+    10
+  ),
+  // Optional: a stronger model of the configured provider for the judge
+  // only. Empty means the provider's configured model.
+  duplicatesAiModel: (process.env.DUPLICATES_AI_MODEL || '').trim(),
+  // The two brakes of a running review. The token budget is the most one
+  // review may spend across all its requests before it stops itself (0 = no
+  // limit); the idle stop ends a review nobody has been watching for that
+  // many seconds (0 = never), so a closed tab cannot leave the model running.
+  duplicatesAiTokenBudget: parseInt(
+    process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+    10
+  ),
+  duplicatesAiIdleStopSeconds: parseInt(
+    process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
+    10
+  ),
+  // How the judge talks to the model. Thinking (the reasoning a model such
+  // as Qwen3 or DeepSeek-R1 writes before its answer) is off by default: it
+  // spends the whole answer budget before the first verdict and the judge
+  // gets evidence instead. The request seconds are the length one model
+  // request should take; the judge measures the model on a small first
+  // request and sizes every later one to fit.
+  duplicatesAiThinking: parseEnvBoolean(
+    process.env.DUPLICATES_AI_THINKING,
+    'no'
+  ),
+  duplicatesAiRequestSeconds: parseInt(
+    process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
+    10
+  ),
+  // Drift is prevented where it starts: when document analysis proposes a
+  // tag or correspondent whose name is a hard match of an existing one
+  // (case, umlauts, legal form, plural, word order), the existing one is
+  // used and the mapping is recorded for the Duplicates page. A typo-like
+  // match is only logged; the name is still created.
+  duplicatesGuardNewNames: parseEnvBoolean(
+    process.env.DUPLICATES_GUARD_NEW_NAMES,
+    'yes'
+  ),
+  // The semantic sweep shows the model the names of one kind, this many per
+  // request, and asks for groups the string matcher cannot see (synonyms,
+  // translations). Off unless the page asks for it.
+  duplicatesAiSweepNames: parseInt(
+    process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
+    10
+  ),
+  // Model requests the AI judge keeps in flight at once. 0 means automatic:
+  // one for Ollama (a local model answers one request at a time anyway),
+  // three for every hosted endpoint. Wall time divides by it, tokens do not.
+  duplicatesAiConcurrency: parseInt(
+    process.env.DUPLICATES_AI_CONCURRENCY || '0',
+    10
+  ),
+  // How long the judge remembers a verdict about a pair of names, so the
+  // next review does not ask the model again while both names are unchanged.
+  // 0 switches the memory off.
+  duplicatesAiVerdictMemoryDays: parseInt(
+    process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS || '90',
+    10
+  ),
+  // "Simplify tags": how many tag names one model request decomposes into a
+  // document type and topic tags, and how many entries the proposed
+  // vocabulary should aim at.
+  simplifyTagsPerRequest: parseInt(
+    process.env.SIMPLIFY_TAGS_PER_REQUEST || '50',
+    10
+  ),
+  simplifyVocabularySize: parseInt(
+    process.env.SIMPLIFY_VOCABULARY_SIZE || '25',
+    10
+  ),
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents:
