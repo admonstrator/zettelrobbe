@@ -249,6 +249,12 @@
     outline-offset: 2px;
   }
 
+  /* The head of a pair carries up to five badges; on a phone they wrap
+     rather than push the card sideways. */
+  .dup-stack .zr-decision__head {
+    flex-wrap: wrap;
+  }
+
   .dup-stack__foot {
     display: flex;
     flex-wrap: wrap;
@@ -764,9 +770,10 @@
     opacity: 0.6;
   }
 
+  /* "Model: same · high" fits the column; with "· remembered" it wraps
+     inside the cell instead of running under the edge of the card. */
   .dup-member__verdict {
     display: block;
-    white-space: nowrap;
   }
 
   /* The band below the chosen threshold: everything under this line is the
