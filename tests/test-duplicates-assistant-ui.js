@@ -2378,6 +2378,39 @@ function visibleText(markup) {
     .trim();
 }
 
+test('After a batch the assistant says what it wrote, and a title stands alone', () => {
+  const body = functionBody('runBatch');
+  assert.match(
+    body,
+    /el\.aiNotice\.innerHTML = htmlAlert\(failed > 0 \? 'warn' : 'ok', summary, ''\)/,
+    'the assistant does not say what the batch merged'
+  );
+  // The notice lives in the assistant, and a new scan clears it.
+  const view = read('views', 'duplicates.ejs');
+  const assist = view.slice(
+    view.indexOf('id="dupAssist"'),
+    view.indexOf('</section>', view.indexOf('id="dupAssist"'))
+  );
+  assert.ok(assist.includes('id="dupAiNotice"'));
+  assert.ok(functionBody('runScan').includes('clearAiNotice();'));
+  const { htmlAlert } = helpers(['htmlAlert'], { constants: ['htmlIcons'] });
+  const alone = htmlAlert('ok', '5 merged · 15 documents', '');
+  assert.ok(alone.includes('>5 merged · 15 documents</div>'));
+  assert.ok(!alone.includes('<p'), 'an empty line under a title');
+  assert.ok(htmlAlert('warn', '', 'Inbox tag').includes('>Inbox tag</p>'));
+});
+
+test('One token is one token, and the pair head wraps on a phone', () => {
+  const kit = meterKit();
+  assert.strictEqual(kit.reqlogCostText({ tokens: 1 }), '1 token');
+  assert.strictEqual(kit.reqlogCostText({ tokens: 900 }), '900 tokens');
+  assert.match(
+    CSS,
+    /\.dup-stack \.zr-decision__head \{\n\s+flex-wrap: wrap;/,
+    'the badges of a pair push the stack sideways on a phone'
+  );
+});
+
 test('The toolset carries its controls, named in a word or two', () => {
   const tools = offered.slice(offered.indexOf('id="dupControls"'));
   [

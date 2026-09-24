@@ -534,7 +534,10 @@ function htmlAlert(tone, title, body) {
   const htmlTitle = title
     ? `<div class="zr-alert__title">${esc(title)}</div>`
     : '';
-  return `<div class="zr-alert zr-alert--${esc(tone)}">${htmlIcon}<div class="zr-alert__body">${htmlTitle}<p class="zr-sm">${esc(body)}</p></div></div>`;
+  // A title that says it all leaves no empty line under it.
+  const text = String(body == null ? '' : body);
+  const htmlBody = text === '' ? '' : `<p class="zr-sm">${esc(text)}</p>`;
+  return `<div class="zr-alert zr-alert--${esc(tone)}">${htmlIcon}<div class="zr-alert__body">${htmlTitle}${htmlBody}</div></div>`;
 }
 
 function htmlEmpty(title) {
@@ -2696,6 +2699,12 @@ async function runBatch(entries, copyMatchingRule) {
   setSelectionBusy(false);
   finishApply(summary);
   setSelectionProgress(summary);
+  // The assistant says what the batch wrote, under the numbers of what is
+  // left, until the next scan or run: the checklist closes and the toast
+  // goes, this line stays.
+  if (el.aiNotice) {
+    el.aiNotice.innerHTML = htmlAlert(failed > 0 ? 'warn' : 'ok', summary, '');
+  }
   // What the batch left behind: the merged groups are gone from the selection
   // and from the numbers of the assistant, a group that failed is still in
   // both and can be tried again.
@@ -5437,7 +5446,9 @@ function reqlogCostText(record) {
   const tokens = Number(record.tokens);
   if (!Number.isFinite(tokens) || tokens <= 0) return '';
   const thinking = num(record.thinkingTokens);
-  if (thinking <= 0) return `${formatTokens(tokens)} tokens`;
+  if (thinking <= 0) {
+    return `${formatTokens(tokens)} ${plural(tokens, 'token', 'tokens')}`;
+  }
   if (thinking >= tokens) return `${formatTokens(tokens)}, all thinking`;
   return `${formatTokens(tokens)} · ${formatTokens(thinking)} of it thinking`;
 }

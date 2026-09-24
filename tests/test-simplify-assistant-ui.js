@@ -1490,6 +1490,81 @@ test('Every request row is worded by what it was about', () => {
   );
 });
 
+test('A request row takes as long as the Duplicates page says it does', () => {
+  const kit = helpers([...RUNNING, 'requestTime', 'htmlReqLog'], {
+    constants: ['CEILING_SHOWN_ABOVE', 'JOB_TASKS', 'STEPS_NOT_RUN'],
+  });
+  assert.strictEqual(kit.requestTime(2000), '2 s');
+  assert.strictEqual(kit.requestTime(59400), '59 s');
+  assert.strictEqual(kit.requestTime(84000), '1:24');
+  const row = kit.htmlReqLog([
+    { index: 3, kind: 'tags', items: 3, answers: 3, tokens: 1, ms: 2000 },
+  ]);
+  assert.ok(row.includes('>2 s<'), 'the row counts seconds as "2 s"');
+  assert.ok(row.includes('>1 token<'), 'one token is one token');
+  // The legend names all three, a zero included.
+  const bar = kit.htmlTokenbar(
+    kit.tokenSplit({ prompt: 908, completion: 118, thinking: 0 })
+  );
+  assert.ok(bar.includes('>908 read<') && bar.includes('>118 written<'));
+  assert.ok(bar.includes('>0 thinking<'), 'the zero of thinking is left out');
+});
+
+test('An order stopped early says so in the assistant, with what it left', () => {
+  const { htmlStopNotice } = helpers(
+    ['num', 'plural', 'grouped', 'htmlAlert', 'htmlStopNotice'],
+    {}
+  );
+  const job = (over) => ({
+    stopReason: 'user',
+    progress: {
+      requestsDone: 4,
+      requestsPlanned: 5,
+      pairsTotal: 25,
+      pairsJudged: 20,
+      tokenBudget: 200000,
+    },
+    ...over,
+  });
+  const user = htmlStopNotice(job());
+  assert.ok(
+    user.includes('zr-alert--warn') && user.includes('>Stopped early<')
+  );
+  assert.ok(user.includes('Stopped after 4 of 5 requests · 5 tags not asked'));
+  assert.ok(
+    htmlStopNotice(job({ stopReason: 'token-budget' })).includes(
+      'Stopped at the 200k limit after 4 requests · 5 tags not asked'
+    )
+  );
+  assert.ok(
+    htmlStopNotice(job({ stopReason: 'idle' })).includes(
+      'Stopped · no page was watching · 5 tags not asked'
+    )
+  );
+  // Stopped in the vocabulary pass: no tag was counted yet.
+  assert.ok(
+    htmlStopNotice({
+      progress: { requestsDone: 1, requestsPlanned: 1 },
+    }).includes('Stopped after 1 of 1 request<')
+  );
+  // Both ways of following an order put it where the result is read.
+  ['runOrderJob', 'reattachJob'].forEach((name) => {
+    assert.ok(
+      functionBody(name).includes('htmlStopNotice(ended)'),
+      `${name} does not say that the run stopped`
+    );
+  });
+});
+
+test('The apply dialog is titled with the button that was pressed', () => {
+  const all = functionBody('applyAllAccepted');
+  assert.ok(
+    all.includes(
+      'title: applyLabel({ tags: list.length, writes: planWrites(list).writes })'
+    )
+  );
+});
+
 test('The headline has no subject, and Stop is one word', () => {
   const { phaseHeadline } = running();
   [
