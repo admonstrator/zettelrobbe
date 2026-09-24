@@ -432,6 +432,17 @@ const SWEEP_GROUPED_SHARE = 10;
  */
 const SEMANTIC_SCORE = 0.5;
 /** Why the sweep says two names are one thing. Anything else becomes null. */
+/** How a spelling rule is named where a person reads it. */
+const RULE_LABELS = Object.freeze({
+  'exact-normalized': 'same name',
+  'umlaut-variant': 'umlaut spelling',
+  'legal-form': 'legal form',
+  plural: 'singular and plural',
+  'token-order': 'word order',
+  prefix: 'prefix',
+  fuzzy: 'similar spelling',
+});
+
 const SWEEP_BASES = Object.freeze(['translation', 'synonym', 'abbreviation']);
 const SWEEP_BASIS_SET = new Set(SWEEP_BASES);
 /** Neighbour names per entity handed to the model, most frequent first. */
@@ -3718,7 +3729,7 @@ class EntityMatchAiService {
         if (basis) {
           settled.set(key, {
             verdict: AI_VERDICTS.SAME,
-            reason: `settled by the spelling rule ${member.reason}`,
+            reason: `settled by the spelling rule: ${RULE_LABELS[member.reason] || member.reason}`,
             basis,
             confidence: 'high',
             source: VERDICT_SOURCES.SPELLING_RULE,
@@ -4816,6 +4827,7 @@ entityMatchAiService.VERDICT_BASES = VERDICT_BASES;
 entityMatchAiService.CONFIDENCE_LEVELS = CONFIDENCE_LEVELS;
 entityMatchAiService.SPELLING_ONLY_REASONS = SPELLING_ONLY_REASONS;
 entityMatchAiService.SWEEP_BASES = SWEEP_BASES;
+entityMatchAiService.RULE_LABELS = RULE_LABELS;
 entityMatchAiService.SWEEP_MAX_NAMES = SWEEP_MAX_NAMES;
 entityMatchAiService.MIN_SWEEP_NAMES = MIN_SWEEP_NAMES;
 entityMatchAiService.SEMANTIC_SCORE = SEMANTIC_SCORE;

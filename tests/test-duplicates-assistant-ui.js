@@ -1706,10 +1706,17 @@ function decisionHelpers() {
       'htmlDecisionHead',
       'htmlDecisionMembers',
       'mergeFactsText',
+      'isSureSame',
+      'isSemanticGroup',
+      'isProposed',
+      'proposalReason',
       'htmlDecisionCard',
     ],
     {
       constants: [
+        'PLAIN_SCORE',
+        'ASK_WARNINGS',
+        'REASON_BY_WARNING',
         'ALGORITHM_LABELS',
         'KIND_LABELS',
         'KIND_PLURALS',
@@ -2405,8 +2412,8 @@ test('One token is one token, and the pair head wraps on a phone', () => {
   assert.strictEqual(kit.reqlogCostText({ tokens: 1 }), '1 token');
   assert.strictEqual(kit.reqlogCostText({ tokens: 900 }), '900 tokens');
   assert.match(
-    CSS,
-    /\.dup-stack \.zr-decision__head \{\n\s+flex-wrap: wrap;/,
+    read('public', 'css', 'review.css'),
+    /\.zr-decision__head \{\n\s+display: flex;\n\s+flex-wrap: wrap;/,
     'the badges of a pair push the stack sideways on a phone'
   );
 });

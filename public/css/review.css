@@ -131,6 +131,7 @@
 
   .zr-decision__head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--zr-2);
     margin-bottom: var(--zr-5);
@@ -811,7 +812,7 @@
     }
 
     .zr-assist__actions {
-      flex-direction: column-reverse;
+      flex-direction: column;
     }
 
     .zr-assist > .zr-btn,

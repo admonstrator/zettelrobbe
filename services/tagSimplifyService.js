@@ -1147,12 +1147,14 @@ class TagSimplifyService {
     };
     // A vocabulary request reads a chunk of names and answers with the words
     // it found in them: it read all of them, so it answered for all of them.
-    // A request that found nothing at all read nothing usable.
+    // A request that found nothing at all read nothing usable. Its row
+    // counts what it proposed, so the page can say "300 names read · 7
+    // proposed".
     meter(
       proposed.types.length + proposed.topics.length === 0
         ? 'empty'
         : 'answered',
-      names.length
+      proposed.types.length + proposed.topics.length
     );
     return proposed;
   }

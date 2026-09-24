@@ -249,12 +249,6 @@
     outline-offset: 2px;
   }
 
-  /* The head of a pair carries up to five badges; on a phone they wrap
-     rather than push the card sideways. */
-  .dup-stack .zr-decision__head {
-    flex-wrap: wrap;
-  }
-
   .dup-stack__foot {
     display: flex;
     flex-wrap: wrap;

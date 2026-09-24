@@ -112,7 +112,8 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                      element marked data-caption. -->
 
                 <!-- What a scan looks at, and the two runs. -->
-                <div class="zr-module dup-scanrow" id="dupControls">
+                <!-- Awake while the rest waits: Find duplicates scans with what this row says. -->
+                <div class="zr-module dup-scanrow" id="dupControls" data-awake>
                     <div class="zr-module__body">
                         <p data-caption="controls"></p>
                         <div class="dup-controls">

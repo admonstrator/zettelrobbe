@@ -1372,7 +1372,7 @@ test('The sentence says what happens now and why, and the tally as it grows', ()
   const guide = SIMPLIFY_GUIDE.phases.ordering;
   assert.strictEqual(
     htmlRunSentence(PROGRESS),
-    `<p class="zr-runmeter__sentence">${escForTest(`${guide.what} ${guide.why} 812 split · 96 merge · 37 delete · 3 unsure so far.`)}</p>`
+    `<p class="zr-runmeter__sentence">${escForTest(`${guide.what} ${guide.why} 812 split · 96 merge · 37 delete · 40 keep · 3 unsure so far.`)}</p>`
   );
   assert.strictEqual(
     htmlRunSentence({ phase: 'ordering', tally: null }),
@@ -1391,7 +1391,8 @@ test('The sentence says what happens now and why, and the tally as it grows', ()
   assert.strictEqual(tallyText(null), '');
   assert.strictEqual(
     tallyText({ split: 1812, merge: 0, delete: 2, keep: 5, unsure: 1 }),
-    '1,812 split · 0 merge · 2 delete · 1 unsure'
+    // keep is named too: a run that only keeps is not an empty run
+    '1,812 split · 0 merge · 2 delete · 5 keep · 1 unsure'
   );
 });
 
@@ -1409,7 +1410,7 @@ test('The meter keeps its shape: bar, ledger with the tally, token legend', () =
   assert.ok(ledger.includes('>640 of 1187</span> tags'));
   assert.ok(
     ledger.includes(
-      '<span class="zr-ledger__value">812 split · 96 merge · 37 delete · 3 unsure</span> so far'
+      '<span class="zr-ledger__value">812 split · 96 merge · 37 delete · 40 keep · 3 unsure</span> so far'
     )
   );
   assert.ok(ledger.includes('76k of ~110k'));
@@ -1461,7 +1462,7 @@ test('Every request row is worded by what it was about', () => {
   assert.strictEqual(reqlogText(names), 'Request 1 · 300 names read');
   assert.strictEqual(
     reqlogText({ ...names, answers: 120, outcome: 'partial' }),
-    'Request 1 · 300 names · 120 read · the rest asked again'
+    'Request 1 · 300 names read · 120 proposed'
   );
   assert.strictEqual(reqlogText(items), 'Request 7 · 50 items · 50 answered');
   assert.ok(

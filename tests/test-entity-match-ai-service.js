@@ -196,7 +196,7 @@ function verdict(value, reason, extra = {}) {
 function ruleVerdict(reason, basis) {
   return {
     verdict: 'same',
-    reason: `settled by the spelling rule ${reason}`,
+    reason: `settled by the spelling rule: ${require('../services/entityMatchAiService').RULE_LABELS[reason] || reason}`,
     basis,
     confidence: 'high',
     source: 'spelling-rule',

@@ -137,6 +137,7 @@ export const SIMPLIFY_GUIDE = Object.freeze({
       'Unsure tags start unticked. "Review one by one" shows them one at a time, with what each one writes.',
       'The table shows every tag as a row, where the type and the topics can be changed before they are written.',
       '"Apply" writes the ticked proposals. "Skip" puts a tag aside until it is reopened.',
+      '"Propose order again" under the vocabulary runs the order anew with the saved words; "Propose from tags" proposes new words first.',
     ],
   },
   sections: {

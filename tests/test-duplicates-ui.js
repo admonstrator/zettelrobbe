@@ -1956,7 +1956,7 @@ test('The page follows the review through the job routes and an event stream', (
     'a running review must be attached to, not reported as a failure'
   );
   assert.ok(
-    ask.includes('followReviewJob(job)'),
+    /followReviewJob\(\n?\s*job,/.test(ask),
     'the started job is not followed'
   );
   // Stop is one request and no dialog; the verdicts already reached are kept.

@@ -1794,14 +1794,38 @@ function renderProgressOutcome(event) {
   renderAssist();
 }
 
-/** What the answer of a review does to the page, wherever it came from. */
-function applyReviewResult(data) {
+/**
+ * What the answer of a review does to the page, wherever it came from.
+ *
+ * A targeted run ("Ask the model about N") answers only the groups it was
+ * asked about and hands every other group back without a verdict. Those
+ * keep the verdict they had, and with it their tick; and the cost line
+ * keeps the full run, since the targeted one is not what the result cost.
+ *
+ * @param {object} data  the review's answer
+ * @param {boolean} [targeted]  the run answered named groups only
+ */
+function applyReviewResult(data, targeted = false) {
   if (data.paperlessUrl) paperlessUrl = data.paperlessUrl;
-  // What this run cost. The `aiReview` block counts the requests and the
-  // tokens; only the job's own progress carries the seconds and the split
-  // between question, answer and reasoning, so the cost line reads both.
-  lastRunReview = data.aiReview || null;
-  lastRunProgress = progressJob ? progressJob.progress || null : null;
+  if (!targeted) {
+    // What this run cost. The `aiReview` block counts the requests and the
+    // tokens; only the job's own progress carries the seconds and the split
+    // between question, answer and reasoning, so the cost line reads both.
+    lastRunReview = data.aiReview || null;
+    lastRunProgress = progressJob ? progressJob.progress || null : null;
+  }
+  if (targeted && Array.isArray(data.groups)) {
+    const kept = keptVerdicts();
+    data.groups.forEach((group) => {
+      const had = kept.get(String(group.id));
+      if (!had) return;
+      if (!group.aiVerdict) group.aiVerdict = had.group;
+      (group.members || []).forEach((member) => {
+        const own = had.members.get(String(member.id));
+        if (!member.aiVerdict && own) member.aiVerdict = own;
+      });
+    });
+  }
   if (data.totals) lastScanTotals = data.totals;
   // An answer is a result, whichever button asked for it, and a page that
   // attached to a run after a reload has one now as well.
@@ -1810,6 +1834,29 @@ function applyReviewResult(data) {
   renderGroups(data.groups);
   renderUnused(data);
   refreshMappingLinks();
+}
+
+/**
+ * The verdicts the cards carry right now, by group id: the group's own and
+ * each member's. What a targeted run does not answer is filled from here.
+ *
+ * @returns {Map<string, {group: object|null, members: Map<string, object>}>}
+ */
+function keptVerdicts() {
+  const kept = new Map();
+  eachGroupCard((card, state) => {
+    const members = new Map();
+    (state.group.members || []).forEach((member) => {
+      if (member.aiVerdict) members.set(String(member.id), member.aiVerdict);
+    });
+    if (state.group.aiVerdict || members.size > 0) {
+      kept.set(String(state.group.id), {
+        group: state.group.aiVerdict || null,
+        members,
+      });
+    }
+  });
+  return kept;
 }
 
 /** Asks the job to end after the request it is in. No dialog, no question. */
@@ -1851,9 +1898,17 @@ async function stopReview() {
  * @param {object} job  the AiReviewJob to follow
  * @returns {Promise<{aiReview: object, stopped: boolean}>}
  */
-function followReviewJob(job) {
+/**
+ * @param {object} job  the job to follow
+ * @param {boolean} [targeted]  a run asked about named groups only; the
+ *   job's own options say so too when the page attached after a reload
+ */
+function followReviewJob(job, targeted = false) {
   return new Promise((resolve, reject) => {
     reviewJobId = job.id;
+    const named = job.options ? job.options.groupIds : null;
+    const partial =
+      targeted === true || (Array.isArray(named) && named.length > 0);
     const base = `/api/duplicates/ai-review/jobs/${encodeURIComponent(job.id)}`;
     // A run of its own on the meter: the steps of a run with the model, and
     // whether it measures the model is learned as it goes.
@@ -1905,7 +1960,7 @@ function followReviewJob(job) {
       // done and stopped both carry a result; a stopped one is the verdicts
       // the review did reach, and they belong on the cards.
       const data = event.data || null;
-      if (data) applyReviewResult(data);
+      if (data) applyReviewResult(data, partial);
       const stopped = event.type === 'stopped';
       if (stopped && el.aiNotice) {
         el.aiNotice.innerHTML = htmlAlert(
@@ -2018,7 +2073,10 @@ async function askForVerdicts(extra, options) {
   }
   // The answer rebuilds the cards from a scan made with these options.
   scanOptions = asked;
-  return followReviewJob(job);
+  return followReviewJob(
+    job,
+    Array.isArray(extra.groupIds) && extra.groupIds.length > 0
+  );
 }
 
 /**
@@ -4523,6 +4581,10 @@ function renderAssist() {
   );
   const state = assistStateOf({ live, scanned, held: assist.held });
   const busy = scanning || aiReviewing || merging || proposing;
+  // While a run goes the assistant is the page; the scan's cards come back
+  // with the result, ticked by it.
+  if (el.everything)
+    el.everything.classList.toggle('hidden', state === 'running');
   let markup = '';
   if (state === 'start') markup = htmlStartCard(busy);
   if (state === 'done') {
@@ -4774,7 +4836,10 @@ function htmlDecisionCard(state) {
   const sources = selectedSources(state);
   if (!target || sources.length === 0) return '';
   const verdict = state.group.aiVerdict;
-  const said = verdict ? shortReason(verdict.reason) : '';
+  // Why the group is unsure comes first (a warning, the model's reason, a
+  // low confidence); what the model said is the fallback.
+  const said =
+    proposalReason(state.group) || (verdict ? shortReason(verdict.reason) : '');
   const htmlNote =
     said === '' ? '' : `<p class="zr-decision__note">${esc(said)}</p>`;
   const htmlAway = sources

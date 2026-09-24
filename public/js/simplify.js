@@ -3932,12 +3932,14 @@ function reqlogText(record) {
   if (outcome === 'failed') {
     return `Request ${index} · ${asked} · ended by the provider`;
   }
-  const rest = answers < items ? ' · the rest asked again' : '';
+  // A names row counts what the vocabulary pass proposed from what it
+  // read; nothing of it is asked again.
   if (kind === 'names') {
-    return answers < items
-      ? `Request ${index} · ${asked} · ${grouped(answers)} read${rest}`
-      : `Request ${index} · ${asked} read`;
+    const proposed =
+      answers > 0 && answers < items ? ` · ${grouped(answers)} proposed` : '';
+    return `Request ${index} · ${asked} read${proposed}`;
   }
+  const rest = answers < items ? ' · the rest asked again' : '';
   return `Request ${index} · ${asked} · ${grouped(answers)} answered${rest}`;
 }
 
@@ -3983,7 +3985,7 @@ function htmlReqLog(list) {
 }
 
 /**
- * "812 split · 96 merge · 37 delete · 3 unsure": what the model has answered
+ * "812 split · 96 merge · 37 delete · 124 keep · 3 unsure": what the model has answered
  * so far in an order, from the tally the job reports, or '' before the model
  * answered. Pure on purpose.
  *
@@ -3992,7 +3994,7 @@ function htmlReqLog(list) {
  */
 function tallyText(tally) {
   if (!tally || typeof tally !== 'object') return '';
-  return ['split', 'merge', 'delete', 'unsure']
+  return ['split', 'merge', 'delete', 'keep', 'unsure']
     .map((key) => `${grouped(tally[key])} ${key}`)
     .join(' · ');
 }
