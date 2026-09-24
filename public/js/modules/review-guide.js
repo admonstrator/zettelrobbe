@@ -11,9 +11,9 @@
 export const DUPLICATES_GUIDE = Object.freeze({
   start: {
     title: 'Merge tags and correspondents that mean the same thing.',
-    what: 'A scan pairs names by spelling, the model judges every pair on its documents, and each proposal lands below as a tick. Nothing is written before Merge.',
+    what: 'A scan pairs names by spelling, the model judges the pairs spelling cannot settle, and each proposal lands below as a tick. Nothing is written before Merge.',
     whatWithoutModel:
-      'A scan pairs names by spelling, and each pair lands below as a tick. Nothing is written before Merge.',
+      'A scan pairs names by spelling, and what spelling settles lands below as a tick. Nothing is written before Merge.',
     button: 'Find duplicates',
   },
   /** The steps of a run, in order; a page drops the ones a run skips. */
@@ -39,7 +39,7 @@ export const DUPLICATES_GUIDE = Object.freeze({
     },
     sweeping: {
       what: 'The model reads the whole list of names and points out synonyms, translations and abbreviations.',
-      why: 'Spelling cannot see that KFZ and Auto are one thing. A pair from here is a claim, checked like every other pair and never ticked without a second sign.',
+      why: 'Spelling cannot see that KFZ and Auto are one thing. A pair from here is only a claim: it is judged like every other pair and never comes up ticked.',
     },
     'warming-up': {
       what: 'One small request, to measure how fast the model answers and how many pairs fit into one request.',
@@ -54,7 +54,7 @@ export const DUPLICATES_GUIDE = Object.freeze({
       why: 'An excerpt settles what a title cannot.',
     },
     finishing: {
-      what: 'The answers are sorted into groups; what both the scan and the model settled comes up ticked.',
+      what: 'The answers are sorted into groups. What the scan settled, or the model confirmed on a spelling match, comes up ticked.',
       why: '',
     },
     applying: {
@@ -65,9 +65,9 @@ export const DUPLICATES_GUIDE = Object.freeze({
   /** How the tools below are used once the run is done. */
   done: {
     next: [
-      'Every tick below is a proposal: a pair both the scan and the model settled. Untick a group to keep its names apart.',
-      'Open a group to choose the name that stays; the documents of the other names move to it.',
-      'Unsure groups start unticked. "Review one by one" walks through them with the evidence.',
+      'Every tick below is a proposal: a pair the scan settled, or one the model confirmed on a spelling match. Untick a group to keep its names apart.',
+      'On each card, "Keep" picks the name that stays; the documents of the other names move to it.',
+      'Unsure groups start unticked, with the reason on the card. "Review one by one" walks through them with the evidence.',
       '"Merge" writes the ticked groups. "Not a duplicate" keeps a pair out of later scans.',
     ],
   },
@@ -76,10 +76,10 @@ export const DUPLICATES_GUIDE = Object.freeze({
     controls:
       'How alike two names must be for the scan to pair them, and whether hidden pairs are shown again.',
     groups:
-      'Every group the scan found, most alike first. The tick is the proposal; the chip says why the names were paired.',
+      'Every group the scan found. The tick is the proposal; the chip says why the names were paired.',
     manual: 'Pair any two names by hand when the scan did not.',
     unused:
-      'Tags and correspondents no document uses. Ticked, they are deleted with the merge.',
+      'Tags and correspondents no document uses. "Delete" removes the ticked ones, logged like a merge.',
     log: 'Every merge and deletion, with Undo.',
     mappings:
       'Names document analysis mapped onto an existing tag or correspondent instead of creating a near-duplicate.',

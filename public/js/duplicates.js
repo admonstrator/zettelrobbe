@@ -2,13 +2,19 @@
  * Duplicates page: tags and correspondents that mean the same thing, and the
  * merges that fold them into one name in Paperless-ngx.
  *
- * The page has two modes (js/modules/review-mode.js). Simple opens on one
- * button: it scans both kinds at the default sensitivity and asks the model
- * about what the spelling could not settle, then shows one head with the
- * button that merges and three checklists whose ticks move its numbers.
- * Advanced is the whole toolset: the scan row, merge by hand, every group as
- * a card, the log, the mapped names and the hidden pairs. The run meter, the
- * stack of one pair per screen and the apply progress belong to both.
+ * One page. The assistant sits on top (js/modules/review-assist.js, worded
+ * by js/modules/review-guide.js) in one of three states: the start with its
+ * one button, the run meter while a scan or a run goes, and the result as a
+ * headline of numbers with the two buttons that continue from it. Under it
+ * is the whole toolset from the first second: the scan row, merge by hand,
+ * every group as a card, the unused objects, the log, the mapped names and
+ * the hidden pairs. The toolset waits, dimmed, until a result exists; the
+ * proposal of a run lands in it as the tick on each group card, and the
+ * work goes on there.
+ *
+ * A tick needs two signs (isProposed): the scan settled the pair, or the
+ * model is sure about a pair the spelling found. A pair only the model
+ * proposed is never ticked.
  *
  * Asking the model costs tokens and opens the sheet first
  * (js/modules/review-sheet.js); merging costs writes and asks once. Every
@@ -37,10 +43,15 @@ import {
   roughTime,
 } from '/js/modules/review-sheet.js';
 import {
-  applyMode,
-  htmlModeButton,
-  mountModeSwitch,
-} from '/js/modules/review-mode.js';
+  stepStates,
+  htmlSteps,
+  htmlSentence,
+  htmlAssistStart,
+  htmlAssistDone,
+  htmlCaption,
+  setWorkspaceWaiting,
+} from '/js/modules/review-assist.js';
+import { DUPLICATES_GUIDE } from '/js/modules/review-guide.js';
 
 /* --- interpolation helpers ------------------------------------------------ */
 
@@ -72,9 +83,14 @@ const REASON_LABELS = {
   'token-order': 'Word order',
   prefix: 'Prefix',
   fuzzy: 'Similar spelling',
-  // A pair the model's synonym sweep proposed; the string matcher saw nothing.
-  semantic: 'Semantic',
+  // A pair the model's synonym sweep proposed; the string matcher saw
+  // nothing. On a card the chip names the model's basis where it gave one
+  // (see reasonChipLabel).
+  semantic: 'Synonym',
 };
+
+/** The reason the sweep gives a pair; the one no spelling rule backs. */
+const SEMANTIC_REASON = 'semantic';
 
 /**
  * What the model says about a pair or a group. The three verdicts are the
@@ -250,24 +266,20 @@ const MAPPINGS_EMPTY = 'None';
 /** How the results list can be ordered; the first one is the default. */
 const SORT_MODES = ['confidence', 'documents', 'name', 'kind'];
 
-/** The three lines the gate into advanced mode reads out. */
-const GATE_LINES = [
-  { icon: 'i-filter', text: 'Sensitivity and threshold' },
-  { icon: 'i-merge', text: 'Pair anything by hand' },
-  { icon: 'i-list', text: 'Every group as a list, sort and select' },
-];
-
 /** Requests in flight at once until the sheet says otherwise. */
 const SHEET_LANES = 3;
-
-/** Rows a checklist shows before its "more" button. */
-const CHECKLIST_ROWS = 10;
 
 /* --- state ---------------------------------------------------------------- */
 
 const el = {
-  // The element that carries data-mode; both modes live inside it.
+  // The root: the assistant is its first child, the toolset the rest.
   page: document.querySelector('[data-review-page="duplicates"]'),
+  // The assistant: the card the script draws (start or result), and the
+  // two places of the run meter the guide speaks through.
+  assist: document.getElementById('dupAssist'),
+  assistCard: document.getElementById('dupAssistCard'),
+  runSteps: document.getElementById('dupRunSteps'),
+  runSentence: document.getElementById('dupRunSentence'),
   kind: document.getElementById('dupKind'),
   sensitivity: document.getElementById('dupSensitivity'),
   thresholdCustom: document.getElementById('dupThresholdCustom'),
@@ -286,20 +298,7 @@ const el = {
   runCeiling: document.getElementById('dupRunCeiling'),
   aiStopBtn: document.getElementById('dupAiStopBtn'),
   aiForgetBtn: document.getElementById('dupAiForgetBtn'),
-  // Simple mode: the card the page opens on, and what a run found.
-  lede: document.querySelector('.dup-lede'),
-  empty: document.getElementById('dupEmpty'),
-  findBtn: document.getElementById('dupFindBtn'),
-  startFacts: document.getElementById('dupStartFacts'),
-  result: document.getElementById('dupResult'),
-  resultHeadline: document.getElementById('dupResultHeadline'),
-  resultCost: document.getElementById('dupResultCost'),
-  resultMergeBtn: document.getElementById('dupResultMergeBtn'),
-  checklists: document.getElementById('dupChecklists'),
-  historyLine: document.getElementById('dupHistoryLine'),
-  historyText: document.getElementById('dupHistoryText'),
-  historyUndoBtn: document.getElementById('dupHistoryUndoBtn'),
-  // Advanced mode: every group, sorted, ticked and merged in batches.
+  // Every group, sorted, ticked and merged in batches.
   everything: document.getElementById('dupEverything'),
   results: document.getElementById('dupResults'),
   resultsBar: document.getElementById('dupResultsBar'),
@@ -372,6 +371,7 @@ const el = {
   runSegThinking: document.getElementById('dupRunSegThinking'),
   runLegend: document.getElementById('dupRunLegend'),
   runLog: document.getElementById('dupRunLog'),
+  log: document.getElementById('dupLog'),
 };
 
 /** groupId -> { group, targetId, selected: Set<number> } */
@@ -399,6 +399,11 @@ let mappingRecords = [];
 let merging = false;
 /** True from the click on "Find duplicates" until its run is over. */
 let proposing = false;
+/**
+ * True while every card of a new answer is drawn and bound: the per card
+ * updates of the selection and the assistant wait for the last one.
+ */
+let drawing = false;
 /** The review job this page is following, or null when none is. */
 let reviewJobId = null;
 /** The last job the panel drew, plus when it arrived, so elapsed can tick. */
@@ -419,21 +424,34 @@ const levers = {
 let runLanes = null;
 /** What the scan on the page was made with, so the model is asked the same. */
 let scanOptions = null;
-/** What the last run cost, for the cost line of the result head. */
+/** What the last run cost, for the cost line of the assistant's result. */
 let lastRunProgress = null;
 /** The `aiReview` block of the last answer, or null after a plain scan. */
 let lastRunReview = null;
-/** The totals of the last scan, for the headline of the result head. */
+/** The totals of the last scan, for the headline of the assistant's result. */
 let lastScanTotals = null;
 /**
- * The ticks of the simple checklists, by row key, and the lists that show
- * every row. A row that is not in `ticks` carries the tick of its list.
- * `held` keeps the card up over a scan of the one button: while its sheet
- * is open, and after Cancel, until the next scan or run.
+ * What the assistant cannot read off the page.
+ *
+ * `held` keeps the start up while "Find duplicates" has scanned and its
+ * sheet is open, and through the start of the run it opens; Cancel and
+ * every answer let the result show. `facts` is the line under the start
+ * (what the last run cost). `markup` is what the card shows now, so a
+ * redraw that would change nothing touches nothing, and `waiting` is what
+ * the toolset was last told. `withModel` says the meter shows a run that
+ * asks the model rather than a plain scan, and `sawWarmup` that this run
+ * measured the model, so both steps stay in the strip. `logVisit` wakes the
+ * toolset for a visit that came for the log.
  */
-const simple = { ticks: new Map(), open: new Set(), held: false };
-/** The log entry the history line undoes, or null when there is none. */
-let historyEntry = null;
+const assist = {
+  held: false,
+  facts: '',
+  markup: null,
+  waiting: null,
+  withModel: false,
+  sawWarmup: false,
+  logVisit: false,
+};
 
 /* --- small helpers -------------------------------------------------------- */
 
@@ -523,13 +541,32 @@ function htmlEmpty(title) {
   return `<div class="zr-module"><div class="zr-empty">${htmlIcons.empty}<div class="zr-empty__title">${esc(title)}</div></div></div>`;
 }
 
-function htmlReasonChips(reasons) {
-  const list = Array.isArray(reasons) ? reasons : [];
+/**
+ * The word on a reason chip: what the matcher found, and for a pair only the
+ * sweep proposed, the rule the model named (translation, abbreviation,
+ * synonym), or "Synonym" when it named none. Pure.
+ *
+ * @param {string} reason   a MATCH_REASONS value
+ * @param {object|null} verdict  the group's verdict, when it has one
+ * @returns {string}
+ */
+function reasonChipLabel(reason, verdict) {
+  if (reason === SEMANTIC_REASON) {
+    const basis = verdict && verdict.basis != null ? String(verdict.basis) : '';
+    if (['translation', 'abbreviation', 'synonym'].includes(basis)) {
+      return AI_BASIS_LABELS[basis];
+    }
+  }
+  return REASON_LABELS[reason] || String(reason);
+}
+
+function htmlReasonChips(group) {
+  const list = Array.isArray(group.reasons) ? group.reasons : [];
   if (list.length === 0) return '';
   const htmlChips = list
     .map(
       (reason) =>
-        `<span class="zr-chip">${esc(REASON_LABELS[reason] || reason)}</span>`
+        `<span class="zr-chip">${esc(reasonChipLabel(reason, group.aiVerdict))}</span>`
     )
     .join('');
   return `<div class="zr-chips dup-group__reasons">${htmlChips}</div>`;
@@ -581,9 +618,10 @@ function confidenceLabel(verdict) {
 }
 
 /**
- * Only a "same" the model is sure about comes up ticked, in the verdict
- * dialog and in the checklists. A "same" without a confidence, or with a low
- * one, is a proposal to look at, never one to merge unseen. Pure on purpose:
+ * A "same" that is settled: the model says it is sure, or the server
+ * settled the pair by a spelling rule. It is one of the two signs a tick
+ * needs (isProposed); a "same" without a confidence, or with a low one, is
+ * a pair to look at, never one to merge unseen. Pure on purpose:
  * tests/test-duplicates-ui.js evaluates this function itself.
  */
 function isSureSame(verdict) {
@@ -755,8 +793,9 @@ function htmlGroupCard(state) {
         <div class="zr-meter dup-group__meter"><div class="zr-meter__fill" style="width:${pct(group.confidence)}%"></div></div>
         <span class="zr-sm zr-faint">${pct(group.confidence)}% match</span>
       </div>
-      ${htmlReasonChips(group.reasons)}${htmlVerdictChip(group.aiVerdict)}
+      ${htmlReasonChips(group)}${htmlVerdictChip(group.aiVerdict)}
     </div>
+    ${htmlProposalReason(group)}
     ${htmlWarnings(group.warnings)}
     <div class="dup-group__result"></div>
     <div class="zr-table-wrap">
@@ -909,7 +948,10 @@ function syncThresholdField() {
   el.thresholdCustom.value = String(pct(el.sensitivity.value));
 }
 
-/** What the scan row of the advanced mode asks for. */
+/**
+ * What the scan row asks for. "Find duplicates" asks the same: the row is
+ * on the page from the first second, so what it shows is what runs.
+ */
 function controlOptions() {
   return {
     kind: selectedKind(),
@@ -917,19 +959,6 @@ function controlOptions() {
     includeDismissed: Boolean(
       el.includeDismissed && el.includeDismissed.checked
     ),
-  };
-}
-
-/**
- * What the one button of the simple mode asks for: both kinds, the default
- * sensitivity the route rendered, no hidden pairs.
- */
-function simpleOptions() {
-  const fallback = Number(el.page ? el.page.dataset.defaultThreshold : NaN);
-  return {
-    kind: 'all',
-    threshold: Number.isFinite(fallback) && fallback > 0 ? fallback : 0.85,
-    includeDismissed: false,
   };
 }
 
@@ -975,17 +1004,18 @@ function htmlCandidateDivider() {
   return `<div class="dup-divider"><span class="zr-sm">${esc('From the model · below the threshold')}</span></div>`;
 }
 
+/**
+ * Draws the cards of an answer. A new answer is a new proposal: every card
+ * comes up ticked or not by isProposed, and whatever was ticked before is
+ * gone with the cards it belonged to.
+ */
 function renderGroups(list) {
   groups.clear();
   selectedGroups.clear();
-  // A new answer is a new proposal: every tick goes back to its list's own.
-  simple.ticks.clear();
-  simple.open.clear();
   if (!Array.isArray(list) || list.length === 0) {
     el.results.innerHTML = htmlEmpty('0 groups');
     updateResultsBar();
     updateSelectionBar();
-    renderSimple();
     return;
   }
   // A scan hands out no `source` at all, so everything is a scan group and the
@@ -1001,14 +1031,22 @@ function renderGroups(list) {
     ? htmlCandidateDivider() + candidates.map(htmlCardFor).join('')
     : '';
   el.results.innerHTML = `${htmlScanned}${htmlCandidates}`;
-  el.results.querySelectorAll('.dup-group').forEach(bindGroup);
-  // The order chosen on the advanced page survives a new scan and a review;
-  // it is a way of reading the list, not a property of one answer.
+  // The proposal: binding a card sets its check from the selection, and a
+  // card that cannot be merged loses its tick there.
+  groups.forEach((state, id) => {
+    if (isProposed(state.group)) selectedGroups.add(id);
+  });
+  drawing = true;
+  try {
+    el.results.querySelectorAll('.dup-group').forEach(bindGroup);
+  } finally {
+    drawing = false;
+  }
+  // The order chosen in the list survives a new scan and a review; it is a
+  // way of reading the list, not a property of one answer.
   sortResults();
   updateResultsBar();
   updateSelectionBar();
-  // The simple page is a reading of the same cards.
-  renderSimple();
 }
 
 /* --- ordering and picking by confidence ----------------------------------- */
@@ -1229,28 +1267,26 @@ function initSensitivity() {
 }
 
 /**
- * One scan, with what the caller asks for: the scan row's settings in the
- * advanced mode, the defaults in the simple one.
+ * One scan, with what the scan row says. It runs on the assistant's meter,
+ * and the toolset waits for it like for a run.
  *
  * @param {{kind: string, threshold: number, includeDismissed: boolean}} [options]
- * @param {{meter?: boolean}} [show]  `meter` puts the scan on the run meter,
- *   for the one button of the simple page, which has no scan row to say so
+ * @param {{withModel?: boolean}} [show]  `withModel` says the model is asked
+ *   right after, so the meter shows the steps of the whole run
  */
 async function runScan(options, show) {
   if (scanning || aiReviewing) return;
   const asked = options || controlOptions();
-  const meter = Boolean(show && show.meter);
   // A new scan is a new question: every verdict of the last review goes with
-  // the cards it belonged to, and the simple page shows what it finds.
+  // the cards it belonged to, and the assistant shows what it finds.
   scanned = false;
-  simple.held = false;
+  assist.held = false;
   clearAiNotice();
-  // The panel belongs to the review it reported on; a new scan is a new
-  // question and starts without it.
+  // The meter belongs to the run it reported on; a new scan starts over.
   hideProgressPanel();
   setScanning(true);
   showSkeletons();
-  if (meter) showScanPhase();
+  showScanPhase(Boolean(show && show.withModel));
   try {
     const params = new URLSearchParams({
       kind: asked.kind,
@@ -1282,22 +1318,28 @@ async function runScan(options, show) {
       el.aiNotice.innerHTML = htmlAlert('danger', 'Scan failed', error.message);
     }
   } finally {
-    if (meter) hideProgressPanel();
+    hideProgressPanel();
     setScanning(false);
   }
 }
 
 /**
- * The run meter while the one button scans: the phase, a bar that slides,
- * and no Stop, because a scan ends in seconds and asks nobody.
+ * The run meter while a scan runs: the steps, the phase, what happens and
+ * why, a bar that slides, and no Stop, because a scan ends in seconds and
+ * asks nobody.
+ *
+ * @param {boolean} withModel  the model is asked right after the scan
  */
-function showScanPhase() {
+function showScanPhase(withModel) {
   if (!el.aiProgress) return;
+  assist.withModel = withModel;
+  assist.sawWarmup = false;
   showProgressPanel();
   if (el.aiStopBtn) el.aiStopBtn.classList.add('hidden');
   if (el.aiProgressMessage) {
     el.aiProgressMessage.textContent = phaseHeadline({ phase: 'scanning' });
   }
+  renderRunGuide({ phase: 'scanning' });
   if (el.aiProgressFill) {
     el.aiProgressFill.classList.add('dup-progress__fill--indeterminate');
     el.aiProgressFill.style.width = '';
@@ -1318,7 +1360,8 @@ function clearAiNotice() {
 
 /**
  * "Ask the model" waits for a scan to have produced cards, and every button
- * that starts something waits while anything is running.
+ * that starts something waits while anything is running, the one of the
+ * assistant included.
  */
 function updateAiButton() {
   const busy = scanning || aiReviewing || merging || proposing;
@@ -1326,7 +1369,7 @@ function updateAiButton() {
     el.aiReviewBtn.disabled = !scanned || busy;
     el.aiReviewBtn.title = scanned ? '' : 'Scan first';
   }
-  updateSimpleSurface();
+  renderAssist();
 }
 
 function setAiReviewing(active) {
@@ -1373,18 +1416,22 @@ async function postForReview(url, body) {
   return { status: response.status, payload };
 }
 
-/** True on an instance that offers the model at all. */
+/**
+ * True on an instance that offers the model at all. The run meter is on
+ * every instance, because a scan runs on it too; the button is not.
+ */
 function aiReviewOffered() {
-  return Boolean(el.aiReviewBtn || el.aiProgress);
+  return Boolean(el.aiReviewBtn);
 }
 
 /* --- the run meter ------------------------------------------------------- */
 /* A review is many model requests in a row. Left to a spinner it would be a
    bill nobody sees, so the server runs it as a job and this panel says where
    it is, what it has spent and how long it still needs, with the one button
-   that ends it. Every way into the model shares the panel, both modes show
-   it while it runs, and a reloaded page attaches to a review that is still
-   going. */
+   that ends it. It is the assistant while a run goes: the steps of the run
+   above the headline, and under it what happens now and why, from the
+   guide. Every way into the model shares the panel, and a reloaded page
+   attaches to a review that is still going. */
 
 /** How often the fallback asks a job whose event stream broke. */
 const REVIEW_POLL_MS = 2000;
@@ -1476,98 +1523,23 @@ function stopNotice(job) {
   return `Stopped after ${done}${of} ${requests}${tail}`;
 }
 
-/** "Request 2 of 9 · 7 of 10 answers · 34 of 82 pairs · 12.4k of 200k tokens". */
-function progressCountsText(progress) {
-  const state = progress || {};
-  const parts = [];
-  const done = Number(state.requestsDone) || 0;
-  const planned = Number(state.requestsPlanned);
-  if (Number.isFinite(planned) && planned > 0) {
-    parts.push(`Request ${Math.min(done, planned)} of ${planned}`);
-  } else if (done > 0) {
-    parts.push(`Request ${done}`);
-  }
-  // Inside a request: what the streamed answer has said so far. Between two
-  // requests there is nothing to count, and the part is left out entirely.
-  const requestPairs = Number(state.requestPairs);
-  if (Number.isFinite(requestPairs) && requestPairs > 0) {
-    const answers = Number(state.requestAnswers) || 0;
-    parts.push(
-      `${Math.max(0, Math.min(answers, requestPairs))} of ${requestPairs} answers`
-    );
-  }
-  const judged = Number(state.pairsJudged) || 0;
-  const pairs = Number(state.pairsTotal);
-  if (Number.isFinite(pairs) && pairs > 0) {
-    parts.push(`${judged} of ${pairs} pairs`);
-  } else if (judged > 0) {
-    parts.push(`${judged} ${plural(judged, 'pair', 'pairs')}`);
-  }
-  const budget = Number(state.tokenBudget);
-  const spent = formatTokens(state.tokens);
-  let cost =
-    Number.isFinite(budget) && budget > 0
-      ? `${spent} of ${formatTokens(budget)} tokens`
-      : `${spent} tokens`;
-  // Before the first answer the only honest number is the plan's own guess.
-  const estimate = Number(state.estimatedTokens);
-  if (done === 0 && Number.isFinite(estimate) && estimate > 0) {
-    cost += `, estimated ${formatTokens(estimate)}`;
-  }
-  parts.push(cost);
-  return parts.join(' · ');
-}
-
-/** The single line the panel keeps after a review ended. */
-function progressOutcomeText(event) {
-  const job = (event && event.job) || {};
-  const state = job.progress || {};
-  const elapsed = formatElapsed(state.elapsedMs);
-  const done = Number(state.requestsDone) || 0;
-  const planned =
-    state.requestsPlanned == null ? NaN : Number(state.requestsPlanned);
-  const judged = Number(state.pairsJudged) || 0;
-  const pairs = state.pairsTotal == null ? NaN : Number(state.pairsTotal);
-  const tokens = `${formatTokens(state.tokens)} tokens`;
-  // What the measurement settled on belongs in the sentence the panel keeps:
-  // it is the one number that explains how long the whole thing took.
-  const size = Number(state.batchSize);
-  const batch =
-    Number.isFinite(size) && size > 0
-      ? ` · ${size} ${plural(size, 'pair', 'pairs')} per request`
-      : '';
-  if (event && event.type === 'failed') return `Failed after ${elapsed}`;
-  if (event && event.type === 'stopped') {
-    const requests = Number.isFinite(planned)
-      ? `${done} of ${planned} requests`
-      : `${done} ${plural(done, 'request', 'requests')}`;
-    const judgedPart = Number.isFinite(pairs)
-      ? `${judged} of ${pairs} pairs judged`
-      : `${judged} ${plural(judged, 'pair', 'pairs')} judged`;
-    return `Stopped after ${requests} · ${judgedPart} · ${tokens}${batch}`;
-  }
-  return `Done in ${elapsed} · ${done} ${plural(done, 'request', 'requests')} · ${judged} ${plural(judged, 'pair', 'pairs')} · ${tokens}${batch}`;
-}
-
 function setStopLabel(text) {
   if (!el.aiStopBtn) return;
   const label = el.aiStopBtn.querySelector('.dup-progress__stop-label');
   if (label) label.textContent = text;
 }
 
+/** Puts the meter up: the assistant is the run while it goes. */
 function showProgressPanel() {
   if (!el.aiProgress) return;
   el.aiProgress.classList.remove('hidden');
-  // A running meter belongs to both modes; only the line it leaves behind
-  // is the advanced page's (see renderProgressOutcome).
-  el.aiProgress.removeAttribute('data-advanced');
   el.aiProgress.classList.add('dup-progress--live');
   if (el.aiStopBtn) {
     el.aiStopBtn.classList.remove('hidden');
     el.aiStopBtn.disabled = false;
     setStopLabel('Stop');
   }
-  updateSimpleSurface();
+  renderAssist();
 }
 
 /** Takes the panel off the page; the next scan or review starts it over. */
@@ -1584,7 +1556,7 @@ function hideProgressPanel() {
     el.aiProgressFill.style.width = '0%';
   }
   clearRunMeter();
-  updateSimpleSurface();
+  renderAssist();
 }
 
 function startProgressTicker() {
@@ -1678,16 +1650,133 @@ function renderProgress(job) {
   if (el.aiProgressMessage) {
     el.aiProgressMessage.textContent = phaseHeadline(state);
   }
+  renderRunGuide(state);
   renderRunMeter(state);
   drawProgressTime();
   startProgressTicker();
 }
 
-/** The last thing the panel says; it stays until the next scan or review. */
+/* --- what the assistant says while a run goes ---------------------------- */
+/* Above the headline the steps of the run, the one it is on numbered; under
+   it one sentence from the guide that says what happens now and why, with
+   what the model has answered so far at its end. */
+
+/** The phases in which a request to the model is out. */
+const REQUEST_PHASES = ['sweeping', 'warming-up', 'judging', 'escalating'];
+
+/** The two steps of a scan that asks no model. */
+const SCAN_STEPS = ['scanning', 'finishing'];
+
+/**
+ * The steps of the run on the meter, from the guide's list. A scan without
+ * the model is two steps. A run leaves out the sweep when it is switched
+ * off, the second round without excerpts, and the measurement when the
+ * model was measured before; the step of the phase the run is in always
+ * stays. The current step carries where it is ("request 5 of 11"). Pure.
+ *
+ * @param {{key: string, label: string}[]} steps  DUPLICATES_GUIDE.steps
+ * @param {{model: boolean, sweep: boolean, excerpts: boolean, calibrated: boolean, sawWarmup: boolean, phase: string, sub: string}} run
+ * @returns {{key: string, label: string, sub?: string}[]}
+ */
+function runSteps(steps, run) {
+  const list = Array.isArray(steps) ? steps : [];
+  const skip = new Set();
+  if (run.model !== true) {
+    list.forEach((step) => {
+      if (!SCAN_STEPS.includes(step.key)) skip.add(step.key);
+    });
+  } else {
+    if (run.sweep !== true) skip.add('sweeping');
+    if (run.excerpts === false) skip.add('escalating');
+    if (run.calibrated === true && run.sawWarmup !== true) {
+      skip.add('warming-up');
+    }
+  }
+  skip.delete(run.phase);
+  return list
+    .filter((step) => !skip.has(step.key))
+    .map((step) =>
+      step.key === run.phase && run.sub ? { ...step, sub: run.sub } : step
+    );
+}
+
+/** "request 5 of 11" while a request to the model is out, else ''. Pure. */
+function requestSub(progress) {
+  const state = progress || {};
+  if (!REQUEST_PHASES.includes(String(state.phase || ''))) return '';
+  const planned = num(state.requestsPlanned);
+  if (planned <= 0) return '';
+  const current = Math.min(num(state.requestsDone) + 1, planned);
+  return `request ${count(current)} of ${count(planned)}`;
+}
+
+/** What the model has answered so far, as three numbers, or null. Pure. */
+function tallyOf(tally) {
+  if (!tally) return null;
+  const counts = {
+    same: num(tally.same),
+    different: num(tally.different),
+    unsure: num(tally.unsure),
+  };
+  const total = counts.same + counts.different + counts.unsure;
+  return total > 0 ? Object.assign(counts, { total }) : null;
+}
+
+/**
+ * The fact at the end of the sentence while the model answers: "7 of 11
+ * pairs so far were the same." The pairs are the ones the model answered in
+ * this run, so an answer reused from the memory is not counted. '' before
+ * the model answered. Pure.
+ *
+ * @param {object|null} tally  progress.tally
+ * @returns {string}
+ */
+function tallySentence(tally) {
+  const counts = tallyOf(tally);
+  if (!counts) return '';
+  const verb = counts.same === 1 ? 'was' : 'were';
+  return `${count(counts.same)} of ${count(counts.total)} ${plural(counts.total, 'pair', 'pairs')} so far ${verb} the same.`;
+}
+
+/** The tally as a ledger value: "7 same · 3 different · 1 unsure". Pure. */
+function tallyText(tally) {
+  const counts = tallyOf(tally);
+  if (!counts) return '';
+  return `${count(counts.same)} same · ${count(counts.different)} different · ${count(counts.unsure)} unsure`;
+}
+
+/** The steps and the sentence of the meter, for one progress snapshot. */
+function renderRunGuide(progress) {
+  const state = progress || {};
+  const phase = String(state.phase || 'starting');
+  if (phase === 'warming-up') assist.sawWarmup = true;
+  const steps = runSteps(DUPLICATES_GUIDE.steps, {
+    model: assist.withModel,
+    sweep: levers.sweep,
+    excerpts: levers.excerpts,
+    calibrated: state.calibrated === true,
+    sawWarmup: assist.sawWarmup,
+    phase,
+    sub: requestSub(state),
+  });
+  if (el.runSteps) el.runSteps.innerHTML = htmlSteps(stepStates(steps, phase));
+  if (el.runSentence) {
+    el.runSentence.innerHTML = htmlSentence(
+      DUPLICATES_GUIDE.phases[phase] || null,
+      tallySentence(state.tally)
+    );
+  }
+}
+
+/**
+ * The run is over. The meter steps down and the assistant turns into the
+ * result: its numbers, what the run cost (read from the job kept here) and
+ * the buttons that go on from there. A failed run with nothing on the page
+ * goes back to the start, with the notice saying why.
+ */
 function renderProgressOutcome(event) {
   if (!el.aiProgress) return;
-  const job = (event && event.job) || null;
-  progressJob = job;
+  progressJob = (event && event.job) || null;
   progressAt = Date.now();
   stopProgressTicker();
   if (el.aiStopBtn) {
@@ -1695,27 +1784,11 @@ function renderProgressOutcome(event) {
     el.aiStopBtn.classList.add('hidden');
   }
   el.aiProgress.classList.remove('dup-progress--live');
-  // The line a finished run leaves is the advanced page's; the simple page
-  // says what the run cost in its result head instead.
-  el.aiProgress.setAttribute('data-advanced', '');
-  const percent = progressPercent(job ? job.progress : null);
   if (el.aiProgressFill) {
     el.aiProgressFill.classList.remove('dup-progress__fill--indeterminate');
     el.aiProgressFill.classList.remove('dup-progress__fill--thinking');
-    el.aiProgressFill.style.width =
-      event.type === 'done' ? '100%' : `${percent === null ? 0 : percent}%`;
   }
-  // The run is over: the headline says how it ended, the bar carries the one
-  // line that sums it up, and the bill it leaves behind is the ledger, the
-  // split and the request log. Stop has nothing left to keep.
-  if (el.aiProgressMessage) {
-    el.aiProgressMessage.textContent = progressOutcomeText(event);
-  }
-  if (el.runPosition) el.runPosition.textContent = '';
-  if (el.runRest) {
-    el.runRest.textContent = progressCountsText(job ? job.progress : null);
-  }
-  updateSimpleSurface();
+  renderAssist();
 }
 
 /** What the answer of a review does to the page, wherever it came from. */
@@ -1727,8 +1800,10 @@ function applyReviewResult(data) {
   lastRunReview = data.aiReview || null;
   lastRunProgress = progressJob ? progressJob.progress || null : null;
   if (data.totals) lastScanTotals = data.totals;
-  // An answer is a result, whichever button asked for it.
-  simple.held = false;
+  // An answer is a result, whichever button asked for it, and a page that
+  // attached to a run after a reload has one now as well.
+  assist.held = false;
+  scanned = true;
   renderGroups(data.groups);
   renderUnused(data);
   refreshMappingLinks();
@@ -1777,6 +1852,10 @@ function followReviewJob(job) {
   return new Promise((resolve, reject) => {
     reviewJobId = job.id;
     const base = `/api/duplicates/ai-review/jobs/${encodeURIComponent(job.id)}`;
+    // A run of its own on the meter: the steps of a run with the model, and
+    // whether it measures the model is learned as it goes.
+    assist.withModel = true;
+    assist.sawWarmup = false;
     showProgressPanel();
     renderProgress(job);
 
@@ -1888,9 +1967,9 @@ function followReviewJob(job) {
 
 /**
  * One question to the model, and its answer put on the page. Every way into
- * a review ends here: the one button of the simple mode, "Ask the model" and
- * the groups ticked on the advanced page. The request, the refusals and what
- * the answer does to the cards are the same in all three. The page is only
+ * a review ends here: "Find duplicates" of the assistant, "Ask the model" of
+ * the scan row and the groups ticked in the list. The request, the refusals
+ * and what the answer does to the cards are the same in all three. The page is only
  * touched when an answer arrives; a throw leaves the cards exactly as they
  * were and the caller words it.
  *
@@ -1940,12 +2019,12 @@ async function askForVerdicts(extra, options) {
 }
 
 /**
- * On load: a review that is still running somewhere gets its page back. A
- * finished one is left alone: a reload is not a request to see the last
- * answer again.
+ * On load: a review that is still running somewhere gets its page back, and
+ * the assistant shows it running. A finished one is left alone: a reload is
+ * not a request to see the last answer again.
  */
 async function reattachReview() {
-  if (!el.aiProgress) return;
+  if (!aiReviewOffered()) return;
   let job;
   try {
     const payload = await requestJson('/api/duplicates/ai-review/jobs/current');
@@ -1958,10 +2037,10 @@ async function reattachReview() {
   if (!job || !REVIEW_LIVE_STATES.includes(job.status)) return;
   setAiReviewing(true);
   try {
+    // The answer lands on the page (applyReviewResult), so the toolbar, the
+    // selection and the assistant belong to it exactly as they would after
+    // a review started here.
     const { aiReview, stopped } = await followReviewJob(job);
-    // The answer is on the page now, so the toolbar and the selection belong
-    // to it exactly as they would after a review started here.
-    if (groups.size > 0) scanned = true;
     if (!stopped && el.aiNotice) {
       el.aiNotice.innerHTML = htmlFailedRequests(aiReview);
     }
@@ -2034,7 +2113,7 @@ async function forgetVerdicts() {
   }
 }
 
-/** "Ask the model" of the advanced page: the sheet, then the model. */
+/** "Ask the model" of the scan row: the sheet, then the model. */
 async function runAiReview() {
   if (!el.aiReviewBtn || scanning || aiReviewing || !scanned) return;
   const options = controlOptions();
@@ -2417,12 +2496,18 @@ function setSelectionBusy(busy) {
       if (button) button.disabled = busy;
     }
   );
-  // The one button of the simple page would scan over a running batch; it
-  // waits like the rest.
+  // The buttons of the assistant and "Ask the model" would start something
+  // over a running batch; they wait like the rest.
   updateAiButton();
 }
 
+/**
+ * The selection bar and the numbers of the assistant follow every tick,
+ * every card that goes busy or finishes, and every new answer.
+ */
 function updateSelectionBar() {
+  if (drawing) return;
+  renderAssist();
   if (!el.selection) return;
   // While a batch runs the bar is the batch's: its cards go busy and leave the
   // selection one by one, which would otherwise pull the progress line away.
@@ -2456,14 +2541,35 @@ function updateSelectionBar() {
   el.selection.classList.toggle('hidden', !selectable && !reporting);
 }
 
-/** Ticks every card the predicate accepts; a disabled check is never touched. */
-function selectGroups(match) {
+/**
+ * Ticks exactly these groups; every other card loses its tick. A card that
+ * cannot be merged keeps none (updateSelect).
+ *
+ * @param {Set<string>} ids
+ */
+function setTicks(ids) {
+  selectedGroups.clear();
   eachGroupCard((card, state) => {
-    const check = card.querySelector('.dup-select');
-    if (!check || check.disabled || !match(state)) return;
-    selectedGroups.add(String(state.group.id));
-    check.checked = true;
+    const id = String(state.group.id);
+    if (ids.has(id)) selectedGroups.add(id);
+    updateSelect(card, state);
   });
+  updateSelectionBar();
+}
+
+/**
+ * Sets or clears the tick on one card, the way a decision of the stack
+ * does; the selection bar and the numbers of the assistant follow.
+ *
+ * @param {string} id  the group id
+ * @param {boolean} on
+ */
+function setTick(id, on) {
+  const key = String(id);
+  if (on) selectedGroups.add(key);
+  else selectedGroups.delete(key);
+  const found = groupEntry(key);
+  if (found) updateSelect(found.card, found.state);
   updateSelectionBar();
 }
 
@@ -2534,10 +2640,10 @@ async function confirmMerge(entries, unused) {
 /**
  * Walk a batch: every entry through the request a single merge uses, one after
  * the other, and a failure on one group leaves the rest running. Every path
- * into a batch ends here (the button of the simple page, "Merge" of the
- * selection bar, the model on a selection), so the progress line, the toast,
- * the one log reload and what is left ticked afterwards are the same thing in
- * all of them.
+ * into a batch ends here ("Merge" of the assistant and of the selection bar,
+ * the model on a selection), so the progress line, the toast, the one log
+ * reload and what is left ticked afterwards are the same thing in all of
+ * them. The assistant's buttons wait while it runs (setSelectionBusy).
  *
  * @param {object[]} entries  what selectedBatch() returned, possibly filtered
  * @param {boolean} copyMatchingRule  the one answer the dialog collected
@@ -2545,7 +2651,6 @@ async function confirmMerge(entries, unused) {
 async function runBatch(entries, copyMatchingRule) {
   merging = true;
   setSelectionBusy(true);
-  updateResultButton();
   // The checklist is the visible half of this loop: which group is being
   // written, which are waiting, and what Paperless-ngx said about a failure.
   openApply(entries);
@@ -2591,13 +2696,12 @@ async function runBatch(entries, copyMatchingRule) {
   setSelectionBusy(false);
   finishApply(summary);
   setSelectionProgress(summary);
-  // What the batch left behind: the merged groups are gone from the selection,
-  // a group that failed is still in it and can be tried again.
+  // What the batch left behind: the merged groups are gone from the selection
+  // and from the numbers of the assistant, a group that failed is still in
+  // both and can be tried again.
   updateSelectionBar();
   // The one reload of the whole batch; nothing else on the page is refetched.
   loadLog(true);
-  // The simple page is a reading of the cards, and the cards have just changed.
-  renderSimple();
   window.setTimeout(() => {
     setSelectionProgress('');
     updateSelectionBar();
@@ -2662,19 +2766,26 @@ function capturePicks() {
  * only a pick that still fits the members is restored.
  */
 function restorePicks(picks) {
-  eachGroupCard((card, state) => {
-    const pick = picks.get(String(state.group.id));
-    if (!pick) return;
-    const ids = (state.group.members || []).map((member) => num(member.id));
-    if (!ids.includes(num(pick.targetId))) return;
-    state.targetId = num(pick.targetId);
-    state.selected = new Set(
-      pick.selected
-        .map(num)
-        .filter((id) => ids.includes(id) && id !== state.targetId)
-    );
-    renderMembers(card, state);
-  });
+  // Every card is drawn again; the selection bar and the assistant count
+  // once, when the caller sets the ticks.
+  drawing = true;
+  try {
+    eachGroupCard((card, state) => {
+      const pick = picks.get(String(state.group.id));
+      if (!pick) return;
+      const ids = (state.group.members || []).map((member) => num(member.id));
+      if (!ids.includes(num(pick.targetId))) return;
+      state.targetId = num(pick.targetId);
+      state.selected = new Set(
+        pick.selected
+          .map(num)
+          .filter((id) => ids.includes(id) && id !== state.targetId)
+      );
+      renderMembers(card, state);
+    });
+  } finally {
+    drawing = false;
+  }
 }
 
 /**
@@ -2688,9 +2799,9 @@ function htmlReviewRow(entry, cellClass) {
   const group = entry.state.group;
   const verdict = group.aiVerdict;
   const value = verdict ? String(verdict.verdict) : '';
-  // Only a "same" that is settled comes up ticked: a spelling rule, or a
-  // model that says it is sure. Every other row starts unticked.
-  const htmlChecked = isSureSame(verdict) ? ' checked' : '';
+  // The row comes up ticked by the rule the cards follow: two signs, and
+  // never a pair only the model proposed. Every other row starts unticked.
+  const htmlChecked = isProposed(group) ? ' checked' : '';
   const documents = countDocuments(entry.sources);
   const targetName = String(entry.target.name == null ? '' : entry.target.name);
   const names = entry.sources
@@ -2878,10 +2989,11 @@ async function reviewThenMerge() {
       },
       scanOptions || controlOptions()
     );
-    // The answer rebuilt the cards; their picks and their ticks go back on.
+    // The answer rebuilt the cards with the proposal's ticks; the picks and
+    // the ticks this flow was asked about go back on instead, so the dialog
+    // below asks about exactly them.
     restorePicks(picks);
-    const wanted = new Set(ids);
-    selectGroups((state) => wanted.has(String(state.group.id)));
+    setTicks(new Set(ids));
     if (!stopped && el.aiNotice) {
       el.aiNotice.innerHTML = htmlFailedRequests(aiReview);
     }
@@ -2907,13 +3019,13 @@ async function reviewThenMerge() {
   await confirmReviewedBatch(judged);
 }
 
-/* --- the one button of the simple page ------------------------------------ */
-/* "Find duplicates" scans both kinds at the default sensitivity, opens the
-   sheet with what the scan left for the model, and on Start has the model
-   judge every group and the band below it; the result is the head and the
-   checklists of the simple page. The scan comes first because it is free
-   and takes seconds, and without it the sheet has no numbers. Without a
-   model the button is a scan, and the result is what the spelling settled. */
+/* --- the one button of the assistant -------------------------------------- */
+/* "Find duplicates" scans with what the scan row shows, opens the sheet with
+   what the scan left for the model, and on Start has the model judge every
+   group and the band below it; the result is the assistant's headline and
+   the ticks on the cards. The scan comes first because it is free and takes
+   seconds, and without it the sheet has no numbers. Without a model the
+   button is a scan, and the result is what the spelling settled. */
 
 function setProposalBusy(active) {
   proposing = active;
@@ -2922,7 +3034,7 @@ function setProposalBusy(active) {
 
 async function findDuplicates() {
   if (scanning || aiReviewing || merging || proposing) return;
-  const options = simpleOptions();
+  const options = controlOptions();
   if (!aiReviewOffered()) {
     await runScan(options);
     return;
@@ -2930,16 +3042,16 @@ async function findDuplicates() {
   setProposalBusy(true);
   clearAiNotice();
   try {
-    await runScan(options, { meter: true });
+    await runScan(options, { withModel: true });
     // A failed scan has already said so in the notice; there is nothing to
     // ask the model about.
     if (!scanned) return;
-    // The sheet, with the scan's numbers. The card stays behind it, and
-    // Cancel leaves the page on the card.
-    simple.held = true;
-    updateSimpleSurface();
+    // The sheet, with the scan's numbers. The start stays behind it and the
+    // toolset keeps waiting until the run has an answer; Cancel lets the
+    // scan's result show instead.
+    assist.held = true;
+    renderAssist();
     if (!(await confirmRun(options))) return;
-    simple.held = false;
     setAiReviewing(true);
     let outcome;
     try {
@@ -2956,6 +3068,7 @@ async function findDuplicates() {
       el.aiNotice.innerHTML = htmlReviewFailure(error.message);
     }
   } finally {
+    assist.held = false;
     setProposalBusy(false);
   }
 }
@@ -3333,7 +3446,6 @@ async function dismissGroup(card, state) {
     if (groups.size === 0) {
       el.results.innerHTML = htmlEmpty('0 groups left');
     }
-    renderSimple();
     toast('Hidden as not a duplicate', { tone: 'ok' });
     loadDismissals();
   } catch (error) {
@@ -3454,7 +3566,6 @@ function renderUnused(data) {
     updateUnusedSummary();
     updateUnusedButton();
   }
-  renderSimple();
 }
 
 function setUnusedBusy(busy) {
@@ -3519,8 +3630,7 @@ async function deleteUnused() {
 /**
  * Deletes unused objects, one request per kind: the endpoint deletes one kind
  * at a time, and a mixed selection is the normal case after a scan over both.
- * Both ways in end here: the Unused section and the one button of the simple
- * page, which asked its own question before.
+ * "Delete" of the Unused section asked its question before.
  *
  * @param {{kind: string, id: number}[]} entries
  */
@@ -3531,7 +3641,6 @@ async function deleteUnusedEntries(entries) {
     if (note) note.textContent = '';
   });
   setUnusedBusy(true);
-  updateResultButton();
 
   const byKind = new Map();
   entries.forEach((entry) => {
@@ -3555,7 +3664,8 @@ async function deleteUnusedEntries(entries) {
       (data.deleted || []).forEach((entry) => {
         const row = unusedRowOf(kind, entry.id);
         if (row) row.remove();
-        // The simple page reads the same list, so a deleted object leaves it.
+        // The names of the section come from the same list, so a deleted
+        // object leaves it.
         unusedEntries = unusedEntries.filter(
           (candidate) =>
             !(
@@ -3592,7 +3702,6 @@ async function deleteUnusedEntries(entries) {
   }
   setUnusedBusy(false);
   updateUnusedSummary();
-  renderSimple();
   // A delete is a log entry like a merge, so the log must show it.
   loadLog(true);
 }
@@ -3856,8 +3965,6 @@ async function loadLog(reset) {
     logOffset = 0;
     logEntries.clear();
     el.logBody.innerHTML = `<tr><td colspan="7" class="zr-empty">${htmlIcons.spin} Loading</td></tr>`;
-    // The history line of the simple page reads the same log.
-    loadHistory();
   }
   try {
     const params = new URLSearchParams({
@@ -3904,7 +4011,7 @@ function undoFactsText(entry) {
 }
 
 async function undoMerge(id) {
-  const entry = logEntries.get(num(id)) || historyEntryWith(id);
+  const entry = logEntries.get(num(id));
   if (!entry) return;
   const target = String(entry.targetName == null ? '' : entry.targetName);
   const confirmed = await confirmDialog({
@@ -4007,12 +4114,13 @@ async function restoreDismissal(id, row) {
   }
 }
 
-/* --- the simple page: one head, three checklists, one line of history ----- */
-/* What a run found, read as what will happen: the groups the spelling or the
-   model settled, ticked; the ones nothing settled, not ticked; the objects no
-   document uses, ticked for deletion. Every row is a group card of the
-   advanced page read another way, so a merge from here is the merge of that
-   card, and a tick here moves nothing but the numbers of the one button. */
+/* --- the proposal: the tick on a group card ------------------------------- */
+/* A run ends in a proposal, and the proposal is the tick on each group card:
+   "Merge" writes the ticked cards and leaves the rest alone. A tick needs
+   two signs. The scan is one of them only where it settled the pair by
+   itself; the model is the second one for a pair the spelling found. A pair
+   only the model proposed has one sign, whatever the model said about it,
+   so it comes up unticked with the model's reason on its card. */
 
 /** At or above this a pair is the same thing whatever a model would say. */
 const PLAIN_SCORE = 0.95;
@@ -4020,7 +4128,8 @@ const PLAIN_SCORE = 0.95;
 /**
  * Warnings that are a question rather than a note. An inbox tag and a large
  * group are things to know about a merge; these four only the person can
- * decide, so a group carrying one of them is Unsure however well it scored.
+ * decide, so a group carrying one of them stays unticked however well it
+ * scored.
  */
 const ASK_WARNINGS = [
   'has-matching-rule',
@@ -4029,34 +4138,7 @@ const ASK_WARNINGS = [
   'owner-differs',
 ];
 
-/**
- * The chip of a proposed row: the rule that settled it, in a word or two.
- * The keys are the contract (AiVerdict.basis in schemas.js).
- */
-const CHIP_BY_BASIS = {
-  'case-or-spacing': 'case',
-  umlaut: 'umlaut',
-  'legal-form': 'legal form',
-  plural: 'plural',
-  abbreviation: 'abbreviation',
-  translation: 'translation',
-  synonym: 'synonym',
-  typo: 'typo',
-};
-
-/** The same for a group no model saw: what the string matcher found. */
-const CHIP_BY_REASON = {
-  'exact-normalized': 'case',
-  'umlaut-variant': 'umlaut',
-  'legal-form': 'legal form',
-  plural: 'plural',
-  'token-order': 'word order',
-  prefix: 'prefix',
-  fuzzy: 'spelling',
-  semantic: 'model',
-};
-
-/** Why a group is Unsure when a warning is the reason, as one clause. */
+/** Why a group is unsure when a warning is the reason, as one clause. */
 const REASON_BY_WARNING = {
   'has-matching-rule': 'matching rule on a source',
   'configured-tag': 'named in the settings',
@@ -4064,10 +4146,10 @@ const REASON_BY_WARNING = {
   'owner-differs': 'different owners',
 };
 
-/** A reason clause longer than this is cut; its title keeps the whole. */
-const CHECKLIST_REASON_MAX = 64;
+/** A reason longer than this is cut on the card; its title keeps the whole. */
+const REASON_MAX = 120;
 
-/** The months of a history line. */
+/** The months of the facts line under the start. */
 const MONTHS = [
   'Jan',
   'Feb',
@@ -4084,63 +4166,82 @@ const MONTHS = [
 ];
 
 /**
- * Which checklist a group belongs in. Pure on purpose:
- * tests/test-duplicates-assistant-ui.js runs it over every kind of group.
+ * True for a group only the model proposed: the sweep paired its names and
+ * no spelling rule links them. The group says so in its reasons, and each
+ * of its pairs in the reason its member carries. Pure.
  *
- * @param {object} group      a scan group, with its verdict when there is one
- * @param {number} threshold  the sensitivity the scan was made with
- * @returns {'proposed'|'unsure'}
+ * @param {object} group  a scan or review group
+ * @returns {boolean}
  */
-function checklistOf(group, threshold) {
+function isSemanticGroup(group) {
   const source = group || {};
+  const reasons = Array.isArray(source.reasons) ? source.reasons : [];
+  if (reasons.includes(SEMANTIC_REASON)) return true;
+  const members = Array.isArray(source.members) ? source.members : [];
+  return members.some(
+    (member) =>
+      Boolean(member) &&
+      (member.matchedBy === SEMANTIC_REASON ||
+        member.reason === SEMANTIC_REASON)
+  );
+}
+
+/**
+ * Whether a group comes up ticked: the proposal of the page. The one place
+ * the rule lives; the cards, the numbers of the assistant and the verdict
+ * dialog all read it. Pure on purpose: the tests run it.
+ *
+ * Ticked when
+ * (a) the scan settled it: the same name but for case and spacing, a score
+ *     at or above PLAIN_SCORE, or a verdict the server gave by a spelling
+ *     rule without asking anyone; or
+ * (b) the model says "same" and is sure, about a pair the spelling found.
+ *
+ * Never ticked: a group only the model proposed, a group with a warning
+ * that is a question, and a group the model called different or was unsure
+ * about.
+ *
+ * @param {object} group  a scan or review group
+ * @returns {boolean}
+ */
+function isProposed(group) {
+  const source = group || {};
+  if (isSemanticGroup(source)) return false;
+  const warnings = Array.isArray(source.warnings) ? source.warnings : [];
+  if (warnings.some((warning) => ASK_WARNINGS.includes(warning))) return false;
   const verdict = source.aiVerdict;
   const value = verdict ? String(verdict.verdict) : '';
-  if (value === 'different' || value === 'unsure') return 'unsure';
-  const warnings = Array.isArray(source.warnings) ? source.warnings : [];
-  if (warnings.some((warning) => ASK_WARNINGS.includes(warning))) {
-    return 'unsure';
-  }
+  if (value === 'different' || value === 'unsure') return false;
   const reasons = Array.isArray(source.reasons) ? source.reasons : [];
   if (
     reasons.includes('exact-normalized') ||
     num(source.confidence) >= PLAIN_SCORE
   ) {
-    return 'proposed';
+    return true;
   }
-  // A pair the model confirmed below the sensitivity is still a pair the
-  // scan would not have proposed; only a sure "same" carries it alone.
-  if (
-    value === 'same' &&
-    (isSureSame(verdict) || num(source.confidence) >= num(threshold))
-  ) {
-    return 'proposed';
-  }
-  return 'unsure';
+  return isSureSame(verdict);
 }
 
-/** The word on the chip of a proposed row. Pure. */
-function checklistChip(group) {
+/**
+ * Why a card is not ticked, as one clause, or '' for a ticked one. What the
+ * model said comes first; a pair only the model proposed shows the model's
+ * own reason, because that reason is all there is to go on. Pure.
+ *
+ * @param {object} group
+ * @returns {string}
+ */
+function proposalReason(group) {
   const source = group || {};
-  const verdict = source.aiVerdict;
-  if (verdict && String(verdict.verdict) === 'same') {
-    const basis = verdict.basis == null ? '' : String(verdict.basis);
-    if (CHIP_BY_BASIS[basis]) return CHIP_BY_BASIS[basis];
-    if (!isRuleVerdict(verdict)) return 'model';
-  }
-  const reasons = Array.isArray(source.reasons) ? source.reasons : [];
-  const named = Object.keys(CHIP_BY_REASON).find((reason) =>
-    reasons.includes(reason)
-  );
-  return named ? CHIP_BY_REASON[named] : 'spelling';
-}
-
-/** Why a row is Unsure, as one clause: what the model said comes first. Pure. */
-function checklistReason(group) {
-  const source = group || {};
+  if (isProposed(source)) return '';
   const verdict = source.aiVerdict;
   const value = verdict ? String(verdict.verdict) : '';
+  const said = verdict
+    ? String(verdict.reason == null ? '' : verdict.reason).trim()
+    : '';
+  if (isSemanticGroup(source)) {
+    return said === '' ? 'paired by the model alone' : said;
+  }
   if (value === 'different' || value === 'unsure') {
-    const said = String(verdict.reason == null ? '' : verdict.reason).trim();
     if (said !== '') return said;
     const basis = basisLabel(verdict);
     return basis === '' ? value : basis.toLowerCase();
@@ -4158,142 +4259,103 @@ function clip(text, max) {
   return raw.length > max ? `${raw.slice(0, max - 1).trimEnd()}…` : raw;
 }
 
+/** The line on an unticked card that says why it is not ticked. */
+function htmlProposalReason(group) {
+  const reason = proposalReason(group);
+  if (reason === '') return '';
+  return `<p class="zr-sm dup-group__why" title="${esc(reason)}">${esc(clip(reason, REASON_MAX))}</p>`;
+}
+
+/* --- the assistant -------------------------------------------------------- */
+/* The zone at the top of the page, in one of three states. Before anything
+   ran it is the start: what the page does, the one button, and what the
+   last run cost. While a scan or a run goes it is the run meter: the steps
+   of the run, what happens now and why, and what it has spent. After it is
+   the result: a headline of numbers, what the run cost, how the tools
+   below are used, and the two buttons that go on from there. The toolset
+   under it waits, dimmed, in the first two states. */
+
 /**
- * One row of a checklist for one group: what goes, into what, how many
- * documents move, what it writes, and why it sits where it sits. Pure.
+ * Which state the assistant is in. Pure.
  *
- * @param {object} state      a registered group state
- * @param {number} threshold  the sensitivity the scan was made with
+ * @param {{live: boolean, scanned: boolean, held: boolean}} flags
+ * @returns {'start'|'running'|'done'}
  */
-function checklistRow(state, threshold) {
-  const group = state.group;
-  const target = memberOf(state, state.targetId);
-  const sources = selectedSources(state);
-  const documents = countDocuments(sources);
-  const list = checklistOf(group, threshold);
-  const reason = list === 'unsure' ? checklistReason(group) : '';
-  return {
-    key: `g:${group.id}`,
-    list,
-    groupId: String(group.id),
-    sources: sources.map((member) =>
-      String(member.name == null ? '' : member.name)
-    ),
-    target: target ? String(target.name == null ? '' : target.name) : '',
-    documents,
-    writes: documents + sources.length,
-    chip: list === 'proposed' ? checklistChip(group) : '',
-    reason: clip(reason, CHECKLIST_REASON_MAX),
-    reasonTitle: reason,
-  };
-}
-
-/** One row of the Unused checklist: one object, one deletion. Pure. */
-function unusedChecklistRow(entry) {
-  const kind = normalizeKind(entry.kind);
-  const id = num(entry.record.id);
-  return {
-    key: `u:${kind}:${id}`,
-    list: 'unused',
-    kind,
-    id,
-    name: String(entry.record.name == null ? '' : entry.record.name),
-    documents: 0,
-    writes: 1,
-    chip: '',
-    reason: '',
-    reasonTitle: '',
-  };
-}
-
-/** Most documents first, then by name. */
-function compareRows(a, b) {
-  if (b.documents !== a.documents) return b.documents - a.documents;
-  return String(a.target || a.name).localeCompare(String(b.target || b.name));
+function assistStateOf(flags) {
+  const state = flags || {};
+  if (state.live === true) return 'running';
+  if (state.scanned === true && state.held !== true) return 'done';
+  return 'start';
 }
 
 /**
- * The three checklists of the simple page. Pure: the groups that can still
- * be merged, the unused objects of the scan, and the sensitivity it ran at.
+ * The numbers of the result, from the cards as they stand: the groups
+ * proposed and unsure among the ones that can still be merged, and what
+ * "Merge" writes for the ticked ones. Pure.
  *
- * An unused object that is also in a group belongs to that group: listed
- * under Unused as well it would be deleted after the merge already had, or
- * deleted as the name the merge keeps. `grouped` is every group on the page,
- * the merged ones included; without it, the listed ones.
- *
- * @returns {{proposed: object[], unsure: object[], unused: object[]}}
+ * @param {{id: string, proposed: boolean, mergeable: boolean, ticked: boolean, writes: number}[]} rows
+ * @returns {{proposed: number, unsure: number, unsureIds: string[], merges: number, writes: number}}
  */
-function buildChecklists(states, unused, threshold, grouped) {
-  const listed = states || [];
-  const inGroup = new Set();
-  (grouped || listed).forEach((state) => {
-    const kind = normalizeKind(state.group.kind);
-    (state.group.members || []).forEach((member) => {
-      inGroup.add(`${kind}:${num(member.id)}`);
-    });
-  });
-  const rows = listed.map((state) => checklistRow(state, threshold));
-  return {
-    proposed: rows.filter((row) => row.list === 'proposed').sort(compareRows),
-    unsure: rows.filter((row) => row.list === 'unsure').sort(compareRows),
-    unused: (unused || [])
-      .filter(
-        (entry) =>
-          !inGroup.has(`${normalizeKind(entry.kind)}:${num(entry.record.id)}`)
-      )
-      .map(unusedChecklistRow),
+function resultNumbers(rows) {
+  const numbers = {
+    proposed: 0,
+    unsure: 0,
+    unsureIds: [],
+    merges: 0,
+    writes: 0,
   };
-}
-
-/** A row's tick: what the person set, or what its list starts with. Pure. */
-function isTicked(row, ticks) {
-  if (ticks && ticks.has(row.key)) return ticks.get(row.key) === true;
-  return row.list !== 'unsure';
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    if (!row.mergeable) return;
+    if (row.proposed) {
+      numbers.proposed += 1;
+    } else {
+      numbers.unsure += 1;
+      numbers.unsureIds.push(String(row.id));
+    }
+    if (row.ticked) {
+      numbers.merges += 1;
+      numbers.writes += num(row.writes);
+    }
+  });
+  return numbers;
 }
 
 /**
- * The two numbers of the one button: the ticked merges, and every write the
- * ticked rows cost. An unused row deletes, it does not merge. Pure.
+ * "54 scanned · 13 merges proposed · 4 unsure". The first number is what
+ * the scan looked at; a result without totals starts at the proposal. Pure.
+ *
+ * @param {object|null} totals  the scan's totals by kind
+ * @param {number} proposed
+ * @param {number} unsure
+ * @returns {string}
  */
-function tickTotals(lists, ticks) {
-  let merges = 0;
-  let writes = 0;
-  [...lists.proposed, ...lists.unsure].forEach((row) => {
-    if (!isTicked(row, ticks)) return;
-    merges += 1;
-    writes += row.writes;
-  });
-  lists.unused.forEach((row) => {
-    if (isTicked(row, ticks)) writes += row.writes;
-  });
-  return { merges, writes };
-}
-
-/** "275 scanned · 34 merges proposed". Pure. */
-function resultHeadline(totals, proposed) {
+function doneHeadline(totals, proposed, unsure) {
   const source = totals || {};
   const kinds = ['tags', 'correspondents'].filter(
     (kind) => source[kind] != null
   );
   const scannedCount = kinds.reduce((sum, kind) => sum + num(source[kind]), 0);
-  const merges = `${count(proposed)} ${plural(proposed, 'merge', 'merges')} proposed`;
-  return kinds.length > 0
-    ? `${count(scannedCount)} scanned · ${merges}`
-    : merges;
+  const parts = [
+    `${count(proposed)} ${plural(proposed, 'merge', 'merges')} proposed`,
+    `${count(unsure)} unsure`,
+  ];
+  if (kinds.length > 0) parts.unshift(`${count(scannedCount)} scanned`);
+  return parts.join(' · ');
 }
 
 /**
  * What the run behind the result cost: "12 requests · 38k tokens · ~2 min",
- * and the split for the small bar. A result no run is known for says so on
- * an instance that has a model, and says nothing on one that has none. Pure.
+ * and the split for the small bar. A result no model was asked about has no
+ * cost line at all. Pure.
  *
  * @param {object|null} review    the `aiReview` block of the last answer
  * @param {object|null} progress  the job's last progress, for time and split
  * @returns {{text: string, split: object|null}}
  */
 function resultCost(review, progress) {
-  // A result nobody asked a model about has no cost line at all.
-  if (!review) return { text: '', split: null };
+  // A run that sent no request (every answer came from the memory) asked
+  // nothing either.
+  if (!review || num(review.requests) <= 0) return { text: '', split: null };
   const state = progress || {};
   const requests = num(review.requests);
   const tokens = num(review.tokens);
@@ -4317,170 +4379,8 @@ function htmlMiniBar(split) {
   const total = num(split.prompt) + num(split.completion) + num(split.thinking);
   const share = (value) =>
     total <= 0 ? 0 : Math.round((num(value) / total) * 1000) / 10;
-  const label = `${formatTokens(split.prompt)} question · ${formatTokens(split.completion)} answer · ${formatTokens(split.thinking)} thinking`;
+  const label = `${formatTokens(split.prompt)} read · ${formatTokens(split.completion)} written · ${formatTokens(split.thinking)} thinking`;
   return `<span class="zr-tokenbar zr-tokenbar--mini" role="img" aria-label="${esc(label)}" title="${esc(label)}"><span class="zr-tokenbar__track"><span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: ${num(share(split.prompt))}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: ${num(share(split.completion))}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: ${num(share(split.thinking))}%"></span></span></span>`;
-}
-
-/** One row of a checklist. */
-function htmlChecklistRow(row, ticked) {
-  const htmlChecked = ticked ? ' checked' : '';
-  const dimClass = row.list === 'unsure' ? ' zr-checklist__row--dim' : '';
-  const meta =
-    row.list === 'unused'
-      ? '0 documents · delete'
-      : `${count(row.documents)} ${plural(row.documents, 'document', 'documents')}`;
-  const htmlName =
-    row.list === 'unused'
-      ? esc(row.name)
-      : `${esc(row.sources.join(', '))}<span class="dup-checklist__arrow"> → </span><span class="zr-checklist__name">${esc(row.target)}</span>`;
-  let htmlEnd = '';
-  if (row.chip) {
-    htmlEnd = `<span class="zr-checklist__chip">${esc(row.chip)}</span>`;
-  } else if (row.reason) {
-    htmlEnd = `<span class="zr-checklist__reason" title="${esc(row.reasonTitle)}">${esc(row.reason)}</span>`;
-  }
-  return `<label class="zr-checklist__row${esc(dimClass)}"><input class="zr-check zr-checklist__box" type="checkbox" data-key="${esc(row.key)}"${htmlChecked}><span class="zr-checklist__text">${htmlName}<span class="zr-checklist__meta">${esc(meta)}</span></span>${htmlEnd}</label>`;
-}
-
-/**
- * One checklist: its head with the count, ten rows, and the button that
- * shows the rest. A list without rows is not drawn at all.
- *
- * @param {string} name   'proposed', 'unsure' or 'unused'
- * @param {string} title  what the head says
- * @param {object[]} rows
- * @param {{ticks: Map, open: boolean, htmlAction?: string}} options
- */
-function htmlChecklist(name, title, rows, options) {
-  if (rows.length === 0) return '';
-  const shown = options.open ? rows : rows.slice(0, CHECKLIST_ROWS);
-  const hidden = rows.length - shown.length;
-  const htmlRows = shown
-    .map((row) => htmlChecklistRow(row, isTicked(row, options.ticks)))
-    .join('');
-  const htmlMore =
-    hidden > 0
-      ? `<div class="zr-checklist__more"><button type="button" class="zr-btn dup-checklist-more" data-list="${esc(name)}">${esc(`${count(hidden)} more`)}</button></div>`
-      : '';
-  const htmlAction = options.htmlAction || '';
-  return `<section class="zr-checklist dup-checklist" data-list="${esc(name)}" aria-label="${esc(title)}">
-      <div class="zr-checklist__head">
-        <span class="zr-label">${esc(title)} <span class="zr-checklist__count">${esc(`· ${count(rows.length)}`)}</span></span>
-        ${htmlAction}
-      </div>
-      <div class="dup-checklist__rows">${htmlRows}${htmlMore}</div>
-    </section>`;
-}
-
-/** The checklists of the cards on the page, as they stand now. */
-function currentChecklists() {
-  const states = [];
-  const all = [];
-  eachGroupCard((card, state) => {
-    all.push(state);
-    if (selectBlockReason(card, state) === '') states.push(state);
-  });
-  const threshold = scanOptions ? scanOptions.threshold : currentThreshold();
-  return buildChecklists(states, unusedEntries, threshold, all);
-}
-
-/** Which of the simple page's parts show: the card, or the result. */
-function updateSimpleSurface() {
-  const live = Boolean(
-    el.aiProgress && el.aiProgress.classList.contains('dup-progress--live')
-  );
-  const held = simple.held === true;
-  const showResult = scanned && !proposing && !live && !held;
-  if (el.result) el.result.classList.toggle('hidden', !showResult);
-  // The start carries the sentence of the page as its title, so the line
-  // above it is drawn only with a result.
-  if (el.lede) el.lede.classList.toggle('hidden', !showResult);
-  if (el.empty) {
-    el.empty.classList.toggle(
-      'hidden',
-      showResult || live || (scanned && proposing && !held)
-    );
-  }
-  if (el.findBtn) {
-    el.findBtn.disabled = scanning || aiReviewing || merging || proposing;
-    el.findBtn.textContent = scanning ? 'Scanning…' : 'Find duplicates';
-  }
-}
-
-/** The one button of the result head; its numbers follow the ticks. */
-function updateResultButton(lists) {
-  if (!el.resultMergeBtn) return;
-  const totals = tickTotals(lists || currentChecklists(), simple.ticks);
-  el.resultMergeBtn.textContent = mergeLabel(totals.merges, totals.writes);
-  el.resultMergeBtn.disabled = merging || deletingUnused || totals.writes === 0;
-}
-
-function renderResultCost() {
-  if (!el.resultCost) return;
-  const cost = resultCost(lastRunReview, lastRunProgress);
-  const htmlBar = cost.split ? htmlMiniBar(cost.split) : '';
-  el.resultCost.classList.toggle('hidden', cost.text === '');
-  el.resultCost.innerHTML =
-    cost.text === '' ? '' : `${htmlBar}<span>${esc(cost.text)}</span>`;
-}
-
-/** Draws the head and the three checklists from the cards on the page. */
-function renderSimple() {
-  updateSimpleSurface();
-  if (!el.checklists) return;
-  const lists = currentChecklists();
-  if (el.resultHeadline) {
-    el.resultHeadline.textContent = resultHeadline(
-      lastScanTotals,
-      lists.proposed.length
-    );
-  }
-  renderResultCost();
-  const htmlReview =
-    lists.unsure.length > 0
-      ? '<button type="button" class="zr-btn dup-review-one">Review one by one</button>'
-      : '';
-  el.checklists.innerHTML = [
-    htmlChecklist('proposed', 'Proposed', lists.proposed, {
-      ticks: simple.ticks,
-      open: simple.open.has('proposed'),
-    }),
-    htmlChecklist('unsure', 'Unsure', lists.unsure, {
-      ticks: simple.ticks,
-      open: simple.open.has('unsure'),
-      htmlAction: htmlReview,
-    }),
-    htmlChecklist('unused', 'Unused', lists.unused, {
-      ticks: simple.ticks,
-      open: simple.open.has('unused'),
-    }),
-  ].join('');
-  updateResultButton(lists);
-}
-
-/**
- * The one button of the result head: the ticked groups through the batch
- * merge, then the ticked unused objects through their delete, after one
- * question for both.
- */
-async function mergeTicked() {
-  if (merging || deletingUnused) return;
-  const lists = currentChecklists();
-  const entries = [];
-  [...lists.proposed, ...lists.unsure].forEach((row) => {
-    if (!isTicked(row, simple.ticks)) return;
-    const found = groupEntry(row.groupId);
-    const entry = found ? entryFor(found.card, found.state) : null;
-    if (entry) entries.push(entry);
-  });
-  const unused = lists.unused
-    .filter((row) => isTicked(row, simple.ticks))
-    .map((row) => ({ kind: row.kind, id: row.id, name: row.name }));
-  if (entries.length === 0 && unused.length === 0) return;
-  const answer = await confirmMerge(entries, unused);
-  if (!answer.ok) return;
-  if (entries.length > 0) await runBatch(entries, answer.copyMatchingRule);
-  if (unused.length > 0) await deleteUnusedEntries(unused);
 }
 
 /** A log date as a Date, or null; SQLite's space is what Safari refuses. */
@@ -4503,40 +4403,8 @@ function shortDay(value, now) {
 }
 
 /**
- * The line under the simple page: the merges of the newest day in the log,
- * and the newest merge, which its Undo takes back. Only merges count, and
- * only the ones that can still be undone. Pure.
- *
- * @param {object[]} entries  rows of the merge log
- * @param {Date} [now]
- * @returns {{text: string, entry: object}|null}
- */
-function historyOf(entries, now) {
-  const undoable = (Array.isArray(entries) ? entries : [])
-    .filter(
-      (entry) =>
-        !isDeleteEntry(entry) &&
-        !isSplitEntry(entry) &&
-        ['done', 'partial', 'undo_failed'].includes(String(entry.status))
-    )
-    .sort((a, b) => num(b.id) - num(a.id));
-  if (undoable.length === 0) return null;
-  const newest = undoable[0];
-  const day = shortDay(newest.createdAt, now);
-  const merges = undoable.filter(
-    (entry) => shortDay(entry.createdAt, now) === day
-  ).length;
-  const on = day === '' ? '' : ` on ${day}`;
-  return {
-    text: `History · ${count(merges)} ${plural(merges, 'merge', 'merges')}${on}`,
-    entry: newest,
-  };
-}
-
-/** Reads the merges of the log for the history line. */
-/**
- * The line under the start button: what the last run of this task cost,
- * from the run stats the estimate carries. Pure; '' when no run was kept.
+ * The line under the start: what the last run of this task cost, from the
+ * run stats the estimate carries. Pure; '' when no run was kept.
  *
  * @param {object|null} lastRun  `lastRun` of an estimate
  * @param {Date} [now]
@@ -4556,46 +4424,150 @@ function startFactsText(lastRun, now) {
   return parts.join(' · ');
 }
 
-/** Reads the last run for the start's facts line; nothing without a model. */
+/** Reads the last run for the facts line of the start; nothing without a model. */
 async function loadStartFacts() {
-  if (!el.startFacts || !aiReviewOffered()) return;
+  if (!aiReviewOffered()) return;
   const estimate = await fetchRunEstimate({
     kind: 'all',
     threshold: currentThreshold(),
   });
-  const text = startFactsText(estimate.lastRun, new Date());
-  el.startFacts.textContent = text;
-  el.startFacts.classList.toggle('hidden', text === '');
+  assist.facts = startFactsText(estimate.lastRun, new Date());
+  renderAssist();
 }
 
-async function loadHistory() {
-  if (!el.historyLine) return;
-  try {
-    const params = new URLSearchParams({ action: 'merge', limit: '100' });
-    const payload = await requestJson(`/api/duplicates/log?${params}`);
-    const history = payload.success
-      ? historyOf(payload.data || [], new Date())
-      : null;
-    historyEntry = history ? history.entry : null;
-    if (el.historyText)
-      el.historyText.textContent = history ? history.text : '';
-    el.historyLine.classList.toggle('hidden', history === null);
-  } catch {
-    // The line is a convenience; the log of the advanced page says the rest.
-    historyEntry = null;
-    el.historyLine.classList.add('hidden');
+/**
+ * The start: the sentence of the page as its title, what a run does, the
+ * one button and the facts line.
+ *
+ * @param {boolean} busy  something runs, so the button waits
+ * @returns {string} markup
+ */
+function htmlStartCard(busy) {
+  const guide = DUPLICATES_GUIDE.start;
+  const htmlDisabled = busy ? ' disabled' : '';
+  return htmlAssistStart({
+    icon: 'i-wand',
+    title: guide.title,
+    what: aiReviewOffered() ? guide.what : guide.whatWithoutModel,
+    htmlButton: `<button class="zr-btn zr-btn--primary zr-btn--lg" id="dupFindBtn" type="button"${htmlDisabled}>${esc(guide.button)}</button>`,
+    factsId: 'dupStartFacts',
+    facts: assist.facts,
+  });
+}
+
+/**
+ * The result: the headline of numbers, the cost line, how the tools below
+ * are used, "Review N unsure one by one" when something is unsure, and
+ * "Merge N · W writes" for the ticked cards.
+ *
+ * @param {ReturnType<typeof resultNumbers>} numbers
+ * @param {boolean} busy  a batch writes, so both buttons wait
+ * @returns {string} markup
+ */
+function htmlDoneCard(numbers, busy) {
+  const cost = resultCost(lastRunReview, lastRunProgress);
+  const htmlBar = cost.split ? htmlMiniBar(cost.split) : '';
+  const htmlCost =
+    cost.text === '' ? '' : `${htmlBar}<span>${esc(cost.text)}</span>`;
+  const htmlBusy = busy ? ' disabled' : '';
+  const htmlReview =
+    numbers.unsure > 0
+      ? `<button type="button" class="zr-btn dup-assist-review" id="dupReviewUnsureBtn"${htmlBusy}>${esc(`Review ${count(numbers.unsure)} unsure one by one`)}</button>`
+      : '';
+  const htmlMergeDisabled = busy || numbers.merges === 0 ? ' disabled' : '';
+  const htmlMerge = `<button type="button" class="zr-btn zr-btn--primary dup-assist-merge" id="dupMergeTickedBtn"${htmlMergeDisabled}>${esc(mergeLabel(numbers.merges, numbers.writes))}</button>`;
+  return htmlAssistDone({
+    headline: doneHeadline(lastScanTotals, numbers.proposed, numbers.unsure),
+    htmlCost,
+    next: DUPLICATES_GUIDE.done.next,
+    htmlActions: `${htmlReview}${htmlMerge}`,
+  });
+}
+
+/** Every card on the page as the numbers of the result read it. */
+function cardRows() {
+  const rows = [];
+  eachGroupCard((card, state) => {
+    const id = String(state.group.id);
+    const mergeable = selectBlockReason(card, state) === '';
+    const entry = mergeable ? entryFor(card, state) : null;
+    rows.push({
+      id,
+      proposed: isProposed(state.group),
+      mergeable,
+      ticked: selectedGroups.has(id),
+      writes: entry ? entryWrites(entry) : 0,
+    });
+  });
+  return rows;
+}
+
+/**
+ * Draws the assistant in the state the page is in, and dims the toolset
+ * while no result exists. Called whenever something it counts changes; a
+ * card that would come out the same is left alone.
+ */
+function renderAssist() {
+  if (!el.assistCard || drawing) return;
+  const live = Boolean(
+    el.aiProgress && el.aiProgress.classList.contains('dup-progress--live')
+  );
+  const state = assistStateOf({ live, scanned, held: assist.held });
+  const busy = scanning || aiReviewing || merging || proposing;
+  let markup = '';
+  if (state === 'start') markup = htmlStartCard(busy);
+  if (state === 'done') {
+    markup = htmlDoneCard(resultNumbers(cardRows()), merging);
+  }
+  if (markup !== assist.markup) {
+    el.assistCard.innerHTML = markup;
+    assist.markup = markup;
+  }
+  el.assistCard.classList.toggle('hidden', markup === '');
+  if (el.aiProgress) {
+    el.aiProgress.classList.toggle('hidden', state !== 'running');
+  }
+  if (el.assist) el.assist.dataset.state = state;
+  const waiting = state !== 'done' && !assist.logVisit;
+  if (waiting !== assist.waiting) {
+    assist.waiting = waiting;
+    setWorkspaceWaiting(el.page, waiting);
   }
 }
 
-/** The history line's entry, when that is the one asked for. */
-function historyEntryWith(id) {
-  return historyEntry && num(historyEntry.id) === num(id) ? historyEntry : null;
+/** The unsure groups the stack walks through, in the order of the page. */
+function unsureGroupIds() {
+  return resultNumbers(cardRows()).unsureIds;
 }
 
-/** "Undo" of the history line: the newest merge, as the log undoes it. */
-async function undoLast() {
-  if (!historyEntry) return;
-  await undoMerge(historyEntry.id);
+/** Writes the caption of every tool from the guide into its marked place. */
+function initCaptions() {
+  if (!el.page) return;
+  el.page.querySelectorAll('[data-caption]').forEach((slot) => {
+    slot.outerHTML = htmlCaption(
+      DUPLICATES_GUIDE.sections[slot.dataset.caption]
+    );
+  });
+}
+
+/** The three buttons the assistant draws, through one listener. */
+function initAssist() {
+  if (!el.assistCard) return;
+  el.assistCard.addEventListener('click', (event) => {
+    if (event.target.closest('#dupFindBtn')) {
+      findDuplicates();
+    } else if (event.target.closest('.dup-assist-review')) {
+      openStack(unsureGroupIds());
+    } else if (event.target.closest('.dup-assist-merge')) {
+      mergeSelected();
+    }
+  });
+  if (el.applyList) {
+    el.applyList.addEventListener('click', (event) => {
+      const retry = event.target.closest('.dup-apply-retry');
+      if (retry) retryApply(retry.dataset.groupId);
+    });
+  }
 }
 
 /** The marks of the stack, the request log and the apply progress. */
@@ -4628,7 +4600,9 @@ function drawTokenbar(parts, prompt, completion, thinking) {
   if (parts.answer) parts.answer.style.width = share(completion);
   if (parts.thinking) parts.thinking.style.width = share(thinking);
   if (!parts.legend) return;
-  parts.legend.innerHTML = `<span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>${esc(formatTokens(prompt))} question</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>${esc(formatTokens(completion))} answer</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>${esc(formatTokens(thinking))} thinking</span>`;
+  // What the model read, what it wrote, and what it spent thinking: the
+  // three things a run costs.
+  parts.legend.innerHTML = `<span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>${esc(formatTokens(prompt))} read</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>${esc(formatTokens(completion))} written</span><span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>${esc(formatTokens(thinking))} thinking</span>`;
 }
 
 /** One row of a ledger: the number, then what it is. */
@@ -4654,11 +4628,11 @@ function groupEntry(groupId) {
 }
 
 /* --- the stack: one pair per screen --------------------------------------- */
-/* "Review one by one" asks the Unsure rows one at a time: two sides, the
-   evidence under each name, what the model said and what merging writes. A
-   decision is a tick: Merge ticks the row, Keep both unticks it, Later puts
-   it at the end of the queue. Nothing is written until the one button of the
-   result head is pressed. The keys are Enter, Esc and L. */
+/* "Review N unsure one by one" asks the unsure groups one at a time: two
+   sides, the evidence under each name, what the model said and what merging
+   writes. A decision is a tick and nothing else: Merge ticks the card, Keep
+   both unticks it, Later puts it at the end of the queue. Nothing is written
+   until "Merge" is pressed. The keys are Enter, Esc and L. */
 
 /** Document titles a decision card shows per side, when the review fetched any. */
 const DECISION_SAMPLES = 3;
@@ -4727,7 +4701,7 @@ function htmlDecisionHead(state) {
   const htmlReasons = (Array.isArray(group.reasons) ? group.reasons : [])
     .map(
       (reason) =>
-        `<span class="zr-badge">${esc(REASON_LABELS[reason] || reason)}</span>`
+        `<span class="zr-badge">${esc(reasonChipLabel(reason, group.aiVerdict))}</span>`
     )
     .join('');
   const htmlCandidate =
@@ -4889,7 +4863,6 @@ function openStack(ids) {
 function closeStack() {
   if (!el.stack) return;
   el.stack.classList.add('hidden');
-  renderSimple();
 }
 
 /** True for a pair that has its answer: merge or keep, not later. */
@@ -4919,8 +4892,8 @@ function stackAdvance() {
 }
 
 /**
- * Merge or Keep both: the row of the pair is ticked or unticked, and the
- * checklists behind the stack follow at once.
+ * Merge or Keep both: the card of the pair is ticked or unticked, and the
+ * numbers of the assistant follow at once. Nothing else happens.
  *
  * @param {boolean} merge
  */
@@ -4928,18 +4901,14 @@ function stackDecide(merge) {
   const state = stackState();
   if (!state) return;
   const id = String(state.group.id);
-  const key = `g:${id}`;
   stack.decisions.push({
     id,
     at: stack.index,
     before: stack.answers.get(id),
-    key,
-    had: simple.ticks.has(key),
-    was: simple.ticks.get(key),
+    had: selectedGroups.has(id),
   });
   stack.answers.set(id, merge ? 'merge' : 'keep');
-  simple.ticks.set(key, merge);
-  renderSimple();
+  setTick(id, merge);
   stackAdvance();
 }
 
@@ -4972,9 +4941,7 @@ function stackUndo() {
     const at = stack.later.lastIndexOf(decision.id);
     if (at !== -1) stack.later.splice(at, 1);
   } else {
-    if (decision.had) simple.ticks.set(decision.key, decision.was);
-    else simple.ticks.delete(decision.key);
-    renderSimple();
+    setTick(decision.id, decision.had);
   }
   stack.index = decision.at;
   renderStack();
@@ -5026,10 +4993,11 @@ function initStack() {
     } else {
       return;
     }
+    // Drawing the members again runs the card's own update, and with it the
+    // selection bar and the numbers of the assistant.
     const card = cardFor(state.group.id);
     if (card) renderMembers(card, state);
     renderStack();
-    renderSimple();
   });
 
   if (el.stackCloseBtn) el.stackCloseBtn.addEventListener('click', closeStack);
@@ -5059,6 +5027,9 @@ const GUESS_THINKING_PER_REQUEST = 1800;
 const GUESS_TOKENS_PER_SECOND = 45;
 /** Entities the sweep looks at per request when it is switched on. */
 const GUESS_SWEEP_BATCH = 60;
+
+/** The clause the sweep's price ends with: what it does not buy. */
+const SWEEP_CLAUSE = 'never ticked alone';
 
 /**
  * What a run over the pairs on the page would cost, worked out here.
@@ -5209,11 +5180,17 @@ function sheetModel(estimate, draft) {
   );
   const lanes = Math.max(1, num(draft.lanes) || 1);
   const reads = num(extra.excerptReads);
-  const sweepPrice =
-    sweepRequests > 0
-      ? `+${count(sweepRequests)} ${plural(sweepRequests, 'request', 'requests')}` +
-        (sweepTokens > 0 ? ` · +${formatTokens(sweepTokens)}` : '')
-      : '';
+  // What the sweep costs, and what it does not buy: a pair it proposes is
+  // never ticked on the strength of the model alone.
+  const sweepParts = [];
+  if (sweepRequests > 0) {
+    sweepParts.push(
+      `+${count(sweepRequests)} ${plural(sweepRequests, 'request', 'requests')}`
+    );
+    if (sweepTokens > 0) sweepParts.push(`+${formatTokens(sweepTokens)}`);
+  }
+  sweepParts.push(SWEEP_CLAUSE);
+  const sweepPrice = sweepParts.join(' · ');
   const known = fromLast || source.needsScan !== true;
   return {
     sub: known
@@ -5273,8 +5250,8 @@ const SWITCH_LEVERS = {
 async function confirmRun(options) {
   const draft = { ...levers };
   let estimate = await fetchRunEstimate(options);
-  // Both ways here come after a scan: the one button scans first, and the
-  // advanced page's button waits for one.
+  // Both ways here come after a scan: "Find duplicates" scans first, and
+  // "Ask the model" of the scan row waits for one.
   const answer = confirmDialog({
     title: 'Ask the model',
     html: htmlSheet(sheetModel(estimate, draft)),
@@ -5361,6 +5338,9 @@ function renderRunLedger(progress) {
   } else if (judged > 0) {
     items.push(htmlLedgerItem(String(judged), 'pairs', false));
   }
+  // What the model has answered so far, once it has answered anything.
+  const tally = tallyText(state.tally);
+  if (tally !== '') items.push(htmlLedgerItem(tally, 'so far', false));
   if (spent > 0) {
     items.push(
       htmlLedgerItem(
@@ -5393,12 +5373,39 @@ function renderRunCeiling(state) {
     : '';
 }
 
-/** What one finished request cost, as one line of facts. */
+/**
+ * What a request was about, in the words of its row. The keys are the
+ * contract (REQUEST_KINDS of the job service); a row without one counts
+ * items.
+ */
+const REQUEST_UNITS = {
+  pairs: ['pair', 'pairs'],
+  names: ['name', 'names'],
+  tags: ['tag', 'tags'],
+};
+
+/** "22 pairs", "300 names", "22 items": what a request carried. Pure. */
+function requestItemsText(kind, items) {
+  const units = REQUEST_UNITS[kind] || ['item', 'items'];
+  return `${count(items)} ${plural(items, units[0], units[1])}`;
+}
+
+/**
+ * What one finished request did, as one line of facts, worded by what it
+ * was about: "22 pairs · 8 answered" for the judge, "300 names read · 2
+ * groups proposed" for the sweep, "22 items · 8 answered" for a row that
+ * does not say. Pure.
+ *
+ * The sweep answers with groups, so its count is only named where it can
+ * be one: a group takes two names at least. A row whose count is the names
+ * it read says just that.
+ */
 function reqlogWhatText(record) {
   const index = num(record.index);
   const items = num(record.items);
   const answers = num(record.answers);
-  const unit = plural(items, 'pair', 'pairs');
+  const kind = REQUEST_UNITS[record.kind] ? String(record.kind) : null;
+  const what = requestItemsText(kind, items);
   if (record.outcome === 'empty') {
     const thought = num(record.thinkingTokens);
     return thought > 0
@@ -5406,12 +5413,23 @@ function reqlogWhatText(record) {
       : `Request ${index} · no usable answer`;
   }
   if (record.outcome === 'failed') {
-    return `Request ${index} · failed · ${items} ${unit} marked unsure`;
+    return kind === 'pairs'
+      ? `Request ${index} · failed · ${what} marked unsure`
+      : `Request ${index} · failed · ${what}`;
   }
-  if (record.outcome === 'partial') {
-    return `Request ${index} · ${items} ${unit} · ${answers} answered · the rest asked again`;
+  if (kind === 'names') {
+    const proposed =
+      answers <= items / 2
+        ? ` · ${count(answers)} ${plural(answers, 'group', 'groups')} proposed`
+        : '';
+    return `Request ${index} · ${what} read${proposed}`;
   }
-  return `Request ${index} · ${items} ${unit} · ${answers} answered`;
+  // Only a cut off answer has the rest of its pairs asked again.
+  const rest =
+    record.outcome === 'partial' && answers < items
+      ? ' · the rest asked again'
+      : '';
+  return `Request ${index} · ${what} · ${count(answers)} answered${rest}`;
 }
 
 /** The token half of a request's row: the total, and what of it was thinking. */
@@ -5422,6 +5440,26 @@ function reqlogCostText(record) {
   if (thinking <= 0) return `${formatTokens(tokens)} tokens`;
   if (thinking >= tokens) return `${formatTokens(tokens)}, all thinking`;
   return `${formatTokens(tokens)} · ${formatTokens(thinking)} of it thinking`;
+}
+
+/**
+ * What the request in flight carries, as its row says it. The progress
+ * names the entity kind, not what the request is about, so the phase
+ * decides: the sweep reads names, everything else asks about pairs. The
+ * sweep's answer comes as a whole, so its row counts no answers yet. Pure.
+ *
+ * @param {object} state the progress
+ * @returns {string}
+ */
+function liveRequestText(state) {
+  const index = num(state.requestsDone) + 1;
+  const items = num(state.requestPairs);
+  if (items <= 0) return `Request ${index}`;
+  if (String(state.phase || '') === 'sweeping') {
+    return `Request ${index} · ${requestItemsText('names', items)}`;
+  }
+  const answers = num(state.requestAnswers);
+  return `Request ${index} · ${requestItemsText('pairs', items)} · ${count(answers)} answered`;
 }
 
 /**
@@ -5436,13 +5474,7 @@ function htmlLiveRequestRow(state) {
   const running = num(state.requestTokens);
   const thinking = state.thinking === true;
   if (running <= 0 && !thinking) return '';
-  const index = num(state.requestsDone) + 1;
-  const pairs = num(state.requestPairs);
-  const answers = num(state.requestAnswers);
-  const what =
-    pairs > 0
-      ? `Request ${index} · ${pairs} ${plural(pairs, 'pair', 'pairs')} · ${answers} answered`
-      : `Request ${index}`;
+  const what = liveRequestText(state);
   const cost =
     running > 0
       ? `${formatTokens(running)} so far${thinking ? ' · thinking' : ''}`
@@ -5635,7 +5667,6 @@ async function retryApply(groupId) {
     );
   }
   loadLog(true);
-  renderSimple();
 }
 
 /* --- what a button writes, in numbers ------------------------------------- */
@@ -5675,69 +5706,23 @@ function updateGroupConsequence(card, state) {
 
 /* --- wiring --------------------------------------------------------------- */
 
-/** The simple page: its one button, the ticks, the head and the history line. */
-function initSimple() {
-  if (el.findBtn) el.findBtn.addEventListener('click', findDuplicates);
-  if (el.resultMergeBtn) {
-    el.resultMergeBtn.addEventListener('click', mergeTicked);
-  }
-  if (el.historyUndoBtn) el.historyUndoBtn.addEventListener('click', undoLast);
-  if (el.checklists) {
-    // A tick moves the numbers of the one button and nothing else.
-    el.checklists.addEventListener('change', (event) => {
-      const box = event.target.closest('.zr-checklist__box');
-      if (!box) return;
-      simple.ticks.set(box.dataset.key, box.checked);
-      updateResultButton();
-    });
-    el.checklists.addEventListener('click', (event) => {
-      const more = event.target.closest('.dup-checklist-more');
-      if (more) {
-        simple.open.add(more.dataset.list);
-        renderSimple();
-        return;
-      }
-      if (event.target.closest('.dup-review-one')) {
-        openStack(currentChecklists().unsure.map((row) => row.groupId));
-      }
-    });
-  }
-  if (el.applyList) {
-    el.applyList.addEventListener('click', (event) => {
-      const retry = event.target.closest('.dup-apply-retry');
-      if (retry) retryApply(retry.dataset.groupId);
-    });
-  }
-}
-
-/** The mode: the button in the top bar, the gate, and data-mode on the page. */
-function initMode() {
-  if (!el.page) return;
-  mountModeSwitch({
-    page: 'duplicates',
-    root: el.page,
-    slot: document.getElementById('zrTopbarActions'),
-    gate: GATE_LINES,
-    // The simple page reads the cards; what changed on them while the
-    // advanced page was open shows when it comes back.
-    onChange: () => renderSimple(),
-  });
-  // A link from elsewhere to the log (the Undo of Simplify tags) lands on
-  // the advanced page for this visit, with the log open. The stored mode
-  // stays what it was.
-  if (window.location.hash === '#dupLog') {
-    applyMode(el.page, 'advanced');
-    const slot = document.getElementById('zrTopbarActions');
-    if (slot) slot.innerHTML = htmlModeButton('advanced');
-    const log = document.getElementById('dupLog');
-    if (log) log.open = true;
-  }
+/**
+ * A link from elsewhere to the log (the Undo of Simplify tags) opens it and
+ * wakes the toolset for this visit: the log is what the visit came for, and
+ * it holds nothing a scan would have to produce first.
+ */
+function initLogVisit() {
+  if (window.location.hash !== '#dupLog') return;
+  assist.logVisit = true;
+  if (el.log) el.log.open = true;
 }
 
 function init() {
   if (!el.results) return;
 
-  initMode();
+  initLogVisit();
+  initCaptions();
+  initAssist();
 
   if (el.kind) {
     el.kind.addEventListener('click', (event) => {
@@ -5783,7 +5768,6 @@ function init() {
   initSensitivity();
   initResultsBar();
   initSelection();
-  initSimple();
   loadStartFacts();
   initStack();
   initManual();
