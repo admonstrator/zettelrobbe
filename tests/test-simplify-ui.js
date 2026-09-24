@@ -4,9 +4,9 @@
  * Static checks for the Simplify tags page: the view, its navigation entry,
  * its stylesheet and its page script. The page talks to a dozen endpoints and
  * is reviewed in a browser; what is checked here is everything that can drift
- * without anyone noticing. The two modes, the sheet, the result checklists and
- * the stack are covered by tests/test-simplify-assistant-ui.js; this file keeps
- * the toolset of the advanced mode and the plumbing under both.
+ * without anyone noticing. The assistant on top, the sheet, the run meter and
+ * the stack are covered by tests/test-simplify-assistant-ui.js; this file
+ * keeps the toolset under the assistant and the plumbing under both.
  *
  *  1. views/simplify.ejs renders through the real shell and carries the ids
  *     the page script and the route agree on
@@ -25,10 +25,11 @@
  *  9. the progress panel: the helpers that word its numbers, the event stream
  *     with its polling fallback and the attach after a reload
  * 10. the requests the page sends, and the one route it sends each on
- * 11. the order as groups: the ids, the group card for every kind, the member
- *     row for every action, the cut at 50 members, the three filters, the
- *     summary line, the dialogs, the result of an apply, the removal of one
- *     member, the jobs, the vocabulary block, the table as the other view
+ * 11. the order as groups: the ids, the group card for every kind with its
+ *     tick, the member row for every action with its tick, the cut at 50
+ *     members, the three filters, the summary line, the dialogs, the result
+ *     of an apply, the removal of one member, the jobs, the vocabulary block,
+ *     the table as the other view
  */
 
 'use strict';
@@ -133,8 +134,8 @@ test('views/simplify.ejs renders through the real shell partials', () => {
   page = renderSync('simplify.ejs', LOCALS);
   assert.ok(page.includes('<!DOCTYPE html>'), 'no document was produced');
   assert.ok(
-    page.includes('Split compound tags into a document type and topics.'),
-    'the line under the title is missing'
+    page.includes('id="simAssist" data-assist'),
+    'the assistant the script fills is missing'
   );
   assert.ok(
     page.includes('<script type="module" src="/js/simplify.js">'),
@@ -559,10 +560,19 @@ test('The page script imports the shared escaper, the kernel and the round modul
     /from '\/js\/modules\/review-sheet\.js';/,
     'the sheet is the shared one'
   );
+  assert.ok(
+    !SCRIPT.includes('review-mode.js'),
+    'the page has one mode and imports no switch'
+  );
   assert.match(
     SCRIPT,
-    /import \{ mountModeSwitch \} from '\/js\/modules\/review-mode\.js';/,
-    'the mode switch is the shared one'
+    /\} from '\/js\/modules\/review-assist\.js';/,
+    'the assistant is the shared one'
+  );
+  assert.match(
+    SCRIPT,
+    /import \{ SIMPLIFY_GUIDE \} from '\/js\/modules\/review-guide\.js';/,
+    'the words of the assistant come from the guide'
   );
   // The page words its tokens and its times the way the sheet does: one
   // formatter each, imported, never a second copy.
@@ -1271,15 +1281,17 @@ test('Every request goes to the route the page was built for', () => {
     'proposeVocabulary',
     'proposeSplits',
     'applySelected',
-    'proposeOrder',
     'repropose',
-    'applyAllAccepted',
-    'applyTicked',
   ].forEach((name) => {
     assert.ok(
       SCRIPT.includes(`addEventListener('click', ${name})`),
       `${name}() must be behind a button`
     );
+  });
+  // The assistant's buttons are drawn with its card; one listener serves them.
+  const assist = functionBody('initAssist');
+  ['proposeOrder()', 'openStack()', 'applyAllAccepted()'].forEach((call) => {
+    assert.ok(assist.includes(call), `${call} must be behind a button`);
   });
 });
 
@@ -1311,6 +1323,7 @@ const CARD_HELPERS = [
   'memberOutcome',
   'htmlSourceBadge',
   'htmlMemberRow',
+  'htmlGroupTick',
   'htmlGroupCard',
 ];
 
@@ -1357,8 +1370,6 @@ test('The advanced view carries the order, the groups, the table and the vocabul
     'simOrderMeta',
     'simOrderSummary',
     'simOrderEmpty',
-    'simOrderKeepVocabulary',
-    'simOrderKeepWrap',
     'simOrderStats',
     'simStatGroupTypes',
     'simStatGroupTopics',
@@ -1374,7 +1385,6 @@ test('The advanced view carries the order, the groups, the table and the vocabul
     'simGroupSearch',
     'simGroups',
     'simGroupFilters',
-    'simApplyAcceptedBtn',
     'simApplyResult',
     'simVocabularyBlock',
     'simReproposeBtn',
@@ -1386,8 +1396,8 @@ test('The advanced view carries the order, the groups, the table and the vocabul
     );
   });
 
-  // The order row first, then the segment, the groups, the table, and the
-  // vocabulary last.
+  // The order row first with the segment in its head, then the groups, the
+  // table, and the vocabulary last.
   const at = (id) => page.indexOf(`id="${id}"`);
   assert.ok(at('simOrder') < at('simView'));
   assert.ok(at('simView') < at('simGroupsBlock'));
@@ -1400,38 +1410,37 @@ test('The advanced view carries the order, the groups, the table and the vocabul
     'the groups are the view the advanced page opens in'
   );
   assert.match(page, /data-view="table" aria-selected="false">Table</);
-  assert.match(page, /id="simApplyAcceptedBtn" type="button" disabled/);
   assert.match(
     page,
     /<details class="zr-module sim-vocab-module" id="simVocabularyBlock">/
   );
   assert.ok(page.includes('Propose order again'));
+  // The apply of everything accepted is the assistant's button now, and
+  // keeping the vocabulary is a lever of the sheet.
+  assert.ok(!page.includes('id="simApplyAcceptedBtn"'));
+  assert.ok(SCRIPT.includes('id="simApplyAcceptedBtn"'));
+  assert.ok(!page.includes('simOrderKeepVocabulary'));
+  // After a run most groups are accepted whole: the filter shows them all.
   assert.match(
     page,
-    /<input type="checkbox" class="zr-toggle" id="simOrderKeepVocabulary">\s*<span class="zr-sm">Keep vocabulary<\/span>/,
-    'keeping the vocabulary is a switch, and says so in two words'
+    /data-group-status="all" aria-selected="true">All</,
+    'the groups open on All, so the proposal the run landed is in sight'
   );
+  assert.match(SCRIPT, /let groupStatus = 'all';/);
 });
 
-test('The order button is the model backed one; without it comes the fact', () => {
+test('The order is started from the assistant, which knows about the model', () => {
   const offered = renderSync(
     'simplify.ejs',
     Object.assign({}, LOCALS, { aiReviewEnabled: true })
   );
-  assert.ok(
-    offered.includes('id="simOrderBtn"') &&
-      offered.includes('Propose a new order')
-  );
-  assert.match(offered, /id="simOrderIcon"[\s\S]{0,120}icons\.svg#i-wand/);
-  assert.ok(!offered.includes('id="simOrderAiHint"'));
-
-  assert.ok(!page.includes('id="simOrderBtn"'), 'no model, no model button');
-  assert.match(
-    page,
-    /id="simOrderAiHint">No model configured</,
-    'one line of fact instead of an explanation'
-  );
-  ['simGroups', 'simApplyAcceptedBtn', 'simReproposeBtn'].forEach((id) => {
+  assert.ok(offered.includes('data-provider="ready"'));
+  assert.ok(page.includes('data-provider="none"'), 'no model, and it says so');
+  // The order row carries no button of its own any more.
+  ['simOrderBtn', 'simOrderAiHint', 'Propose a new order'].forEach((needle) => {
+    assert.ok(!offered.includes(needle) && !page.includes(needle), needle);
+  });
+  ['simGroups', 'simReproposeBtn'].forEach((id) => {
     assert.ok(page.includes(`id="${id}"`), `#${id} must be there without it`);
   });
 });
@@ -1480,6 +1489,29 @@ test('A group card says what it is, how big it is and what can be done', () => {
       open: true,
     }).includes('<details class="sim-group__members" open>')
   );
+  // The tick on the head: half while some tags are accepted, full when all
+  // that are left are, empty when none are.
+  assert.ok(
+    card.includes(
+      '<input type="checkbox" class="zr-check sim-group-tick" aria-label="Apply Rechnung" data-mixed="true">'
+    )
+  );
+  assert.ok(card.includes('<th class="sim-members__tickcol">Apply</th>'));
+  const { htmlGroupTick } = orderHelpers(CARD_HELPERS);
+  assert.match(
+    htmlGroupTick(fixtureGroup({ open: 0, accepted: 4 })),
+    /class="zr-check sim-group-tick" aria-label="Apply Rechnung" checked>$/
+  );
+  assert.match(
+    htmlGroupTick(fixtureGroup({ open: 2, accepted: 0 })),
+    /aria-label="Apply Rechnung">$/
+  );
+  assert.match(
+    htmlGroupTick(fixtureGroup({ open: 0, accepted: 0, applied: 3 })),
+    / checked disabled>$/,
+    'a group written whole shows it and cannot change'
+  );
+  assert.ok(functionBody('renderGroups').includes('markMixedTicks(el.groups)'));
 });
 
 test('Every kind of group reads as itself', () => {
@@ -1511,6 +1543,9 @@ test('Every kind of group reads as itself', () => {
   assert.ok(remove.includes('zr-badge--danger') && remove.includes('#i-trash'));
   const keep = of('keep', { members: [fixtureMember({ action: 'keep' })] });
   assert.ok(keep.includes('zr-badge--ok'));
+  assert.ok(
+    !keep.includes('sim-group-tick') && !keep.includes('sim-member-tick')
+  );
   assert.ok(!keep.includes('sim-group-accept'));
   assert.ok(!keep.includes('sim-group-apply'));
   assert.ok(!keep.includes('sim-member-remove'));
@@ -1553,6 +1588,24 @@ test('A member row says what happens to the tag', () => {
 
   const row = htmlMemberRow(fixtureGroup({}), fixtureMember({}));
   assert.ok(row.includes('data-tag-id="9"'));
+  // The tick is the proposal: accepted is ticked, applied is ticked for good.
+  assert.ok(
+    row.includes(
+      '<td data-label="Apply" class="sim-member__tick"><input type="checkbox" class="zr-check sim-member-tick" data-tag-id="9" aria-label="Apply Stromrechnung"></td>'
+    )
+  );
+  assert.ok(
+    htmlMemberRow(
+      fixtureGroup({}),
+      fixtureMember({ status: 'accepted' })
+    ).includes('aria-label="Apply Stromrechnung" checked>')
+  );
+  assert.ok(
+    htmlMemberRow(
+      fixtureGroup({}),
+      fixtureMember({ status: 'applied' })
+    ).includes('aria-label="Apply Stromrechnung" checked disabled>')
+  );
   assert.ok(row.includes('>Stromrechnung<'));
   assert.ok(row.includes('>12<'));
   assert.ok(row.includes('<span class="zr-badge zr-badge--ok">rule</span>'));
@@ -1708,21 +1761,20 @@ test('The tiles and the summary count every tag once', () => {
 });
 
 test('Every apply of the order asks with the numbers of what it will write', () => {
-  const { groupApplyConfirmText, applySummaryText, applyAcceptedLabel } =
-    helpers(
-      [
-        'num',
-        'plural',
-        'grouped',
-        'planWrites',
-        'actionCounts',
-        'applySummaryText',
-        'groupConfirmName',
-        'groupApplyConfirmText',
-        'applyAcceptedLabel',
-      ],
-      {}
-    );
+  const { groupApplyConfirmText, applySummaryText, applyLabel } = helpers(
+    [
+      'num',
+      'plural',
+      'grouped',
+      'planWrites',
+      'actionCounts',
+      'applySummaryText',
+      'groupConfirmName',
+      'groupApplyConfirmText',
+      'applyLabel',
+    ],
+    {}
+  );
   assert.strictEqual(
     groupApplyConfirmText({ kind: 'type', name: 'Rechnung', accepted: 30 }),
     '30 accepted tags · documents get the type Rechnung and their topics · 30 tags deleted'
@@ -1758,8 +1810,8 @@ test('Every apply of the order asks with the numbers of what it will write', () 
     '1 split · 1 write'
   );
   assert.strictEqual(
-    applyAcceptedLabel({ tags: 12, writes: 1450 }),
-    'Apply 12 accepted · 1,450 writes'
+    applyLabel({ tags: 12, writes: 1450 }),
+    'Apply 12 · 1,450 writes'
   );
 
   const group = functionBody('applyGroup');
@@ -1774,16 +1826,15 @@ test('Every apply of the order asks with the numbers of what it will write', () 
     'the totals come from the accepted proposals, the same the job reads'
   );
   assert.ok(
-    functionBody('updateApplyAcceptedButton').includes(
-      'planWrites(acceptedProposals())'
-    )
+    functionBody('resultCounts').includes('planWrites('),
+    "the assistant's Apply counts what the job will write"
   );
 });
 
 test('An apply leaves a line, and names every tag that failed', () => {
   const { applyResultText, htmlApplyResultBlock } = helpers(
     ['applyResultText', 'htmlApplyResultBlock'],
-    { globals: { esc: escForTest } }
+    { globals: { esc: escForTest, UNDO_HREF: '/duplicates#dupLog' } }
   );
   assert.strictEqual(
     applyResultText({
@@ -1817,6 +1868,11 @@ test('An apply leaves a line, and names every tag that failed', () => {
   assert.ok(!block.includes('<b>'));
   const clean = htmlApplyResultBlock({ applied: [], merged: [], failed: [] });
   assert.ok(clean.includes('zr-alert--ok'));
+  assert.ok(!clean.includes('Undo'), 'nothing written, nothing to undo');
+  assert.ok(
+    block.includes('href="/duplicates#dupLog">Undo</a>'),
+    'what was written is undone in the merge log'
+  );
   const stopped = htmlApplyResultBlock({ applied: [], merged: [] }, true);
   assert.ok(stopped.includes('Stopped · the rest stays accepted'));
 });
@@ -1883,13 +1939,13 @@ test('The order and the apply run as jobs of the one job service', () => {
     run.includes("vocabulary: vocabularyMode === 'keep' ? 'keep' : 'propose'")
   );
   assert.ok(
-    run.includes('await followJob(job)') &&
-      run.includes('await loadGroups()') &&
-      run.includes('renderOrderSummary()')
+    run.includes('await followJob(job)') && run.includes('await finishOrder(')
   );
+  const finish = functionBody('finishOrder');
   assert.ok(
-    run.includes('tickOverrides.clear()'),
-    'a new order starts every tick over'
+    finish.includes('await loadGroups()') &&
+      finish.includes('renderOrderSummary()'),
+    'a new order is read again and summed up'
   );
   assert.ok(
     functionBody('proposeOrder').includes('runLevers.keepVocabulary === true'),
@@ -1917,16 +1973,16 @@ test('The saved vocabulary decides what the order row offers', () => {
     state.includes('runLevers.keepVocabulary ='),
     'the switch of the order row and the switch of the sheet are one lever'
   );
-  assert.ok(state.includes('el.orderBtn === null'));
   assert.ok(
     functionBody('readVocabularyPayload').includes(
       'renderVocabularyState(true)'
     )
   );
   assert.ok(
-    functionBody('initOrder').includes(
-      'runLevers.keepVocabulary = el.keepVocabulary.checked === true'
-    )
+    functionBody('askPreflight').includes(
+      "if (id === 'keepVocabulary') runLevers.keepVocabulary = on"
+    ),
+    'the switch lives on the sheet'
   );
 });
 
