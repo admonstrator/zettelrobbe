@@ -231,6 +231,21 @@ async function main() {
     jobs.recordRequest(progress, { index: 3, outcome: 'exploded' });
     assert.strictEqual(progress.requestLog[0].outcome, 'answered');
     assert.strictEqual(progress.requestLog[0].tokens, null);
+    // What a request was about rides along, so the page can word its row;
+    // a kind nobody defined is dropped rather than shown.
+    assert.strictEqual(progress.requestLog[0].kind, null);
+    jobs.recordRequest(progress, { index: 4, kind: 'names', items: 300 });
+    assert.strictEqual(progress.requestLog[0].kind, 'names');
+    jobs.recordRequest(progress, { index: 5, kind: 'sonnets', items: 1 });
+    assert.strictEqual(progress.requestLog[0].kind, null);
+    assert.ok(
+      jobs.REQUEST_KINDS.has('pairs') && jobs.REQUEST_KINDS.has('tags')
+    );
+    assert.strictEqual(
+      jobs.freshProgress(1).tally,
+      null,
+      'a fresh progress has no tally until the model answered'
+    );
 
     for (let index = 4; index < 20; index += 1) {
       jobs.recordRequest(progress, { index, items: 50, outcome: 'answered' });

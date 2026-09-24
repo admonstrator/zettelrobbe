@@ -694,6 +694,42 @@
                         </label>
                         <div class="zr-checklist__more"><button class="zr-btn" type="button">24 more</button></div>
                     </div>
+                    <span class="zr-label">Assistant · before, during, after</span>
+                    <div class="zr-assist zr-assist--start">
+                        <span class="zr-assist__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg></span>
+                        <div class="zr-assist__text">
+                            <h2 class="zr-assist__title">Merge tags and correspondents that mean the same thing.</h2>
+                            <p class="zr-assist__line">A scan pairs names by spelling, the model judges every pair on its documents, and each proposal lands below as a tick. Nothing is written before Merge.</p>
+                            <p class="zr-assist__facts">Last run 20 Sep · 275 pairs · 38k tokens · ~6 min</p>
+                        </div>
+                        <button class="zr-btn zr-btn--primary zr-btn--lg" type="button">Find duplicates</button>
+                    </div>
+                    <div class="zr-runmeter">
+                        <ol class="zr-steps">
+                            <li class="zr-steps__step zr-steps__step--done"><span class="zr-steps__mark"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>Compare names</li>
+                            <li class="zr-steps__step zr-steps__step--done"><span class="zr-steps__mark"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>Read documents</li>
+                            <li class="zr-steps__step zr-steps__step--now"><span class="zr-steps__mark">3</span>Judge pairs<span class="zr-steps__sub">· request 5 of 11</span></li>
+                            <li class="zr-steps__step zr-steps__step--next"><span class="zr-steps__mark"></span>Result</li>
+                        </ol>
+                        <div class="zr-runmeter__head"><span class="zr-runmeter__phase">Asking the model</span><button class="zr-btn" type="button"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>Stop</button></div>
+                        <p class="zr-runmeter__sentence">The model reads pairs of names with their evidence and says for each whether both mean the same thing, how sure it is, and why. 7 of 11 pairs so far were the same.</p>
+                    </div>
+                    <div class="zr-assist zr-assist--done">
+                        <span class="zr-assist__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>
+                        <div class="zr-assist__text">
+                            <p class="zr-assist__headline">275 scanned · 34 merges proposed · 5 unsure</p>
+                            <p class="zr-assist__cost"><span>12 requests · 38k tokens · ~6 min</span></p>
+                            <ul class="zr-assist__next">
+                                <li>Every tick below is a proposal. Untick a group to keep its names apart.</li>
+                                <li>"Merge" writes the ticked groups. "Not a duplicate" keeps a pair out of later scans.</li>
+                            </ul>
+                        </div>
+                        <div class="zr-assist__actions"><button class="zr-btn" type="button">Review 5 unsure one by one</button><button class="zr-btn zr-btn--primary" type="button">Merge 34 · 61 writes</button></div>
+                    </div>
+                    <div class="zr-workspace--waiting" style="display: contents">
+                        <p class="zr-workspace__note"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-clock"/></svg><span>The tools below wake up with the result.</span></p>
+                    </div>
+                    <p class="zr-module__caption">Pair any two names by hand when the scan did not.</p>
                     <section class="zr-start">
                         <span class="zr-start__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg></span>
                         <h2 class="zr-start__title">Merge tags and correspondents that mean the same thing.</h2>

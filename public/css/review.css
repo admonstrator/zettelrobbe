@@ -609,6 +609,202 @@
     color: var(--zr-brand);
   }
 
+  /* The assistant: the zone at the top of a review page. Before a run it is
+     the start (icon, the sentence of the page as title, one line, the one
+     button, the last run under it); during a run the run meter takes its
+     place; after a run it is the headline of numbers, the cost, and the
+     lines that say how the tools under it are used. */
+  .zr-assist {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-5);
+    padding: var(--zr-5) var(--zr-6);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+  }
+
+  .zr-assist__icon {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--zr-brand-soft);
+    color: var(--zr-brand-text);
+  }
+
+  .zr-assist__icon .zr-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .zr-assist__text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .zr-assist__title {
+    margin: 0;
+    font-size: var(--zr-fs-lg);
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .zr-assist__line {
+    margin: 2px 0 0;
+    font-size: var(--zr-fs-md);
+    line-height: 1.5;
+    color: var(--zr-text-muted);
+  }
+
+  .zr-assist__facts {
+    margin: 4px 0 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .zr-assist__headline {
+    margin: 0;
+    font-size: var(--zr-fs-xl);
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .zr-assist__cost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+    margin: 4px 0 0;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
+
+  /* How the tools below are used: short lines, read once. */
+  .zr-assist__next {
+    margin: var(--zr-3) 0 0;
+    padding-left: 1.1em;
+    font-size: var(--zr-fs-md);
+    line-height: 1.5;
+    color: var(--zr-text-muted);
+  }
+
+  .zr-assist__next li + li {
+    margin-top: 2px;
+  }
+
+  .zr-assist__actions {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+    justify-content: flex-end;
+  }
+
+  /* The steps of a run, above the run meter's headline: done ones ticked,
+     the current one numbered, the ones ahead empty. */
+  .zr-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 0;
+    margin: 0 0 var(--zr-3);
+    padding: 0;
+    list-style: none;
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  .zr-steps__step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 0;
+  }
+
+  .zr-steps__step + .zr-steps__step::before {
+    content: '';
+    width: 18px;
+    height: 1px;
+    margin-right: 10px;
+    background: var(--zr-line-strong);
+  }
+
+  .zr-steps__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--zr-line-strong);
+    border-radius: 50%;
+    font-size: 10px;
+  }
+
+  .zr-steps__step--done {
+    color: var(--zr-text-muted);
+  }
+
+  .zr-steps__step--done .zr-steps__mark {
+    border-color: var(--zr-brand);
+    background: var(--zr-brand);
+    color: var(--zr-on-brand);
+  }
+
+  .zr-steps__step--now {
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  .zr-steps__step--now .zr-steps__mark {
+    border-color: var(--zr-brand);
+    color: var(--zr-brand);
+    box-shadow: 0 0 0 3px var(--zr-brand-soft);
+  }
+
+  .zr-steps__sub {
+    font-weight: 400;
+    color: var(--zr-text-faint);
+  }
+
+  /* Under the headline of a running assistant: what happens now, and why. */
+  .zr-runmeter__sentence {
+    max-width: 88ch;
+    margin: 2px 0 var(--zr-3);
+    font-size: var(--zr-fs-md);
+    line-height: 1.5;
+    color: var(--zr-text-muted);
+  }
+
+  /* The workspace under the assistant while no result exists: every tool is
+     drawn and dimmed, and one line says why. The assistant and the line
+     stay at full strength. */
+  .zr-workspace--waiting
+    > :not(.zr-assist, .zr-workspace__note, [data-assist]) {
+    opacity: 0.42;
+    filter: saturate(0.4);
+    pointer-events: none;
+  }
+
+  .zr-workspace__note {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    margin: 0 0 var(--zr-3);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
+  }
+
+  /* One line under the head of a tool: what it is for. */
+  .zr-module__caption {
+    margin: 0 0 var(--zr-3);
+    font-size: var(--zr-fs-sm);
+    line-height: 1.5;
+    color: var(--zr-text-faint);
+  }
+
   /* The start of a simple page, before anything was run: the sentence of
      the page as its title, one line of what a run does, the one button,
      and under it what the last run cost. It fills the column and has to

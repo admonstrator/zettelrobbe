@@ -1022,6 +1022,7 @@ class TagSimplifyService {
     const meter = (outcome, answers) => {
       const spend = this._spendOf(service);
       this._recordRequest(control, {
+        kind: 'names',
         items: names.length,
         answers,
         // Omitted rather than null where nothing was reported; see
@@ -1510,6 +1511,7 @@ class TagSimplifyService {
     const meter = (outcome, answers) => {
       const spend = this._spendOf(service);
       this._recordRequest(control, {
+        kind: 'tags',
         items: tags.length,
         answers,
         // Omitted rather than null where nothing was reported; see

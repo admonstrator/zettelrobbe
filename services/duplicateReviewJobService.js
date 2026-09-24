@@ -114,6 +114,13 @@ const REQUEST_LOG_LENGTH = 8;
 
 /** What a finished request can have come back as; see AiReviewRequestRecord. */
 const OUTCOMES = new Set(['answered', 'partial', 'empty', 'failed']);
+
+/**
+ * What a request was about, so the page can word its row: the judge asks
+ * about pairs, the sweep and the vocabulary pass read names, the order pass
+ * reads tags. A record without one is worded as items.
+ */
+const REQUEST_KINDS = new Set(['pairs', 'names', 'tags']);
 /** How often the idle watch looks at a running job. */
 const IDLE_CHECK_MS = 5 * 1000;
 
@@ -214,6 +221,9 @@ function freshProgress(tokenBudget) {
     promptTokens: null,
     completionTokens: null,
     thinkingTotal: null,
+    // What the model has answered so far, as the page shows it while the run
+    // goes: {same, different, unsure} for the judge; null until it answered.
+    tally: null,
     requestLog: [],
   };
 }
@@ -285,8 +295,10 @@ function recordRequest(progress, record) {
     return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
   };
   const outcome = OUTCOMES.has(record?.outcome) ? record.outcome : 'answered';
+  const kind = REQUEST_KINDS.has(record?.kind) ? record.kind : null;
   progress.requestLog.unshift({
     index: whole(record?.index),
+    kind,
     items: whole(record?.items),
     answers: whole(record?.answers),
     tokens: nullable(record?.tokens),
@@ -902,8 +914,10 @@ duplicateReviewJobService.JOB_TASKS = JOB_TASKS;
 duplicateReviewJobService.STOP_REASONS = STOP_REASONS;
 duplicateReviewJobService.EVENT_TYPES = EVENT_TYPES;
 duplicateReviewJobService.PHASES = PHASES;
+duplicateReviewJobService.REQUEST_KINDS = REQUEST_KINDS;
 duplicateReviewJobService.RETENTION_MS = RETENTION_MS;
 duplicateReviewJobService.recordRequest = recordRequest;
+duplicateReviewJobService.freshProgress = freshProgress;
 duplicateReviewJobService.REQUEST_LOG_LENGTH = REQUEST_LOG_LENGTH;
 duplicateReviewJobService.RECORDED_TASKS = RECORDED_TASKS;
 
