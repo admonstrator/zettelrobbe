@@ -168,7 +168,7 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     </div>
                 </div>
 
-                <div class="dup-tools">
+                <div class="dup-tools" data-tools>
                     <!-- Merge by hand: no scan involved. Same request, same log,
                          same undo as a scanned group. The list behind it is
                          fetched on the first open. -->
@@ -310,7 +310,8 @@ const dupAiReviewEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEna
                     </details>
 
                     <!-- The merge log: every merge, delete and split, with its undo. -->
-                    <details class="zr-module dup-log" id="dupLog">
+                    <!-- Awake while the rest waits: an Undo must not need a scan first. -->
+                    <details class="zr-module dup-log" id="dupLog" data-awake>
                         <summary class="zr-module__head dup-log__summary">
                             <svg class="zr-icon zr-icon--sm dup-log__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
                             <span class="zr-module__title">History <span class="dup-summary__count" id="dupLogMeta">· 0</span></span>

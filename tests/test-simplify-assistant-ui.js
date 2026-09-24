@@ -1924,10 +1924,10 @@ test('The page places the kit rather than redefining it', () => {
   ].forEach((selector) => {
     assert.ok(PAGE_CSS.includes(`${selector} {`), `${selector} has no rule`);
   });
-  // 390px: the assistant's card stacks and its buttons take the width.
+  // 390px: the assistant stacks; the kit does that for both pages.
   assert.match(
-    PAGE_CSS,
-    /@media \(max-width: 720px\) \{[\s\S]*?\.sim-assist \.zr-assist \{\n\s+flex-wrap: wrap;/
+    KIT,
+    /@media \(max-width: 720px\) \{\n[\s\S]*?\.zr-assist \{\n\s+flex-direction: column;/
   );
   assert.ok(!PAGE_CSS.includes('data-mode') && !PAGE_CSS.includes('sim-list'));
 });

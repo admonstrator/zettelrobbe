@@ -767,8 +767,8 @@ async function main() {
       });
       assert.deepStrictEqual(
         tallies[tallies.length - 1],
-        { split: 1, merge: 0, delete: 1, keep: 1, unsure: 2 },
-        'a low confidence answer counts as unsure, whatever its action'
+        { split: 1, merge: 0, delete: 1, keep: 2, unsure: 1 },
+        'a low confidence answer counts as unsure, unless it is a keep'
       );
       assert.notStrictEqual(
         tallies[0],

@@ -44,13 +44,6 @@
     display: none;
   }
 
-  /* The run meter spaces its parts with its own gap, so the strip of steps
-     and the sentence under the headline keep none of their own below. */
-  .sim-progress .zr-steps,
-  .sim-progress .zr-runmeter__sentence {
-    margin-bottom: 0;
-  }
-
   /* The link to the log that undoes an apply sits at the end of its line. */
   .sim-apply-result .zr-alert {
     align-items: center;
@@ -62,41 +55,6 @@
   }
 
   @media (max-width: 720px) {
-    /* At 390px the card stacks: icon and text, then the buttons across the
-       whole width, one under the other. */
-    .sim-assist .zr-assist {
-      flex-wrap: wrap;
-      align-items: flex-start;
-      gap: var(--zr-3);
-      padding: var(--zr-4);
-    }
-
-    .sim-assist .zr-assist__icon {
-      width: 40px;
-      height: 40px;
-    }
-
-    .sim-assist .zr-assist__text {
-      flex-basis: calc(100% - 40px - var(--zr-3));
-    }
-
-    .sim-assist .zr-assist--start > .zr-btn,
-    .sim-assist .zr-assist__actions {
-      width: 100%;
-    }
-
-    .sim-assist .zr-assist--start > .zr-btn {
-      justify-content: center;
-    }
-
-    .sim-assist .zr-assist__actions {
-      flex-direction: column-reverse;
-    }
-
-    .sim-assist .zr-assist__actions .zr-btn {
-      justify-content: center;
-    }
-
     .sim-progress {
       padding: var(--zr-4);
     }

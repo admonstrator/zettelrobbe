@@ -9,9 +9,9 @@
       `.zr-tokenbar` splits a token count into the question, the answer and
       the model thinking to itself, the three parts the provider reports
       separately and the only honest answer to "where did those go?".
-   2. A result is read, not scanned. `.zr-resulthead` is the headline of
-      numbers with the one button, and `.zr-checklist` is what will happen,
-      row by row, ticked where the model was sure and dim where it was not.
+   2. A result is read, not scanned. `.zr-assist` is the zone at the top of
+      a page: what it does before a run, the run itself, and after it the
+      headline of numbers with how the tools below are used.
    3. A decision is one thing at a time. `.zr-decision` is the card of the
       stack: two sides, an arrow, the evidence under each name, the model's
       sentence, three buttons and the keys that do the same.
@@ -578,37 +578,6 @@
     margin-right: var(--zr-2);
   }
 
-  /* The gate into advanced mode: three lines, each an icon and a phrase. */
-  .zr-gate {
-    display: flex;
-    flex-direction: column;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .zr-gate__row {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-3);
-    min-height: 36px;
-    font-size: var(--zr-fs-base);
-    color: var(--zr-text);
-  }
-
-  .zr-gate__row .zr-icon {
-    flex-shrink: 0;
-    color: var(--zr-brand);
-  }
-
-  /* The mode. The button sits in the top bar, bordered like every other
-     button; the page root carries data-mode, and utilities.css hides what
-     belongs to the other mode. */
-  .zr-modebtn {
-    font-weight: 600;
-    color: var(--zr-brand);
-  }
-
   /* The assistant: the zone at the top of a review page. Before a run it is
      the start (icon, the sentence of the page as title, one line, the one
      button, the last run under it); during a run the run meter takes its
@@ -769,6 +738,13 @@
     color: var(--zr-text-faint);
   }
 
+  /* Inside the run meter, which spaces its parts with its own gap, the
+     strip and the sentence keep no margin of their own below. */
+  .zr-runmeter > .zr-steps,
+  .zr-runmeter > .zr-runmeter__sentence {
+    margin-bottom: 0;
+  }
+
   /* Under the headline of a running assistant: what happens now, and why. */
   .zr-runmeter__sentence {
     max-width: 88ch;
@@ -780,9 +756,18 @@
 
   /* The workspace under the assistant while no result exists: every tool is
      drawn and dimmed, and one line says why. The assistant and the line
-     stay at full strength. */
+     stay at full strength, and so does a tool marked data-awake (the log
+     with its Undo, a vocabulary to edit before a run); a wrapper marked
+     data-tools is looked through so its tools are dimmed one by one. */
   .zr-workspace--waiting
-    > :not(.zr-assist, .zr-workspace__note, [data-assist]) {
+    > :not(
+      .zr-assist,
+      .zr-workspace__note,
+      [data-assist],
+      [data-tools],
+      [data-awake]
+    ),
+  .zr-workspace--waiting [data-tools] > :not([data-awake]) {
     opacity: 0.42;
     filter: saturate(0.4);
     pointer-events: none;
@@ -805,204 +790,35 @@
     color: var(--zr-text-faint);
   }
 
-  /* The start of a simple page, before anything was run: the sentence of
-     the page as its title, one line of what a run does, the one button,
-     and under it what the last run cost. It fills the column and has to
-     hold its own on a wide screen with nothing else drawn. */
-  .zr-start {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--zr-3);
-    padding: var(--zr-10) var(--zr-6);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface);
-    text-align: center;
-  }
-
-  .zr-start__icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 64px;
-    height: 64px;
-    margin-bottom: var(--zr-2);
-    border-radius: 50%;
-    background: var(--zr-brand-soft);
-    color: var(--zr-brand-text);
-  }
-
-  .zr-start__icon .zr-icon {
-    width: 28px;
-    height: 28px;
-  }
-
-  .zr-start__title {
-    margin: 0;
-    font-size: var(--zr-fs-xl);
-    font-weight: 600;
-    line-height: 1.3;
-    color: var(--zr-text);
-  }
-
-  .zr-start__text {
-    max-width: 46ch;
-    margin: 0;
-    font-size: var(--zr-fs-md);
-    line-height: 1.5;
-    color: var(--zr-text-muted);
-  }
-
-  .zr-start > .zr-btn {
-    margin-top: var(--zr-3);
-  }
-
-  .zr-start__facts {
-    margin: 0;
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-faint);
-  }
-
-  /* The head of a result: the headline of numbers, what the run cost, and
-     the one button whose numbers follow the ticks. */
-  .zr-resulthead {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--zr-4);
-  }
-
-  .zr-resulthead__text {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-2);
-    min-width: 0;
-  }
-
-  .zr-resulthead__headline {
-    margin: 0;
-    font-size: var(--zr-fs-xl);
-    font-weight: 600;
-    line-height: 1.2;
-    font-variant-numeric: tabular-nums;
-    color: var(--zr-text);
-  }
-
-  .zr-resulthead__cost {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--zr-3);
-    margin: 0;
-    font-size: var(--zr-fs-sm);
-    font-variant-numeric: tabular-nums;
-    color: var(--zr-text-faint);
-  }
-
-  .zr-resulthead__action {
-    flex-shrink: 0;
-  }
-
-  /* A checklist: a label row with a count, then rows of a box, a name, its
-     meta and a chip. A dim row is one the model was not sure of; it comes
-     back to full strength the moment it is ticked. */
-  .zr-checklist {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .zr-checklist__head {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-3);
-    min-height: 36px;
-  }
-
-  .zr-checklist__head .zr-label {
-    flex-grow: 1;
-  }
-
-  .zr-checklist__count {
-    font-weight: 400;
-    color: var(--zr-text-faint);
-  }
-
-  .zr-checklist__row {
-    display: flex;
-    align-items: center;
-    gap: var(--zr-3);
-    min-height: 44px;
-    border-top: 1px solid var(--zr-line);
-    font-size: var(--zr-fs-base);
-    cursor: pointer;
-    transition: opacity var(--zr-dur) var(--zr-ease);
-  }
-
-  .zr-checklist__row--dim {
-    opacity: 0.6;
-  }
-
-  .zr-checklist__row--dim:has(.zr-checklist__box:checked) {
-    opacity: 1;
-  }
-
-  .zr-checklist__box {
-    flex-shrink: 0;
-    margin: 0;
-  }
-
-  .zr-checklist__text {
-    flex-grow: 1;
-    min-width: 0;
-  }
-
-  .zr-checklist__name {
-    font-weight: 600;
-    color: var(--zr-text);
-  }
-
-  .zr-checklist__meta {
-    color: var(--zr-text-faint);
-  }
-
-  .zr-checklist__meta::before {
-    content: '·';
-    margin: 0 var(--zr-2);
-  }
-
-  .zr-checklist__reason {
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-faint);
-  }
-
-  .zr-checklist__chip {
-    flex-shrink: 0;
-    padding: 2px 8px;
-    border-radius: var(--zr-r-full);
-    background: var(--zr-surface-sunken);
-    font-size: var(--zr-fs-xs);
-    font-weight: 600;
-    color: var(--zr-text-muted);
-  }
-
-  .zr-checklist__more {
-    padding: var(--zr-2) 0;
-    border-top: 1px solid var(--zr-line);
-  }
-
-  /* One line of history under a simple page, with the way back. */
-  .zr-historyline {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--zr-2);
-    margin: var(--zr-4) 0 0;
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-faint);
-  }
-
   @media (max-width: 720px) {
+    /* The assistant stacks: the icon and the text, then the buttons across
+       the whole width, the one that writes at the bottom. */
+    .zr-assist {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--zr-3);
+      padding: var(--zr-4);
+    }
+
+    .zr-assist__icon {
+      width: 40px;
+      height: 40px;
+    }
+
+    .zr-assist > .zr-btn,
+    .zr-assist__actions {
+      width: 100%;
+    }
+
+    .zr-assist__actions {
+      flex-direction: column-reverse;
+    }
+
+    .zr-assist > .zr-btn,
+    .zr-assist__actions .zr-btn {
+      justify-content: center;
+    }
+
     .zr-decision {
       padding: var(--zr-4);
     }
@@ -1042,11 +858,6 @@
 
     .zr-runbar {
       flex-wrap: wrap;
-    }
-
-    .zr-resulthead {
-      flex-direction: column;
-      align-items: stretch;
     }
 
     .zr-sheet__numbers {

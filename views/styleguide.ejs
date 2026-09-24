@@ -647,59 +647,12 @@
                 </div>
 
                 <div class="zr-col zr-col--tight">
-                    <span class="zr-label">Mode, gate, result head, checklist and the empty card</span>
-                    <div class="zr-row">
-                        <button class="zr-btn zr-modebtn" type="button"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-sliders"/></svg>Advanced</button>
-                        <button class="zr-btn zr-modebtn" type="button"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>Simple</button>
-                    </div>
-                    <ul class="zr-gate">
-                        <li class="zr-gate__row"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-filter"/></svg><span>Sensitivity and threshold</span></li>
-                        <li class="zr-gate__row"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg><span>Pair anything by hand</span></li>
-                        <li class="zr-gate__row"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-list"/></svg><span>Every group as a list, sort and select</span></li>
-                    </ul>
-                    <div class="zr-resulthead">
-                        <div class="zr-resulthead__text">
-                            <p class="zr-resulthead__headline">275 scanned · 34 merges proposed</p>
-                            <p class="zr-resulthead__cost">
-                                <span class="zr-tokenbar zr-tokenbar--mini"><span class="zr-tokenbar__track"><span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: 63%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: 16%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: 21%"></span></span></span>
-                                <span>12 requests · 38k tokens · ~2 min</span>
-                            </p>
-                        </div>
-                        <div class="zr-resulthead__action">
-                            <button class="zr-btn zr-btn--primary" type="button">Merge 34 · 61 writes</button>
-                        </div>
-                    </div>
-                    <div class="zr-checklist">
-                        <div class="zr-checklist__head">
-                            <span class="zr-label">Proposed <span class="zr-checklist__count">· 34</span></span>
-                        </div>
-                        <label class="zr-checklist__row">
-                            <input class="zr-check zr-checklist__box" type="checkbox" checked>
-                            <span class="zr-checklist__text">Mueller GmbH &amp; Co. KG → <span class="zr-checklist__name">Müller GmbH</span><span class="zr-checklist__meta">9 documents</span></span>
-                            <span class="zr-checklist__chip">legal form</span>
-                        </label>
-                        <label class="zr-checklist__row">
-                            <input class="zr-check zr-checklist__box" type="checkbox" checked>
-                            <span class="zr-checklist__text">Rechnungen → <span class="zr-checklist__name">Rechnung</span><span class="zr-checklist__meta">2 documents</span></span>
-                            <span class="zr-checklist__chip">plural</span>
-                        </label>
-                        <div class="zr-checklist__head">
-                            <span class="zr-label">Unsure <span class="zr-checklist__count">· 5</span></span>
-                            <button class="zr-btn" type="button">Review one by one</button>
-                        </div>
-                        <label class="zr-checklist__row zr-checklist__row--dim">
-                            <input class="zr-check zr-checklist__box" type="checkbox">
-                            <span class="zr-checklist__text">Generali → <span class="zr-checklist__name">Versicherung</span><span class="zr-checklist__meta">12 documents</span></span>
-                            <span class="zr-checklist__reason">insurer vs kind of document</span>
-                        </label>
-                        <div class="zr-checklist__more"><button class="zr-btn" type="button">24 more</button></div>
-                    </div>
-                    <span class="zr-label">Assistant · before, during, after</span>
+                    <span class="zr-label">Assistant · before, during, after · the waiting workspace · a caption</span>
                     <div class="zr-assist zr-assist--start">
                         <span class="zr-assist__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg></span>
                         <div class="zr-assist__text">
                             <h2 class="zr-assist__title">Merge tags and correspondents that mean the same thing.</h2>
-                            <p class="zr-assist__line">A scan pairs names by spelling, the model judges every pair on its documents, and each proposal lands below as a tick. Nothing is written before Merge.</p>
+                            <p class="zr-assist__line">A scan pairs names by spelling, the model judges the pairs spelling cannot settle, and each proposal lands below as a tick. Nothing is written before Merge.</p>
                             <p class="zr-assist__facts">Last run 20 Sep · 275 pairs · 38k tokens · ~6 min</p>
                         </div>
                         <button class="zr-btn zr-btn--primary zr-btn--lg" type="button">Find duplicates</button>
@@ -718,7 +671,7 @@
                         <span class="zr-assist__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>
                         <div class="zr-assist__text">
                             <p class="zr-assist__headline">275 scanned · 34 merges proposed · 5 unsure</p>
-                            <p class="zr-assist__cost"><span>12 requests · 38k tokens · ~6 min</span></p>
+                            <p class="zr-assist__cost"><span class="zr-tokenbar zr-tokenbar--mini"><span class="zr-tokenbar__track"><span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: 70%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: 20%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: 10%"></span></span></span><span>12 requests · 38k tokens · ~6 min</span></p>
                             <ul class="zr-assist__next">
                                 <li>Every tick below is a proposal. Untick a group to keep its names apart.</li>
                                 <li>"Merge" writes the ticked groups. "Not a duplicate" keeps a pair out of later scans.</li>
@@ -730,14 +683,6 @@
                         <p class="zr-workspace__note"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-clock"/></svg><span>The tools below wake up with the result.</span></p>
                     </div>
                     <p class="zr-module__caption">Pair any two names by hand when the scan did not.</p>
-                    <section class="zr-start">
-                        <span class="zr-start__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg></span>
-                        <h2 class="zr-start__title">Merge tags and correspondents that mean the same thing.</h2>
-                        <p class="zr-start__text">A scan by spelling, a pass by the model, one list to tick. Nothing is written before Merge.</p>
-                        <button class="zr-btn zr-btn--primary zr-btn--lg" type="button">Find duplicates</button>
-                        <p class="zr-start__facts">Last run 20 Sep · 275 pairs · 38k tokens · ~6 min</p>
-                    </section>
-                    <p class="zr-historyline"><span>History · 12 merges on 20 Sep</span><button class="zr-btn" type="button">Undo</button></p>
                 </div>
 
                 <div class="zr-col zr-col--tight">

@@ -3515,10 +3515,11 @@ class EntityMatchAiService {
     }
     // A sweep answers with the groups it found among the names it was shown;
     // finding none is a complete answer, not an empty one. Only a cut-off
-    // answer left something behind.
+    // answer left something behind. Its row counts the groups it proposed,
+    // so the page can say "300 names read · 2 groups proposed".
     this._recordRequest(
       context,
-      meter(truncated ? 'partial' : 'answered', chunk.length)
+      meter(truncated ? 'partial' : 'answered', proposals.length)
     );
     this._afterSweepRequest(kind, context);
     return proposals;

@@ -1412,7 +1412,7 @@ test('The advanced view carries the order, the groups, the table and the vocabul
   assert.match(page, /data-view="table" aria-selected="false">Table</);
   assert.match(
     page,
-    /<details class="zr-module sim-vocab-module" id="simVocabularyBlock">/
+    /<details class="zr-module sim-vocab-module" id="simVocabularyBlock" data-awake>/
   );
   assert.ok(page.includes('Propose order again'));
   // The apply of everything accepted is the assistant's button now, and

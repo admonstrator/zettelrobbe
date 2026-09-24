@@ -279,7 +279,8 @@ const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled =
                      Paperless-ngx; a split creates the object it needs.
                      The order proposes it, so the block stays closed once
                      one is saved. -->
-                <details class="zr-module sim-vocab-module" id="simVocabularyBlock">
+                <!-- Awake while the rest waits: the vocabulary is edited before a run. -->
+                <details class="zr-module sim-vocab-module" id="simVocabularyBlock" data-awake>
                     <summary class="zr-module__head sim-vocab__summary" id="simVocabulary">
                         <svg class="zr-icon zr-icon--sm sim-vocab__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
                         <span class="zr-module__title">Vocabulary</span>

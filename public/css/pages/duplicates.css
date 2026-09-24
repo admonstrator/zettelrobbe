@@ -39,26 +39,6 @@
     display: none;
   }
 
-  /* On a phone the start and the result stack: the icon, the text, and the
-     buttons on a row of their own, each as wide as the row. */
-  @media (max-width: 720px) {
-    .dup-assist .zr-assist {
-      flex-direction: column;
-      align-items: stretch;
-      gap: var(--zr-3);
-      padding: var(--zr-4);
-    }
-
-    .dup-assist .zr-assist__actions {
-      justify-content: stretch;
-    }
-
-    .dup-assist .zr-assist .zr-btn {
-      flex: 1 1 auto;
-      justify-content: center;
-    }
-  }
-
   /* --- captions ---------------------------------------------------------- */
   /* One line under the head of every tool. Inside a body that spaces its
      children with a gap, the caption's own margin would double it. */

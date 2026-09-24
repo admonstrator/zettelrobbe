@@ -200,8 +200,10 @@ async function runInLanes(items, limit, worker) {
 /**
  * What the model has answered so far in an order run, counted by what it
  * said: {split, merge, delete, keep, unsure}. A low confidence answer counts
- * as unsure, whatever its action. The page shows it while the run goes, so
- * the result is seen forming before it is stored.
+ * as unsure, unless it is a keep: a keep writes nothing and has nothing to
+ * decide, so it is a keep however sure the model was. The page shows the
+ * tally while the run goes, so the result is seen forming before it is
+ * stored, and the headline after the run counts the same way.
  *
  * @param {?object} tally  the count so far, or null before the first answer
  * @param {object[]} rows  the proposal rows one request answered
@@ -212,11 +214,11 @@ function addToTally(tally, rows) {
     ? { ...tally }
     : { split: 0, merge: 0, delete: 0, keep: 0, unsure: 0 };
   for (const row of Array.isArray(rows) ? rows : []) {
-    if (row?.confidence === 'low') {
+    const action = PROPOSAL_ACTIONS.includes(row?.action) ? row.action : 'keep';
+    if (row?.confidence === 'low' && action !== 'keep') {
       next.unsure += 1;
       continue;
     }
-    const action = PROPOSAL_ACTIONS.includes(row?.action) ? row.action : 'keep';
     next[action] += 1;
   }
   return next;

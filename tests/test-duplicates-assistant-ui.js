@@ -728,10 +728,10 @@ test('The stylesheet places the kit and redefines none of it', () => {
     );
   });
   assert.ok(!CSS.includes('data-mode'), 'the stylesheet still knows a mode');
-  // On a phone the start and the result stack, and the buttons share a row.
+  // On a phone the assistant stacks; the kit does that for both pages.
   assert.match(
-    CSS,
-    /@media \(max-width: 720px\) \{\n\s+\.dup-assist \.zr-assist \{\n\s+flex-direction: column;/,
+    read('public', 'css', 'review.css'),
+    /@media \(max-width: 720px\) \{\n[\s\S]*?\.zr-assist \{\n\s+flex-direction: column;/,
     'the assistant does not stack on a phone'
   );
 });
