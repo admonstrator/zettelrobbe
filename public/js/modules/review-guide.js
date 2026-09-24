@@ -93,9 +93,9 @@ export const DUPLICATES_GUIDE = Object.freeze({
 export const SIMPLIFY_GUIDE = Object.freeze({
   start: {
     title: 'Split compound tags into a document type and topics.',
-    what: 'Every tag gets one proposal: split into a type and topics, merge into another tag, delete, or keep. Each proposal lands below as a tick. Nothing is written before Apply.',
+    what: 'Every tag gets one proposal: split into a type and topics, merge into another tag, delete, or keep. The proposals land below, the sure ones ticked. Nothing is written before Apply.',
     whatWithoutModel:
-      'A rule pass settles the plain cases (plurals, case, umlauts) and each result lands below as a tick. Nothing is written before Apply.',
+      'Every tag gets one proposal from the model: split into a type and topics, merge into another tag, delete, or keep. A run needs a model; set one up in Settings.',
     button: 'Simplify tags',
   },
   steps: [
@@ -108,42 +108,43 @@ export const SIMPLIFY_GUIDE = Object.freeze({
     starting: { what: 'Getting ready.', why: '' },
     vocabulary: {
       what: 'The model reads every tag name and proposes the document types and topics the archive keeps coming back to.',
-      why: 'The order is only as good as the words it may use. A saved vocabulary is kept.',
+      why: 'The order is only as good as the words it may use. The new vocabulary replaces the saved one.',
     },
     'warming-up': {
       what: 'One small request, to measure how fast the model answers and how many tags fit into one request.',
       why: 'The rest of the run is sized from it.',
     },
     ordering: {
-      what: 'The model reads tags with their document titles and says for each what it is: a type plus topics, another tag under a different name, an empty leftover, or a tag to keep.',
-      why: 'A rule settles the plain cases before the model is asked; what the model was unsure about starts unticked.',
+      what: 'The model reads the tag names, with the number of documents on each, and says for every tag what it is: a type plus topics, another spelling of another tag, a leftover to delete, or a tag to keep.',
+      why: 'It judges by the name alone and never opens a document. A rule settled the plain cases before; what the model was unsure about starts unticked.',
     },
     splitting: {
-      what: 'The model reads compound tags with their document titles and splits each into a type and topics.',
-      why: 'A rule settles the plain cases before the model is asked; what the model was unsure about starts unticked.',
+      what: 'The model reads the compound tag names and splits each into a type and topics of the vocabulary.',
+      why: 'It judges by the name alone and never opens a document. A rule settled the plain cases before.',
     },
     finishing: {
-      what: 'The proposals are sorted into groups by what a tag becomes; what the model was sure of comes up ticked.',
+      what: 'The proposals are sorted into groups by what a tag becomes; what the model was sure of, and what a rule settled, comes up ticked.',
       why: '',
     },
     applying: {
-      what: 'Documents get the type and the topics; the compound tag is taken off them and deleted once it is empty.',
-      why: 'Every apply is logged and can be undone.',
+      what: 'Each ticked tag is written: its documents get the type and the topics or move to the other tag, and the old tag is deleted once no document carries it.',
+      why: 'Every apply is logged on the Duplicates page and can be undone there.',
     },
   },
   done: {
     next: [
-      'Every tick below is a proposal. Untick a tag to leave it as it is.',
-      'Open a group to change the type or the topics before they are written.',
-      'Unsure tags start unticked. "Review one by one" walks through them.',
-      '"Apply" writes the ticked proposals. "Skip" puts a tag aside for this run.',
+      'Every tick below is a proposal: what the model was sure of, or a rule settled. Untick a tag to leave it as it is.',
+      'Unsure tags start unticked. "Review one by one" shows them one at a time, with what each one writes.',
+      'The table shows every tag as a row, where the type and the topics can be changed before they are written.',
+      '"Apply" writes the ticked proposals. "Skip" puts a tag aside until it is reopened.',
     ],
   },
   sections: {
     order:
-      'One proposal per tag, grouped by what it becomes. Filter by kind and status, search by name.',
+      'One proposal per tag, grouped by what it becomes; the tick is the proposal. Filter by kind and status, search by name.',
     vocabulary:
-      'The document types and topics the proposals may use. Edit it and propose again.',
-    table: 'Every tag as one row: what it becomes, why, and its status.',
+      'The document types and topics the proposals may use. Edit it and propose the order again.',
+    table:
+      'Every tag as one row: what it becomes, why, and its status. The type and the topics can be changed here.',
   },
 });

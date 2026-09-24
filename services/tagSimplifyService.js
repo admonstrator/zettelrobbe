@@ -197,6 +197,31 @@ async function runInLanes(items, limit, worker) {
   return results;
 }
 
+/**
+ * What the model has answered so far in an order run, counted by what it
+ * said: {split, merge, delete, keep, unsure}. A low confidence answer counts
+ * as unsure, whatever its action. The page shows it while the run goes, so
+ * the result is seen forming before it is stored.
+ *
+ * @param {?object} tally  the count so far, or null before the first answer
+ * @param {object[]} rows  the proposal rows one request answered
+ * @returns {{split: number, merge: number, delete: number, keep: number, unsure: number}}
+ */
+function addToTally(tally, rows) {
+  const next = tally
+    ? { ...tally }
+    : { split: 0, merge: 0, delete: 0, keep: 0, unsure: 0 };
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (row?.confidence === 'low') {
+      next.unsure += 1;
+      continue;
+    }
+    const action = PROPOSAL_ACTIONS.includes(row?.action) ? row.action : 'keep';
+    next[action] += 1;
+  }
+  return next;
+}
+
 function chunkList(items, size) {
   const chunks = [];
   const step = Math.max(1, Number(size) || 1);
@@ -2784,6 +2809,8 @@ class TagSimplifyService {
       const lanes = Math.min(this._lanes(options?.concurrency), chunks.length);
       let started = 0;
       let done = baseRequests;
+      // Null until a request answered; the job's progress starts the same.
+      let tally = null;
       await runInLanes(chunks, lanes, async (chunk) => {
         if (this._stopped(control)) return;
         started += 1;
@@ -2815,6 +2842,7 @@ class TagSimplifyService {
           }
         );
         for (const row of answered) proposals.set(row.tagId, row);
+        if (answered.length > 0) tally = addToTally(tally, answered);
         done += 1;
         this._report(control, {
           phase: PHASES.ORDERING,
@@ -2823,6 +2851,9 @@ class TagSimplifyService {
           pairsJudged: proposals.size,
           tokens: usage.tokens,
           failedRequests: usage.failedRequests,
+          // With every request that answered; one that did not leaves the
+          // count the page already shows.
+          ...(answered.length > 0 ? { tally } : {}),
         });
         this._checkTokenBudget(control, usage);
       });
