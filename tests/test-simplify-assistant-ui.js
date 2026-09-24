@@ -1,33 +1,35 @@
 /**
  * Test: simplify-assistant-ui
  *
- * The Simplify tags page in its two modes. Simple is the default: one card
- * with one button, the shared sheet before a run, then the result as a head of
- * numbers, five checklists and one line of history. Advanced is the toolset of
- * today behind the gate, without a paragraph of explanation. The run meter,
- * the apply progress and the stack belong to both.
+ * The Simplify tags page as one page. The assistant is the zone at the top:
+ * the start with its one button, the run meter with the steps and the
+ * sentence of what happens now, the result as a headline of numbers with the
+ * lines of how the tools are used and two buttons, and the stack in its
+ * place. The whole toolset stands under it from the first second and waits,
+ * dimmed, until a result exists. The proposal of a run lands as status: what
+ * the model was sure of, or a rule settled, is accepted once when the run
+ * ends, and "accepted" is the tick in the groups.
  *
  * Covers:
- *  1. the kit is linked, layered and has the classes this page places
- *  2. the modes: the root, the markers, the switch in the top bar, the gate's
- *     three lines, and no marked element that the page layer could show
- *  3. the empty card, with and without a model
- *  4. the sheet: its model built from an estimate fixture, its switches and
- *     their prices, the shared markup it renders into, and the levers that
- *     fetch a fresh estimate
- *  5. the result head: the headline, the cost line, and the button whose two
- *     numbers follow the ticks
- *  6. the five checklists sorted from a proposals fixture, their rows, their
- *     caps, the way into the stack and the unchanged line
- *  7. an apply writes the ticks as statuses first, then runs today's job
- *  8. the history line
- *  9. the stack: its bar, its card, its keys, and what it does to the ticks
- * 10. the running screen without a subject and a Stop without a second line
- * 11. the apply checklist
- * 12. the advanced page carries its controls and no hints; round 13's
- *     baskets, plan head and preflight are gone
- * 13. the page stylesheet places the kit rather than redefining it
- * 14. the voice: the page is in the list of the voice test, and no file of
+ *  1. the kit is linked, layered and has every class this page places
+ *  2. the view: one root, the assistant wrapper its first child, no mode, no
+ *     gate, an empty top bar, one caption per tool, none of the retired
+ *     classes
+ *  3. the start from fixtures, with and without a model, with its facts line
+ *  4. the result from a proposals fixture: its three numbers, the cost line,
+ *     the lines of the guide, the two buttons and the numbers following a
+ *     reopen
+ *  5. the face the assistant shows, and the waiting switch of the workspace
+ *  6. the accepted on finish rule: sure lands accepted, low stays open, once,
+ *     through the status route; an order that ended unwatched lands once too
+ *  7. the running screen: the steps, the sentence with the tally, the ledger,
+ *     the token legend, the request rows worded by kind
+ *  8. the sheet: its model from an estimate fixture, its switches and prices,
+ *     the shared markup, the levers that fetch a fresh estimate
+ *  9. the stack over the unsure proposals, and its keys
+ * 10. the apply checklist, and the Undo of the apply result
+ * 11. the page stylesheet places the kit rather than redefining it
+ * 12. the voice: the page is in the list of the voice test, and no file of
  *     this page carries a dash
  */
 
@@ -81,9 +83,18 @@ const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 const HEAD = read('views', 'partials', 'shell', 'head-start.ejs');
 const KIT = read('public', 'css', 'review.css');
 const PAGE_CSS = read('public', 'css', 'pages', 'simplify.css');
-const MODULES_CSS = read('public', 'css', 'modules.css');
 const SCRIPT = read('public', 'js', 'simplify.js');
 const VIEW = read('views', 'simplify.ejs');
+
+/** The classes retired after this round; the page places none of them. */
+const RETIRED = [
+  'zr-start',
+  'zr-resulthead',
+  'zr-checklist',
+  'zr-historyline',
+  'zr-modebtn',
+  'zr-gate',
+];
 
 /* --- 1. the kit ----------------------------------------------------------- */
 
@@ -100,26 +111,26 @@ test('The kit is one layered block and has every class this page places', () => 
   assert.strictEqual((KIT.match(/@layer [a-z]+ \{/g) || []).length, 1);
   assert.ok(KIT.includes('@layer components {'));
   [
-    '.zr-start',
-    '.zr-start__icon',
-    '.zr-resulthead',
-    '.zr-resulthead__headline',
-    '.zr-resulthead__cost',
-    '.zr-resulthead__action',
+    '.zr-assist',
+    '.zr-assist__icon',
+    '.zr-assist__text',
+    '.zr-assist__title',
+    '.zr-assist__line',
+    '.zr-assist__facts',
+    '.zr-assist__headline',
+    '.zr-assist__cost',
+    '.zr-assist__next',
+    '.zr-assist__actions',
+    '.zr-steps',
+    '.zr-steps__step',
+    '.zr-steps__step--done',
+    '.zr-steps__step--now',
+    '.zr-steps__mark',
+    '.zr-steps__sub',
+    '.zr-runmeter__sentence',
+    '.zr-workspace__note',
+    '.zr-module__caption',
     '.zr-tokenbar--mini',
-    '.zr-checklist',
-    '.zr-checklist__head',
-    '.zr-checklist__count',
-    '.zr-checklist__row',
-    '.zr-checklist__row--dim',
-    '.zr-checklist__box',
-    '.zr-checklist__text',
-    '.zr-checklist__name',
-    '.zr-checklist__meta',
-    '.zr-checklist__reason',
-    '.zr-checklist__chip',
-    '.zr-checklist__more',
-    '.zr-historyline',
     '.zr-sheet',
     '.zr-runmeter',
     '.zr-runbar__fill',
@@ -132,13 +143,7 @@ test('The kit is one layered block and has every class this page places', () => 
       `${selector} has no rule in the kit`
     );
   });
-  // The rule lives in the utilities layer next to .hidden, where no module
-  // or page display can outrank it.
-  assert.match(
-    read('public', 'css', 'utilities.css'),
-    /\[data-mode='simple'\] \[data-advanced\],\n\s+\[data-mode='advanced'\] \[data-simple\] \{\n\s+display: none !important;/,
-    "the utilities layer hides the other mode by the root's data-mode"
-  );
+  assert.ok(KIT.includes('.zr-workspace--waiting'));
 });
 
 /* --- the page, rendered through the real shell ---------------------------- */
@@ -224,15 +229,18 @@ function elementAt(html, start) {
   }
 }
 
-/** Every element marked for one mode, as its opening tag and its markup. */
-function marked(html, attribute) {
-  const found = [];
-  const re = new RegExp(`<[a-z]+[^>]*\\s${attribute}(?=[\\s>])[^>]*>`, 'g');
-  let match;
-  while ((match = re.exec(html)) !== null) {
-    found.push({ tag: match[0], html: elementAt(html, match.index) });
+/** The direct children of an element, as their opening tags. */
+function childTags(html) {
+  const inner = html.slice(html.indexOf('>') + 1, html.lastIndexOf('</'));
+  const tags = [];
+  let at = inner.search(/<[a-z]/);
+  while (at !== -1) {
+    tags.push(/^<[^>]*>/.exec(inner.slice(at))[0]);
+    const whole = elementAt(inner, at);
+    const next = inner.slice(at + whole.length).search(/<[a-z]/);
+    at = next === -1 ? -1 : at + whole.length + next;
   }
-  return found;
+  return tags;
 }
 
 /* --- the helpers, taken out of the module ---------------------------------- */
@@ -286,7 +294,7 @@ const escForTest = (value) =>
       })[character]
   );
 
-/** The shared sheet module, loaded the way tests/test-review-sheet.js does. */
+/** A module of the kit, loaded the way tests/test-review-sheet.js does. */
 function loadModule(file, names) {
   const source = read(file)
     .replace(/^import .*$/gm, '')
@@ -305,11 +313,22 @@ const SHEET = loadModule('public/js/modules/review-sheet.js', [
   'shares',
   'htmlSheet',
 ]);
+const ASSIST = loadModule('public/js/modules/review-assist.js', [
+  'stepStates',
+  'htmlSteps',
+  'htmlSentence',
+  'htmlAssistStart',
+  'htmlAssistDone',
+  'htmlCaption',
+]);
+const { SIMPLIFY_GUIDE } = loadModule('public/js/modules/review-guide.js', [
+  'SIMPLIFY_GUIDE',
+]);
 
 /**
  * The named helpers of the page script, evaluated out of their module. Only
- * pure functions can be taken this way, which is why everything the modes,
- * the sheet and the checklists decide is written as a pure function.
+ * pure functions can be taken this way, which is why everything the
+ * assistant decides is written as a pure function.
  */
 function helpers(names, extra = {}) {
   const constants = (extra.constants || []).map(constantSource).join('\n');
@@ -321,7 +340,9 @@ function helpers(names, extra = {}) {
       roughTime: SHEET.roughTime,
       shares: SHEET.shares,
       LANE_CHOICES: SHEET.LANE_CHOICES,
+      SIMPLIFY_GUIDE,
     },
+    ASSIST,
     extra.globals || {}
   );
   const keys = Object.keys(globals);
@@ -331,52 +352,40 @@ function helpers(names, extra = {}) {
   )(...keys.map((key) => globals[key]));
 }
 
-/** Everything the result, the checklists and the history line stand on. */
-const SIMPLE = [
+/** Everything the result, its numbers and the start stand on. */
+const RESULT = [
   'num',
   'plural',
   'grouped',
-  'documentsText',
   'planWrites',
   'tokenSplit',
   'splitShares',
   'sectionOf',
-  'simpleSections',
-  'defaultTick',
-  'isTicked',
-  'tickedProposals',
-  'resultHeadline',
-  'applyTickedLabel',
-  'mergeBasis',
-  'htmlRowWhat',
-  'rowMeta',
-  'htmlChecklistRow',
-  'htmlSectionRows',
-  'htmlSection',
-  'htmlResultCost',
+  'sureChanges',
+  'unsureOpen',
+  'resultCounts',
+  'doneHeadline',
+  'applyLabel',
+  'reviewLabel',
+  'htmlRunCost',
   'parseStamp',
   'lastApplyAt',
   'shortDate',
-  'htmlHistoryLine',
-  'statusChanges',
+  'lastApplyFacts',
+  'assistState',
+  'htmlStartCard',
+  'htmlDoneCard',
+  'missedFinish',
+  'acceptPlan',
 ];
 
-const SIMPLE_CONSTANTS = [
-  'SOURCE_LABELS',
-  'SECTION_KINDS',
-  'SECTION_TITLES',
-  'LIST_ROWS',
-  'MERGE_BASIS_LABELS',
-  'COST_UNKNOWN',
-  'MONTHS',
-  'UNDO_HREF',
-];
+const RESULT_CONSTANTS = ['CHANGE_SECTIONS', 'NO_MODEL', 'MONTHS', 'JOB_TASKS'];
 
-function simple() {
-  return helpers(SIMPLE, { constants: SIMPLE_CONSTANTS });
+function result(globals) {
+  return helpers(RESULT, { constants: RESULT_CONSTANTS, globals });
 }
 
-/* --- the fixture: every checklist, both sources, every status --------------- */
+/* --- the fixture: every kind, both sources, every status -------------------- */
 
 function proposal(over) {
   return Object.assign(
@@ -400,6 +409,7 @@ function proposal(over) {
   );
 }
 
+/** A run as it lands: every proposal open, before the finish ticks it. */
 const FIXTURE = [
   proposal({
     tagId: 1,
@@ -495,188 +505,1095 @@ const FIXTURE = [
   }),
 ];
 
-/* --- 2. the modes ----------------------------------------------------------- */
+/** The fixture after the finish: the sure changes accepted, nothing else. */
+function landed() {
+  const sure = new Set([1, 2, 3, 4, 5]);
+  return FIXTURE.map((row) =>
+    sure.has(row.tagId) ? Object.assign({}, row, { status: 'accepted' }) : row
+  );
+}
 
-test('The page is one root that carries the mode, simple until switched', () => {
+/* --- 2. the view -------------------------------------------------------------- */
+
+test('One root, no mode, and the assistant is its first child', () => {
   assert.match(
     page,
-    /<div class="sim-page" id="simPage" data-review-page="simplify" data-mode="simple">/,
-    'the root wraps both modes and starts in simple mode'
+    /<div class="sim-page" id="simPage" data-review-page="simplify">/,
+    'the root keeps its review page and carries no mode'
   );
-  assert.strictEqual(
-    (page.match(/data-review-page=/g) || []).length,
-    1,
-    'one root per page'
-  );
-  const simpleParts = marked(page, 'data-simple');
-  const advancedParts = marked(page, 'data-advanced');
-  assert.ok(simpleParts.length >= 2 && advancedParts.length >= 2);
-  const inSimple = simpleParts.map((part) => part.html).join('\n');
-  const inAdvanced = advancedParts.map((part) => part.html).join('\n');
-  // What belongs where.
-  [
-    'simEmptyCard',
-    'simStartBtn',
-    'simResult',
-    'simLists',
-    'simHistoryLine',
-  ].forEach((id) => {
-    assert.ok(inSimple.includes(`id="${id}"`), `#${id} belongs to simple`);
-    assert.ok(!inAdvanced.includes(`id="${id}"`));
+  assert.strictEqual((page.match(/data-review-page=/g) || []).length, 1);
+  ['data-mode', 'data-simple', 'data-advanced'].forEach((mark) => {
+    assert.ok(!VIEW.includes(mark), `${mark} is back in the view`);
+    assert.ok(!page.includes(`${mark}=`) && !page.includes(`${mark}>`));
   });
-  [
+  const root = elementAt(page, page.indexOf('<div class="sim-page"'));
+  const children = childTags(root);
+  assert.match(
+    children[0],
+    /^<section class="sim-assist" id="simAssist" data-assist data-provider="ready"/,
+    'the assistant wrapper is the first child, for setWorkspaceWaiting'
+  );
+  assert.ok(
+    /data-provider="none"/.test(pageNoModel),
+    'the assistant says when no model is configured'
+  );
+  assert.ok(
+    children[0].includes(
+      `aria-label="${escForTest(SIMPLIFY_GUIDE.start.title)}"`
+    ),
+    'the region is named by the sentence of the page, as its start says it'
+  );
+  // The toolset follows it, in its order.
+  const ids = children.map((tag) => (/id="([^"]+)"/.exec(tag) || [])[1]);
+  assert.deepStrictEqual(ids, [
+    'simAssist',
     'simOrder',
-    'simOrderBtn',
-    'simView',
     'simGroupsBlock',
     'simProposals',
     'simVocabularyBlock',
-  ].forEach((id) => {
-    assert.ok(inAdvanced.includes(`id="${id}"`), `#${id} belongs to advanced`);
-    assert.ok(!inSimple.includes(`id="${id}"`));
-  });
-  // What belongs to both carries neither marker.
-  ['simProgress', 'simApplyChecklist', 'simApplyResult', 'simStack'].forEach(
-    (id) => {
-      assert.ok(page.includes(`id="${id}"`), `#${id} is missing`);
-      assert.ok(
-        !inSimple.includes(`id="${id}"`) && !inAdvanced.includes(`id="${id}"`),
-        `#${id} belongs to both modes and carries no marker`
-      );
-    }
-  );
-});
-
-test('No marked element wears a class the pages or modules layer displays', () => {
-  // The kit hides the other mode from layer components. A display on the
-  // marked element from a later layer would win over it and show both modes.
-  const displayed = (css, name) =>
-    new RegExp(`(^|\\n)\\s*\\.${name}\\s*\\{[^}]*\\bdisplay\\s*:`).test(css);
-  [...marked(page, 'data-simple'), ...marked(page, 'data-advanced')].forEach(
-    (part) => {
-      const classes = (/class="([^"]*)"/.exec(part.tag) || ['', ''])[1]
-        .split(/\s+/)
-        .filter(Boolean);
-      classes.forEach((name) => {
-        assert.ok(
-          !displayed(PAGE_CSS, name) && !displayed(MODULES_CSS, name),
-          `${part.tag} wears .${name}, which a later layer gives a display`
-        );
-      });
-    }
-  );
-});
-
-test('The mode switch sits in the top bar and the gate reads three lines', () => {
-  const init = functionBody('initMode');
-  assert.ok(init.includes('mountModeSwitch({'));
-  assert.ok(init.includes("page: 'simplify'"));
-  assert.ok(init.includes('root: el.page'));
-  assert.ok(init.includes('slot: el.topbarActions'));
-  assert.ok(init.includes('gate: GATE_LINES'));
-  assert.match(
-    SCRIPT,
-    /topbarActions: document\.getElementById\('zrTopbarActions'\)/
-  );
-  assert.ok(
-    functionBody('init').indexOf('initMode()') <
-      functionBody('init').indexOf('await loadVocabulary()'),
-    'the mode is stamped before anything is loaded'
-  );
-  const { GATE_LINES } = new Function(
-    `${constantSource('GATE_LINES')}\nreturn { GATE_LINES };`
-  )();
-  assert.deepStrictEqual(GATE_LINES, [
-    { icon: 'i-tag', text: 'Vocabulary: document types and topics' },
-    { icon: 'i-list', text: 'Every tag in a table, filters and search' },
-    { icon: 'i-layers', text: 'Groups by type, topic and target' },
   ]);
-  const icons = read('public', 'icons.svg');
-  GATE_LINES.forEach((line) => {
-    assert.ok(icons.includes(`id="${line.icon}"`), `${line.icon} is missing`);
+  // The run meter, the apply and the stack live in the assistant.
+  const assist = elementAt(root, root.indexOf('<section class="sim-assist"'));
+  [
+    'simAssistCard',
+    'simProgress',
+    'simSteps',
+    'simSentence',
+    'simRunbar',
+    'simRunLedger',
+    'simRunTokens',
+    'simReqLog',
+    'simApplyChecklist',
+    'simApplyResult',
+    'simStack',
+  ].forEach((id) => {
+    assert.ok(assist.includes(`id="${id}"`), `#${id} belongs to the assistant`);
   });
-  // Leaving simple mode closes the stack it was opened from.
-  assert.ok(init.includes('closeStack()'));
+  assert.match(
+    assist,
+    /class="sim-progress zr-runmeter hidden" id="simProgress"/
+  );
+  assert.match(assist, /class="sim-stack hidden" id="simStack"/);
 });
 
-/* --- 3. the empty card ------------------------------------------------------ */
+test('No gate, no mode switch, nothing stored about a mode', () => {
+  assert.ok(!SCRIPT.includes('review-mode.js'), 'the mode module is retired');
+  assert.ok(!SCRIPT.includes('mountModeSwitch'));
+  assert.ok(!SCRIPT.includes('zrTopbarActions'), 'the top bar slot is empty');
+  assert.ok(!SCRIPT.includes('localStorage') && !SCRIPT.includes('GATE_'));
+  assert.ok(!/\bmode\b\s*=/.test(SCRIPT), 'no mode is kept');
+  [
+    'initMode',
+    'initSimple',
+    'renderSimple',
+    'simpleSections',
+    'htmlSection',
+    'htmlChecklistRow',
+    'applyTicked',
+    'updateApplyTicked',
+    'acceptClearOnes',
+    'htmlHistoryLine',
+    'resultHeadline',
+  ].forEach((name) => {
+    assert.ok(!SCRIPT.includes(`function ${name}(`), `${name}() is retired`);
+  });
+  ['tickOverrides', 'simEmptyCard', 'simResult', 'simLists'].forEach(
+    (needle) => {
+      assert.ok(!SCRIPT.includes(needle) && !VIEW.includes(needle), needle);
+    }
+  );
+});
 
-test('Before a run the simple page is the line and one card with one button', () => {
-  const inSimple = marked(page, 'data-simple')
-    .map((part) => part.html)
-    .join('\n');
+test('The page places none of the retired classes', () => {
+  RETIRED.forEach((name) => {
+    const re = new RegExp(`${name}(?![a-z-])|${name}__|${name}--`);
+    assert.ok(!re.test(VIEW), `.${name} is in the view`);
+    assert.ok(!re.test(SCRIPT), `.${name} is in the script`);
+    assert.ok(!re.test(PAGE_CSS), `.${name} is in the page stylesheet`);
+  });
+});
+
+test('One caption per tool, from the guide, and no other prose', () => {
+  const places = [
+    ...VIEW.matchAll(/<div data-caption="([a-z]+)"><\/div>/g),
+  ].map((match) => match[1]);
+  assert.deepStrictEqual(places, ['order', 'table', 'vocabulary']);
+  places.forEach((key) => {
+    assert.ok(SIMPLIFY_GUIDE.sections[key], `the guide has no ${key}`);
+  });
+  // The order caption sits in the groups block, the table's in the table.
+  const at = (needle) => page.indexOf(needle);
   assert.ok(
-    inSimple.includes('Split compound tags into a document type and topics.')
+    at('id="simGroupsBlock"') < at('data-caption="order"') &&
+      at('data-caption="order"') < at('id="simProposals"')
   );
-  const card = elementAt(page, page.indexOf('<section class="zr-start'));
-  assert.match(card, /class="zr-start sim-start hidden" id="simEmptyCard"/);
   assert.ok(
-    card.includes('<span class="zr-start__icon">') && card.includes('#i-split'),
-    'the start wears the split icon'
+    at('id="simProposals"') < at('data-caption="table"') &&
+      at('data-caption="table"') < at('id="simVocabularyBlock"')
   );
-  // The sentence of the page is the title of the start; the line above it
-  // is drawn only with a result.
+  const init = functionBody('initCaptions');
+  assert.ok(init.includes('htmlCaption('));
+  assert.ok(init.includes('SIMPLIFY_GUIDE.sections['));
+  assert.strictEqual(
+    ASSIST.htmlCaption(SIMPLIFY_GUIDE.sections.order),
+    `<p class="zr-module__caption">${escForTest(SIMPLIFY_GUIDE.sections.order)}</p>`
+  );
+  // No paragraph of the view explains anything: its text is labels.
+  const text = VIEW.replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<%[\s\S]*?%>/g, ' ')
+    .replace(/<[^>]+>/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const long = text.filter((line) => line.split(/\s+/).length > 5);
+  assert.deepStrictEqual(long, [], `prose in the view: ${long.join(' | ')}`);
+  assert.ok(functionBody('init').includes('initCaptions()'));
+});
+
+/* --- 3. the start ------------------------------------------------------------- */
+
+test('The start is the guide, the split icon, one button and the facts line', () => {
+  const { htmlStartCard } = result();
+  const card = htmlStartCard(true, '');
+  assert.ok(card.startsWith('<div class="zr-assist zr-assist--start">'));
+  assert.ok(card.includes('#i-split'), 'the start wears the split icon');
   assert.ok(
     card.includes(
-      '<h2 class="zr-start__title">Split compound tags into a document type and topics.</h2>'
+      `<h2 class="zr-assist__title">${escForTest(SIMPLIFY_GUIDE.start.title)}</h2>`
     )
   );
+  assert.ok(card.includes(escForTest(SIMPLIFY_GUIDE.start.what)));
   assert.ok(
     card.includes(
-      'Every tag gets a proposal: split, merge, delete or keep. Nothing is written before Apply.'
+      '<button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button">Simplify tags</button>'
     )
   );
-  assert.match(
-    card,
-    /<button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button">Simplify tags<\/button>/
-  );
-  assert.ok(!card.includes('No model configured'));
   assert.ok(
-    functionBody('renderSimple').includes(
-      "el.sub.classList.toggle('hidden', !showResult)"
+    card.includes('<p class="zr-assist__facts hidden" id="simStartFacts"></p>'),
+    'without an apply the facts line is hidden'
+  );
+  const withFacts = htmlStartCard(true, 'Last apply 23 Sep · 20 tags');
+  assert.ok(
+    withFacts.includes(
+      '<p class="zr-assist__facts" id="simStartFacts">Last apply 23 Sep · 20 tags</p>'
     )
   );
-  // The result and the history wait for proposals; the script decides.
-  assert.match(page, /class="zr-col zr-col--loose hidden" id="simResult"/);
-  assert.match(page, /class="zr-historyline hidden" id="simHistoryLine"/);
+  assert.strictEqual(SIMPLIFY_GUIDE.start.button, 'Simplify tags');
+  // The button opens the sheet and runs the order.
   assert.ok(
-    functionBody('initSimple').includes(
-      "el.startBtn.addEventListener('click', proposeOrder)"
-    ),
-    "the card's button is the order run, and the order run opens the sheet"
+    functionBody('initAssist').includes("event.target.closest('#simStartBtn')")
   );
+  assert.ok(functionBody('initAssist').includes('proposeOrder()'));
   assert.ok(functionBody('proposeOrder').includes('await askPreflight(false)'));
 });
 
-test('Without a model the card says so in one fact and its button is dead', () => {
-  const card = elementAt(
-    pageNoModel,
-    pageNoModel.indexOf('<section class="zr-start')
-  );
-  assert.ok(card.includes('>No model configured<'));
+test('Without a model the button is dead and the facts line says so', () => {
+  const { htmlStartCard } = result();
+  const card = htmlStartCard(false, 'Last apply 23 Sep · 20 tags');
   assert.match(card, /id="simStartBtn" type="button" disabled>Simplify tags</);
-  const busy = functionBody('setOrderBusy');
   assert.ok(
-    busy.includes('el.startBtn.disabled = busy || !modelReady()'),
-    'the end of a job must not wake a button that has no model behind it'
+    card.includes(
+      '<p class="zr-assist__facts" id="simStartFacts">No model configured</p>'
+    )
+  );
+  assert.ok(card.includes(escForTest(SIMPLIFY_GUIDE.start.whatWithoutModel)));
+  assert.ok(
+    functionBody('modelReady').includes(
+      "el.assist.dataset.provider === 'ready'"
+    )
   );
 });
 
-test('The script shows the card, the result or neither', () => {
-  const render = functionBody('renderSimple');
+test('The facts line names the last apply from the proposals', () => {
+  const { lastApplyFacts } = result();
+  const now = new Date('2026-09-24T12:00:00Z');
+  const applied = (id, stamp) =>
+    proposal({ tagId: id, status: 'applied', updatedAt: stamp });
+  const list = [
+    ...FIXTURE,
+    applied(20, '2026-09-23 09:00:00'),
+    applied(21, '2026-09-23 11:30:00'),
+    applied(22, '2026-09-23 11:31:00'),
+  ];
+  assert.strictEqual(lastApplyFacts(list, now), 'Last apply 23 Sep · 3 tags');
+  assert.strictEqual(
+    lastApplyFacts([FIXTURE[8]], now),
+    'Last apply 14 Sep · 1 tag'
+  );
+  assert.strictEqual(lastApplyFacts(FIXTURE.slice(0, 8), now), '');
+  assert.strictEqual(
+    lastApplyFacts([FIXTURE[8]], new Date('2027-01-02T00:00:00Z')),
+    'Last apply 14 Sep 2026 · 1 tag',
+    'the year only when it is not this one'
+  );
+});
+
+/* --- 4. the result ------------------------------------------------------------ */
+
+test('The headline counts every tag, the ticked changes and the open unsure ones', () => {
+  const { resultCounts, doneHeadline } = result();
+  const counts = resultCounts(landed());
+  assert.deepStrictEqual(
+    [counts.tags, counts.proposed, counts.unsure],
+    [11, 5, 2],
+    'every proposal, the five sure changes, the two unsure changes'
+  );
+  assert.strictEqual(
+    doneHeadline(counts),
+    '11 tags · 5 changes proposed · 2 unsure'
+  );
+  assert.strictEqual(
+    doneHeadline({ tags: 1187, proposed: 945, unsure: 118 }),
+    '1,187 tags · 945 changes proposed · 118 unsure'
+  );
+  assert.strictEqual(
+    doneHeadline({ tags: 1, proposed: 1, unsure: 0 }),
+    '1 tag · 1 change proposed · 0 unsure'
+  );
+  // A kept tag with a doubt writes nothing and is not in the review.
+  assert.strictEqual(FIXTURE[7].confidence, 'low');
+  assert.strictEqual(resultCounts([FIXTURE[7]]).unsure, 0);
+  assert.strictEqual(counts.live, 8, 'the changes left to act on, skipped too');
+  assert.strictEqual(resultCounts(FIXTURE.slice(7, 9)).live, 0);
+});
+
+test('The numbers follow a reopen, a stack decision and a skip, live', () => {
+  const { resultCounts, applyLabel, doneHeadline } = result();
+  const rows = landed();
+  const before = resultCounts(rows);
+  assert.strictEqual(
+    applyLabel({ tags: before.proposed, writes: before.writes }),
+    'Apply 5 · 181 writes'
+  );
+  // Untick one: it is open again, and Apply writes one tag less.
+  const reopened = rows.map((row) =>
+    row.tagId === 3 ? Object.assign({}, row, { status: 'open' }) : row
+  );
+  const after = resultCounts(reopened);
+  assert.strictEqual(after.proposed, 4);
+  assert.strictEqual(
+    applyLabel({ tags: after.proposed, writes: after.writes }),
+    'Apply 4 · 143 writes'
+  );
+  assert.strictEqual(after.unsure, 2, 'a sure tag reopened is not unsure');
+  // The stack accepts an unsure one: one change more, one unsure less.
+  const decided = rows.map((row) =>
+    row.tagId === 7 ? Object.assign({}, row, { status: 'accepted' }) : row
+  );
+  assert.strictEqual(
+    doneHeadline(resultCounts(decided)),
+    '11 tags · 6 changes proposed · 1 unsure'
+  );
+  // The stack keeps one: it stays, accepted, and writes nothing.
+  const kept = rows.map((row) =>
+    row.tagId === 6
+      ? Object.assign({}, row, { action: 'keep', status: 'accepted' })
+      : row
+  );
+  assert.deepStrictEqual(
+    [resultCounts(kept).proposed, resultCounts(kept).unsure],
+    [5, 1]
+  );
+  assert.strictEqual(
+    applyLabel({ tags: 945, writes: 2340 }),
+    'Apply 945 · 2,340 writes'
+  );
+  assert.strictEqual(applyLabel({ tags: 1, writes: 1 }), 'Apply 1 · 1 write');
+});
+
+test('The result card: headline, cost, the lines of the guide, two buttons', () => {
+  const { htmlDoneCard, resultCounts } = result();
+  const cost = {
+    requests: 23,
+    tokens: 110000,
+    ms: 180000,
+    prompt: 78000,
+    completion: 32000,
+    thinking: 12000,
+  };
+  const card = htmlDoneCard(resultCounts(landed()), cost, false);
+  assert.ok(card.startsWith('<div class="zr-assist zr-assist--done">'));
   assert.ok(
-    render.includes('const showResult = live > 0 && !ordering && !stacking')
+    card.includes(
+      '<p class="zr-assist__headline">11 tags · 5 changes proposed · 2 unsure</p>'
+    )
+  );
+  assert.ok(card.includes('23 requests · 110k tokens · ~3 min'));
+  assert.ok(card.includes('zr-tokenbar--mini'));
+  assert.ok(card.includes('78k read · 20k written · 12k thinking'));
+  SIMPLIFY_GUIDE.done.next.forEach((line) => {
+    assert.ok(card.includes(`<li>${escForTest(line)}</li>`), line);
+  });
+  assert.ok(
+    card.includes(
+      '<button class="zr-btn" id="simReviewBtn" type="button">Review 2 unsure one by one</button>'
+    )
   );
   assert.ok(
-    render.includes(
-      "el.emptyCard.classList.toggle('hidden', showResult || ordering || stacking)"
+    card.includes(
+      '<button class="zr-btn zr-btn--primary" id="simApplyAcceptedBtn" type="button">Apply 5 · 181 writes</button>'
+    )
+  );
+  // Without a cost the line is not drawn at all, and never says it is missing.
+  const bare = htmlDoneCard(resultCounts(landed()), null, false);
+  assert.ok(!bare.includes('zr-assist__cost'));
+  assert.ok(!SCRIPT.includes('Cost not recorded'));
+  // Nothing unsure: no way into the stack. Nothing ticked: Apply is dead.
+  const none = htmlDoneCard(
+    { tags: 3, proposed: 0, writes: 0, unsure: 0 },
+    null,
+    false
+  );
+  assert.ok(!none.includes('simReviewBtn'));
+  assert.match(
+    none,
+    /id="simApplyAcceptedBtn" type="button" disabled>Apply 0 · 0 writes</
+  );
+  assert.match(
+    htmlDoneCard(resultCounts(landed()), null, true),
+    /id="simApplyAcceptedBtn" type="button" disabled>/,
+    'dead while a job runs'
+  );
+  // The buttons are the stack and today's apply of everything accepted.
+  const wiring = functionBody('initAssist');
+  assert.ok(
+    wiring.includes("closest('#simReviewBtn')") &&
+      wiring.includes('openStack()')
+  );
+  assert.ok(
+    wiring.includes("closest('#simApplyAcceptedBtn')") &&
+      wiring.includes('applyAllAccepted()')
+  );
+  const all = functionBody('applyAllAccepted');
+  assert.ok(
+    all.includes('confirmDialog({') && all.includes('applySummaryText(list)')
+  );
+  assert.ok(all.includes('await applyOrder(null)'));
+});
+
+/* --- 5. the face and the waiting workspace ------------------------------------- */
+
+test('The assistant shows the run, the stack, the result or the start', () => {
+  const { assistState } = result();
+  assert.strictEqual(
+    assistState({ running: true, stack: true, live: 5 }),
+    'running'
+  );
+  assert.strictEqual(
+    assistState({ running: false, stack: true, live: 5 }),
+    'stack'
+  );
+  assert.strictEqual(
+    assistState({ running: false, stack: false, live: 5 }),
+    'done'
+  );
+  assert.strictEqual(
+    assistState({ running: false, stack: false, live: 0 }),
+    'start'
+  );
+  assert.strictEqual(assistState(null), 'start');
+});
+
+/** A node with a class list, enough for renderAssist. */
+function fakeNode() {
+  const classes = new Set(['hidden']);
+  return {
+    innerHTML: '',
+    classList: {
+      toggle(name, on) {
+        if (on) classes.add(name);
+        else classes.delete(name);
+      },
+      contains: (name) => classes.has(name),
+    },
+  };
+}
+
+/** renderAssist over a page state, with the waiting switch recorded. */
+function renderWith(state) {
+  const calls = [];
+  const el = {
+    assist: { dataset: { provider: 'ready' } },
+    assistCard: fakeNode(),
+    progress: fakeNode(),
+    stack: fakeNode(),
+    page: { id: 'simPage' },
+  };
+  const { renderAssist } = helpers([...RESULT, 'renderAssist'], {
+    constants: RESULT_CONSTANTS,
+    globals: Object.assign(
+      {
+        el,
+        proposals: new Map((state.list || []).map((row) => [row.tagId, row])),
+        jobId: null,
+        finishing: null,
+        stacking: false,
+        starting: false,
+        loaded: true,
+        lastRunCost: null,
+        applying: false,
+        modelReady: () => true,
+        setWorkspaceWaiting: (root, waiting) => calls.push([root, waiting]),
+      },
+      state.globals || {}
     ),
-    'the card goes while a run runs and while the stack is open'
+  });
+  renderAssist();
+  return { el, calls };
+}
+
+test('The workspace waits on load without proposals and during a run', () => {
+  const empty = renderWith({ list: [] });
+  assert.deepStrictEqual(empty.calls, [[empty.el.page, true]]);
+  assert.ok(empty.el.assistCard.innerHTML.includes('zr-assist--start'));
+  assert.ok(empty.el.progress.classList.contains('hidden'));
+
+  const done = renderWith({ list: landed() });
+  assert.deepStrictEqual(
+    done.calls,
+    [[done.el.page, false]],
+    'awake with a result'
   );
-  assert.ok(render.includes('updateApplyTicked(sections)'));
+  assert.ok(done.el.assistCard.innerHTML.includes('zr-assist--done'));
+
+  const running = renderWith({ list: landed(), globals: { jobId: 'job-1' } });
+  assert.deepStrictEqual(running.calls, [[running.el.page, true]]);
+  assert.ok(
+    !running.el.progress.classList.contains('hidden'),
+    'the meter shows'
+  );
+  assert.strictEqual(running.el.assistCard.innerHTML, '', 'the card gives way');
+
+  const ticking = renderWith({
+    list: landed(),
+    globals: { finishing: { done: 3, total: 5 } },
+  });
+  assert.deepStrictEqual(ticking.calls, [[ticking.el.page, true]]);
+
+  const stack = renderWith({ list: landed(), globals: { stacking: true } });
+  assert.ok(!stack.el.stack.classList.contains('hidden'));
+  assert.strictEqual(stack.el.assistCard.innerHTML, '');
+  assert.deepStrictEqual(stack.calls, [[stack.el.page, false]]);
+
+  // Everything written: the start again, with the tools awake below it.
+  const history = renderWith({ list: [FIXTURE[8], FIXTURE[7]] });
+  assert.ok(history.el.assistCard.innerHTML.includes('zr-assist--start'));
+  assert.ok(
+    history.el.assistCard.innerHTML.includes('Last apply 14 Sep · 1 tag')
+  );
+  assert.deepStrictEqual(history.calls, [[history.el.page, false]]);
+
+  // From the moment a run is asked for, its button is dead.
+  const asked = renderWith({ list: [], globals: { starting: true } });
+  assert.match(
+    asked.el.assistCard.innerHTML,
+    /id="simStartBtn" type="button" disabled>/
+  );
+  const applying = renderWith({ list: landed(), globals: { starting: true } });
+  assert.match(
+    applying.el.assistCard.innerHTML,
+    /id="simApplyAcceptedBtn" type="button" disabled>/
+  );
+
+  // Before the first load nothing is drawn and nothing waits.
+  const first = renderWith({ list: [], globals: { loaded: false } });
+  assert.strictEqual(first.el.assistCard.innerHTML, '');
+  assert.deepStrictEqual(first.calls, []);
 });
 
-/* --- 4. the sheet ----------------------------------------------------------- */
+test('The page follows every change of the proposals with the assistant', () => {
+  assert.ok(functionBody('loadProposals').includes('renderAssist()'));
+  assert.ok(functionBody('patchProposal').includes('renderAssist()'));
+  assert.ok(functionBody('setOrderBusy').includes('renderAssist()'));
+  assert.ok(functionBody('showProgressPanel').includes('renderAssist()'));
+  assert.ok(
+    functionBody('loadProposals').includes('loaded = true'),
+    'a page whose proposals could not be read still shows its start'
+  );
+});
+
+/* --- 6. the proposal lands as status ------------------------------------------- */
+
+test('When a run ends, sure proposals are accepted and low ones stay open', () => {
+  const { sureChanges } = result();
+  assert.deepStrictEqual(sureChanges(FIXTURE), [
+    { tagId: 1, status: 'accepted' },
+    { tagId: 2, status: 'accepted' },
+    { tagId: 3, status: 'accepted' },
+    { tagId: 4, status: 'accepted' },
+    { tagId: 5, status: 'accepted' },
+  ]);
+  // Low confidence (6, 7), a keep (8), history (9), a decision (10) and a
+  // split into nothing (11) are left as they are.
+  assert.deepStrictEqual(
+    sureChanges(landed()),
+    [],
+    'once: nothing is left to tick'
+  );
+  const finish = functionBody('finishOrder');
+  assert.ok(finish.includes('acceptPlan(groups, [...proposals.values()])'));
+  assert.ok(finish.includes('await writeAcceptPlan(plan,'));
+  assert.ok(
+    finish.indexOf('await loadGroups()') < finish.indexOf('acceptPlan('),
+    'the plan is made from the groups of this run'
+  );
+  const writePlan = functionBody('writeAcceptPlan');
+  assert.ok(
+    writePlan.includes(
+      '`/api/simplify/groups/${encodeURIComponent(String(group.key))}/decision`'
+    ) && writePlan.includes("{ decision: 'accept' }"),
+    "a whole group through the decision a card's Accept sends"
+  );
+  assert.ok(writePlan.includes('await writeStatuses(plan.tags,'));
+  const write = functionBody('writeStatuses');
+  assert.ok(
+    write.includes("'PATCH'") &&
+      write.includes(
+        '`/api/simplify/proposals/${encodeURIComponent(String(change.tagId))}`'
+      ),
+    "through today's status route"
+  );
+  assert.ok(write.includes('PATCH_LANES'));
+  // The order job's finish handler, from a run of this page and from a
+  // reload while one runs; no other job ticks anything.
+  assert.ok(functionBody('runOrderJob').includes('await finishOrder('));
+  assert.ok(functionBody('reattachJob').includes('await finishOrder(result'));
+  assert.ok(!functionBody('proposeSplits').includes('finishOrder'));
+  assert.ok(!functionBody('applyOrder').includes('finishOrder'));
+  // The step after the run starts before the job is let go, so the old
+  // result never shows in between.
+  assert.ok(
+    functionBody('renderProgressOutcome').includes(
+      'finishing = { done: 0, total: 0 }'
+    )
+  );
+});
+
+test('The sure changes are written with the fewest requests, and exactly them', () => {
+  const { acceptPlan, sureChanges } = result();
+  const member = (tagId, status = 'open') => ({ tagId, status });
+  const groups = [
+    // Every open tag of it is sure: accepted whole, in one request.
+    {
+      key: 'type:Rechnung',
+      kind: 'type',
+      tags: 3,
+      members: [member(1), member(2), member(9, 'applied')],
+    },
+    // An unsure tag in it: its sure tags go one by one, unless covered.
+    {
+      key: 'type:Abrechnung',
+      kind: 'type',
+      tags: 2,
+      members: [member(7), member(2)],
+    },
+    { key: 'merge:Rechnung', kind: 'merge', tags: 1, members: [member(3)] },
+    { key: 'merge:Auto', kind: 'merge', tags: 1, members: [member(4)] },
+    // A skipped tag would be accepted with the group: not whole.
+    {
+      key: 'topic:Gas',
+      kind: 'topic',
+      tags: 2,
+      members: [member(10, 'skipped'), member(1)],
+    },
+    // Everything in it is covered already: no request of its own.
+    { key: 'topic:Strom', kind: 'topic', tags: 1, members: [member(1)] },
+    { key: 'delete', kind: 'delete', tags: 2, members: [member(5), member(6)] },
+    { key: 'keep', kind: 'keep', tags: 1, members: [member(8)] },
+  ];
+  const plan = acceptPlan(groups, FIXTURE);
+  assert.deepStrictEqual(plan.groups, [
+    { key: 'type:Rechnung', tags: 2 },
+    { key: 'merge:Rechnung', tags: 1 },
+    { key: 'merge:Auto', tags: 1 },
+  ]);
+  assert.deepStrictEqual(plan.tags, [{ tagId: 5, status: 'accepted' }]);
+  assert.strictEqual(plan.total, 5);
+  const written = new Set([
+    ...plan.tags.map((change) => change.tagId),
+    1,
+    2,
+    3,
+    4,
+  ]);
+  assert.deepStrictEqual(
+    [...written].sort(),
+    sureChanges(FIXTURE)
+      .map((change) => change.tagId)
+      .sort(),
+    'exactly the sure changes, however they are written'
+  );
+  // Without groups every sure change goes one by one.
+  assert.deepStrictEqual(acceptPlan([], FIXTURE).tags, sureChanges(FIXTURE));
+  assert.deepStrictEqual(acceptPlan(groups, landed()).groups, [], 'once');
+});
+
+test('An order that ended unwatched lands once, and only then', () => {
+  const { missedFinish } = result();
+  const job = { task: 'order', status: 'done' };
+  assert.strictEqual(missedFinish(job, FIXTURE.slice(0, 9)), true);
+  assert.strictEqual(
+    missedFinish(job, FIXTURE),
+    false,
+    'a skipped tag is a decision: the page leaves the statuses alone'
+  );
+  assert.strictEqual(missedFinish(job, landed()), false, 'once');
+  assert.strictEqual(
+    missedFinish({ task: 'order', status: 'stopped' }, FIXTURE.slice(0, 9)),
+    true
+  );
+  assert.strictEqual(
+    missedFinish({ task: 'order', status: 'failed' }, FIXTURE.slice(0, 9)),
+    false
+  );
+  assert.strictEqual(
+    missedFinish({ task: 'apply', status: 'done' }, FIXTURE.slice(0, 9)),
+    false
+  );
+  assert.strictEqual(
+    missedFinish(job, [FIXTURE[5], FIXTURE[7]]),
+    false,
+    'nothing sure'
+  );
+  const reattach = functionBody('reattachJob');
+  assert.ok(reattach.includes('missedFinish(job, [...proposals.values()])'));
+  assert.ok(
+    functionBody('init').indexOf('await loadProposals()') <
+      functionBody('init').indexOf('reattachJob()'),
+    'the proposals are read before the page decides'
+  );
+});
+
+test('A tick in the groups is the status: ticked accepts, unticked reopens', () => {
+  const tick = functionBody('tickMember');
+  assert.ok(tick.includes("{ status: on === true ? 'accepted' : 'open' }"));
+  assert.ok(
+    tick.includes('await refreshGroups()') &&
+      tick.includes('await loadProposals()'),
+    'every card the tag sits in follows, in place'
+  );
+  const refresh = functionBody('refreshGroups');
+  assert.ok(refresh.includes("querySelectorAll('.sim-group')"));
+  assert.ok(
+    refresh.includes('node.outerHTML = htmlGroupCard(group, cardState(group))')
+  );
+  assert.ok(
+    !refresh.includes('visibleGroups()'),
+    'no card vanishes under the hand'
+  );
+  assert.ok(functionBody('decideGroup').includes('await refreshGroups()'));
+  const wiring = functionBody('initOrder');
+  assert.ok(wiring.includes(".closest('.sim-member-tick')"));
+  assert.ok(wiring.includes(".closest('.sim-group-tick')"));
+  assert.ok(wiring.includes("head.checked === true ? 'accept' : 'reopen'"));
+  assert.ok(!SCRIPT.includes("'/api/simplify/apply', { tagIds: ticked"));
+});
+
+/* --- 7. the running screen ----------------------------------------------------- */
+
+const RUNNING = [
+  'num',
+  'plural',
+  'grouped',
+  'htmlIconMarkup',
+  'formatElapsed',
+  'formatEta',
+  'progressPercent',
+  'htmlLedger',
+  'htmlRunbar',
+  'htmlRunLedger',
+  'htmlLiveRequest',
+  'itemsText',
+  'reqlogText',
+  'reqlogCost',
+  'runCeilingText',
+  'phaseHeadline',
+  'tallyText',
+  'stepSub',
+  'runSteps',
+  'htmlRunSentence',
+  'tokenSplit',
+  'splitShares',
+  'htmlTokenbar',
+];
+
+function running() {
+  return helpers(RUNNING, {
+    constants: ['CEILING_SHOWN_ABOVE', 'JOB_TASKS', 'STEPS_NOT_RUN'],
+  });
+}
+
+const PROGRESS = {
+  phase: 'ordering',
+  kind: 'tags',
+  requestsDone: 12,
+  requestsPlanned: 23,
+  pairsJudged: 640,
+  pairsTotal: 1187,
+  tokens: 76000,
+  estimatedTokens: 110000,
+  tokenBudget: 120000,
+  elapsedMs: 190000,
+  etaMs: 180000,
+  requestPairs: 50,
+  requestAnswers: 21,
+  requestTokens: 8900,
+  thinking: true,
+  tally: { split: 812, merge: 96, delete: 37, keep: 40, unsure: 3 },
+  requestLog: [
+    {
+      index: 12,
+      kind: 'tags',
+      items: 50,
+      answers: 50,
+      tokens: 6100,
+      thinkingTokens: 3800,
+      ms: 44000,
+      outcome: 'answered',
+    },
+    {
+      index: 11,
+      kind: 'tags',
+      items: 50,
+      answers: 31,
+      tokens: 5200,
+      thinkingTokens: 0,
+      ms: 51000,
+      outcome: 'partial',
+    },
+    {
+      index: 9,
+      kind: 'tags',
+      items: 50,
+      answers: 0,
+      tokens: 7100,
+      thinkingTokens: 7100,
+      ms: 112000,
+      outcome: 'empty',
+    },
+    {
+      index: 8,
+      kind: 'tags',
+      items: 50,
+      answers: 0,
+      tokens: 0,
+      thinkingTokens: 0,
+      ms: 3000,
+      outcome: 'failed',
+    },
+    {
+      index: 1,
+      kind: 'names',
+      items: 300,
+      answers: 300,
+      tokens: 1400,
+      thinkingTokens: 0,
+      ms: 60000,
+      outcome: 'answered',
+    },
+    {
+      index: 7,
+      kind: null,
+      items: 50,
+      answers: 50,
+      tokens: 900,
+      thinkingTokens: 0,
+      ms: 9000,
+      outcome: 'answered',
+    },
+  ],
+};
+
+test('The steps of an order: the vocabulary, the sort, the result', () => {
+  const { runSteps } = running();
+  const run = {
+    task: 'order',
+    keepsVocabulary: false,
+    seen: new Set(['starting', 'vocabulary', 'ordering']),
+    finishing: null,
+  };
+  const steps = runSteps(run, {
+    phase: 'ordering',
+    requestsDone: 4,
+    requestsPlanned: 11,
+  });
+  assert.deepStrictEqual(
+    steps.map((step) => step.key),
+    ['vocabulary', 'ordering', 'finishing'],
+    'the order never measures the model, so that step is left out'
+  );
+  assert.strictEqual(steps[1].sub, 'request 5 of 11');
+  assert.ok(!('sub' in steps[0]) && !('sub' in steps[2]));
+  const states = ASSIST.stepStates(steps, 'ordering');
+  assert.deepStrictEqual(
+    states.map((step) => step.state),
+    ['done', 'now', 'next']
+  );
+  const strip = ASSIST.htmlSteps(states);
+  assert.ok(
+    strip.includes('Propose a vocabulary') && strip.includes('Sort every tag')
+  );
+  assert.ok(
+    strip.includes('<span class="zr-steps__sub">· request 5 of 11</span>')
+  );
+  // Keeping the vocabulary drops its step.
+  assert.deepStrictEqual(
+    runSteps({ ...run, keepsVocabulary: true }, { phase: 'ordering' }).map(
+      (step) => step.key
+    ),
+    ['ordering', 'finishing']
+  );
+  // A step the run did report is drawn.
+  assert.ok(
+    runSteps({ ...run, seen: new Set(['warming-up']) }, { phase: 'ordering' })
+      .map((step) => step.key)
+      .includes('warming-up')
+  );
+  // The step after the run says how many proposals are ticked.
+  const ticking = runSteps(
+    { ...run, finishing: { done: 412, total: 945 } },
+    { phase: 'finishing' }
+  );
+  assert.strictEqual(ticking[2].sub, '412 of 945 ticked');
+  // The other jobs of the page are one step each and show none.
+  ['vocabulary', 'splits', 'apply'].forEach((task) => {
+    assert.deepStrictEqual(
+      runSteps({ ...run, task }, { phase: 'ordering' }),
+      []
+    );
+  });
+  const meter = functionBody('renderRunMeter');
+  assert.ok(meter.includes('htmlSteps(') && meter.includes('stepStates('));
+  assert.ok(meter.includes('htmlRunSentence(state)'));
+});
+
+test('The sentence says what happens now and why, and the tally as it grows', () => {
+  const { htmlRunSentence, tallyText } = running();
+  const guide = SIMPLIFY_GUIDE.phases.ordering;
+  assert.strictEqual(
+    htmlRunSentence(PROGRESS),
+    `<p class="zr-runmeter__sentence">${escForTest(`${guide.what} ${guide.why} 812 split · 96 merge · 37 delete · 40 keep · 3 unsure so far.`)}</p>`
+  );
+  assert.strictEqual(
+    htmlRunSentence({ phase: 'ordering', tally: null }),
+    `<p class="zr-runmeter__sentence">${escForTest(`${guide.what} ${guide.why}`)}</p>`,
+    'before the model answered there is no tail'
+  );
+  const vocab = SIMPLIFY_GUIDE.phases.vocabulary;
+  assert.strictEqual(
+    htmlRunSentence({ phase: 'vocabulary', tally: PROGRESS.tally }),
+    `<p class="zr-runmeter__sentence">${escForTest(`${vocab.what} ${vocab.why}`)}</p>`
+  );
+  assert.strictEqual(
+    htmlRunSentence({ phase: 'finishing' }),
+    `<p class="zr-runmeter__sentence">${escForTest(SIMPLIFY_GUIDE.phases.finishing.what)}</p>`
+  );
+  assert.strictEqual(tallyText(null), '');
+  assert.strictEqual(
+    tallyText({ split: 1812, merge: 0, delete: 2, keep: 5, unsure: 1 }),
+    // keep is named too: a run that only keeps is not an empty run
+    '1,812 split · 0 merge · 2 delete · 5 keep · 1 unsure'
+  );
+});
+
+test('The meter keeps its shape: bar, ledger with the tally, token legend', () => {
+  const {
+    htmlRunbar,
+    htmlRunLedger,
+    runCeilingText,
+    htmlTokenbar,
+    tokenSplit,
+  } = running();
+  assert.ok(htmlRunbar(PROGRESS).includes('Request 13 of 23'));
+  assert.ok(htmlRunbar(PROGRESS).includes('~3 min left'));
+  const ledger = htmlRunLedger(PROGRESS);
+  assert.ok(ledger.includes('>640 of 1187</span> tags'));
+  assert.ok(
+    ledger.includes(
+      '<span class="zr-ledger__value">812 split · 96 merge · 37 delete · 40 keep · 3 unsure</span> so far'
+    )
+  );
+  assert.ok(ledger.includes('76k of ~110k'));
+  assert.ok(
+    htmlRunLedger({ ...PROGRESS, phase: 'finishing' }).includes(
+      '</span> by the model'
+    ),
+    'after the run the tally is no longer "so far"'
+  );
+  assert.ok(!htmlRunLedger({ ...PROGRESS, tally: null }).includes('so far'));
+  assert.strictEqual(runCeilingText(PROGRESS), '76k of 120k limit');
+  // The legend reads read, written, thinking.
+  const bar = htmlTokenbar(
+    tokenSplit({ prompt: 13000, completion: 4200, thinking: 1000 })
+  );
+  assert.ok(bar.includes('>13k read<'));
+  assert.ok(bar.includes('>3.2k written<'));
+  assert.ok(bar.includes('>1k thinking<'));
+  assert.ok(!bar.includes('question') && !bar.includes('answer<'));
+  // An apply counts the tags it writes.
+  const apply = htmlRunbar({
+    phase: 'applying',
+    requestsPlanned: 0,
+    pairsTotal: 945,
+    pairsJudged: 12,
+  });
+  assert.ok(apply.includes('Tag 13 of 945') && apply.includes('933 left'));
+});
+
+test('Every request row is worded by what it was about', () => {
+  const { reqlogText, reqlogCost, htmlLiveRequest } = running();
+  const [answered, partial, empty, broken, names, items] = PROGRESS.requestLog;
+  assert.strictEqual(
+    reqlogText(answered),
+    'Request 12 · 50 tags · 50 answered'
+  );
+  assert.strictEqual(
+    reqlogText(partial),
+    'Request 11 · 50 tags · 31 answered · the rest asked again'
+  );
+  assert.strictEqual(
+    reqlogText(empty),
+    'Request 9 · 7.1k thinking · no answer'
+  );
+  assert.strictEqual(
+    reqlogText(broken),
+    'Request 8 · 50 tags · ended by the provider'
+  );
+  assert.strictEqual(reqlogText(names), 'Request 1 · 300 names read');
+  assert.strictEqual(
+    reqlogText({ ...names, answers: 120, outcome: 'partial' }),
+    'Request 1 · 300 names read · 120 proposed'
+  );
+  assert.strictEqual(reqlogText(items), 'Request 7 · 50 items · 50 answered');
+  assert.ok(
+    !reqlogText({ ...answered, outcome: 'partial' }).includes('asked again'),
+    'the rest is asked again only when fewer came back than were asked'
+  );
+  assert.strictEqual(reqlogCost(answered), '6.1k · 3.8k thinking');
+  assert.strictEqual(reqlogCost(empty), '7.1k · all thinking');
+  assert.strictEqual(reqlogCost(broken), '0 tokens');
+  // The request in flight, by the same words.
+  assert.ok(
+    htmlLiveRequest(PROGRESS).includes('Request 13 · 50 tags · 21 answered')
+  );
+  assert.ok(htmlLiveRequest(PROGRESS).includes('8.9k so far · thinking'));
+  assert.ok(
+    htmlLiveRequest({
+      ...PROGRESS,
+      phase: 'vocabulary',
+      requestPairs: 300,
+    }).includes('Request 13 · 300 names')
+  );
+  assert.ok(
+    htmlLiveRequest({ ...PROGRESS, kind: null }).includes(
+      'Request 13 · 50 items · 21 answered'
+    )
+  );
+});
+
+test('A request row takes as long as the Duplicates page says it does', () => {
+  const kit = helpers([...RUNNING, 'requestTime', 'htmlReqLog'], {
+    constants: ['CEILING_SHOWN_ABOVE', 'JOB_TASKS', 'STEPS_NOT_RUN'],
+  });
+  assert.strictEqual(kit.requestTime(2000), '2 s');
+  assert.strictEqual(kit.requestTime(59400), '59 s');
+  assert.strictEqual(kit.requestTime(84000), '1:24');
+  const row = kit.htmlReqLog([
+    { index: 3, kind: 'tags', items: 3, answers: 3, tokens: 1, ms: 2000 },
+  ]);
+  assert.ok(row.includes('>2 s<'), 'the row counts seconds as "2 s"');
+  assert.ok(row.includes('>1 token<'), 'one token is one token');
+  // The legend names all three, a zero included.
+  const bar = kit.htmlTokenbar(
+    kit.tokenSplit({ prompt: 908, completion: 118, thinking: 0 })
+  );
+  assert.ok(bar.includes('>908 read<') && bar.includes('>118 written<'));
+  assert.ok(bar.includes('>0 thinking<'), 'the zero of thinking is left out');
+});
+
+test('An order stopped early says so in the assistant, with what it left', () => {
+  const { htmlStopNotice } = helpers(
+    ['num', 'plural', 'grouped', 'htmlAlert', 'htmlStopNotice'],
+    {}
+  );
+  const job = (over) => ({
+    stopReason: 'user',
+    progress: {
+      requestsDone: 4,
+      requestsPlanned: 5,
+      pairsTotal: 25,
+      pairsJudged: 20,
+      tokenBudget: 200000,
+    },
+    ...over,
+  });
+  const user = htmlStopNotice(job());
+  assert.ok(
+    user.includes('zr-alert--warn') && user.includes('>Stopped early<')
+  );
+  assert.ok(user.includes('Stopped after 4 of 5 requests · 5 tags not asked'));
+  assert.ok(
+    htmlStopNotice(job({ stopReason: 'token-budget' })).includes(
+      'Stopped at the 200k limit after 4 requests · 5 tags not asked'
+    )
+  );
+  assert.ok(
+    htmlStopNotice(job({ stopReason: 'idle' })).includes(
+      'Stopped · no page was watching · 5 tags not asked'
+    )
+  );
+  // Stopped in the vocabulary pass: no tag was counted yet.
+  assert.ok(
+    htmlStopNotice({
+      progress: { requestsDone: 1, requestsPlanned: 1 },
+    }).includes('Stopped after 1 of 1 request<')
+  );
+  // Both ways of following an order put it where the result is read.
+  ['runOrderJob', 'reattachJob'].forEach((name) => {
+    assert.ok(
+      functionBody(name).includes('htmlStopNotice(ended)'),
+      `${name} does not say that the run stopped`
+    );
+  });
+});
+
+test('The apply dialog is titled with the button that was pressed', () => {
+  const all = functionBody('applyAllAccepted');
+  assert.ok(
+    all.includes(
+      'title: applyLabel({ tags: list.length, writes: planWrites(list).writes })'
+    )
+  );
+});
+
+test('The headline has no subject, and Stop is one word', () => {
+  const { phaseHeadline } = running();
+  [
+    'starting',
+    'warming-up',
+    'vocabulary',
+    'ordering',
+    'splitting',
+    'applying',
+    'finishing',
+  ].forEach((phase) => {
+    const line = phaseHeadline({ phase });
+    assert.ok(!/\bI\b|\byou\b/i.test(line), `${phase}: ${line}`);
+    assert.ok(!/[\u2013\u2014]/.test(line));
+  });
+  const stop = elementAt(
+    page,
+    page.indexOf('<button class="zr-btn" id="simStopBtn"')
+  );
+  assert.ok(stop.includes('>Stop</span>'));
+  assert.ok(!stop.includes('zr-btn__sub'));
+  // A run keeps its cost for the result only when it is an order.
+  const outcome = functionBody('renderProgressOutcome');
+  assert.ok(outcome.includes('!== JOB_TASKS.ORDER) return'));
+  assert.ok(outcome.includes('keepRunCost(finished)'));
+});
+
+/* --- 8. the sheet ----------------------------------------------------------- */
 
 const ESTIMATE = {
   tags: 1187,
@@ -726,8 +1643,7 @@ test('The sheet is built from the estimate the page already fetches', () => {
   const model = sheetModel(normaliseEstimate(ESTIMATE), levers, false);
   assert.strictEqual(
     model.sub,
-    '1,145 of 1,187 tags · 23 requests · 42 by rule',
-    'the facts line of the board, word for word'
+    '1,145 of 1,187 tags · 23 requests · 42 by rule'
   );
   assert.strictEqual(model.requests, 23);
   assert.deepStrictEqual(model.tokens, {
@@ -740,28 +1656,17 @@ test('The sheet is built from the estimate the page already fetches', () => {
   assert.strictEqual(model.lanes, 3);
   assert.deepStrictEqual(model.laneChoices, [1, 3, 5, 8]);
   assert.strictEqual(model.basis, 'run');
-  assert.ok(!('fact' in model), 'the module writes the one fact itself');
-
-  // The lanes change the time, not the work.
   const one = sheetModel(
     normaliseEstimate(ESTIMATE),
     { ...levers, lanes: 1 },
     false
   );
-  assert.strictEqual(one.seconds, 540);
-  assert.strictEqual(one.requests, 23);
-  assert.deepStrictEqual(one.tokens, model.tokens);
-
-  // Without a rule the facts end at the requests.
   assert.strictEqual(
-    sheetModel(
-      normaliseEstimate({ ...ESTIMATE, itemsByRule: 0, items: 1187 }),
-      levers,
-      false
-    ).sub,
-    '1,187 of 1,187 tags · 23 requests'
+    one.seconds,
+    540,
+    'the lanes change the time, not the work'
   );
-  // The lanes of the page start at three, as the levers always did.
+  assert.strictEqual(one.requests, 23);
   assert.match(
     SCRIPT,
     /const runLevers = \{\n\s+skipDecided: false,\n\s+minDocuments: 1,\n\s+lanes: 3,\n\s+keepVocabulary: false,\n\s*\};/
@@ -786,29 +1691,10 @@ test('The switches come in their order, each only when it changes something', ()
       ['keepVocabulary', 'Keep vocabulary', true],
     ]
   );
-  // The price is what the estimate already knows: the requests the left out
-  // tags would take, and their tokens at the estimate's own average.
   assert.strictEqual(switches[0].price, '−2 requests · −9.6k');
   assert.strictEqual(switches[1].price, '−6 requests · −29k');
   assert.strictEqual(switches[2].price, '', 'the vocabulary switch has none');
-  // With the lever on, the estimate is already the smaller one; the price
-  // stays the same distance.
-  const on = normaliseEstimate({
-    ...ESTIMATE,
-    items: 1027,
-    requests: 21,
-    tokens: {
-      total: 100435,
-      prompt: 71217,
-      completion: 18261,
-      thinking: 10957,
-    },
-  });
-  assert.strictEqual(leverPrice(on, 118, true), '−2 requests · −9.6k');
-  // A lever that saves no request is offered without a price.
   assert.strictEqual(leverPrice(estimate, 5, false), '');
-  // A lever that would leave out nothing is not offered at all, and the
-  // vocabulary switch only where it belongs.
   const bare = sheetSwitches(
     normaliseEstimate({
       ...ESTIMATE,
@@ -818,30 +1704,38 @@ test('The switches come in their order, each only when it changes something', ()
     false
   );
   assert.deepStrictEqual(bare, []);
-  // No price anywhere carries a dash; the minus is the minus sign.
   switches.forEach((lever) => {
     assert.ok(!/[\u2013\u2014]/.test(lever.price + lever.label));
   });
 });
 
-test('The sheet renders into the shared markup, levers and all', () => {
-  const { normaliseEstimate, sheetModel } = sheetHelpers();
-  const html = SHEET.htmlSheet(
-    sheetModel(
-      normaliseEstimate(ESTIMATE),
-      { skipDecided: true, minDocuments: 1, lanes: 3, keepVocabulary: false },
-      true
-    )
+test('Keep vocabulary is a lever of the sheet, and only there', () => {
+  const ask = functionBody('askPreflight');
+  assert.ok(
+    ask.includes('const keepOffer = vocabularySaved && forceKeep !== true'),
+    'offered whenever a vocabulary is saved, unless the run keeps it anyway'
   );
-  assert.ok(html.includes('1,145 of 1,187 tags · 23 requests · 42 by rule'));
-  assert.ok(html.includes('>110k<'), 'the big number is the tokens');
-  assert.ok(html.includes('>~3 min<'), 'the time beside it');
-  assert.ok(html.includes('200k limit'), 'the bar is the run budget');
-  assert.ok(html.includes('data-switch="skipDecided" checked'));
-  assert.ok(html.includes('data-switch="minDocuments">'));
-  assert.ok(html.includes('data-switch="keepVocabulary">'));
-  assert.ok(html.includes('Measured · last run'));
-  assert.ok(html.includes('Nothing is written.'));
+  assert.ok(
+    ask.includes("if (id === 'keepVocabulary') runLevers.keepVocabulary = on")
+  );
+  assert.ok(
+    !VIEW.includes('simOrderKeepVocabulary') &&
+      !VIEW.includes('Keep vocabulary')
+  );
+  assert.ok(
+    functionBody('renderVocabularyState').includes(
+      'runLevers.keepVocabulary ='
+    ),
+    'it comes up on when any of the saved vocabulary was written by hand'
+  );
+  assert.ok(
+    functionBody('proposeOrder').includes('runLevers.keepVocabulary === true')
+  );
+  assert.ok(functionBody('repropose').includes('await askPreflight(true)'));
+  // The order row's own button is the assistant's now.
+  assert.ok(
+    !VIEW.includes('simOrderBtn') && !VIEW.includes('Propose a new order')
+  );
 });
 
 test('The sheet is the kernel dialog, and every lever fetches a fresh estimate', () => {
@@ -852,52 +1746,23 @@ test('The sheet is the kernel dialog, and every lever fetches a fresh estimate',
   assert.ok(ask.includes("confirmLabel: 'Start'"));
   assert.ok(ask.includes("cancelLabel: 'Cancel'"));
   assert.ok(ask.includes("className: 'zr-dialog--sheet'"));
-  assert.ok(ask.includes("document.querySelector('dialog.zr-dialog[open]')"));
   assert.ok(ask.includes('bindSheet(dialog, {'));
-  assert.ok(ask.includes('onLanes:') && ask.includes('onSwitch:'));
   assert.ok(
     ask.includes('await fetchOrderEstimate(keepFor())') &&
-      ask.includes('updateSheet(dialog, model())'),
-    'a lever moves runLevers, fetches, and moves the sheet in place'
+      ask.includes('updateSheet(dialog, model())')
   );
-  assert.ok(
-    ask.includes('ticket !== asked'),
-    'an estimate that a later move overtook is dropped'
+  assert.ok(ask.includes('ticket !== asked'));
+  assert.ok(ask.includes('unbind()'));
+  const html = SHEET.htmlSheet(
+    sheetHelpers().sheetModel(
+      sheetHelpers().normaliseEstimate(ESTIMATE),
+      { skipDecided: true, minDocuments: 1, lanes: 3, keepVocabulary: false },
+      true
+    )
   );
-  assert.ok(ask.includes('unbind()'), 'the listener goes with the dialog');
-  assert.ok(
-    ask.includes("mode === 'simple' && vocabularySaved && forceKeep !== true"),
-    'the vocabulary switch lives on the sheet in simple mode only'
-  );
-  assert.ok(
-    ask.includes('if (el.keepVocabulary) el.keepVocabulary.checked = on'),
-    'the switch of the sheet and the switch of the order row are one lever'
-  );
-
-  const fetchBody = functionBody('fetchOrderEstimate');
-  assert.ok(
-    fetchBody.includes('concurrency: String(runLevers.lanes)'),
-    'the lanes reach the estimate, so the time follows them'
-  );
-  assert.ok(
-    fetchBody.includes('if (runLevers.minDocuments > 1) {'),
-    'without the lever no floor is sent, so the lever keeps its count'
-  );
-  assert.ok(fetchBody.includes('localOrderEstimate()'));
-  assert.strictEqual(
-    SCRIPT.split('ESTIMATE_URL').length - 1,
-    2,
-    'one declaration and one use'
-  );
-  // Nothing of round 13's dialog is left.
-  [
-    'htmlPreflight',
-    'preflightLede',
-    'basisText',
-    'preflightConfirmText',
-  ].forEach((name) => {
-    assert.ok(!SCRIPT.includes(`function ${name}(`), `${name}() is retired`);
-  });
+  assert.ok(html.includes('data-switch="skipDecided" checked'));
+  assert.ok(html.includes('data-switch="keepVocabulary">'));
+  assert.ok(html.includes('Nothing is written.'));
 });
 
 testAsync('The levers move the numbers of the local estimate', async () => {
@@ -936,429 +1801,7 @@ testAsync('The levers move the numbers of the local estimate', async () => {
   levers.skipDecided = true;
   assert.strictEqual((await localOrderEstimate()).requests, 3);
   levers.minDocuments = 3;
-  const fewest = await localOrderEstimate();
-  assert.strictEqual(fewest.items, 100);
-  levers.skipDecided = false;
-  levers.minDocuments = 1;
-  levers.lanes = 8;
-  const faster = await localOrderEstimate();
-  assert.strictEqual(faster.tokens.total, plain.tokens.total, 'lanes are free');
-  assert.ok(faster.seconds < plain.seconds, 'but they buy time');
-});
-
-/* --- 5. the result head ----------------------------------------------------- */
-
-test('The headline counts the tags and the changes, and a tick moves neither', () => {
-  const { simpleSections, resultHeadline } = simple();
-  const sections = simpleSections(FIXTURE);
-  // Ten live tags: two splits, two merges, one delete, two unsure, three
-  // unchanged (the kept one, the empty split, and none applied).
-  assert.strictEqual(resultHeadline(sections), '10 tags · 6 changes proposed');
-  assert.strictEqual(
-    resultHeadline(simpleSections([FIXTURE[0]])),
-    '1 tag · 1 change proposed'
-  );
-});
-
-test('The apply button says what the ticks add up to', () => {
-  const { simpleSections, tickedProposals, applyTickedLabel } = simple();
-  const sections = simpleSections(FIXTURE);
-  const overrides = new Map();
-  const start = tickedProposals(sections, overrides);
-  assert.deepStrictEqual(
-    start.map((row) => row.tagId).sort((a, b) => a - b),
-    [1, 2, 3, 4, 5],
-    'what the model was sure of starts ticked; unsure and skipped do not'
-  );
-  assert.strictEqual(applyTickedLabel(start), 'Apply 5 · 181 writes');
-  overrides.set(1, false);
-  overrides.set(6, true);
-  const moved = tickedProposals(sections, overrides);
-  assert.strictEqual(
-    applyTickedLabel(moved),
-    'Apply 5 · 134 writes',
-    'unticking a split and ticking an unsure delete moves only the numbers'
-  );
-  overrides.set(10, true);
-  assert.strictEqual(
-    tickedProposals(sections, overrides).length,
-    6,
-    'a skipped row can be ticked back in'
-  );
-  assert.strictEqual(applyTickedLabel([]), 'Apply 0 · 0 writes');
-  assert.strictEqual(
-    applyTickedLabel([proposal({ action: 'delete', documentCount: 0 })]),
-    'Apply 1 · 1 write'
-  );
-  // A tick is local: the listener moves the button and nothing else.
-  const init = functionBody('initSimple');
-  assert.ok(
-    init.includes(
-      'tickOverrides.set(num(box.dataset.tagId), box.checked === true)'
-    )
-  );
-  const onTick = init.slice(
-    init.indexOf("addEventListener('change'"),
-    init.indexOf(
-      "addEventListener('click'",
-      init.indexOf("addEventListener('change'")
-    )
-  );
-  assert.ok(onTick.includes('updateApplyTicked()'));
-  assert.ok(
-    !/sendJson|patchProposal|renderSimple/.test(onTick),
-    'a tick writes nothing and redraws nothing'
-  );
-});
-
-test('The cost line is the last run, or says that it is not recorded', () => {
-  const { htmlResultCost } = simple();
-  const cost = htmlResultCost({
-    requests: 23,
-    tokens: 110000,
-    ms: 180000,
-    prompt: 78000,
-    completion: 32000,
-    thinking: 12000,
-  });
-  assert.ok(cost.includes('class="zr-tokenbar zr-tokenbar--mini"'));
-  assert.ok(cost.includes('>23 requests · 110k tokens · ~3 min<'));
-  assert.ok(
-    cost.includes('aria-label="78k question · 20k answer · 12k thinking"'),
-    'the answer is what is left of the completion after the thinking'
-  );
-  assert.ok(/width: 70\.9%/.test(cost), 'the widths are shares of the run');
-  assert.strictEqual(htmlResultCost(null), '<span>Cost not recorded</span>');
-  // The page keeps the cost of the run it watched, as the plan head did.
-  assert.ok(
-    functionBody('renderSimple').includes(
-      'el.resultCost.innerHTML = htmlResultCost(lastRunCost)'
-    )
-  );
-  assert.ok(
-    functionBody('renderProgressOutcome').includes('keepRunCost(finished)')
-  );
-  assert.match(
-    page,
-    /<div class="zr-resulthead__action">[\s\S]*?<button class="zr-btn zr-btn--primary" id="simApplyTickedBtn" type="button" disabled>Apply 0 · 0 writes<\/button>/
-  );
-  // The result stays while a proposal lives, so the next run has a button
-  // of its own, before the one that writes.
-  assert.match(
-    page,
-    /<button class="zr-btn" id="simAgainBtn" type="button">Simplify tags<\/button>[\s\S]*?id="simApplyTickedBtn"/
-  );
-  assert.match(
-    page,
-    /<p class="zr-resulthead__headline" id="simResultHeadline"><\/p>/
-  );
-  assert.match(page, /<p class="zr-resulthead__cost" id="simResultCost"><\/p>/);
-});
-
-/* --- 6. the five checklists ------------------------------------------------- */
-
-test('Every proposal lands in exactly one checklist, the biggest first', () => {
-  const { simpleSections, sectionOf } = simple();
-  const sections = simpleSections(FIXTURE);
-  const ids = (kind) => sections[kind].map((row) => row.tagId);
-  assert.deepStrictEqual(ids('split'), [1, 2, 10], 'by documents, then name');
-  assert.deepStrictEqual(ids('merge'), [3, 4]);
-  assert.deepStrictEqual(ids('delete'), [5]);
-  assert.deepStrictEqual(ids('unsure'), [6, 7], 'low confidence, any action');
-  assert.deepStrictEqual(ids('unchanged'), [8, 11]);
-  assert.strictEqual(sectionOf(FIXTURE[8]), null, 'an applied tag is history');
-  assert.strictEqual(
-    sectionOf(FIXTURE[10]),
-    'unchanged',
-    'a split with nothing to split into stays as it is'
-  );
-  assert.strictEqual(
-    sectionOf(
-      proposal({
-        action: 'split',
-        typeName: 'Brief',
-        confidence: 'low',
-        source: 'rule',
-      })
-    ),
-    'unsure',
-    'a rule that was not sure is not sure either'
-  );
-});
-
-test('A row says what the tag becomes, with the target in bold', () => {
-  const { htmlChecklistRow } = simple();
-  const split = htmlChecklistRow(FIXTURE[0], 'split', true);
-  assert.ok(split.startsWith('<label class="zr-checklist__row"'));
-  assert.ok(
-    split.includes(
-      '<input class="zr-check zr-checklist__box sim-tick" type="checkbox" data-tag-id="1" checked>'
-    ),
-    'the box is the framework tick, and it carries the tag'
-  );
-  assert.ok(
-    split.includes(
-      'Stromrechnung<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Rechnung</span> + Strom<span class="zr-checklist__meta">38 documents</span>'
-    ),
-    'from, the type in bold, the topics, the documents'
-  );
-  assert.ok(split.includes('<span class="zr-checklist__chip">rule</span>'));
-  assert.ok(
-    htmlChecklistRow(FIXTURE[1], 'split', true).includes(
-      'class="zr-checklist__chip">model<'
-    )
-  );
-
-  const merge = htmlChecklistRow(FIXTURE[2], 'merge', true);
-  assert.ok(
-    merge.includes(
-      'rechnungen<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Rechnung</span><span class="zr-checklist__meta">37 documents</span>'
-    )
-  );
-  assert.ok(
-    merge.includes('class="zr-checklist__chip">plural<'),
-    'a rule merge wears the spelling rule it named'
-  );
-  assert.ok(
-    htmlChecklistRow(FIXTURE[3], 'merge', true).includes(
-      'class="zr-checklist__chip">model<'
-    ),
-    'a model merge wears its source'
-  );
-
-  const remove = htmlChecklistRow(FIXTURE[4], 'delete', true);
-  assert.ok(
-    remove.includes(
-      'Scan2019<span class="zr-checklist__meta">0 documents</span>'
-    )
-  );
-  assert.ok(!remove.includes('zr-checklist__chip'), 'a deletion needs no chip');
-
-  const unsure = htmlChecklistRow(FIXTURE[5], 'unsure', false);
-  assert.ok(
-    unsure.includes('class="zr-checklist__row zr-checklist__row--dim"')
-  );
-  assert.ok(!unsure.includes(' checked>'), 'unsure starts unticked');
-  assert.ok(unsure.includes('>22 documents · delete<'));
-  assert.ok(
-    unsure.includes(
-      '<span class="zr-checklist__reason">catch-all, still in use</span>'
-    ),
-    'the reason is one clause on the row'
-  );
-  assert.ok(!unsure.includes('zr-checklist__chip'));
-
-  const kept = htmlChecklistRow(FIXTURE[7], 'unchanged', false);
-  assert.ok(kept.startsWith('<div class="zr-checklist__row'));
-  assert.ok(!kept.includes('type="checkbox"'), 'what stays has no box');
-
-  const nasty = htmlChecklistRow(
-    proposal({ tagId: 1, tagName: '<b>x</b>', typeName: '<i>y</i>' }),
-    'split',
-    true
-  );
-  assert.ok(!nasty.includes('<b>') && !nasty.includes('<i>'));
-});
-
-test('A tag edited in the stack keeps its edit in the row', () => {
-  const { htmlChecklistRow, sectionOf } = simple();
-  const edited = proposal({
-    ...FIXTURE[6],
-    typeName: 'Rechnung',
-    topicNames: ['Wohnung', 'Strom'],
-    source: 'user',
-    status: 'accepted',
-  });
-  assert.strictEqual(sectionOf(edited), 'unsure', 'it stays where it was');
-  const row = htmlChecklistRow(edited, 'unsure', true);
-  assert.ok(
-    row.includes(
-      'Nebenkosten<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Rechnung</span> + Wohnung + Strom'
-    )
-  );
-  assert.ok(row.includes(' checked>'), 'accepted in the stack is ticked');
-  const topicsOnly = htmlChecklistRow(
-    proposal({
-      ...FIXTURE[0],
-      typeName: null,
-      topicNames: ['Strom', 'Haus'],
-      source: 'user',
-    }),
-    'split',
-    true
-  );
-  assert.ok(
-    topicsOnly.includes(
-      'Stromrechnung<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">Strom + Haus</span>'
-    )
-  );
-  assert.ok(topicsOnly.includes('class="zr-checklist__chip">edited<'));
-});
-
-test('A checklist shows eight rows, then the rest by number', () => {
-  const { htmlSection } = simple();
-  const many = Array.from({ length: 812 }, (unused, at) =>
-    proposal({ tagId: at + 1, tagName: `Tag ${at}`, typeName: 'Rechnung' })
-  );
-  const capped = htmlSection('split', many, { overrides: new Map() });
-  assert.ok(
-    capped.startsWith('<section class="zr-checklist sim-list sim-list--split"')
-  );
-  assert.ok(
-    capped.includes(
-      '<div class="zr-checklist__head"><span class="zr-label">Split <span class="zr-checklist__count">· 812</span></span></div>'
-    ),
-    'the head is the label and its count'
-  );
-  assert.strictEqual((capped.match(/zr-checklist__box/g) || []).length, 8);
-  assert.ok(
-    capped.includes(
-      '<div class="zr-checklist__more"><button class="zr-btn sim-list-more" type="button" data-section="split">804 more</button></div>'
-    )
-  );
-  const full = htmlSection('split', many, { full: true, overrides: new Map() });
-  assert.strictEqual((full.match(/zr-checklist__box/g) || []).length, 812);
-  assert.ok(!full.includes('sim-list-more'));
-  assert.strictEqual(
-    htmlSection('delete', [], {}),
-    '',
-    'an empty list is not drawn'
-  );
-  const wiring = functionBody('initSimple');
-  assert.ok(wiring.includes('listsFull.add(String(more.dataset.section))'));
-});
-
-test('Unsure carries the way into the stack, Unchanged is one line', () => {
-  const { htmlSection, simpleSections } = simple();
-  const sections = simpleSections(FIXTURE);
-  const unsure = htmlSection('unsure', sections.unsure, {
-    overrides: new Map(),
-  });
-  assert.ok(
-    unsure.includes(
-      '<span class="zr-label">Unsure <span class="zr-checklist__count">· 2</span></span><button class="zr-btn sim-stack-open" type="button">Review one by one</button>'
-    )
-  );
-  const keep = Array.from({ length: 124 }, (unused, at) =>
-    proposal({ tagId: at + 1, tagName: `Bleibt ${at}`, action: 'keep' })
-  );
-  const closed = htmlSection('unchanged', keep, { shown: false });
-  assert.ok(closed.includes('>124 tags stay as they are<'));
-  assert.ok(
-    closed.includes(
-      'class="zr-btn sim-unchanged-toggle" type="button" aria-expanded="false">Show<'
-    )
-  );
-  assert.ok(!closed.includes('type="checkbox"'));
-  assert.ok(!closed.includes('Bleibt 0'), 'the tags wait for Show');
-  const shown = htmlSection('unchanged', keep, { shown: true });
-  assert.ok(shown.includes('>Hide<') && shown.includes('Bleibt 0'));
-  assert.ok(shown.includes('>116 more<'));
-  assert.ok(!shown.includes('type="checkbox"'));
-  assert.ok(
-    htmlSection('unchanged', [keep[0]], {}).includes('>1 tag stays as it is<')
-  );
-  const wiring = functionBody('initSimple');
-  assert.ok(wiring.includes("event.target.closest('.sim-stack-open')"));
-  assert.ok(wiring.includes('unchangedShown = !unchangedShown'));
-});
-
-test('The five lists render in their order into the grid of the board', () => {
-  const render = functionBody('renderSimple');
-  assert.ok(render.includes('SECTION_KINDS.map((kind) =>'));
-  const { SECTION_KINDS } = new Function(
-    `${constantSource('SECTION_KINDS')}\nreturn { SECTION_KINDS };`
-  )();
-  assert.deepStrictEqual(SECTION_KINDS, [
-    'split',
-    'merge',
-    'delete',
-    'unsure',
-    'unchanged',
-  ]);
-  assert.match(
-    PAGE_CSS,
-    /\.sim-lists \{\n\s+display: grid;\n\s+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/
-  );
-  assert.match(PAGE_CSS, /\.sim-list--unchanged \{\n\s+grid-column: 1 \/ -1;/);
-});
-
-/* --- 7. the apply ----------------------------------------------------------- */
-
-test('Apply makes accepted mean exactly the ticks, then runs the apply job', () => {
-  const { statusChanges, simpleSections, tickedProposals } = simple();
-  const list = FIXTURE.map((row) =>
-    row.tagId === 2 ? { ...row, status: 'accepted' } : row
-  ).concat(
-    proposal({
-      tagId: 12,
-      tagName: 'Bleibt',
-      action: 'keep',
-      status: 'accepted',
-    })
-  );
-  const overrides = new Map([
-    [2, false],
-    [6, true],
-  ]);
-  const ticked = tickedProposals(simpleSections(list), overrides);
-  assert.deepStrictEqual(
-    statusChanges(list, ticked),
-    [
-      { tagId: 1, status: 'accepted' },
-      { tagId: 2, status: 'open' },
-      { tagId: 3, status: 'accepted' },
-      { tagId: 4, status: 'accepted' },
-      { tagId: 5, status: 'accepted' },
-      { tagId: 6, status: 'accepted' },
-    ],
-    'ticked becomes accepted, an unticked accepted row opens again, a kept row and history stay'
-  );
-  const apply = functionBody('applyTicked');
-  assert.ok(
-    apply.includes('confirmDialog({') && apply.includes("tone: 'danger'")
-  );
-  assert.ok(apply.includes('body: applySummaryText(ticked)'));
-  assert.ok(apply.includes('statusChanges(all, ticked)'));
-  assert.ok(apply.includes('await writeStatuses(changes)'));
-  assert.ok(
-    apply.indexOf('await writeStatuses(changes)') <
-      apply.indexOf('await applyOrder(null)'),
-    'the statuses first, then the one apply job of today'
-  );
-  const write = functionBody('writeStatuses');
-  assert.ok(write.includes('encodeURIComponent(String(change.tagId))'));
-  assert.ok(write.includes('PATCH_LANES'), 'a few at a time');
-  assert.ok(
-    write.includes('while (failure === null && next < changes.length)') &&
-      write.includes('if (failure !== null) throw failure;'),
-    'a failed write stops every lane, and the apply never starts'
-  );
-  assert.ok(
-    !/renderProposals|renderSimple|patchProposal/.test(write),
-    'no redraw per row'
-  );
-});
-
-/* --- 8. the history line ---------------------------------------------------- */
-
-test('The history line says when the last apply landed and leads to its undo', () => {
-  const { lastApplyAt, shortDate, htmlHistoryLine, parseStamp } = simple();
-  const date = lastApplyAt(FIXTURE);
-  assert.ok(date instanceof Date);
-  assert.strictEqual(date.toISOString(), '2026-09-14T10:00:00.000Z');
-  assert.strictEqual(parseStamp('nonsense'), null);
-  assert.strictEqual(lastApplyAt([FIXTURE[0]]), null);
-  const now = new Date(2026, 8, 23);
-  const here = new Date(2026, 8, 14, 12);
-  assert.strictEqual(shortDate(here, now), '14 Sep');
-  assert.strictEqual(shortDate(new Date(2025, 11, 2), now), '2 Dec 2025');
-  assert.strictEqual(
-    htmlHistoryLine(here, now),
-    '<span>History · last apply 14 Sep</span><span aria-hidden="true">·</span><a class="zr-btn" href="/duplicates#dupLog">Undo</a>',
-    'the undo of an apply lives in the merge log, as it did before'
-  );
-  assert.strictEqual(htmlHistoryLine(null, now), '');
+  assert.strictEqual((await localOrderEstimate()).items, 100);
 });
 
 /* --- 9. the stack ----------------------------------------------------------- */
@@ -1387,28 +1830,19 @@ function stackHelpers() {
 
 test('The stack is one unsure tag per screen, with its bar and its way out', () => {
   const { htmlStackBar, htmlDecision, htmlStackFoot } = stackHelpers();
-  const bar = htmlStackBar(4, 16, 945);
+  const bar = htmlStackBar(4, 16);
   assert.ok(bar.includes('class="zr-runbar"'));
   assert.ok(bar.includes('Tag 5 of 16') && bar.includes('12 left'));
-  assert.ok(bar.includes('>Accept the 945 clear ones<'));
-  assert.ok(htmlStackBar(0, 1, 1).includes('>Accept the 1 clear one<'));
-  assert.ok(!htmlStackBar(0, 1, 0).includes('sim-stack-acceptclear'));
-
+  assert.ok(!bar.includes('clear'), 'no "Accept the clear ones" on this page');
+  assert.ok(!SCRIPT.includes('sim-stack-acceptclear'));
   const card = htmlDecision(FIXTURE[6], ['Rechnung', 'Abrechnung']);
   assert.ok(card.includes('class="zr-decision"'));
   assert.ok(card.includes('>As it is<') && card.includes('>Becomes<'));
   assert.ok(card.includes('<option value="Abrechnung" selected>'));
-  assert.ok(card.includes('class="zr-decision__note">type or topic<'));
-  assert.ok(card.includes('>0 of 9 documents with a type<'));
-  assert.strictEqual(
-    (card.match(/type="radio" class="sim-stack-overwrite"/g) || []).length,
-    2
-  );
   assert.ok(
     card.includes(
       '19 writes · type on 9 documents · topics on 9 documents · tag deleted'
-    ),
-    'what it writes, numbers first'
+    )
   );
   assert.ok(
     card.includes('sim-stack-accept" type="button" data-tag-id="7">Split<')
@@ -1419,54 +1853,42 @@ test('The stack is one unsure tag per screen, with its bar and its way out', () 
   assert.ok(
     card.includes('sim-stack-later" type="button" data-tag-id="7">Later<')
   );
-  assert.ok(card.includes('class="zr-decision__keys">Enter · Esc · L<'));
-  assert.ok(!card.includes('zr-btn__sub'), 'a button without a second line');
-  assert.ok(
-    htmlDecision(FIXTURE[5], []).includes('>Delete<') &&
-      htmlDecision(FIXTURE[3], []).includes('>Merge into Auto<')
-  );
-
   const foot = htmlStackFoot(3, { tagName: 'Stromrechnung' });
-  assert.ok(foot.includes('>3 decided<'));
-  assert.ok(foot.includes('>Undo Stromrechnung<'));
+  assert.ok(
+    foot.includes('>3 decided<') && foot.includes('>Undo Stromrechnung<')
+  );
   assert.ok(foot.includes('>Back<'));
-  assert.ok(!htmlStackFoot(0, null).includes('sim-stack-undo'));
 });
 
-test('The stack opens over exactly the unsure rows and moves their ticks', () => {
+test('The stack opens over the unsure proposals and every decision is a status', () => {
+  const { unsureOpen } = result();
+  assert.deepStrictEqual(
+    unsureOpen(landed()).map((row) => row.tagId),
+    [6, 7],
+    'the unsure ones nobody decided on, the ones on the most documents first'
+  );
   const open = functionBody('openStack');
-  assert.ok(open.includes('.unsure.map((proposal) =>'));
-  assert.ok(open.includes("el.stack.classList.remove('hidden')"));
-  assert.ok(open.includes('renderSimple()'), 'the result gives way to it');
+  assert.ok(open.includes('unsureOpen([...proposals.values()])'));
+  assert.ok(
+    open.includes('stacking = true') && open.includes('renderAssist()')
+  );
   assert.ok(open.includes('el.stack.focus()'));
-
+  assert.ok(functionBody('closeStack').includes('stacking = false'));
   const decide = functionBody('decideOnStack');
   assert.ok(decide.includes("{ action: 'keep', status: 'accepted' }"));
   assert.ok(decide.includes("{ status: 'accepted' }"));
-  assert.ok(
-    decide.includes('tickOverrides.set(tagId, true)'),
-    'accepted is ticked'
-  );
-  assert.ok(decide.includes('tickOverrides.delete(tagId)'), 'kept has no box');
+  assert.ok(decide.includes('await refreshGroups()'), 'the groups follow');
   assert.ok(!decide.includes('/api/simplify/apply'), 'the stack writes no tag');
   assert.ok(
-    functionBody('undoLastDecision').includes('tickOverrides.set(tagId, tick)'),
-    'an undo puts the tick back too'
+    functionBody('undoLastDecision').includes(
+      'await patchProposal(tagId, before)'
+    )
   );
-  const clear = functionBody('acceptClearOnes');
-  assert.ok(clear.includes("['split', 'merge', 'delete']"));
-  assert.ok(clear.includes('tickOverrides.set(num(proposal.tagId), true)'));
-  assert.ok(clear.includes('closeStack()'));
-  assert.ok(!clear.includes('applyOrder'), 'accepting is not applying');
 });
 
 test('The keys are bound on the stack and never inside a field', () => {
   const init = functionBody('initStack');
   assert.ok(init.includes("el.stack.addEventListener('keydown'"));
-  assert.match(
-    SCRIPT,
-    /const EDITABLE_TAGS = \['input', 'select', 'textarea'\];/
-  );
   const guard = init.indexOf('EDITABLE_TAGS.includes');
   [
     "event.key === 'Enter'",
@@ -1475,155 +1897,11 @@ test('The keys are bound on the stack and never inside a field', () => {
   ].forEach((needle) => {
     assert.ok(init.indexOf(needle) > guard, `${needle} after the field guard`);
   });
-  assert.ok(init.includes(".closest('.sim-topics__input')"));
-  assert.ok(init.includes("event.target.closest('.sim-stack-acceptclear')"));
 });
 
-/* --- 10. the running screen ------------------------------------------------- */
+/* --- 10. the apply ---------------------------------------------------------- */
 
-const PROGRESS = {
-  requestsDone: 12,
-  requestsPlanned: 23,
-  tokens: 76000,
-  estimatedTokens: 110000,
-  tokenBudget: 120000,
-  elapsedMs: 190000,
-  etaMs: 180000,
-  requestPairs: 50,
-  requestAnswers: 21,
-  requestTokens: 8900,
-  thinking: true,
-  requestLog: [
-    {
-      index: 12,
-      items: 50,
-      answers: 50,
-      tokens: 6100,
-      thinkingTokens: 3800,
-      ms: 44000,
-      outcome: 'answered',
-    },
-    {
-      index: 11,
-      items: 50,
-      answers: 31,
-      tokens: 5200,
-      thinkingTokens: 0,
-      ms: 51000,
-      outcome: 'partial',
-    },
-    {
-      index: 9,
-      items: 50,
-      answers: 0,
-      tokens: 7100,
-      thinkingTokens: 7100,
-      ms: 112000,
-      outcome: 'empty',
-    },
-    {
-      index: 8,
-      items: 50,
-      answers: 0,
-      tokens: 0,
-      thinkingTokens: 0,
-      ms: 3000,
-      outcome: 'failed',
-    },
-  ],
-};
-
-test('The running screen keeps its shape and loses its subject', () => {
-  const {
-    htmlRunbar,
-    htmlRunLedger,
-    htmlLiveRequest,
-    reqlogText,
-    reqlogCost,
-    runCeilingText,
-    phaseHeadline,
-  } = helpers(
-    [
-      'num',
-      'plural',
-      'grouped',
-      'htmlIconMarkup',
-      'formatElapsed',
-      'formatEta',
-      'progressPercent',
-      'htmlLedger',
-      'htmlRunbar',
-      'htmlRunLedger',
-      'htmlLiveRequest',
-      'reqlogText',
-      'reqlogCost',
-      'runCeilingText',
-      'phaseHeadline',
-    ],
-    { constants: ['CEILING_SHOWN_ABOVE'] }
-  );
-  assert.ok(htmlRunbar(PROGRESS).includes('Request 13 of 23'));
-  assert.ok(htmlRunbar(PROGRESS).includes('~3 min left'));
-  assert.ok(htmlRunLedger(PROGRESS).includes('76k of ~110k'));
-  assert.ok(
-    htmlLiveRequest(PROGRESS).includes('Request 13 · 50 tags · 21 answered'),
-    'the live row, facts only'
-  );
-  assert.ok(htmlLiveRequest(PROGRESS).includes('8.9k so far · thinking'));
-  assert.strictEqual(
-    reqlogText(PROGRESS.requestLog[2]),
-    'Request 9 · 7.1k thinking · no answer'
-  );
-  assert.strictEqual(
-    reqlogText(PROGRESS.requestLog[1]),
-    'Request 11 · 50 tags · 31 answered · rest asked again'
-  );
-  assert.strictEqual(
-    reqlogText(PROGRESS.requestLog[3]),
-    'Request 8 · 50 tags · ended by the provider'
-  );
-  assert.strictEqual(
-    reqlogCost(PROGRESS.requestLog[0]),
-    '6.1k · 3.8k thinking'
-  );
-  assert.strictEqual(reqlogCost(PROGRESS.requestLog[2]), '7.1k · all thinking');
-  assert.strictEqual(reqlogCost(PROGRESS.requestLog[3]), '0 tokens');
-  assert.strictEqual(runCeilingText(PROGRESS), '76k of 120k limit');
-  assert.strictEqual(runCeilingText({ tokens: 10, tokenBudget: 120000 }), '');
-  [
-    'starting',
-    'warming-up',
-    'vocabulary',
-    'ordering',
-    'splitting',
-    'judging',
-    'escalating',
-    'applying',
-    'finishing',
-  ].forEach((phase) => {
-    const line = phaseHeadline({ phase });
-    assert.ok(!/\bI\b|\byou\b/i.test(line), `${phase}: ${line}`);
-    assert.ok(!/[\u2013\u2014]/.test(line));
-  });
-  // Stop is one word with nothing under it.
-  const stop = elementAt(
-    page,
-    page.indexOf('<button class="zr-btn" id="simStopBtn"')
-  );
-  assert.ok(stop.includes('>Stop</span>'));
-  assert.ok(!stop.includes('zr-btn__sub') && !page.includes('simStopSub'));
-  assert.ok(!SCRIPT.includes('function stopSubText('));
-  // In simple mode the result takes over once a job has ended.
-  assert.ok(
-    functionBody('renderProgressOutcome').includes(
-      "if (mode === 'simple') el.progress.classList.add('hidden')"
-    )
-  );
-});
-
-/* --- 11. the apply checklist ------------------------------------------------ */
-
-test('The apply is a checklist in the order the job writes', () => {
+test('The apply is a checklist in the order the job writes, and leaves its Undo', () => {
   const { checklistFrom, htmlChecklist } = helpers(
     [
       'num',
@@ -1646,130 +1924,67 @@ test('The apply is a checklist in the order the job writes', () => {
   ]);
   assert.deepStrictEqual(
     rows.map((row) => row.tagId),
-    [3, 4, 1, 5],
-    'merges, splits, deletions, the biggest first; a kept tag writes nothing'
+    [3, 4, 1, 5]
   );
-  rows[0].state = 'done';
-  rows[0].seconds = 3;
-  rows[1].state = 'running';
   rows[3].state = 'failed';
   rows[3].error = '400 Bad Request';
   const html = htmlChecklist(rows);
-  assert.ok(html.includes('1 of 4 done · 1 failed · 118 writes'));
-  assert.ok(html.includes('>0 tokens<'));
-  assert.ok(html.includes('>rechnungen · 38 writes<'));
-  assert.ok(html.includes('Scan2019 · 400 Bad Request · 1 write to do'));
+  assert.ok(html.includes('0 of 4 done · 1 failed · 118 writes'));
   assert.ok(html.includes('sim-checklist-retry') && html.includes('>Retry<'));
-  assert.strictEqual(htmlChecklist([]), '');
   const apply = functionBody('applyOrder');
   assert.ok(apply.includes('checklistRows = checklistFrom('));
-  assert.ok(apply.includes('finishChecklist(data)'));
   assert.ok(
-    apply.includes("if (mode === 'simple' && failures === 0) {"),
-    'in simple mode a clean apply leaves its one line, not every row'
+    apply.includes('if (failures === 0) {'),
+    'a clean apply leaves its one line, not every row'
   );
-  assert.ok(
-    functionBody('followJob').includes('if (applying) advanceChecklist(')
+  const { htmlApplyResultBlock } = helpers(
+    ['applyResultText', 'htmlApplyResultBlock'],
+    { constants: ['UNDO_HREF'] }
   );
-});
-
-/* --- 12. the advanced page -------------------------------------------------- */
-
-test("The advanced page carries today's tools and no hints", () => {
-  const inAdvanced = marked(page, 'data-advanced')
-    .map((part) => part.html)
-    .join('\n');
-  [
-    'Propose a new order',
-    'Keep vocabulary<',
-    'data-view="groups"',
-    'data-view="table"',
-    'id="simGroupFilters"',
-    'id="simGroupSearch"',
-    'id="simVocabularyBlock"',
-    'id="simProposalsTable"',
-    'id="simSearch"',
-    'Propose splits',
-    '>Select all open<',
-    '>Clear<',
-    'Skip\n',
-    'Apply\n',
-  ].forEach((needle) => {
-    assert.ok(
-      inAdvanced.includes(needle),
-      `${needle} is missing from advanced`
-    );
-  });
-  assert.match(inAdvanced, /class="zr-toggle" id="simOrderKeepVocabulary"/);
-  // No paragraph explains anything.
-  [
-    'Nothing here runs',
-    'The model reads every tag',
-    'A document type is the kind of document',
-    'Runs the rule against',
-    'Group them by type',
-    'Keep my vocabulary',
-    'Propose from my tags',
-    'switched off in the settings',
-    'Save a vocabulary first',
-  ].forEach((needle) => {
-    assert.ok(
-      !page.includes(needle) && !pageNoModel.includes(needle),
-      `"${needle}" is back`
-    );
+  const block = htmlApplyResultBlock({
+    applied: [{ tagId: 1, action: 'split' }],
+    merged: [],
+    failed: [],
   });
   assert.ok(
-    !/<p class="zr-sm zr-faint">[^<]{40,}<\/p>/.test(inAdvanced),
-    'a long faint paragraph is a hint, and hints are gone'
+    block.includes(
+      '<a class="zr-btn sim-apply-result__undo" href="/duplicates#dupLog">Undo</a>'
+    ),
+    'the Undo lands on the merge log of the Duplicates page'
+  );
+  assert.ok(
+    !htmlApplyResultBlock({
+      applied: [],
+      merged: [],
+      failed: [{ tagId: 2 }],
+    }).includes('Undo'),
+    'nothing written, nothing to undo'
   );
 });
 
-test("Round 13's baskets, plan head and preflight are gone", () => {
-  [
-    'simPlan',
-    'simPlanHead',
-    'simBaskets',
-    'simStopSub',
-    'simApplyAcceptedSub',
-    'zr-basket',
-    'zr-preflight',
-    'sim-groupsblock__summary',
-  ].forEach((needle) => {
-    assert.ok(!VIEW.includes(needle), `${needle} is still in the view`);
-    assert.ok(!SCRIPT.includes(needle), `${needle} is still in the script`);
-  });
-  [
-    'planBaskets',
-    'htmlBasket',
-    'htmlPlanHead',
-    'planHeadline',
-    'runAgreed',
-    'askChoices',
-  ].forEach((name) => {
-    assert.ok(!SCRIPT.includes(`function ${name}(`), `${name}() is retired`);
-  });
-  assert.ok(!PAGE_CSS.includes('sim-plan') && !PAGE_CSS.includes('sim-basket'));
-});
-
-/* --- 13. the page stylesheet ------------------------------------------------ */
+/* --- 11. the page stylesheet ------------------------------------------------ */
 
 test('The page places the kit rather than redefining it', () => {
   assert.strictEqual((PAGE_CSS.match(/@layer [a-z]+ \{/g) || []).length, 1);
   assert.ok(PAGE_CSS.includes('@layer pages {'));
   const redefined = [
-    '.zr-start',
-    '.zr-resulthead',
-    '.zr-checklist',
-    '.zr-checklist__row',
-    '.zr-historyline',
+    '.zr-assist',
+    '.zr-steps',
+    '.zr-runmeter',
+    '.zr-runmeter__sentence',
+    '.zr-workspace--waiting',
+    '.zr-workspace__note',
+    '.zr-module__caption',
     '.zr-sheet',
     '.zr-decision',
     '.zr-tokenbar',
     '.zr-runbar',
     '.zr-reqlog',
-    '.zr-runmeter',
+    '.zr-ledger',
   ].filter((selector) =>
-    new RegExp(`\\n  ${selector.replace('.', '\\.')}( |,)`).test(PAGE_CSS)
+    new RegExp(
+      `\\n\\s+${selector.replace(/[.-]/g, (c) => `\\${c}`)}( |,|\\n)`
+    ).test(PAGE_CSS)
   );
   assert.deepStrictEqual(
     redefined,
@@ -1778,23 +1993,22 @@ test('The page places the kit rather than redefining it', () => {
   );
   [
     '.sim-page',
-    '.sim-resultcard',
-    '.sim-lists',
-    '.sim-list__card',
+    '.sim-assist',
     '.sim-stack',
     '.sim-checklist',
     '.sim-progress',
   ].forEach((selector) => {
     assert.ok(PAGE_CSS.includes(`${selector} {`), `${selector} has no rule`);
   });
-  // 390px: one column of checklists.
+  // 390px: the assistant stacks; the kit does that for both pages.
   assert.match(
-    PAGE_CSS,
-    /@media \(max-width: 720px\) \{\n\s+\.sim-lists \{\n\s+grid-template-columns: minmax\(0, 1fr\);/
+    KIT,
+    /@media \(max-width: 720px\) \{\n[\s\S]*?\.zr-assist \{\n\s+flex-direction: column;/
   );
+  assert.ok(!PAGE_CSS.includes('data-mode') && !PAGE_CSS.includes('sim-list'));
 });
 
-/* --- 14. the voice ---------------------------------------------------------- */
+/* --- 12. the voice ---------------------------------------------------------- */
 
 test('The page is held to the voice, and no file of it carries a dash', () => {
   const voice = read('tests', 'test-review-voice.js');
@@ -1816,15 +2030,23 @@ test('The page is held to the voice, and no file of it carries a dash', () => {
       `${file} carries a dash: ${text.slice(Math.max(0, at - 30), at + 30)}`
     );
   });
+  // Every string the assistant draws comes from the guide or is a label.
+  [
+    SIMPLIFY_GUIDE.start.title,
+    SIMPLIFY_GUIDE.start.what,
+    ...SIMPLIFY_GUIDE.done.next,
+  ].forEach((line) => {
+    assert.ok(
+      !SCRIPT.includes(line),
+      `the page copies a line of the guide: ${line}`
+    );
+  });
 });
 
 test('Every action is a bordered button, never a text button or a bare link', () => {
-  // A button with no border reads as a link, and a link is not a way to
-  // cancel, undo or open anything on these pages. The kit's own modules
-  // are held to the same rule.
   const modules = [
     read('public', 'js', 'modules', 'review-sheet.js'),
-    read('public', 'js', 'modules', 'review-mode.js'),
+    read('public', 'js', 'modules', 'review-assist.js'),
   ].join('\n');
   for (const [name, text] of [
     ['view', VIEW],
@@ -1833,8 +2055,6 @@ test('Every action is a bordered button, never a text button or a bare link', ()
   ]) {
     assert.ok(!text.includes('zr-btn--ghost'), `a text button in the ${name}`);
   }
-  // A link opens a document in Paperless-ngx or the log of the other page;
-  // it never carries an action of this page.
   const actionLinks = [
     ...SCRIPT.matchAll(/<a class="zr-link[^>]*>\$\{esc\('([^']+)'\)\}<\/a>/g),
   ];

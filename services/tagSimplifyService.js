@@ -197,6 +197,33 @@ async function runInLanes(items, limit, worker) {
   return results;
 }
 
+/**
+ * What the model has answered so far in an order run, counted by what it
+ * said: {split, merge, delete, keep, unsure}. A low confidence answer counts
+ * as unsure, unless it is a keep: a keep writes nothing and has nothing to
+ * decide, so it is a keep however sure the model was. The page shows the
+ * tally while the run goes, so the result is seen forming before it is
+ * stored, and the headline after the run counts the same way.
+ *
+ * @param {?object} tally  the count so far, or null before the first answer
+ * @param {object[]} rows  the proposal rows one request answered
+ * @returns {{split: number, merge: number, delete: number, keep: number, unsure: number}}
+ */
+function addToTally(tally, rows) {
+  const next = tally
+    ? { ...tally }
+    : { split: 0, merge: 0, delete: 0, keep: 0, unsure: 0 };
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const action = PROPOSAL_ACTIONS.includes(row?.action) ? row.action : 'keep';
+    if (row?.confidence === 'low' && action !== 'keep') {
+      next.unsure += 1;
+      continue;
+    }
+    next[action] += 1;
+  }
+  return next;
+}
+
 function chunkList(items, size) {
   const chunks = [];
   const step = Math.max(1, Number(size) || 1);
@@ -1022,6 +1049,7 @@ class TagSimplifyService {
     const meter = (outcome, answers) => {
       const spend = this._spendOf(service);
       this._recordRequest(control, {
+        kind: 'names',
         items: names.length,
         answers,
         // Omitted rather than null where nothing was reported; see
@@ -1119,12 +1147,14 @@ class TagSimplifyService {
     };
     // A vocabulary request reads a chunk of names and answers with the words
     // it found in them: it read all of them, so it answered for all of them.
-    // A request that found nothing at all read nothing usable.
+    // A request that found nothing at all read nothing usable. Its row
+    // counts what it proposed, so the page can say "300 names read · 7
+    // proposed".
     meter(
       proposed.types.length + proposed.topics.length === 0
         ? 'empty'
         : 'answered',
-      names.length
+      proposed.types.length + proposed.topics.length
     );
     return proposed;
   }
@@ -1510,6 +1540,7 @@ class TagSimplifyService {
     const meter = (outcome, answers) => {
       const spend = this._spendOf(service);
       this._recordRequest(control, {
+        kind: 'tags',
         items: tags.length,
         answers,
         // Omitted rather than null where nothing was reported; see
@@ -2782,6 +2813,8 @@ class TagSimplifyService {
       const lanes = Math.min(this._lanes(options?.concurrency), chunks.length);
       let started = 0;
       let done = baseRequests;
+      // Null until a request answered; the job's progress starts the same.
+      let tally = null;
       await runInLanes(chunks, lanes, async (chunk) => {
         if (this._stopped(control)) return;
         started += 1;
@@ -2813,6 +2846,7 @@ class TagSimplifyService {
           }
         );
         for (const row of answered) proposals.set(row.tagId, row);
+        if (answered.length > 0) tally = addToTally(tally, answered);
         done += 1;
         this._report(control, {
           phase: PHASES.ORDERING,
@@ -2821,6 +2855,9 @@ class TagSimplifyService {
           pairsJudged: proposals.size,
           tokens: usage.tokens,
           failedRequests: usage.failedRequests,
+          // With every request that answered; one that did not leaves the
+          // count the page already shows.
+          ...(answered.length > 0 ? { tally } : {}),
         });
         this._checkTokenBudget(control, usage);
       });

@@ -432,6 +432,17 @@ const SWEEP_GROUPED_SHARE = 10;
  */
 const SEMANTIC_SCORE = 0.5;
 /** Why the sweep says two names are one thing. Anything else becomes null. */
+/** How a spelling rule is named where a person reads it. */
+const RULE_LABELS = Object.freeze({
+  'exact-normalized': 'same name',
+  'umlaut-variant': 'umlaut spelling',
+  'legal-form': 'legal form',
+  plural: 'singular and plural',
+  'token-order': 'word order',
+  prefix: 'prefix',
+  fuzzy: 'similar spelling',
+});
+
 const SWEEP_BASES = Object.freeze(['translation', 'synonym', 'abbreviation']);
 const SWEEP_BASIS_SET = new Set(SWEEP_BASES);
 /** Neighbour names per entity handed to the model, most frequent first. */
@@ -2070,6 +2081,16 @@ class EntityMatchAiService {
     ) {
       return;
     }
+    // A pair nothing in the spelling links exists only because the model
+    // proposed it. A "same" about it is the model agreeing with itself, and
+    // kept it would come back on every later run without being asked again;
+    // a "different" is safe to keep.
+    if (
+      verdict.verdict === AI_VERDICTS.SAME &&
+      pair.matchedBy === entityNameMatcher.MATCH_REASONS.SEMANTIC
+    ) {
+      return;
+    }
     const documentModel = require('../models/document');
     const write = Promise.resolve()
       .then(() =>
@@ -2188,6 +2209,9 @@ class EntityMatchAiService {
       spellingRules: 0,
       // Pairs an earlier review already answered, so this one did not ask.
       verdictsReused: 0,
+      // What the model has answered so far, for the page while the run goes.
+      // Only answers count: a pair nobody answered is not in it.
+      tally: { same: 0, different: 0, unsure: 0 },
       // Requests this review keeps in flight at once, and the lanes that are
       // busy right now; the second one is what the plan and the page need
       // while several answers are still on their way.
@@ -2375,6 +2399,22 @@ class EntityMatchAiService {
    * @param {AiReviewPair[]} batch
    * @param {number} [splits]
    */
+  /**
+   * Adds what one answer said to the run's tally. Only what the model
+   * answered counts; the pairs a cut-off answer left out are asked again
+   * and counted then.
+   *
+   * @param {object} context
+   * @param {{same:number, different:number, unsure:number}} tally
+   */
+  _addToTally(context, tally) {
+    const { tracker } = context;
+    if (!tracker || !tracker.tally || !tally) return;
+    tracker.tally.same += Number(tally.same) || 0;
+    tracker.tally.different += Number(tally.different) || 0;
+    tracker.tally.unsure += Number(tally.unsure) || 0;
+  }
+
   _afterRequest(context, batch, splits = 0) {
     const { tracker, verdicts, kind, sizer, state } = context;
     if (!tracker) return;
@@ -2405,6 +2445,7 @@ class EntityMatchAiService {
       concurrency: tracker.concurrency,
       inFlight: state ? state.inFlight : 0,
       verdictsReused: tracker.verdictsReused,
+      tally: tracker.tally ? { ...tracker.tally } : null,
       // The request is over; nothing about it is in flight any more.
       requestPairs: null,
       requestAnswers: 0,
@@ -2703,6 +2744,7 @@ class EntityMatchAiService {
       if (typeof lane === 'function') lane();
       this._recordRequest(context, {
         index: meterIndex,
+        kind: 'pairs',
         items: batch.length,
         answers: answers === null ? batch.length : answers,
         // Omitted rather than null where nothing was reported: the
@@ -2832,6 +2874,7 @@ class EntityMatchAiService {
     // business, not a failure of the request.
     if (items) {
       const tally = this._recordVerdicts(items, keys, verdicts, remember);
+      this._addToTally(context, tally);
       const missing = this._fillMissing(keys, verdicts, NO_ANSWER_REASON);
       this._log(
         `${head()}${spent}, ${tally.same} same / ${tally.different} different / ${tally.unsure + missing} unsure.`
@@ -2854,6 +2897,7 @@ class EntityMatchAiService {
       verdicts,
       remember
     );
+    this._addToTally(context, salvaged);
     const missing = batch.filter((pair) => !verdicts.has(pair.key));
 
     if (!truncated && salvaged.recorded === 0) {
@@ -2914,6 +2958,7 @@ class EntityMatchAiService {
       if (typeof lane === 'function') lane();
       this._recordRequest(context, {
         index: meterIndex,
+        kind: 'pairs',
         items: batch.length,
         answers: 0,
         // Omitted rather than null where nothing was reported: the
@@ -3373,6 +3418,7 @@ class EntityMatchAiService {
     /** One row of the run meter for this sweep request; see _askBatch. */
     const meter = (outcome, answers) => ({
       index: meterIndex,
+      kind: 'names',
       items: chunk.length,
       answers,
       tokens: spentHere.completion ?? undefined,
@@ -3480,10 +3526,11 @@ class EntityMatchAiService {
     }
     // A sweep answers with the groups it found among the names it was shown;
     // finding none is a complete answer, not an empty one. Only a cut-off
-    // answer left something behind.
+    // answer left something behind. Its row counts the groups it proposed,
+    // so the page can say "300 names read · 2 groups proposed".
     this._recordRequest(
       context,
-      meter(truncated ? 'partial' : 'answered', chunk.length)
+      meter(truncated ? 'partial' : 'answered', proposals.length)
     );
     this._afterSweepRequest(kind, context);
     return proposals;
@@ -3682,7 +3729,7 @@ class EntityMatchAiService {
         if (basis) {
           settled.set(key, {
             verdict: AI_VERDICTS.SAME,
-            reason: `settled by the spelling rule ${member.reason}`,
+            reason: `settled by the spelling rule: ${RULE_LABELS[member.reason] || member.reason}`,
             basis,
             confidence: 'high',
             source: VERDICT_SOURCES.SPELLING_RULE,
@@ -4780,6 +4827,7 @@ entityMatchAiService.VERDICT_BASES = VERDICT_BASES;
 entityMatchAiService.CONFIDENCE_LEVELS = CONFIDENCE_LEVELS;
 entityMatchAiService.SPELLING_ONLY_REASONS = SPELLING_ONLY_REASONS;
 entityMatchAiService.SWEEP_BASES = SWEEP_BASES;
+entityMatchAiService.RULE_LABELS = RULE_LABELS;
 entityMatchAiService.SWEEP_MAX_NAMES = SWEEP_MAX_NAMES;
 entityMatchAiService.MIN_SWEEP_NAMES = MIN_SWEEP_NAMES;
 entityMatchAiService.SEMANTIC_SCORE = SEMANTIC_SCORE;

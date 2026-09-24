@@ -1,123 +1,66 @@
 /* ==========================================================================
-   The Simplify tags page, in its two modes.
+   The Simplify tags page: one page, the assistant on top.
    @layer pages: above the framework layers, below utilities.
 
-   The review kit (css/review.css, layer components) draws the empty card,
-   the result head, the checklists, the history line, the run meter, the
-   decision card and the request log. This file only places them, and keeps
-   what the page has that the kit has no class for: the vocabulary editor,
-   the table of proposals, the group cards and the apply checklist.
-
-   One rule matters more than the rest: an element that carries data-simple or
-   data-advanced gets no display from this file. This layer outranks the
-   kit's rule that hides the other mode, so a display here would show both.
+   The review kit (css/review.css, layer components) draws the assistant,
+   the steps, the run meter, the decision card, the request log and the
+   waiting workspace. This file only places them, and keeps what the page
+   has that the kit has no class for: the vocabulary editor, the table of
+   proposals, the group cards and the apply checklist.
    ========================================================================== */
 
 @layer pages {
   /* --- the page --------------------------------------------------------- */
-  /* The parts of both modes stand in one column, and the gap spaces them;
-     the framework's margin between two modules would double it. */
+  /* The assistant and the tools stand in one column, and the gap spaces
+     them; the framework's margin between two modules would double it. */
   .sim-page {
     display: flex;
     flex-direction: column;
     gap: var(--zr-4);
   }
 
-  /* The simple page reads as one column, as the board has it. */
-  .sim-page[data-mode='simple'] {
-    width: 100%;
-    max-width: 1060px;
-    margin-inline: auto;
-  }
-
   .sim-page .zr-module + .zr-module {
     margin-top: 0;
   }
 
-  /* The one line under the title in simple mode. */
-  .sim-sub {
+  /* The line that says the tools wait sits under the assistant; the column
+     gap already spaces it. */
+  .sim-page > .zr-workspace__note {
     margin: 0;
-    font-size: var(--zr-fs-base);
-    color: var(--zr-text-muted);
   }
 
-  /* --- simple mode: the start, the result and the checklists ------------ */
-  /* The result head sits on a card of its own, as the checklists do. */
-  .sim-resultcard {
-    padding: var(--zr-6);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface);
-  }
-
-  /* Two columns of checklists: Split beside Merge, Delete beside Unsure,
-     and Unchanged across both. */
-  .sim-lists {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--zr-4) var(--zr-5);
-    align-items: start;
-  }
-
-  .sim-lists:empty {
-    display: none;
-  }
-
-  .sim-list {
+  /* --- the assistant ---------------------------------------------------- */
+  /* The zone at the top: its card, the run meter, the apply and the stack
+     stand in one column of their own. A part with nothing in it takes no
+     room. */
+  .sim-assist {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
     min-width: 0;
   }
 
-  .sim-list--unchanged {
-    grid-column: 1 / -1;
+  .sim-assist__card:empty {
+    display: none;
   }
 
-  .sim-list .zr-checklist__head {
-    padding: 0 var(--zr-4);
+  /* The link to the log that undoes an apply sits at the end of its line. */
+  .sim-apply-result .zr-alert {
+    align-items: center;
+    gap: var(--zr-3);
   }
 
-  /* The rows of a checklist on one card; the first row needs no rule above
-     it, the card's edge is one. */
-  .sim-list__card {
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface);
-    overflow: hidden;
-  }
-
-  .sim-list__card .zr-checklist__row {
-    padding: 0 var(--zr-4);
-  }
-
-  .sim-list__card > :first-child {
-    border-top: 0;
-  }
-
-  /* "804 more" starts where the names start: past the box and its gap. */
-  .sim-list__card .zr-checklist__more {
-    padding: var(--zr-1) var(--zr-4) var(--zr-1) var(--zr-8);
-  }
-
-  /* The arrow of a row is quiet, as on the Duplicates page and the board. */
-  .sim-list__arrow {
-    color: var(--zr-text-faint);
-  }
-
-  /* A row without a box: the unchanged tags, and the line that counts them. */
-  .sim-list__row--plain {
-    cursor: default;
-  }
-
-  .sim-list__summary {
-    padding-right: var(--zr-2);
+  .sim-apply-result__undo {
+    flex: none;
   }
 
   @media (max-width: 720px) {
-    .sim-lists {
-      grid-template-columns: minmax(0, 1fr);
+    .sim-progress {
+      padding: var(--zr-4);
     }
 
-    .sim-resultcard {
-      padding: var(--zr-4);
+    .sim-apply-result .zr-alert {
+      flex-wrap: wrap;
     }
   }
 
@@ -254,8 +197,8 @@
   }
 
   /* --- the run meter ---------------------------------------------------- */
-  /* The shared run meter on a card of its own: it stands between the parts
-     of both modes rather than inside one of them. */
+  /* The shared run meter on a card of its own, in the assistant's place
+     while a job runs. */
   .sim-progress {
     padding: var(--zr-4) var(--zr-5);
     border: 1px solid var(--zr-line);
@@ -478,29 +421,19 @@
     }
   }
 
-  /* --- the order row of advanced mode ----------------------------------- */
-  /* The head carries the title, the counts and the one button that applies
-     everything accepted; below 720px that is one line too many, so it wraps
-     rather than pushing the title out of the card. */
+  /* --- the order row ----------------------------------------------------- */
+  /* The head carries the title, the counts and the switch between the groups
+     and the table; below 720px that is one line too many, so it wraps rather
+     than pushing the title out of the card. */
   .sim-order__head {
     flex-wrap: wrap;
     row-gap: var(--zr-2);
   }
 
-  .sim-order__apply-all {
-    margin-left: auto;
-  }
-
-  .sim-order__keep {
-    align-items: center;
-    gap: var(--zr-2);
-    cursor: pointer;
-  }
-
-  /* The one line a finished run leaves behind. It is read next to the
-     buttons above it, so it carries no card of its own. */
+  /* The one line a finished run leaves behind, under the head. */
   .sim-order__summary {
     margin: 0;
+    padding: var(--zr-3) var(--zr-4);
     color: var(--zr-text-muted);
     overflow-wrap: anywhere;
   }
@@ -521,13 +454,10 @@
     gap: 4px;
   }
 
-  /* The view switch sits above the groups and reads like one of the
-     filters. */
+  /* The view switch sits at the end of the order's head, after the counts
+     that push it there. */
   .sim-view {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-1);
-    align-items: flex-start;
+    flex: none;
   }
 
   /* --- one group of the order ------------------------------------------- */
@@ -635,9 +565,23 @@
     white-space: nowrap;
   }
 
+  /* The tick of a member is the proposal; its column is as narrow as the
+     box. */
+  .sim-members__tickcol,
+  .sim-member__tick {
+    width: 1%;
+    white-space: nowrap;
+  }
+
   @media (min-width: 900px) {
     .sim-members .sim-members__reasoncol {
       width: 26ch;
+    }
+
+    /* The tag name takes what is left of a wide card; what it becomes keeps
+       room enough for a type and a topic on one line. */
+    .sim-member__outcome {
+      min-width: 20ch;
     }
   }
 
@@ -657,12 +601,6 @@
       justify-content: flex-start;
     }
 
-    .sim-order__apply-all {
-      width: 100%;
-      margin-left: 0;
-      justify-content: center;
-    }
-
     /* Six choices do not fit on one 390px line; they wrap into rows of three
        rather than sliding out of the card. */
     .sim-filters__field--wide .zr-segment {
@@ -673,18 +611,19 @@
       flex: 1 0 28%;
     }
 
-    .sim-view .zr-segment {
+    .sim-view {
       display: flex;
       width: 100%;
+      margin-left: 0;
     }
 
-    .sim-view .zr-segment button {
+    .sim-view button {
       flex: 1;
     }
   }
 
   /* --- the stack -------------------------------------------------------- */
-  /* A mode, not a page: it takes the place of the result, so it needs no
+  /* It takes the place of the result in the assistant, so it needs no
      overlay, no scrim and no focus trap of its own. */
   .sim-stack {
     display: flex;

@@ -10,407 +10,342 @@
 /* The model-backed runs are only offered when the route says a provider is
    configured. Everything else on this page (the vocabulary, the rule pass,
    every edit of a proposal, every group decision and the apply itself) works
-   without a model, so nothing below depends on this local except the buttons
-   that talk to one. */
+   without a model, so nothing below depends on this local except the parts
+   that talk to one: the assistant reads it off data-provider, and the
+   vocabulary's proposal is not rendered without it. */
 const simAiEnabled = typeof aiReviewEnabled !== 'undefined' && aiReviewEnabled === true;
 -%>
-            <!-- The page in two modes (js/modules/review-mode.js). The root
-                 carries the mode; a part marked data-simple or data-advanced
-                 belongs to one mode, a part with neither to both. A marked
-                 part never wears a class the pages or modules layer gives a
-                 display, or that class would outrank the rule that hides it. -->
-            <div class="sim-page" id="simPage" data-review-page="simplify" data-mode="simple">
+            <!-- One page. The assistant is the first child of the root; the
+                 script fills it (js/modules/review-assist.js) and dims the
+                 rest, the toolset, until a result exists. -->
+            <div class="sim-page" id="simPage" data-review-page="simplify">
 
-                <div data-simple>
-                    <p class="sim-sub">Split compound tags into a document type and topics.</p>
-                </div>
+                <!-- The assistant: the start or the result as a card, the run
+                     meter while a job runs, the apply as it writes and what it
+                     reported, and the stack, one unsure tag per screen. Every
+                     job of this page runs through the one job service, so a
+                     reloaded page attaches to any of them here. Its name is
+                     the sentence of the page, the title of its start. -->
+                <section class="sim-assist" id="simAssist" data-assist data-provider="<%= simAiEnabled ? 'ready' : 'none' %>" aria-label="Split compound tags into a document type and topics.">
+                    <div class="sim-assist__card" id="simAssistCard"></div>
 
-                <!-- Advanced: the order row. The model-backed button opens the
-                     same sheet as the simple card; the switch keeps the saved
-                     vocabulary for the run. -->
-                <div data-advanced>
-                    <section class="zr-module" id="simOrder">
-                        <div class="zr-module__head sim-order__head">
-                            <h2 class="zr-module__title">Proposed order</h2>
-                            <span class="zr-module__meta" id="simOrderMeta"></span>
-                            <button class="zr-btn zr-btn--primary sim-order__apply-all" id="simApplyAcceptedBtn" type="button" disabled>Apply 0 accepted · 0 writes</button>
+                    <div class="sim-progress zr-runmeter hidden" id="simProgress" role="status" aria-live="polite">
+                        <div class="sim-meter" id="simSteps"></div>
+                        <div class="zr-runmeter__head">
+                            <span class="zr-runmeter__phase" id="simProgressMessage"></span>
+                            <button class="zr-btn" id="simStopBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
+                                <span class="sim-progress__stop-label">Stop</span>
+                            </button>
                         </div>
-                        <div class="zr-module__body zr-col">
-                            <div class="sim-actions">
-<% if (simAiEnabled) { -%>
-                                <button class="zr-btn zr-btn--primary" id="simOrderBtn" type="button">
-                                    <svg class="zr-icon zr-icon--sm" id="simOrderIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
-                                    Propose a new order
-                                </button>
-<% } else { -%>
-                                <p class="zr-sm zr-faint sim-hint" id="simOrderAiHint">No model configured</p>
-<% } -%>
-                                <!-- Only offered once something is saved:
-                                     without a vocabulary there is nothing to
-                                     keep. -->
-                                <label class="zr-row sim-order__keep hidden" id="simOrderKeepWrap">
-                                    <input type="checkbox" class="zr-toggle" id="simOrderKeepVocabulary">
-                                    <span class="zr-sm">Keep vocabulary</span>
-                                </label>
-                            </div>
-                            <p class="zr-sm sim-order__summary hidden" id="simOrderSummary" aria-live="polite"></p>
-                        </div>
-                    </section>
-                </div>
-
-                <!-- Both modes: the run while it runs. Every job of this page
-                     runs through the one job service, so a reloaded page can
-                     attach to any of them. -->
-                <div class="sim-progress zr-runmeter hidden" id="simProgress" role="status" aria-live="polite">
-                    <div class="zr-runmeter__head">
-                        <span class="zr-runmeter__phase" id="simProgressMessage"></span>
-                        <button class="zr-btn" id="simStopBtn" type="button">
-                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                            <span class="sim-progress__stop-label">Stop</span>
-                        </button>
+                        <div class="sim-meter" id="simSentence"></div>
+                        <div class="sim-meter" id="simRunbar"></div>
+                        <div class="sim-meter" id="simRunLedger"></div>
+                        <div class="sim-meter" id="simRunTokens"></div>
+                        <p class="zr-runmeter__ceiling hidden" id="simRunCeiling"></p>
+                        <div class="sim-meter sim-meter--log" id="simReqLog"></div>
                     </div>
-                    <div class="sim-meter" id="simRunbar"></div>
-                    <div class="sim-meter" id="simRunLedger"></div>
-                    <div class="sim-meter" id="simRunTokens"></div>
-                    <p class="zr-runmeter__ceiling hidden" id="simRunCeiling"></p>
-                    <div class="sim-meter sim-meter--log" id="simReqLog"></div>
-                </div>
 
-                <!-- Both modes: the apply while it writes, one row per tag,
-                     and what it reported. -->
-                <div class="sim-checklist" id="simApplyChecklist" aria-live="polite"></div>
-                <div class="sim-apply-result" id="simApplyResult" aria-live="polite"></div>
+                    <div class="sim-checklist" id="simApplyChecklist" aria-live="polite"></div>
+                    <div class="sim-apply-result" id="simApplyResult" aria-live="polite"></div>
 
-                <!-- Both modes: the stack, one unsure tag per screen. It is a
-                     mode, not a page: the result gives way to it. -->
-                <section class="sim-stack hidden" id="simStack" tabindex="-1" aria-label="Unsure tags, one at a time">
-                    <div class="sim-stack__bar" id="simStackBar"></div>
-                    <div class="sim-stack__card" id="simStackCard"></div>
-                    <div class="sim-stack__foot" id="simStackFoot"></div>
+                    <section class="sim-stack hidden" id="simStack" tabindex="-1" aria-label="Unsure tags, one at a time">
+                        <div class="sim-stack__bar" id="simStackBar"></div>
+                        <div class="sim-stack__card" id="simStackCard"></div>
+                        <div class="sim-stack__foot" id="simStackFoot"></div>
+                    </section>
                 </section>
 
-                <!-- Simple: the card before a run, then the result. The script
-                     shows the one that fits once the proposals are read. -->
-                <div class="zr-col zr-col--loose" data-simple>
-                    <!-- The start, before a run: the sentence of the page as its
-                         title, so the line above it is only drawn with a result. -->
-                    <section class="zr-start sim-start hidden" id="simEmptyCard">
-                        <span class="zr-start__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-split"/></svg></span>
-                        <h2 class="zr-start__title">Split compound tags into a document type and topics.</h2>
-                        <p class="zr-start__text">Every tag gets a proposal: split, merge, delete or keep. Nothing is written before Apply.</p>
-<% if (simAiEnabled) { -%>
-                        <button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button">Simplify tags</button>
-<% } else { -%>
-                        <button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button" disabled>Simplify tags</button>
-                        <p class="zr-start__facts">No model configured</p>
-<% } -%>
-                    </section>
-
-                    <div class="zr-col zr-col--loose hidden" id="simResult">
-                        <div class="sim-resultcard">
-                            <div class="zr-resulthead">
-                                <div class="zr-resulthead__text">
-                                    <p class="zr-resulthead__headline" id="simResultHeadline"></p>
-                                    <p class="zr-resulthead__cost" id="simResultCost"></p>
-                                </div>
-                                <div class="zr-resulthead__action">
-<% if (simAiEnabled) { -%>
-                                    <!-- The result stays while a proposal lives, so the
-                                         next run needs a button of its own. -->
-                                    <button class="zr-btn" id="simAgainBtn" type="button">Simplify tags</button>
-<% } -%>
-                                    <button class="zr-btn zr-btn--primary" id="simApplyTickedBtn" type="button" disabled>Apply 0 · 0 writes</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="sim-lists" id="simLists"></div>
-                    </div>
-
-                    <p class="zr-historyline hidden" id="simHistoryLine"></p>
-                </div>
-
-                <!-- Advanced: the groups or the table, then the vocabulary. -->
-                <div class="zr-col zr-col--loose" data-advanced>
-                    <div class="sim-view" id="simViewField">
-                        <span class="zr-label" id="simViewLabel">View</span>
-                        <div class="zr-segment" id="simView" role="group" aria-labelledby="simViewLabel">
+                <!-- The order: what the last run reported, and the switch
+                     between the groups and the table. The run itself starts
+                     from the assistant. -->
+                <section class="zr-module sim-order" id="simOrder">
+                    <div class="zr-module__head sim-order__head">
+                        <h2 class="zr-module__title">Proposed order</h2>
+                        <span class="zr-module__meta" id="simOrderMeta"></span>
+                        <div class="zr-segment sim-view" id="simView" role="group" aria-label="View">
                             <button type="button" data-view="groups" aria-selected="true">Groups</button>
                             <button type="button" data-view="table" aria-selected="false">Table</button>
                         </div>
                     </div>
+                    <p class="zr-sm sim-order__summary hidden" id="simOrderSummary" aria-live="polite"></p>
+                </section>
 
-                    <!-- The order as groups: one per document type, one per
-                         topic, one per merge target, plus delete and keep. -->
-                    <section class="zr-module sim-groupsblock" id="simGroupsBlock">
-                        <div class="zr-module__body zr-col zr-col--loose">
-                            <section class="zr-stats sim-stats hidden" id="simOrderStats" aria-label="Group counts">
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>
-                                        Types
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatGroupTypes">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
-                                        Topics
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatGroupTopics">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
-                                        Merges
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatGroupMerges">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
-                                        Delete
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatGroupDelete">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>
-                                        Keep
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatGroupKeep">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
-                                        Accepted
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatOrderAccepted">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
-                                        Applied
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatOrderApplied">0</span>
-                                </div>
-                            </section>
-                            <div class="sim-filters" id="simGroupFilters">
-                                <div class="sim-filters__field sim-filters__field--wide">
-                                    <span class="zr-label" id="simGroupKindLabel">Kind</span>
-                                    <div class="zr-segment" id="simGroupKind" role="group" aria-labelledby="simGroupKindLabel">
-                                        <button type="button" data-kind="all" aria-selected="true">All</button>
-                                        <button type="button" data-kind="type" aria-selected="false">Types</button>
-                                        <button type="button" data-kind="topic" aria-selected="false">Topics</button>
-                                        <button type="button" data-kind="merge" aria-selected="false">Merges</button>
-                                        <button type="button" data-kind="delete" aria-selected="false">Delete</button>
-                                        <button type="button" data-kind="keep" aria-selected="false">Keep</button>
-                                    </div>
-                                </div>
-                                <div class="sim-filters__field sim-filters__field--wide">
-                                    <span class="zr-label" id="simGroupStatusLabel">Show</span>
-                                    <div class="zr-segment" id="simGroupStatus" role="group" aria-labelledby="simGroupStatusLabel">
-                                        <button type="button" data-group-status="open" aria-selected="true">Open</button>
-                                        <button type="button" data-group-status="accepted" aria-selected="false">Accepted</button>
-                                        <button type="button" data-group-status="applied" aria-selected="false">Applied</button>
-                                        <button type="button" data-group-status="skipped" aria-selected="false">Skipped</button>
-                                        <button type="button" data-group-status="all" aria-selected="false">All</button>
-                                    </div>
-                                </div>
-                                <div class="sim-filters__field zr-grow">
-                                    <label class="zr-label" for="simGroupSearch">Search</label>
-                                    <input class="zr-input" id="simGroupSearch" type="search" autocomplete="off" placeholder="Group or tag name">
+                <!-- The order as groups: one per document type, one per
+                     topic, one per merge target, plus delete and keep. -->
+                <section class="zr-module sim-groupsblock" id="simGroupsBlock">
+                    <div class="zr-module__body zr-col zr-col--loose">
+                        <div data-caption="order"></div>
+                        <section class="zr-stats sim-stats hidden" id="simOrderStats" aria-label="Group counts">
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>
+                                    Types
+                                </span>
+                                <span class="zr-stat__value" id="simStatGroupTypes">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
+                                    Topics
+                                </span>
+                                <span class="zr-stat__value" id="simStatGroupTopics">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                                    Merges
+                                </span>
+                                <span class="zr-stat__value" id="simStatGroupMerges">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                    Delete
+                                </span>
+                                <span class="zr-stat__value" id="simStatGroupDelete">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>
+                                    Keep
+                                </span>
+                                <span class="zr-stat__value" id="simStatGroupKeep">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                                    Accepted
+                                </span>
+                                <span class="zr-stat__value" id="simStatOrderAccepted">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                    Applied
+                                </span>
+                                <span class="zr-stat__value" id="simStatOrderApplied">0</span>
+                            </div>
+                        </section>
+                        <div class="sim-filters" id="simGroupFilters">
+                            <div class="sim-filters__field sim-filters__field--wide">
+                                <span class="zr-label" id="simGroupKindLabel">Kind</span>
+                                <div class="zr-segment" id="simGroupKind" role="group" aria-labelledby="simGroupKindLabel">
+                                    <button type="button" data-kind="all" aria-selected="true">All</button>
+                                    <button type="button" data-kind="type" aria-selected="false">Types</button>
+                                    <button type="button" data-kind="topic" aria-selected="false">Topics</button>
+                                    <button type="button" data-kind="merge" aria-selected="false">Merges</button>
+                                    <button type="button" data-kind="delete" aria-selected="false">Delete</button>
+                                    <button type="button" data-kind="keep" aria-selected="false">Keep</button>
                                 </div>
                             </div>
-
-                            <div class="sim-groups" id="simGroups"></div>
-                            <div class="zr-empty sim-order__empty hidden" id="simOrderEmpty"></div>
+                            <div class="sim-filters__field sim-filters__field--wide">
+                                <span class="zr-label" id="simGroupStatusLabel">Show</span>
+                                <div class="zr-segment" id="simGroupStatus" role="group" aria-labelledby="simGroupStatusLabel">
+                                    <button type="button" data-group-status="open" aria-selected="false">Open</button>
+                                    <button type="button" data-group-status="accepted" aria-selected="false">Accepted</button>
+                                    <button type="button" data-group-status="applied" aria-selected="false">Applied</button>
+                                    <button type="button" data-group-status="skipped" aria-selected="false">Skipped</button>
+                                    <button type="button" data-group-status="all" aria-selected="true">All</button>
+                                </div>
+                            </div>
+                            <div class="sim-filters__field zr-grow">
+                                <label class="zr-label" for="simGroupSearch">Search</label>
+                                <input class="zr-input" id="simGroupSearch" type="search" autocomplete="off" placeholder="Group or tag name">
+                            </div>
                         </div>
-                    </section>
 
-                    <!-- The same proposals, one row each, editable. -->
-                    <section class="zr-module hidden" id="simProposals">
-                        <div class="zr-module__head">
-                            <h2 class="zr-module__title">Proposals</h2>
-                            <span class="zr-module__meta" id="simProposalsMeta"></span>
+                        <div class="sim-groups" id="simGroups"></div>
+                        <div class="zr-empty sim-order__empty hidden" id="simOrderEmpty"></div>
+                    </div>
+                </section>
+
+                <!-- The same proposals, one row each, editable. -->
+                <section class="zr-module hidden" id="simProposals">
+                    <div class="zr-module__head">
+                        <h2 class="zr-module__title">Proposals</h2>
+                        <span class="zr-module__meta" id="simProposalsMeta"></span>
+                    </div>
+                    <div class="zr-module__body zr-col zr-col--loose">
+                        <div data-caption="table"></div>
+                        <div class="sim-actions">
+                            <button class="zr-btn" id="simProposeSplitsBtn" type="button" disabled>
+                                <svg class="zr-icon zr-icon--sm" id="simProposeSplitsIcon" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                Propose splits
+                            </button>
+                            <span class="zr-sm zr-faint" id="simProposeSplitsHint">No vocabulary saved</span>
                         </div>
-                        <div class="zr-module__body zr-col zr-col--loose">
-                            <div class="sim-actions">
-                                <button class="zr-btn zr-btn--primary" id="simProposeSplitsBtn" type="button" disabled>
-                                    <svg class="zr-icon zr-icon--sm" id="simProposeSplitsIcon" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
-                                    Propose splits
+
+                        <section class="zr-stats sim-stats hidden" id="simStats" aria-label="Proposal counts">
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
+                                    Proposals
+                                </span>
+                                <span class="zr-stat__value" id="simStatProposals">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-inbox"/></svg>
+                                    Open
+                                </span>
+                                <span class="zr-stat__value" id="simStatOpen">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                                    By rule
+                                </span>
+                                <span class="zr-stat__value" id="simStatRule">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                                    By model
+                                </span>
+                                <span class="zr-stat__value" id="simStatModel">0</span>
+                            </div>
+                            <div class="zr-stat">
+                                <span class="zr-stat__label">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                    Applied
+                                </span>
+                                <span class="zr-stat__value" id="simStatApplied">0</span>
+                            </div>
+                        </section>
+
+                        <div class="sim-filters" id="simFilters">
+                            <div class="sim-filters__field">
+                                <span class="zr-label" id="simStatusLabel">Show</span>
+                                <div class="zr-segment" id="simStatusFilter" role="group" aria-labelledby="simStatusLabel">
+                                    <button type="button" data-status="open" aria-selected="true">Open</button>
+                                    <button type="button" data-status="accepted" aria-selected="false">Accepted</button>
+                                    <button type="button" data-status="skipped" aria-selected="false">Skipped</button>
+                                    <button type="button" data-status="applied" aria-selected="false">Applied</button>
+                                </div>
+                            </div>
+                            <div class="sim-filters__field zr-grow">
+                                <label class="zr-label" for="simSearch">Search</label>
+                                <input class="zr-input" id="simSearch" type="search" autocomplete="off" placeholder="Tag name">
+                            </div>
+                        </div>
+
+                        <div class="sim-proposals__alert" id="simProposalsAlert"></div>
+
+                        <!-- The topics of the vocabulary, offered to every
+                             topic input of the table below. One list for
+                             all rows; the page script fills it. -->
+                        <datalist id="simTopicOptions"></datalist>
+
+                        <div class="zr-table-wrap">
+                            <table class="zr-table zr-table--stack sim-proposals__table" id="simProposalsTable">
+                                <thead>
+                                    <tr>
+                                        <th class="sim-proposals__actioncol">Action</th>
+                                        <th class="sim-proposals__pickcol">Pick</th>
+                                        <th>Tag</th>
+                                        <th>Documents</th>
+                                        <th class="sim-proposals__typecol">&rarr; Type</th>
+                                        <th class="sim-proposals__topicscol">&rarr; Topics</th>
+                                        <th>Source</th>
+                                        <th class="sim-proposals__reasoncol">Reason</th>
+                                        <th class="sim-proposals__statuscol">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="simProposalsBody"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="sim-apply">
+                            <span class="zr-sm sim-apply__status hidden" id="simApplyStatus" aria-live="polite"></span>
+                            <div class="sim-apply__actions">
+                                <button class="zr-btn" id="simSelectOpenBtn" type="button">Select all open</button>
+                                <button class="zr-btn" id="simClearSelectionBtn" type="button">Clear</button>
+                                <button class="zr-btn" id="simSkipBtn" type="button" disabled>
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>
+                                    Skip
                                 </button>
-                                <span class="zr-sm zr-faint" id="simProposeSplitsHint">No vocabulary saved</span>
-                            </div>
-
-                            <section class="zr-stats sim-stats hidden" id="simStats" aria-label="Proposal counts">
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-tag"/></svg>
-                                        Proposals
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatProposals">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-inbox"/></svg>
-                                        Open
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatOpen">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
-                                        By rule
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatRule">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
-                                        By model
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatModel">0</span>
-                                </div>
-                                <div class="zr-stat">
-                                    <span class="zr-stat__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
-                                        Applied
-                                    </span>
-                                    <span class="zr-stat__value" id="simStatApplied">0</span>
-                                </div>
-                            </section>
-
-                            <div class="sim-filters" id="simFilters">
-                                <div class="sim-filters__field">
-                                    <span class="zr-label" id="simStatusLabel">Show</span>
-                                    <div class="zr-segment" id="simStatusFilter" role="group" aria-labelledby="simStatusLabel">
-                                        <button type="button" data-status="open" aria-selected="true">Open</button>
-                                        <button type="button" data-status="accepted" aria-selected="false">Accepted</button>
-                                        <button type="button" data-status="skipped" aria-selected="false">Skipped</button>
-                                        <button type="button" data-status="applied" aria-selected="false">Applied</button>
-                                    </div>
-                                </div>
-                                <div class="sim-filters__field zr-grow">
-                                    <label class="zr-label" for="simSearch">Search</label>
-                                    <input class="zr-input" id="simSearch" type="search" autocomplete="off" placeholder="Tag name">
-                                </div>
-                            </div>
-
-                            <div class="sim-proposals__alert" id="simProposalsAlert"></div>
-
-                            <!-- The topics of the vocabulary, offered to every
-                                 topic input of the table below. One list for
-                                 all rows; the page script fills it. -->
-                            <datalist id="simTopicOptions"></datalist>
-
-                            <div class="zr-table-wrap">
-                                <table class="zr-table zr-table--stack sim-proposals__table" id="simProposalsTable">
-                                    <thead>
-                                        <tr>
-                                            <th class="sim-proposals__actioncol">Action</th>
-                                            <th class="sim-proposals__pickcol">Pick</th>
-                                            <th>Tag</th>
-                                            <th>Documents</th>
-                                            <th class="sim-proposals__typecol">&rarr; Type</th>
-                                            <th class="sim-proposals__topicscol">&rarr; Topics</th>
-                                            <th>Source</th>
-                                            <th class="sim-proposals__reasoncol">Reason</th>
-                                            <th class="sim-proposals__statuscol">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="simProposalsBody"></tbody>
-                                </table>
-                            </div>
-
-                            <div class="sim-apply">
-                                <span class="zr-sm sim-apply__status hidden" id="simApplyStatus" aria-live="polite"></span>
-                                <div class="sim-apply__actions">
-                                    <button class="zr-btn" id="simSelectOpenBtn" type="button">Select all open</button>
-                                    <button class="zr-btn" id="simClearSelectionBtn" type="button">Clear</button>
-                                    <button class="zr-btn" id="simSkipBtn" type="button" disabled>
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>
-                                        Skip
-                                    </button>
-                                    <button class="zr-btn zr-btn--primary" id="simApplyBtn" type="button" disabled>
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
-                                        Apply
-                                    </button>
-                                </div>
+                                <button class="zr-btn zr-btn--primary" id="simApplyBtn" type="button" disabled>
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                    Apply
+                                </button>
                             </div>
                         </div>
-                    </section>
+                    </div>
+                </section>
 
-                    <!-- The target vocabulary: the document types and topics the
-                         archive should end up with. Local names, not objects in
-                         Paperless-ngx; a split creates the object it needs.
-                         The order proposes it, so the block stays closed once
-                         one is saved. -->
-                    <details class="zr-module sim-vocab-module" id="simVocabularyBlock">
-                        <summary class="zr-module__head sim-vocab__summary" id="simVocabulary">
-                            <svg class="zr-icon zr-icon--sm sim-vocab__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
-                            <span class="zr-module__title">Vocabulary</span>
-                            <span class="zr-module__meta" id="simVocabularyMeta"></span>
-                        </summary>
-                        <div class="zr-module__body zr-col zr-col--loose">
-                            <div class="sim-notice" id="simVocabularyNotice"></div>
-                            <div class="sim-vocab">
-                                <div class="sim-vocab__col">
-                                    <span class="zr-label" id="simTypesLabel">Document types</span>
-                                    <div class="zr-chips sim-chips" id="simTypes" role="list" aria-labelledby="simTypesLabel"></div>
-                                    <!-- The one field of this page that offers what
-                                         Paperless-ngx already has. The type select
-                                         per proposal stays limited to the
-                                         vocabulary, so a split never bypasses it. -->
-                                    <div class="sim-vocab__pick">
-                                        <div class="zr-picker" id="simTypePicker">
-                                            <input class="zr-input zr-picker__input sim-vocab__input" id="simTypeInput" type="text"
-                                                   autocomplete="off" role="combobox" aria-expanded="false"
-                                                   aria-autocomplete="list" aria-controls="simTypeList"
-                                                   placeholder="Search or add a document type"
-                                                   aria-label="Add a document type">
-                                            <div class="zr-picker__list hidden" id="simTypeList" role="listbox" aria-label="Document types in Paperless-ngx"></div>
-                                        </div>
-                                        <button class="zr-btn zr-btn--icon" id="simTypesReloadBtn" type="button" aria-label="Reload document types">
-                                            <svg class="zr-icon zr-icon--sm" id="simTypesReloadIcon" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
-                                        </button>
+                <!-- The target vocabulary: the document types and topics the
+                     archive should end up with. Local names, not objects in
+                     Paperless-ngx; a split creates the object it needs.
+                     The order proposes it, so the block stays closed once
+                     one is saved. -->
+                <!-- Awake while the rest waits: the vocabulary is edited before a run. -->
+                <details class="zr-module sim-vocab-module" id="simVocabularyBlock" data-awake>
+                    <summary class="zr-module__head sim-vocab__summary" id="simVocabulary">
+                        <svg class="zr-icon zr-icon--sm sim-vocab__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
+                        <span class="zr-module__title">Vocabulary</span>
+                        <span class="zr-module__meta" id="simVocabularyMeta"></span>
+                    </summary>
+                    <div class="zr-module__body zr-col zr-col--loose">
+                        <div data-caption="vocabulary"></div>
+                        <div class="sim-notice" id="simVocabularyNotice"></div>
+                        <div class="sim-vocab">
+                            <div class="sim-vocab__col">
+                                <span class="zr-label" id="simTypesLabel">Document types</span>
+                                <div class="zr-chips sim-chips" id="simTypes" role="list" aria-labelledby="simTypesLabel"></div>
+                                <!-- The one field of this page that offers what
+                                     Paperless-ngx already has. The type select
+                                     per proposal stays limited to the
+                                     vocabulary, so a split never bypasses it. -->
+                                <div class="sim-vocab__pick">
+                                    <div class="zr-picker" id="simTypePicker">
+                                        <input class="zr-input zr-picker__input sim-vocab__input" id="simTypeInput" type="text"
+                                               autocomplete="off" role="combobox" aria-expanded="false"
+                                               aria-autocomplete="list" aria-controls="simTypeList"
+                                               placeholder="Search or add a document type"
+                                               aria-label="Add a document type">
+                                        <div class="zr-picker__list hidden" id="simTypeList" role="listbox" aria-label="Document types in Paperless-ngx"></div>
                                     </div>
-                                    <p class="zr-sm zr-faint sim-hint hidden" id="simTypesNote" aria-live="polite"></p>
+                                    <button class="zr-btn zr-btn--icon" id="simTypesReloadBtn" type="button" aria-label="Reload document types">
+                                        <svg class="zr-icon zr-icon--sm" id="simTypesReloadIcon" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                    </button>
                                 </div>
-                                <div class="sim-vocab__col">
-                                    <span class="zr-label" id="simTopicsLabel">Topics</span>
-                                    <div class="zr-chips sim-chips" id="simTopics" role="list" aria-labelledby="simTopicsLabel"></div>
-                                    <input class="zr-input sim-vocab__input" id="simTopicInput" type="text"
-                                           autocomplete="off" placeholder="Add a topic"
-                                           aria-label="Add a topic">
-                                    <p class="zr-sm zr-faint sim-hint hidden" id="simTopicHint" aria-live="polite"></p>
-                                </div>
+                                <p class="zr-sm zr-faint sim-hint hidden" id="simTypesNote" aria-live="polite"></p>
                             </div>
-                            <!-- Offered only while the vocabulary holds no type
-                                 and Paperless-ngx holds at least one: one click
-                                 puts them into the list, unsaved, as a proposal
-                                 would. -->
-                            <div class="zr-alert zr-alert--info sim-adopt hidden" id="simAdoptTypes"></div>
-                            <div class="sim-actions">
+                            <div class="sim-vocab__col">
+                                <span class="zr-label" id="simTopicsLabel">Topics</span>
+                                <div class="zr-chips sim-chips" id="simTopics" role="list" aria-labelledby="simTopicsLabel"></div>
+                                <input class="zr-input sim-vocab__input" id="simTopicInput" type="text"
+                                       autocomplete="off" placeholder="Add a topic"
+                                       aria-label="Add a topic">
+                                <p class="zr-sm zr-faint sim-hint hidden" id="simTopicHint" aria-live="polite"></p>
+                            </div>
+                        </div>
+                        <!-- Offered only while the vocabulary holds no type
+                             and Paperless-ngx holds at least one: one click
+                             puts them into the list, unsaved, as a proposal
+                             would. -->
+                        <div class="zr-alert zr-alert--info sim-adopt hidden" id="simAdoptTypes"></div>
+                        <div class="sim-actions">
 <% if (simAiEnabled) { -%>
-                                <button class="zr-btn" id="simProposeVocabularyBtn" type="button">
-                                    <svg class="zr-icon zr-icon--sm" id="simProposeVocabularyIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
-                                    Propose from tags
-                                </button>
+                            <button class="zr-btn" id="simProposeVocabularyBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" id="simProposeVocabularyIcon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                                Propose from tags
+                            </button>
 <% } -%>
-                                <button class="zr-btn zr-btn--primary" id="simSaveVocabularyBtn" type="button">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
-                                    Save vocabulary
-                                </button>
-                                <!-- The order again, against exactly these
-                                     names: the model proposes no new ones. -->
-                                <button class="zr-btn hidden" id="simReproposeBtn" type="button">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
-                                    Propose order again
-                                </button>
-                            </div>
+                            <button class="zr-btn zr-btn--primary" id="simSaveVocabularyBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
+                                Save vocabulary
+                            </button>
+                            <!-- The order again, against exactly these
+                                 names: the model proposes no new ones. -->
+                            <button class="zr-btn hidden" id="simReproposeBtn" type="button">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                Propose order again
+                            </button>
                         </div>
-                    </details>
-                </div>
+                    </div>
+                </details>
             </div>
 
     <script type="module" src="/js/simplify.js"></script>

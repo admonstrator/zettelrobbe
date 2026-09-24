@@ -306,56 +306,5 @@ test('updateSheet moves the numbers, the bar, the rows and the switches in place
   sheet.updateSheet(null, MODEL);
 });
 
-const stored = new Map();
-const mode = loadModule(
-  'public/js/modules/review-mode.js',
-  ['MODES', 'readMode', 'writeMode', 'applyMode', 'htmlModeButton', 'htmlGate'],
-  {
-    window: {
-      localStorage: {
-        getItem: (key) => (stored.has(key) ? stored.get(key) : null),
-        setItem: (key, value) => stored.set(key, value),
-      },
-    },
-  }
-);
-
-test('The mode button says what it switches to, and the gate is three escaped lines', () => {
-  const toAdvanced = mode.htmlModeButton('simple');
-  assert.ok(toAdvanced.includes('data-mode-switch="advanced"'));
-  assert.ok(toAdvanced.includes('#i-sliders'));
-  assert.ok(toAdvanced.includes('>Advanced</button>'));
-  const toSimple = mode.htmlModeButton('advanced');
-  assert.ok(toSimple.includes('data-mode-switch="simple"'));
-  assert.ok(toSimple.includes('#i-wand'));
-  assert.ok(toSimple.includes('>Simple</button>'));
-  const gate = mode.htmlGate([
-    { icon: 'i-filter', text: 'Sensitivity and threshold' },
-    { icon: 'i-list', text: 'Every <group> as a list' },
-  ]);
-  assert.strictEqual((gate.match(/zr-gate__row/g) || []).length, 2);
-  assert.ok(gate.includes('#i-filter'));
-  assert.ok(gate.includes('Every &lt;group&gt; as a list'));
-  assert.ok(!/[—–]/.test(gate + toAdvanced + toSimple));
-});
-
-test('The stored mode is simple until someone switched, and a bad value is simple too', () => {
-  assert.deepStrictEqual(mode.MODES, ['simple', 'advanced']);
-  assert.strictEqual(mode.readMode('duplicates'), 'simple');
-  mode.writeMode('duplicates', 'advanced');
-  assert.strictEqual(mode.readMode('duplicates'), 'advanced');
-  assert.strictEqual(mode.readMode('simplify'), 'simple', 'kept per page');
-  mode.writeMode('duplicates', 'sideways');
-  assert.strictEqual(mode.readMode('duplicates'), 'simple');
-  stored.set('zr:mode:simplify', 'nonsense');
-  assert.strictEqual(mode.readMode('simplify'), 'simple');
-  const root = { dataset: {} };
-  mode.applyMode(root, 'advanced');
-  assert.strictEqual(root.dataset.mode, 'advanced');
-  mode.applyMode(root, 'whatever');
-  assert.strictEqual(root.dataset.mode, 'simple');
-  mode.applyMode(null, 'simple');
-});
-
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

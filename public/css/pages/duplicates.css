@@ -1,50 +1,63 @@
 /* ==========================================================================
-   The Duplicates page in two modes: the simple page (the empty card, the
-   result head, three checklists, the history line) and the advanced one (the
-   scan row, merge by hand, the group cards, the log, the mapped names and the
-   hidden pairs), with the run meter, the stack and the apply progress shared.
+   The Duplicates page: one page. The assistant on top (the start, the run
+   meter, the result), and under it the whole toolset: the scan row, merge
+   by hand, the group cards, the unused objects, the log, the mapped names,
+   the hidden pairs and the verdict memory, with the stack and the apply
+   progress between the two.
    @layer pages: above the framework layers, below utilities.
 
-   The kit in css/review.css draws every zr- surface of the round; what lives
-   here only places it. One rule holds for every element that carries
-   data-simple or data-advanced: nothing here gives it a display, because a
-   display in this layer would beat the rule in review.css that hides the
-   other mode. Such an element is spaced by its parent's gap or by margins.
+   The kit in css/review.css draws every zr- surface; what lives here only
+   places it. No rule here redefines a kit class: where one is named it is
+   under a dup- parent, and the rule moves it, spaces it or lets it wrap.
    ========================================================================== */
 
 @layer pages {
   /* --- the page ---------------------------------------------------------- */
-  /* The root carries data-mode, not a mode marker, so it may be the column
-     that spaces everything; a part the mode hides is no flex item at all. */
+  /* The column that spaces everything: the assistant first, the waiting
+     note under it while no result exists, then every tool. */
   .dup-page {
     display: flex;
     flex-direction: column;
     gap: var(--zr-3);
   }
 
-  /* The simple page reads as one column, as the board has it. */
-  .dup-page[data-mode='simple'] {
-    width: 100%;
-    max-width: 1060px;
-    margin-inline: auto;
+  /* --- the assistant ----------------------------------------------------- */
+  /* The zone at the top: the card the script draws, the run meter in its
+     place while a run goes, and the notice a failed or stopped run leaves. */
+  .dup-assist {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
   }
 
-  /* The one line under the title in simple mode, as Simplify tags has it.
-     The column's gap is the advanced page's; the line keeps a little more
-     air below it, as the board does. */
-  .dup-lede {
-    margin-bottom: var(--zr-1);
-  }
-
-  .dup-sub {
-    margin: 0;
-    font-size: var(--zr-fs-base);
-    color: var(--zr-text-muted);
+  .dup-assist__card:empty {
+    display: none;
   }
 
   /* An empty notice would still be a flex item, and a gap on each side. */
   .dup-ai-notice:empty {
     display: none;
+  }
+
+  /* --- captions ---------------------------------------------------------- */
+  /* One line under the head of every tool. Inside a body that spaces its
+     children with a gap, the caption's own margin would double it. */
+  .dup-manual__body > .zr-module__caption,
+  .dup-unused__body > .zr-module__caption,
+  .dup-mappings__body > .zr-module__caption {
+    margin-bottom: 0;
+  }
+
+  /* The log has no body: the caption sits under the summary, inset like the
+     rest of the module's loose content. */
+  .dup-log > .zr-module__caption {
+    padding-top: var(--zr-3);
+  }
+
+  /* Under the head of the list: a line of its own inside the bar. */
+  .dup-results-bar > .zr-module__caption {
+    flex-basis: 100%;
+    margin: 0;
   }
 
   /* --- the scan row ------------------------------------------------------ */
@@ -121,8 +134,9 @@
   }
 
   /* --- the run meter ----------------------------------------------------- */
-  /* The shared run meter, as a card of its own between the page's head and
-     what the run finds. The bar, the ledger and the log are the kit's. */
+  /* The assistant while a scan or a run goes, as a card like its start and
+     its result. The steps, the sentence, the bar, the ledger and the log
+     are the kit's. */
   .dup-progress {
     padding: var(--zr-4) var(--zr-5);
     border: 1px solid var(--zr-line);
@@ -193,6 +207,13 @@
 
   .dup-progress__runbar {
     width: 100%;
+  }
+
+  /* The two places the guide speaks through: the steps above the headline
+     and the sentence under it. The wrapper is no box of its own, so the kit
+     spaces the strip and the sentence as it spaces the rest of the meter. */
+  .dup-progress__guide {
+    display: contents;
   }
 
   .dup-progress__ledger,
@@ -306,61 +327,8 @@
     overflow-y: auto;
   }
 
-  /* --- the simple result ------------------------------------------------- */
-  /* The head in a card, then the checklists, then the one line of history.
-     The section is a mode's own part, so it is spaced by margins. */
-  .dup-result__card {
-    padding: var(--zr-6);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface);
-  }
-
-  .dup-result__lists {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-4);
-    margin-top: var(--zr-5);
-  }
-
-  .dup-result__lists:empty {
-    display: none;
-  }
-
-  /* The head of a list sits over the card of its rows, indented as far as
-     the rows are. */
-  .dup-checklist .zr-checklist__head {
-    padding: 0 var(--zr-4);
-  }
-
-  .dup-checklist__rows {
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    background: var(--zr-surface);
-    overflow: hidden;
-  }
-
-  /* A row's rule runs from edge to edge of the card, as on Simplify tags. */
-  .dup-checklist__rows .zr-checklist__row {
-    padding: 0 var(--zr-4);
-  }
-
-  /* The card draws the top edge; the first row needs no line of its own. */
-  .dup-checklist__rows > .zr-checklist__row:first-child {
-    border-top: 0;
-  }
-
-  /* "24 more" starts where the names start, past the tick. */
-  .dup-checklist__rows .zr-checklist__more {
-    padding: var(--zr-1) var(--zr-4) var(--zr-1) var(--zr-8);
-  }
-
-  .dup-checklist__arrow {
-    color: var(--zr-text-faint);
-  }
-
-  /* --- the advanced toolset ---------------------------------------------- */
-  /* The column inside the marked wrapper: every module one gap apart. */
+  /* --- the toolset ------------------------------------------------------- */
+  /* The column of tools under the scan row: every module one gap apart. */
   .dup-tools {
     display: flex;
     flex-direction: column;
@@ -386,10 +354,19 @@
     color: var(--zr-text-faint);
   }
 
-  /* The one text button at the very end of the page. */
+  /* The last row of the page: what the verdict memory is, and the button
+     that clears it. On a phone the button takes a line of its own. */
   .dup-forget {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
+    gap: var(--zr-2) var(--zr-4);
+  }
+
+  .dup-forget > .zr-module__caption {
+    flex: 1 1 320px;
+    margin: 0;
   }
 
   /* --- merge by hand ----------------------------------------------------- */
@@ -673,6 +650,14 @@
     margin-left: auto;
   }
 
+  /* Why an unticked card is not ticked, in one clause: the model's reason
+     first. Inset like the module's other loose content. */
+  .dup-group__why {
+    margin: 0;
+    padding-top: var(--zr-3);
+    color: var(--zr-text-muted);
+  }
+
   /* Both hold stacked alerts above the member table: the warnings the scan
      produced, and whatever the merge itself reported back. An empty result
      block must not add the padding, or every untouched card grows 12px. */
@@ -779,9 +764,10 @@
     opacity: 0.6;
   }
 
+  /* "Model: same · high" fits the column; with "· remembered" it wraps
+     inside the cell instead of running under the edge of the card. */
   .dup-member__verdict {
     display: block;
-    white-space: nowrap;
   }
 
   /* The band below the chosen threshold: everything under this line is the
@@ -1092,10 +1078,6 @@
 
     .dup-stack__foot .zr-btn {
       flex: 1;
-    }
-
-    .dup-result__card {
-      padding: var(--zr-4);
     }
   }
 }

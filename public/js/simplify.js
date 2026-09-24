@@ -6,13 +6,20 @@
  * page keeps a small target vocabulary of both, proposes for every tag what it
  * stands for, and applies what was chosen.
  *
- * The page has two modes (js/modules/review-mode.js). Simple is the default:
- * one button, the sheet before a run (js/modules/review-sheet.js), then the
- * result as five checklists with everything the model was sure of ticked,
- * and one button that applies the ticks. Advanced is the whole toolset: the
- * order as groups, the table of proposals with its per-row editing, and the
- * vocabulary. The run meter, the apply progress and the stack belong to both
- * modes and carry neither marker.
+ * One page. The assistant is the zone at the top (js/modules/review-assist.js,
+ * its words in js/modules/review-guide.js): before a run it is the start with
+ * its one button, which opens the sheet (js/modules/review-sheet.js); during
+ * a run it is the run meter with the steps and the sentence of what happens
+ * now and why; after a run it is the headline of numbers, the cost, the
+ * lines of how the tools are used, and two buttons. The stack, one unsure
+ * tag per screen, opens in its place. Everything under it is the toolset:
+ * the order as groups, the table of proposals and the vocabulary, drawn from
+ * the first second and waiting, dimmed, until a result exists.
+ *
+ * The proposal of a run lands as status. What the model was sure of, or a
+ * rule settled, is accepted once when the run ends; the unsure rest stays
+ * open. From then on "accepted" is the tick in the groups, and unticking
+ * opens a tag again.
  *
  * A run costs tokens and writes nothing; an apply costs writes and asks no
  * model. Every write lands in the merge log on the Duplicates page, and that
@@ -41,7 +48,16 @@ import {
   shares,
   updateSheet,
 } from '/js/modules/review-sheet.js';
-import { mountModeSwitch } from '/js/modules/review-mode.js';
+import {
+  htmlAssistDone,
+  htmlAssistStart,
+  htmlCaption,
+  htmlSentence,
+  htmlSteps,
+  setWorkspaceWaiting,
+  stepStates,
+} from '/js/modules/review-assist.js';
+import { SIMPLIFY_GUIDE } from '/js/modules/review-guide.js';
 
 /* --- interpolation helpers ------------------------------------------------ */
 
@@ -161,47 +177,21 @@ const TYPES_UNREACHABLE = 'Paperless-ngx not reachable';
 /** The badge a row of the picker wears when the vocabulary already has it. */
 const IN_VOCABULARY_BADGE = { text: 'in vocabulary', tone: 'ok' };
 
-/* --- the simple mode ------------------------------------------------------ */
+/* --- the assistant -------------------------------------------------------- */
 
-/** The five checklists of a result, in the order they appear. */
-const SECTION_KINDS = ['split', 'merge', 'delete', 'unsure', 'unchanged'];
-
-/** What each checklist is called; the count follows after a middle dot. */
-const SECTION_TITLES = {
-  split: 'Split',
-  merge: 'Merge',
-  delete: 'Delete',
-  unsure: 'Unsure',
-  unchanged: 'Unchanged',
-};
-
-/** Rows a checklist shows before it offers the rest. */
-const LIST_ROWS = 8;
+/** What the result sorts a change into; unsure and unchanged ones are not ticked. */
+const CHANGE_SECTIONS = ['split', 'merge', 'delete'];
 
 /**
- * The spelling rule a rule merge names at the end of its reason, as the chip
- * on its row says it. The keys are services/entityNameMatcher.js's hard
- * reasons; a merge the model proposed carries its source instead.
+ * Steps of the guide an order never reports: it measures nothing before it
+ * asks. Such a step is only drawn once a run has reported it.
  */
-const MERGE_BASIS_LABELS = {
-  'exact-normalized': 'same name',
-  'umlaut-variant': 'umlaut',
-  'legal-form': 'legal form',
-  plural: 'plural',
-  'token-order': 'word order',
-};
+const STEPS_NOT_RUN = ['warming-up'];
 
-/** The three lines the gate into advanced mode reads. */
-const GATE_LINES = [
-  { icon: 'i-tag', text: 'Vocabulary: document types and topics' },
-  { icon: 'i-list', text: 'Every tag in a table, filters and search' },
-  { icon: 'i-layers', text: 'Groups by type, topic and target' },
-];
+/** The facts line of the start when there is nothing a run could ask. */
+const NO_MODEL = 'No model configured';
 
-/** The cost line of a result the page did not see being produced. */
-const COST_UNKNOWN = 'Cost not recorded';
-
-/** Months the way the history line says them, whatever the locale. */
+/** Months the way the facts line says them, whatever the locale. */
 const MONTHS = [
   'Jan',
   'Feb',
@@ -262,26 +252,31 @@ const GUESS_TOKENS_PER_SECOND = 45;
 
 const el = {
   page: document.getElementById('simPage'),
-  topbarActions: document.getElementById('zrTopbarActions'),
-  // Simple mode: the card before a run, the result after it.
-  sub: document.querySelector('.sim-sub'),
-  emptyCard: document.getElementById('simEmptyCard'),
-  startBtn: document.getElementById('simStartBtn'),
-  againBtn: document.getElementById('simAgainBtn'),
-  result: document.getElementById('simResult'),
-  resultHeadline: document.getElementById('simResultHeadline'),
-  resultCost: document.getElementById('simResultCost'),
-  applyTickedBtn: document.getElementById('simApplyTickedBtn'),
-  lists: document.getElementById('simLists'),
-  historyLine: document.getElementById('simHistoryLine'),
-  // Advanced mode: the order and its groups.
+  // The assistant: the card of the start or the result, the run meter, the
+  // apply as it writes and what it reported, and the stack.
+  assist: document.getElementById('simAssist'),
+  assistCard: document.getElementById('simAssistCard'),
+  progress: document.getElementById('simProgress'),
+  steps: document.getElementById('simSteps'),
+  progressMessage: document.getElementById('simProgressMessage'),
+  stopBtn: document.getElementById('simStopBtn'),
+  sentence: document.getElementById('simSentence'),
+  runbar: document.getElementById('simRunbar'),
+  runLedger: document.getElementById('simRunLedger'),
+  runTokens: document.getElementById('simRunTokens'),
+  runCeiling: document.getElementById('simRunCeiling'),
+  reqLog: document.getElementById('simReqLog'),
+  applyResult: document.getElementById('simApplyResult'),
+  checklist: document.getElementById('simApplyChecklist'),
+  stack: document.getElementById('simStack'),
+  stackBar: document.getElementById('simStackBar'),
+  stackCard: document.getElementById('simStackCard'),
+  stackFoot: document.getElementById('simStackFoot'),
+  // The workspace: the order and its groups.
   order: document.getElementById('simOrder'),
-  orderBtn: document.getElementById('simOrderBtn'),
   orderMeta: document.getElementById('simOrderMeta'),
   orderSummary: document.getElementById('simOrderSummary'),
   orderEmpty: document.getElementById('simOrderEmpty'),
-  keepVocabulary: document.getElementById('simOrderKeepVocabulary'),
-  keepVocabularyWrap: document.getElementById('simOrderKeepWrap'),
   orderStats: document.getElementById('simOrderStats'),
   statGroupTypes: document.getElementById('simStatGroupTypes'),
   statGroupTopics: document.getElementById('simStatGroupTopics'),
@@ -297,23 +292,7 @@ const el = {
   groupStatus: document.getElementById('simGroupStatus'),
   groupSearch: document.getElementById('simGroupSearch'),
   groups: document.getElementById('simGroups'),
-  applyAcceptedBtn: document.getElementById('simApplyAcceptedBtn'),
-  // Both modes: the run meter, the apply progress and the stack.
-  progress: document.getElementById('simProgress'),
-  progressMessage: document.getElementById('simProgressMessage'),
-  stopBtn: document.getElementById('simStopBtn'),
-  runbar: document.getElementById('simRunbar'),
-  runLedger: document.getElementById('simRunLedger'),
-  runTokens: document.getElementById('simRunTokens'),
-  runCeiling: document.getElementById('simRunCeiling'),
-  reqLog: document.getElementById('simReqLog'),
-  applyResult: document.getElementById('simApplyResult'),
-  checklist: document.getElementById('simApplyChecklist'),
-  stack: document.getElementById('simStack'),
-  stackBar: document.getElementById('simStackBar'),
-  stackCard: document.getElementById('simStackCard'),
-  stackFoot: document.getElementById('simStackFoot'),
-  // Advanced mode: the vocabulary.
+  // The workspace: the vocabulary.
   vocabularyBlock: document.getElementById('simVocabularyBlock'),
   reproposeBtn: document.getElementById('simReproposeBtn'),
   vocabularyNotice: document.getElementById('simVocabularyNotice'),
@@ -329,7 +308,7 @@ const el = {
   topicHint: document.getElementById('simTopicHint'),
   proposeVocabularyBtn: document.getElementById('simProposeVocabularyBtn'),
   saveVocabularyBtn: document.getElementById('simSaveVocabularyBtn'),
-  // Advanced mode: the table of proposals.
+  // The workspace: the table of proposals.
   proposals: document.getElementById('simProposals'),
   proposeSplitsBtn: document.getElementById('simProposeSplitsBtn'),
   proposeSplitsHint: document.getElementById('simProposeSplitsHint'),
@@ -351,9 +330,6 @@ const el = {
   selectOpenBtn: document.getElementById('simSelectOpenBtn'),
   clearSelectionBtn: document.getElementById('simClearSelectionBtn'),
 };
-
-/** The mode the page is in; the mode switch keeps it in step. */
-let mode = 'simple';
 
 /** The vocabulary the page is editing: names only, in the order given. */
 const vocabulary = { types: [], topics: [] };
@@ -393,7 +369,9 @@ let orderResult = null;
 let orderStopped = false;
 
 let groupKind = 'all';
-let groupStatus = 'open';
+// All by default: after a run most groups are accepted whole, and a filter
+// on open ones would hide the proposal the run just landed.
+let groupStatus = 'all';
 let groupSearch = '';
 let view = 'groups';
 let statusFilter = 'open';
@@ -405,24 +383,30 @@ let progressAt = 0;
 let progressTimer = null;
 let applying = false;
 
-/** True while the panel shows the step before an apply job exists. */
-let preparing = false;
-
-/** What the last model-backed run cost, for the cost line of the result. */
+/** What the last order run cost, for the cost line of the result. */
 let lastRunCost = null;
 
+/** True once the first read of the proposals answered; the card waits for it. */
+let loaded = false;
+
+/** True from the moment a job is asked for until it has ended. */
+let starting = false;
+
+/** The job being followed: its task, and whether an order keeps the vocabulary. */
+let runTask = '';
+let runKeepsVocabulary = false;
+
+/** The phases the followed job has reported, so a step it never ran is left out. */
+const phasesSeen = new Set();
+
 /**
- * The ticks of the simple mode that differ from what a row starts as. A row
- * starts ticked when the model was sure of it or it is accepted already; a
- * tick stays local until the apply button is pressed.
+ * The step after an order ends, while the proposals the model was sure of
+ * are accepted: `{ done, total }`, or null when nothing is being ticked.
  */
-const tickOverrides = new Map();
+let finishing = null;
 
-/** The checklists read in full rather than capped, and the unchanged list. */
-const listsFull = new Set();
-let unchangedShown = false;
-
-/** The stack: the tag ids it still has to ask about, and where it is. */
+/** The stack: whether it is open, the tag ids it still has to ask about, and where it is. */
+let stacking = false;
 let stackQueue = [];
 let stackAt = 0;
 let stackDecided = 0;
@@ -804,31 +788,20 @@ function takeExistingSpelling(button) {
 
 /**
  * What the saved vocabulary decides about the order: the block is open while
- * there is nothing in it, "Keep vocabulary" is only offered once something is
- * saved and comes up on when any of it was written by hand, and the button
- * that proposes again waits for a vocabulary to propose against.
+ * there is nothing in it, "Keep vocabulary" on the sheet is only offered once
+ * something is saved and comes up on when any of it was written by hand, and
+ * the button that proposes again waits for a vocabulary to propose against.
  */
 function renderVocabularyState(fresh) {
   if (el.vocabularyBlock) el.vocabularyBlock.open = !vocabularySaved;
   if (el.reproposeBtn) {
     el.reproposeBtn.classList.toggle('hidden', !vocabularySaved);
   }
-  if (el.keepVocabularyWrap) {
-    // Without the model there is no button the switch belongs to: the order
-    // then only runs from the vocabulary block, against the saved names.
-    el.keepVocabularyWrap.classList.toggle(
-      'hidden',
-      !vocabularySaved || el.orderBtn === null
-    );
-  }
-  // Only on a load or a save: a switch set by hand stays as it was set.
+  // Only on a load or a save: a switch set on the sheet stays as it was set.
   if (fresh === true) {
     runLevers.keepVocabulary = vocabularyRows.some(
       (row) => String(row.source || '') === 'user'
     );
-    if (el.keepVocabulary) {
-      el.keepVocabulary.checked = runLevers.keepVocabulary;
-    }
   }
 }
 
@@ -1077,16 +1050,15 @@ async function loadProposals() {
     [...selected].forEach((id) => {
       if (!proposals.has(id)) selected.delete(id);
     });
-    [...tickOverrides.keys()].forEach((id) => {
-      if (!proposals.has(id)) tickOverrides.delete(id);
-    });
     if (el.proposalsAlert) el.proposalsAlert.innerHTML = '';
     renderProposals();
-    renderSimple();
     renderStack();
-    updateApplyAcceptedButton();
   } catch (error) {
     el.proposalsBody.innerHTML = htmlEmptyRow(9, error.message);
+  } finally {
+    // A page whose proposals could not be read still shows its start.
+    loaded = true;
+    renderAssist();
   }
 }
 
@@ -1100,9 +1072,8 @@ async function patchProposal(tagId, patch) {
     );
     if (payload.data) proposals.set(num(payload.data.tagId), payload.data);
     renderProposals();
-    renderSimple();
     renderStack();
-    updateApplyAcceptedButton();
+    renderAssist();
   } catch (error) {
     toast(error.message, { tone: 'danger' });
     loadProposals();
@@ -1212,6 +1183,15 @@ function htmlMemberRow(group, member) {
   const badge = STATUS_BADGES[status] || { tone: '', label: status };
   const name = String(member.tagName == null ? '' : member.tagName);
   const documents = num(member.documentCount);
+  // The tick is the proposal: accepted is ticked, and unticking opens the tag
+  // again. A keep writes nothing and has none; an applied row is history.
+  const htmlTicked =
+    status === 'accepted' || status === 'applied' ? ' checked' : '';
+  const htmlTickDisabled = status === 'applied' ? ' disabled' : '';
+  const htmlTick =
+    String(group.kind || '') === 'keep'
+      ? ''
+      : `<td data-label="Apply" class="sim-member__tick"><input type="checkbox" class="zr-check sim-member-tick" data-tag-id="${num(member.tagId)}" aria-label="${esc(`Apply ${name}`)}"${htmlTicked}${htmlTickDisabled}></td>`;
   // A keep group holds the tags nothing happens to; there is nothing to take
   // out of it, and an applied row is history.
   const htmlRemove =
@@ -1223,6 +1203,7 @@ function htmlMemberRow(group, member) {
       ? ''
       : `<button type="button" class="zr-btn zr-sm sim-member-skip" data-tag-id="${num(member.tagId)}" data-status="${esc(status)}">${esc(status === 'skipped' ? 'Reopen' : 'Skip')}</button>`;
   return `<tr class="sim-member" data-tag-id="${num(member.tagId)}">
+        ${htmlTick}
         <td data-label="Tag" class="zr-truncate" title="${esc(name)}">${esc(name)}</td>
         <td data-label="Documents" class="zr-mono">${esc(grouped(documents))}</td>
         <td data-label="Outcome"><span class="sim-member__outcome">${esc(memberOutcome(member))}</span></td>
@@ -1231,6 +1212,37 @@ function htmlMemberRow(group, member) {
         <td data-label="Status"><span class="zr-badge ${esc(badge.tone)}">${esc(badge.label)}</span></td>
         <td data-label="Edit" class="sim-member__actions">${htmlSkip}${htmlRemove}</td>
       </tr>`;
+}
+
+/**
+ * The tick on a card's head: ticked when every tag of the group that is not
+ * written yet is accepted, half when some are, empty when none are. Ticking
+ * it accepts the group, unticking opens it again, as Accept and Reopen do.
+ * A group with nothing left to decide shows its state and cannot be changed.
+ * Pure on purpose.
+ *
+ * @param {object} group a TagOrderGroup
+ * @returns {string} markup
+ */
+function htmlGroupTick(group) {
+  const accepted = num(group.accepted);
+  const others = num(group.open) + num(group.skipped);
+  const done = accepted + others === 0;
+  const htmlChecked =
+    (accepted > 0 && others === 0) || (done && num(group.applied) > 0)
+      ? ' checked'
+      : '';
+  const htmlMixed = accepted > 0 && others > 0 ? ' data-mixed="true"' : '';
+  const htmlDisabled = done ? ' disabled' : '';
+  return `<input type="checkbox" class="zr-check sim-group-tick" aria-label="${esc(`Apply ${groupTitle(group)}`)}"${htmlChecked}${htmlMixed}${htmlDisabled}>`;
+}
+
+/** A half ticked card is a property, not an attribute: set once it is drawn. */
+function markMixedTicks(root) {
+  if (!root) return;
+  root.querySelectorAll('.sim-group-tick[data-mixed]').forEach((box) => {
+    box.indeterminate = true;
+  });
 }
 
 /**
@@ -1253,6 +1265,7 @@ function htmlGroupCard(group, state) {
   // Attribute fragments, not values: the "html" prefix is what marks them as
   // markup this file has already made safe.
   const htmlOpen = card.open === true ? ' open' : '';
+  const htmlHeadTick = kind === 'keep' ? '' : htmlGroupTick(group);
   const htmlDecideDisabled = open === 0 ? ' disabled' : '';
   const htmlApplyDisabled = accepted === 0 ? ' disabled' : '';
   const htmlRows = members
@@ -1278,8 +1291,13 @@ function htmlGroupCard(group, state) {
       ? ''
       : `<button type="button" class="zr-btn sim-group-reopen">${esc('Reopen')}</button>`;
   const htmlSkip = `<button type="button" class="zr-btn sim-group-skip"${htmlDecideDisabled}>${esc('Skip')}</button>`;
+  const htmlTickHead =
+    kind === 'keep'
+      ? ''
+      : `<th class="sim-members__tickcol">${esc('Apply')}</th>`;
   return `<section class="zr-module sim-group" data-group-key="${esc(group.key)}" data-kind="${esc(kind)}">
     <div class="zr-module__head sim-group__head">
+      ${htmlHeadTick}
       <span class="zr-badge ${esc(GROUP_KIND_TONES[kind] || '')}">${htmlIconMarkup(GROUP_KIND_ICONS[kind] || 'i-tag')}${esc(GROUP_KIND_LABELS[kind] || kind)}</span>
       <span class="zr-module__title sim-group__name" title="${esc(groupTitle(group))}">${esc(groupTitle(group))}</span>
       <span class="zr-sm zr-faint sim-group__counts">${esc(groupCountsText(group))}</span>
@@ -1291,6 +1309,7 @@ function htmlGroupCard(group, state) {
         <table class="zr-table zr-table--stack sim-members">
           <thead>
             <tr>
+              ${htmlTickHead}
               <th>Tag</th>
               <th>Documents</th>
               <th>Outcome</th>
@@ -1414,10 +1433,10 @@ function renderGroups() {
   el.groups.innerHTML = rows
     .map((group) => htmlGroupCard(group, cardState(group)))
     .join('');
+  markMixedTicks(el.groups);
   renderViewState();
   renderOrderEmpty(rows.length);
   renderOrderStats();
-  updateApplyAcceptedButton();
 }
 
 /** One card redrawn from what a route answered; a group that is gone is gone. */
@@ -1441,8 +1460,8 @@ function renderGroupCard(key, group) {
   // the filter: a group that was accepted is a group that is about to be
   // applied, and it must not vanish under the hand that accepted it.
   node.outerHTML = htmlGroupCard(group, cardState(group));
+  markMixedTicks(groupNode(key));
   renderOrderStats();
-  updateApplyAcceptedButton();
 }
 
 function renderOrderEmpty(count) {
@@ -1490,32 +1509,11 @@ function renderOrderSummary() {
   el.orderSummary.classList.toggle('hidden', text === '');
 }
 
-/** The proposals a button that applies everything accepted would write. */
+/** The proposals the assistant's Apply writes: everything accepted. */
 function acceptedProposals() {
   return [...proposals.values()].filter(
     (proposal) => String(proposal.status || 'open') === 'accepted'
   );
-}
-
-/**
- * "Apply 12 accepted · 45 writes". Pure on purpose: the numbers are
- * planWrites() over what is accepted, and a tag that stays writes nothing.
- *
- * @param {object} totals planWrites()
- * @returns {string}
- */
-function applyAcceptedLabel(totals) {
-  const tags = num(totals && totals.tags);
-  const writes = num(totals && totals.writes);
-  return `Apply ${grouped(tags)} accepted · ${grouped(writes)} ${plural(writes, 'write', 'writes')}`;
-}
-
-function updateApplyAcceptedButton() {
-  if (!el.applyAcceptedBtn) return;
-  const totals = planWrites(acceptedProposals());
-  el.applyAcceptedBtn.textContent = applyAcceptedLabel(totals);
-  el.applyAcceptedBtn.disabled =
-    totals.tags === 0 || jobId !== null || applying;
 }
 
 /** What the view segment decides: the groups, or the table. */
@@ -1542,6 +1540,9 @@ function setView(next) {
   }
   renderViewState();
   renderOrderEmpty(visibleGroups().length);
+  // The table edits proposals one by one; the groups are read again when
+  // they come back, rather than after every edit.
+  if (view === 'groups' && loaded) loadGroups();
 }
 
 async function loadGroups() {
@@ -1561,6 +1562,36 @@ async function loadGroups() {
   }
 }
 
+/**
+ * Reads the groups again and redraws the cards on the page in place. A tag
+ * sits in up to three groups, so a decision in one card moves the others,
+ * and none of them may vanish or move under the hand that made it; a new
+ * filter or a reload sorts them again.
+ */
+async function refreshGroups() {
+  let fresh;
+  try {
+    const payload = await requestJson('/api/simplify/groups');
+    const data = payload.data || {};
+    fresh = Array.isArray(data.groups) ? data.groups : [];
+  } catch {
+    await loadGroups();
+    return;
+  }
+  groups = fresh;
+  if (!el.groups) return;
+  [...el.groups.querySelectorAll('.sim-group')].forEach((node) => {
+    const group = groupByKey(node.dataset.groupKey);
+    if (!group) {
+      node.remove();
+      return;
+    }
+    node.outerHTML = htmlGroupCard(group, cardState(group));
+  });
+  markMixedTicks(el.groups);
+  renderOrderStats();
+}
+
 /** Accept, skip or reopen every open member of one group. */
 async function decideGroup(group, decision) {
   try {
@@ -1571,8 +1602,9 @@ async function decideGroup(group, decision) {
     );
     const data = payload.data || {};
     renderGroupCard(group.key, data.group || null);
-    // A decision patches every member's proposal; the table, the simple
-    // lists and the apply button read the proposals, so they are read again.
+    // A decision patches every member's proposal, and a member sits in other
+    // groups too; those cards, the table and the assistant are read again.
+    await refreshGroups();
     await loadProposals();
     toast(
       `${groupTitle(group)} ${DECISION_WORDS[decision] || decision}: ${num(data.changed)} ${plural(num(data.changed), 'tag', 'tags')}`,
@@ -1621,6 +1653,22 @@ async function removeGroupMember(group, tagId) {
   }
 }
 
+/** The tick of one tag: on accepts it, off opens it again. */
+async function tickMember(tagId, on) {
+  try {
+    await sendJson(
+      'PATCH',
+      `/api/simplify/proposals/${encodeURIComponent(String(tagId))}`,
+      { status: on === true ? 'accepted' : 'open' }
+    );
+    await refreshGroups();
+    await loadProposals();
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+    await loadGroups();
+  }
+}
+
 /** The per-tag skip, and the same button back again. */
 async function toggleMemberStatus(group, tagId, status) {
   const next = String(status) === 'skipped' ? 'open' : 'skipped';
@@ -1630,7 +1678,7 @@ async function toggleMemberStatus(group, tagId, status) {
       `/api/simplify/proposals/${encodeURIComponent(String(tagId))}`,
       { status: next }
     );
-    await loadGroups();
+    await refreshGroups();
     await loadProposals();
   } catch (error) {
     toast(error.message, { tone: 'danger' });
@@ -1639,20 +1687,17 @@ async function toggleMemberStatus(group, tagId, status) {
 
 /* --- the two jobs of the order -------------------------------------------- */
 
-/** True when this build offers the model: the view only draws its button then. */
+/** True when this build offers the model; the view says so on the assistant. */
 function modelReady() {
-  return el.orderBtn !== null;
+  return Boolean(el.assist) && el.assist.dataset.provider === 'ready';
 }
 
-/** Everything that starts a job is dead while one runs. */
+/** Everything that starts a job is dead while one runs, and while one is asked for. */
 function setOrderBusy(busy) {
-  if (el.orderBtn) el.orderBtn.disabled = busy;
-  if (el.startBtn) el.startBtn.disabled = busy || !modelReady();
-  if (el.againBtn) el.againBtn.disabled = busy;
+  starting = busy === true;
   if (el.reproposeBtn) el.reproposeBtn.disabled = busy;
-  updateApplyAcceptedButton();
   updateProposeSplitsButton();
-  renderSimple();
+  renderAssist();
 }
 
 /**
@@ -1673,21 +1718,17 @@ async function runOrderJob(vocabularyMode) {
       concurrency: runLevers.lanes,
     });
     const { result, stopped } = await followJob(job);
-    orderResult = result || {};
-    orderStopped = stopped === true;
-    // A new order is a new list: every tick starts over from what the model
-    // was sure of, and every checklist from its first rows.
-    tickOverrides.clear();
-    listsFull.clear();
-    unchangedShown = false;
-    await loadVocabulary();
-    await loadGroups();
-    await loadProposals();
-    renderOrderSummary();
+    const ended = progressJob;
+    // A new order is a new list: what the model was sure of lands as ticks.
+    await finishOrder(result || {}, stopped === true);
+    if (stopped === true && el.applyResult) {
+      el.applyResult.innerHTML = htmlStopNotice(ended);
+    }
     toast(stopped ? 'Stopped' : 'Order ready', {
       tone: stopped ? 'warn' : 'ok',
     });
   } catch (error) {
+    finishing = null;
     if (el.applyResult) {
       el.applyResult.innerHTML = htmlAlert(
         'danger',
@@ -1701,7 +1742,38 @@ async function runOrderJob(vocabularyMode) {
   }
 }
 
-/** The run of both modes: the sheet first, then the job with its levers. */
+/**
+ * What an order that ended early says in the assistant, as a stop does on
+ * the Duplicates page: how far it got, and how many tags the model was
+ * never asked about. They stay as they are, so the headline alone would
+ * not show them. Pure on purpose.
+ *
+ * @param {?object} job the job as it ended
+ * @returns {string} markup
+ */
+function htmlStopNotice(job) {
+  const state = (job && job.progress) || {};
+  const done = num(state.requestsDone);
+  const planned = num(state.requestsPlanned);
+  const tags = num(state.pairsTotal);
+  const missing = Math.max(0, tags - num(state.pairsJudged));
+  const requests = plural(planned > 0 ? planned : done, 'request', 'requests');
+  const tail =
+    tags > 0
+      ? ` · ${grouped(missing)} ${plural(missing, 'tag', 'tags')} not asked`
+      : '';
+  const of = planned > 0 ? ` of ${grouped(planned)}` : '';
+  const reason = job ? String(job.stopReason || '') : '';
+  let text = `Stopped after ${grouped(done)}${of} ${requests}${tail}`;
+  if (reason === 'token-budget') {
+    text = `Stopped at the ${formatTokens(state.tokenBudget)} limit after ${grouped(done)} ${plural(done, 'request', 'requests')}${tail}`;
+  } else if (reason === 'idle') {
+    text = `Stopped · no page was watching${tail}`;
+  }
+  return htmlAlert('warn', 'Stopped early', text);
+}
+
+/** The assistant's run: the sheet first, then the job with its levers. */
 async function proposeOrder() {
   const go = await askPreflight(false);
   if (!go) return;
@@ -1797,9 +1869,19 @@ function applyResultText(result) {
   return parts.join(' · ');
 }
 
-/** The same, as the block under the panel, with every failure named. */
+/**
+ * The same, as the block under the panel, with every failure named and the
+ * way to the log that undoes what was written.
+ */
 function htmlApplyResultBlock(result, stopped) {
   const failed = Array.isArray(result.failed) ? result.failed : [];
+  const wrote =
+    (Array.isArray(result.applied) ? result.applied.length : 0) +
+    (Array.isArray(result.merged) ? result.merged.length : 0);
+  const htmlUndo =
+    wrote > 0
+      ? `<a class="zr-btn sim-apply-result__undo" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`
+      : '';
   const htmlItems = failed
     .map(
       (failure) =>
@@ -1815,7 +1897,7 @@ function htmlApplyResultBlock(result, stopped) {
       ? `<p class="zr-sm">${esc('Stopped · the rest stays accepted')}</p>`
       : '';
   const tone = failed.length > 0 ? 'warn' : 'ok';
-  return `<div class="zr-alert zr-alert--${esc(tone)}"><div class="zr-alert__body"><div class="zr-alert__title">${esc(applyResultText(result))}</div>${htmlNote}${htmlFailures}</div></div>`;
+  return `<div class="zr-alert zr-alert--${esc(tone)}"><div class="zr-alert__body"><div class="zr-alert__title">${esc(applyResultText(result))}</div>${htmlNote}${htmlFailures}</div>${htmlUndo}</div>`;
 }
 
 /** Starts the apply job, for one group or for everything accepted. */
@@ -1856,9 +1938,9 @@ async function applyOrder(groupKey) {
     }
     finishChecklist(data);
     const failures = Array.isArray(data.failed) ? data.failed.length : 0;
-    // In simple mode a clean apply is said by the line above in one go; the
-    // rows stay only while one of them failed and can be tried again.
-    if (mode === 'simple' && failures === 0) {
+    // A clean apply is said by the line above in one go; the rows stay only
+    // while one of them failed and can be tried again.
+    if (failures === 0) {
       checklistRows = [];
       renderChecklist();
     }
@@ -1869,7 +1951,6 @@ async function applyOrder(groupKey) {
     await loadDocumentTypes();
     toast(applyResultText(data), { tone: failures > 0 ? 'warn' : 'ok' });
   } catch (error) {
-    hidePreparing();
     if (el.applyResult) {
       el.applyResult.innerHTML = htmlAlert(
         'danger',
@@ -1901,8 +1982,9 @@ async function applyAllAccepted() {
     (proposal) => String(proposal.action || 'split') !== 'keep'
   );
   if (list.length === 0) return;
+  // The title is the button that was pressed, with its numbers.
   const confirmed = await confirmDialog({
-    title: `Apply ${grouped(list.length)} accepted`,
+    title: applyLabel({ tags: list.length, writes: planWrites(list).writes }),
     body: applySummaryText(list),
     confirmLabel: 'Apply',
     cancelLabel: 'Cancel',
@@ -1966,38 +2048,15 @@ function setStopLabel(text) {
   if (label) label.textContent = text;
 }
 
+/** The run meter takes the assistant's place; the job it follows is set. */
 function showProgressPanel() {
   if (!el.progress) return;
-  preparing = false;
-  el.progress.classList.remove('hidden');
   if (el.stopBtn) {
     el.stopBtn.classList.remove('hidden');
     el.stopBtn.disabled = false;
     setStopLabel('Stop');
   }
-}
-
-/**
- * The panel before a job exists: the ticks of an apply are written as
- * statuses first, and that step has a line of its own and nothing to stop.
- */
-function showPreparing(text) {
-  if (!el.progress) return;
-  preparing = true;
-  el.progress.classList.remove('hidden');
-  if (el.stopBtn) el.stopBtn.classList.add('hidden');
-  if (el.progressMessage) el.progressMessage.textContent = text;
-  [el.runbar, el.runLedger, el.runTokens, el.reqLog].forEach((node) => {
-    if (node) node.innerHTML = '';
-  });
-  if (el.runCeiling) el.runCeiling.classList.add('hidden');
-}
-
-/** Takes that line away again when no job followed it. */
-function hidePreparing() {
-  if (!preparing) return;
-  preparing = false;
-  if (el.progress) el.progress.classList.add('hidden');
+  renderAssist();
 }
 
 function startProgressTicker() {
@@ -2027,6 +2086,7 @@ function renderProgress(job) {
   progressJob = job;
   progressAt = Date.now();
   const state = job.progress || {};
+  phasesSeen.add(String(state.phase || ''));
   if (el.progressMessage) {
     el.progressMessage.textContent = phaseHeadline(state);
   }
@@ -2080,12 +2140,13 @@ function renderProgressOutcome(event) {
   // The meter keeps what the run cost; the cost line of the result reads it.
   const finished = progressJob ? progressJob.progress : null;
   renderRunMeter(finished);
-  if (String(progressJob && progressJob.task) !== JOB_TASKS.APPLY) {
-    keepRunCost(finished);
+  if (String(progressJob && progressJob.task) !== JOB_TASKS.ORDER) return;
+  keepRunCost(finished);
+  // An order that ended with a result goes on at once into the step that
+  // ticks it, so the assistant never shows the old result in between.
+  if (event.type !== 'failed' && finishing === null) {
+    finishing = { done: 0, total: 0 };
   }
-  // In simple mode the result takes over from here: its head carries what the
-  // run cost, and the line under the apply says what the apply did.
-  if (mode === 'simple') el.progress.classList.add('hidden');
 }
 
 /**
@@ -2099,11 +2160,14 @@ function renderProgressOutcome(event) {
 function followJob(job) {
   return new Promise((resolve, reject) => {
     jobId = job.id;
+    runTask = String(job.task || '');
+    runKeepsVocabulary = Boolean(
+      job.options && job.options.vocabulary === 'keep'
+    );
+    phasesSeen.clear();
     const base = `/api/duplicates/ai-review/jobs/${encodeURIComponent(job.id)}`;
     showProgressPanel();
     renderProgress(job);
-    // A job the page attached to on load has to take the card off the page.
-    renderSimple();
 
     let settled = false;
     let source = null;
@@ -2309,8 +2373,10 @@ async function proposeSplits() {
 }
 
 /**
- * On load: a job of this page that is still running gets its page back. A
- * review of the Duplicates page is left alone; it belongs there.
+ * On load: a job of this page that is still running gets its page back, in
+ * the assistant, and ends there the way it would have. An order that ended
+ * while no page watched it still lands as ticks, once. A review of the
+ * Duplicates page is left alone; it belongs there.
  */
 async function reattachJob() {
   if (!el.progress) return;
@@ -2321,7 +2387,7 @@ async function reattachJob() {
   } catch {
     return;
   }
-  if (!job || !JOB_LIVE_STATES.includes(job.status)) return;
+  if (!job) return;
   const task = String(job.task || '');
   const mine = [
     JOB_TASKS.VOCABULARY,
@@ -2330,6 +2396,19 @@ async function reattachJob() {
     JOB_TASKS.APPLY,
   ];
   if (!mine.includes(task)) return;
+  if (!JOB_LIVE_STATES.includes(job.status)) {
+    if (!missedFinish(job, [...proposals.values()])) return;
+    progressJob = job;
+    runTask = task;
+    runKeepsVocabulary = Boolean(
+      job.options && job.options.vocabulary === 'keep'
+    );
+    phasesSeen.clear();
+    keepRunCost(job.progress);
+    if (el.stopBtn) el.stopBtn.classList.add('hidden');
+    await finishOrder(null, job.status === 'stopped');
+    return;
+  }
   try {
     const { result, stopped } = await followJob(job);
     if (task === JOB_TASKS.SPLITS) {
@@ -2337,15 +2416,11 @@ async function reattachJob() {
       return;
     }
     if (task === JOB_TASKS.ORDER) {
-      orderResult = result || {};
-      orderStopped = stopped === true;
-      tickOverrides.clear();
-      listsFull.clear();
-      unchangedShown = false;
-      await loadVocabulary();
-      await loadGroups();
-      await loadProposals();
-      renderOrderSummary();
+      const ended = progressJob;
+      await finishOrder(result || {}, stopped === true);
+      if (stopped === true && el.applyResult) {
+        el.applyResult.innerHTML = htmlStopNotice(ended);
+      }
       return;
     }
     if (task === JOB_TASKS.APPLY) {
@@ -2368,7 +2443,10 @@ async function reattachJob() {
       el.vocabularyNotice.innerHTML = htmlAlert('info', PROPOSAL_NOTICE, '');
     }
   } catch (error) {
+    finishing = null;
     toast(error.message, { tone: 'danger' });
+  } finally {
+    renderAssist();
   }
 }
 
@@ -2529,9 +2607,10 @@ async function skipSelected() {
 /* --- the cost layer: numbers that are never bare -------------------------- */
 
 /**
- * What a provider reports, read as question, answer and the model thinking to
- * itself. `completion` carries the reasoning where the provider counts it
- * there, so the answer is what is left of it. Pure on purpose.
+ * What a provider reports, read as what the model read, what it wrote and
+ * what it thought to itself before it wrote. `completion` carries the
+ * reasoning where the provider counts it there, so what it wrote is what is
+ * left of it. Pure on purpose.
  *
  * @param {object} tokens { prompt, completion, thinking }
  * @returns {{prompt: number, answer: number, thinking: number}}
@@ -2577,14 +2656,13 @@ function splitShares(split) {
 function htmlTokenbar(split) {
   const part = splitShares(split);
   if (part.total <= 0) return '';
-  // A part that cost nothing is left out of the legend: "0 answer" next to a
-  // bar with no green in it is a reading exercise, not information.
+  // The legend names all three, a zero included, as the Duplicates page
+  // does: "0 thinking" says the model thought nothing, which is a fact.
   const htmlKeys = [
-    { part: 'prompt', value: split.prompt, word: 'question' },
-    { part: 'answer', value: split.answer, word: 'answer' },
+    { part: 'prompt', value: split.prompt, word: 'read' },
+    { part: 'answer', value: split.answer, word: 'written' },
     { part: 'thinking', value: split.thinking, word: 'thinking' },
   ]
-    .filter((key) => num(key.value) > 0)
     .map(
       (key) =>
         `<span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--${esc(key.part)}"></span>${esc(`${formatTokens(key.value)} ${key.word}`)}</span>`
@@ -2685,17 +2763,17 @@ function consequenceText(proposal) {
   return parts.join(' · ');
 }
 
-/* --- the simple mode: five checklists and one button ---------------------- */
+/* --- the assistant: start, run, result ------------------------------------ */
 
 /**
- * The checklist a proposal belongs in, or null when it has been applied and
- * is history. What stays as it is goes to Unchanged, whoever proposed it;
- * what the rule or the model was not sure of goes to Unsure, whatever it
- * does; the rest goes by its action. A split with nothing left to split into
- * stays as it is. Pure on purpose.
+ * What the result makes of a proposal, or null when it has been applied and
+ * is history. What stays as it is is 'unchanged', whoever proposed it; what
+ * the rule or the model was not sure of is 'unsure', whatever it does; the
+ * rest goes by its action. A split with nothing left to split into stays as
+ * it is. Pure on purpose.
  *
  * @param {object} proposal a TagSplitProposal
- * @returns {?string} one of SECTION_KINDS
+ * @returns {?string} 'split' | 'merge' | 'delete' | 'unsure' | 'unchanged'
  */
 function sectionOf(proposal) {
   const status = String((proposal && proposal.status) || 'open');
@@ -2713,275 +2791,121 @@ function sectionOf(proposal) {
 }
 
 /**
- * Every proposal in its checklist, the ones on the most documents first.
- * Pure on purpose.
+ * The status changes that land a finished run as ticks: every open proposal
+ * the model was sure of, or a rule settled, becomes accepted. The unsure
+ * ones, the ones that stay and the ones already decided are left as they
+ * are. Pure on purpose.
  *
- * @param {object[]} list proposals
- * @returns {{split: object[], merge: object[], delete: object[],
- *   unsure: object[], unchanged: object[]}}
+ * @param {object[]} list every proposal
+ * @returns {Array<{tagId: number, status: string}>}
  */
-function simpleSections(list) {
-  const sections = {
-    split: [],
-    merge: [],
-    delete: [],
-    unsure: [],
-    unchanged: [],
-  };
-  (Array.isArray(list) ? list : []).forEach((proposal) => {
-    const kind = sectionOf(proposal);
-    if (kind) sections[kind].push(proposal);
-  });
-  const order = (a, b) =>
-    num(b.documentCount) - num(a.documentCount) ||
-    String(a.tagName || '').localeCompare(String(b.tagName || ''), 'en', {
-      sensitivity: 'base',
-    });
-  SECTION_KINDS.forEach((kind) => sections[kind].sort(order));
-  return sections;
+function sureChanges(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(
+      (proposal) =>
+        String(proposal.status || 'open') === 'open' &&
+        CHANGE_SECTIONS.includes(sectionOf(proposal))
+    )
+    .map((proposal) => ({ tagId: num(proposal.tagId), status: 'accepted' }));
 }
 
 /**
- * Whether a row starts ticked: accepted already, or open and in a checklist
- * the model was sure of. Unsure and skipped rows start empty. Pure on purpose.
+ * The unsure proposals nobody has decided on yet, the ones on the most
+ * documents first: what "Review one by one" walks through. Pure on purpose.
  *
- * @param {object} proposal
- * @returns {boolean}
- */
-function defaultTick(proposal) {
-  const status = String((proposal && proposal.status) || 'open');
-  if (status === 'accepted') return true;
-  if (status !== 'open') return false;
-  const kind = sectionOf(proposal);
-  return kind === 'split' || kind === 'merge' || kind === 'delete';
-}
-
-/**
- * Whether a row is ticked now: the tick it was given, or the one it starts
- * with. A row of Unchanged has no box. Pure on purpose.
- *
- * @param {object} proposal
- * @param {Map<number, boolean>} overrides
- * @returns {boolean}
- */
-function isTicked(proposal, overrides) {
-  if (sectionOf(proposal) === 'unchanged') return false;
-  const id = num(proposal && proposal.tagId);
-  if (overrides && overrides.has(id)) return overrides.get(id) === true;
-  return defaultTick(proposal);
-}
-
-/**
- * The proposals the apply button would write, in checklist order. Pure on
- * purpose.
- *
- * @param {object} sections simpleSections()
- * @param {Map<number, boolean>} overrides
+ * @param {object[]} list every proposal
  * @returns {object[]}
  */
-function tickedProposals(sections, overrides) {
-  return ['split', 'merge', 'delete', 'unsure'].reduce(
-    (list, kind) =>
-      list.concat(
-        (sections[kind] || []).filter((proposal) =>
-          isTicked(proposal, overrides)
-        )
-      ),
-    []
-  );
-}
-
-/**
- * "1,187 tags · 945 changes proposed". Every tag of the result counts, and a
- * change is what the model was sure of; a tick moves neither. Pure on purpose.
- *
- * @param {object} sections simpleSections()
- * @returns {string}
- */
-function resultHeadline(sections) {
-  const count = (kind) => (sections[kind] || []).length;
-  const tags = SECTION_KINDS.reduce((sum, kind) => sum + count(kind), 0);
-  const changes = count('split') + count('merge') + count('delete');
-  return `${grouped(tags)} ${plural(tags, 'tag', 'tags')} · ${grouped(changes)} ${plural(changes, 'change', 'changes')} proposed`;
-}
-
-/**
- * "Apply 945 · 2,340 writes": what the ticks add up to. Pure on purpose.
- *
- * @param {object[]} ticked tickedProposals()
- * @returns {string}
- */
-function applyTickedLabel(ticked) {
-  const totals = planWrites(ticked);
-  return `Apply ${grouped(totals.tags)} · ${grouped(totals.writes)} ${plural(totals.writes, 'write', 'writes')}`;
-}
-
-/**
- * The chip of a merge: the spelling rule a rule merge names at the end of its
- * reason, or who proposed it. Pure on purpose.
- *
- * @param {object} proposal
- * @returns {string}
- */
-function mergeBasis(proposal) {
-  const source = String((proposal && proposal.source) || 'rule');
-  if (source !== 'rule') return SOURCE_LABELS[source] || source;
-  const match = /\(([a-z-]+)\)\s*$/.exec(
-    String(proposal.reason == null ? '' : proposal.reason)
-  );
-  if (!match) return SOURCE_LABELS.rule;
-  return MERGE_BASIS_LABELS[match[1]] || match[1];
-}
-
-/**
- * What a row says a tag becomes, with the target in bold: "Stromrechnung →
- * Rechnung + Strom", "rechnungen → Rechnung", or the name alone for a tag
- * that goes away. Pure on purpose.
- *
- * @param {object} proposal
- * @returns {string} markup
- */
-function htmlRowWhat(proposal) {
-  const name = String(proposal.tagName == null ? '' : proposal.tagName);
-  const action = String(proposal.action || 'split');
-  if (action === 'delete' || action === 'keep') return esc(name);
-  if (action === 'merge') {
-    const target = String(proposal.mergeInto == null ? '' : proposal.mergeInto);
-    return `${esc(name)}<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">${esc(target)}</span>`;
-  }
-  const typeName = proposal.typeName == null ? '' : String(proposal.typeName);
-  const topics = (
-    Array.isArray(proposal.topicNames) ? proposal.topicNames : []
-  ).map((topic) => String(topic));
-  const lead = typeName !== '' ? typeName : topics.join(' + ');
-  const rest = typeName !== '' && topics.length > 0 ? topics.join(' + ') : '';
-  const htmlRest = rest === '' ? '' : esc(` + ${rest}`);
-  return `${esc(name)}<span class="sim-list__arrow"> → </span><span class="zr-checklist__name">${esc(lead)}</span>${htmlRest}`;
-}
-
-/**
- * The quiet part after the name: the documents, and for an unsure row that
- * goes away, the verb. Pure on purpose.
- *
- * @param {object} proposal
- * @param {string} kind the checklist it sits in
- * @returns {string}
- */
-function rowMeta(proposal, kind) {
-  const action = String(proposal.action || 'split');
-  const documents = documentsText(num(proposal.documentCount));
-  return kind === 'unsure' && action === 'delete'
-    ? `${documents} · delete`
-    : documents;
-}
-
-/**
- * One row of a checklist. Pure on purpose: tests/test-simplify-assistant-ui.js
- * renders one of every kind.
- *
- * @param {object} proposal a TagSplitProposal
- * @param {string} kind the checklist it sits in
- * @param {boolean} ticked
- * @returns {string} markup
- */
-function htmlChecklistRow(proposal, kind, ticked) {
-  const id = num(proposal.tagId);
-  const htmlMeta = `<span class="zr-checklist__meta">${esc(rowMeta(proposal, kind))}</span>`;
-  const htmlText = `<span class="zr-checklist__text">${htmlRowWhat(proposal)}${htmlMeta}</span>`;
-  if (kind === 'unchanged') {
-    return `<div class="zr-checklist__row sim-list__row--plain" data-tag-id="${num(id)}">${htmlText}</div>`;
-  }
-  const htmlChecked = ticked === true ? ' checked' : '';
-  const htmlBox = `<input class="zr-check zr-checklist__box sim-tick" type="checkbox" data-tag-id="${num(id)}"${htmlChecked}>`;
-  if (kind === 'unsure') {
-    const reason = String(proposal.reason == null ? '' : proposal.reason);
-    const htmlReason =
-      reason === ''
-        ? ''
-        : `<span class="zr-checklist__reason">${esc(reason)}</span>`;
-    return `<label class="zr-checklist__row zr-checklist__row--dim" data-tag-id="${num(id)}">${htmlBox}${htmlText}${htmlReason}</label>`;
-  }
-  let chip = '';
-  if (kind === 'split') {
-    const source = String(proposal.source || 'rule');
-    chip = SOURCE_LABELS[source] || source;
-  } else if (kind === 'merge') {
-    chip = mergeBasis(proposal);
-  }
-  const htmlChip =
-    chip === '' ? '' : `<span class="zr-checklist__chip">${esc(chip)}</span>`;
-  return `<label class="zr-checklist__row" data-tag-id="${num(id)}">${htmlBox}${htmlText}${htmlChip}</label>`;
-}
-
-/**
- * One checklist: its head with the count, its first rows and the button that
- * shows the rest. Unsure carries the way into the stack in its head;
- * Unchanged is one line with a button that lists its tags. An empty list is
- * not drawn at all. Pure on purpose.
- *
- * @param {string} kind one of SECTION_KINDS
- * @param {object[]} rows the proposals in it, in order
- * @param {{full?: boolean, shown?: boolean, overrides?: Map}} state
- * @returns {string} markup
- */
-function htmlSection(kind, rows, state) {
-  const list = Array.isArray(rows) ? rows : [];
-  if (list.length === 0) return '';
-  const options = state || {};
-  const count = list.length;
-  const htmlHead = `<span class="zr-label">${esc(SECTION_TITLES[kind] || kind)} <span class="zr-checklist__count">${esc(`· ${grouped(count)}`)}</span></span>`;
-  const htmlReview =
-    kind === 'unsure'
-      ? `<button class="zr-btn sim-stack-open" type="button">${esc('Review one by one')}</button>`
-      : '';
-
-  let htmlBody;
-  if (kind === 'unchanged') {
-    const shown = options.shown === true;
-    const htmlExpanded = shown ? 'true' : 'false';
-    const htmlLine = `<div class="zr-checklist__row sim-list__row--plain sim-list__summary"><span class="zr-checklist__text">${esc(`${grouped(count)} ${plural(count, 'tag stays as it is', 'tags stay as they are')}`)}</span><button class="zr-btn sim-unchanged-toggle" type="button" aria-expanded="${htmlExpanded}">${esc(shown ? 'Hide' : 'Show')}</button></div>`;
-    htmlBody = shown
-      ? `${htmlLine}${htmlSectionRows(kind, list, options)}`
-      : htmlLine;
-  } else {
-    htmlBody = htmlSectionRows(kind, list, options);
-  }
-  return `<section class="zr-checklist sim-list sim-list--${esc(kind)}" data-section="${esc(kind)}"><div class="zr-checklist__head">${htmlHead}${htmlReview}</div><div class="sim-list__card">${htmlBody}</div></section>`;
-}
-
-/** The rows of one checklist, capped at LIST_ROWS until it is read in full. */
-function htmlSectionRows(kind, list, options) {
-  const shown = options.full === true ? list : list.slice(0, LIST_ROWS);
-  const htmlRows = shown
-    .map((proposal) =>
-      htmlChecklistRow(proposal, kind, isTicked(proposal, options.overrides))
+function unsureOpen(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(
+      (proposal) =>
+        String(proposal.status || 'open') === 'open' &&
+        sectionOf(proposal) === 'unsure'
     )
-    .join('');
-  const rest = list.length - shown.length;
-  const htmlMore =
-    rest > 0
-      ? `<div class="zr-checklist__more"><button class="zr-btn sim-list-more" type="button" data-section="${esc(kind)}">${esc(`${grouped(rest)} more`)}</button></div>`
-      : '';
-  return `${htmlRows}${htmlMore}`;
+    .sort(
+      (a, b) =>
+        num(b.documentCount) - num(a.documentCount) ||
+        String(a.tagName || '').localeCompare(String(b.tagName || ''), 'en', {
+          sensitivity: 'base',
+        })
+    );
+}
+
+/**
+ * The numbers of the result, from the proposals as they stand: every tag,
+ * the changes that are ticked (what Apply writes, and how many writes that
+ * is), the unsure ones still open, and how many changes are left to act on
+ * at all. They follow every tick. Pure on purpose.
+ *
+ * @param {object[]} list every proposal
+ * @returns {{tags: number, proposed: number, writes: number, unsure: number, live: number}}
+ */
+function resultCounts(list) {
+  const all = Array.isArray(list) ? list : [];
+  const plan = planWrites(
+    all.filter((proposal) => String(proposal.status || 'open') === 'accepted')
+  );
+  return {
+    tags: all.length,
+    proposed: plan.tags,
+    writes: plan.writes,
+    unsure: unsureOpen(all).length,
+    live: all.filter((proposal) => {
+      const kind = sectionOf(proposal);
+      return kind !== null && kind !== 'unchanged';
+    }).length,
+  };
+}
+
+/**
+ * "1,187 tags · 945 changes proposed · 118 unsure". Pure on purpose.
+ *
+ * @param {object} counts resultCounts()
+ * @returns {string}
+ */
+function doneHeadline(counts) {
+  const tags = num(counts && counts.tags);
+  const proposed = num(counts && counts.proposed);
+  const unsure = num(counts && counts.unsure);
+  return `${grouped(tags)} ${plural(tags, 'tag', 'tags')} · ${grouped(proposed)} ${plural(proposed, 'change', 'changes')} proposed · ${grouped(unsure)} unsure`;
+}
+
+/**
+ * "Apply 945 · 2,340 writes": what the accepted proposals add up to. Pure on
+ * purpose: the numbers are planWrites() over what is accepted, and a tag
+ * that stays writes nothing.
+ *
+ * @param {{tags: number, writes: number}} totals
+ * @returns {string}
+ */
+function applyLabel(totals) {
+  const tags = num(totals && totals.tags);
+  const writes = num(totals && totals.writes);
+  return `Apply ${grouped(tags)} · ${grouped(writes)} ${plural(writes, 'write', 'writes')}`;
+}
+
+/** "Review 4 unsure one by one". Pure on purpose. */
+function reviewLabel(count) {
+  return `Review ${grouped(count)} unsure one by one`;
 }
 
 /**
  * The cost line of the result: the mini bar and "23 requests · 110k tokens ·
- * ~3 min", or one quiet phrase when the page did not see the run. Pure on
- * purpose.
+ * ~3 min", or nothing when the page did not see the run. Pure on purpose.
  *
  * @param {?object} cost lastRunCost
- * @returns {string} markup
+ * @returns {string} markup, '' without a cost
  */
-function htmlResultCost(cost) {
-  if (!cost) return `<span>${esc(COST_UNKNOWN)}</span>`;
+function htmlRunCost(cost) {
+  if (!cost) return '';
   const split = tokenSplit(cost);
   const part = splitShares(split);
   const tokens = num(cost.tokens) > 0 ? num(cost.tokens) : part.total;
   const requests = num(cost.requests);
   const text = `${grouped(requests)} ${plural(requests, 'request', 'requests')} · ${formatTokens(tokens)} tokens · ${roughTime(num(cost.ms) / 1000)}`;
   if (part.total <= 0) return `<span>${esc(text)}</span>`;
-  const label = `${formatTokens(split.prompt)} question · ${formatTokens(split.answer)} answer · ${formatTokens(split.thinking)} thinking`;
+  const label = `${formatTokens(split.prompt)} read · ${formatTokens(split.answer)} written · ${formatTokens(split.thinking)} thinking`;
   const htmlBar = `<span class="zr-tokenbar zr-tokenbar--mini" role="img" aria-label="${esc(label)}" title="${esc(label)}"><span class="zr-tokenbar__track"><span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: ${num(part.prompt)}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: ${num(part.answer)}%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: ${num(part.thinking)}%"></span></span></span>`;
   return `${htmlBar}<span>${esc(text)}</span>`;
 }
@@ -3037,122 +2961,145 @@ function shortDate(date, now) {
 }
 
 /**
- * The one line under a simple page: "History · last apply 14 Sep" and the
- * way to the log that undoes it, or '' when nothing was applied. Pure on
- * purpose.
- *
- * @param {?Date} date lastApplyAt()
- * @param {Date} now
- * @returns {string} markup
- */
-function htmlHistoryLine(date, now) {
-  const day = shortDate(date, now);
-  if (day === '') return '';
-  return `<span>${esc(`History · last apply ${day}`)}</span><span aria-hidden="true">·</span><a class="zr-btn" href="${esc(UNDO_HREF)}">${esc('Undo')}</a>`;
-}
-
-/** The simple mode from the proposals as they stand. */
-function renderSimple() {
-  if (!el.result && !el.emptyCard) return;
-  const sections = simpleSections([...proposals.values()]);
-  const live =
-    sections.split.length +
-    sections.merge.length +
-    sections.delete.length +
-    sections.unsure.length;
-  const ordering = jobId !== null && !applying;
-  const stacking = el.stack !== null && !el.stack.classList.contains('hidden');
-  const showResult = live > 0 && !ordering && !stacking;
-  if (el.result) el.result.classList.toggle('hidden', !showResult);
-  // The start carries the sentence of the page as its title, so the line
-  // above it is drawn only with a result.
-  if (el.sub) el.sub.classList.toggle('hidden', !showResult);
-  if (el.emptyCard) {
-    el.emptyCard.classList.toggle('hidden', showResult || ordering || stacking);
-  }
-  if (el.historyLine) {
-    const htmlLine = htmlHistoryLine(
-      lastApplyAt([...proposals.values()]),
-      new Date()
-    );
-    el.historyLine.innerHTML = htmlLine;
-    el.historyLine.classList.toggle(
-      'hidden',
-      htmlLine === '' || ordering || stacking
-    );
-  }
-  if (!showResult) return;
-  if (el.resultHeadline) {
-    el.resultHeadline.textContent = resultHeadline(sections);
-  }
-  if (el.resultCost) el.resultCost.innerHTML = htmlResultCost(lastRunCost);
-  if (el.lists) {
-    el.lists.innerHTML = SECTION_KINDS.map((kind) =>
-      htmlSection(kind, sections[kind], {
-        full: listsFull.has(kind),
-        shown: unchangedShown,
-        overrides: tickOverrides,
-      })
-    ).join('');
-  }
-  updateApplyTicked(sections);
-}
-
-/** Only the numbers of the button: a tick moves nothing else. */
-function updateApplyTicked(sections) {
-  if (!el.applyTickedBtn) return;
-  const ticked = tickedProposals(
-    sections || simpleSections([...proposals.values()]),
-    tickOverrides
-  );
-  el.applyTickedBtn.textContent = applyTickedLabel(ticked);
-  el.applyTickedBtn.disabled =
-    ticked.length === 0 || jobId !== null || applying;
-}
-
-/**
- * The status changes that make "accepted" mean exactly the ticks: a ticked
- * row that is not accepted yet is accepted, an accepted row that was
- * unticked is opened again. Rows that stay as they are keep their status.
+ * The facts line of the start: "Last apply 23 Sep · 20 tags", the tags
+ * applied on the day of the newest apply, or '' when nothing was applied.
  * Pure on purpose.
  *
- * @param {object[]} list every proposal
- * @param {object[]} ticked tickedProposals()
- * @returns {Array<{tagId: number, status: string}>}
+ * @param {object[]} list proposals
+ * @param {Date} now
+ * @returns {string}
  */
-function statusChanges(list, ticked) {
-  const wanted = new Set(
-    (Array.isArray(ticked) ? ticked : []).map((proposal) => num(proposal.tagId))
-  );
-  const changes = [];
-  (Array.isArray(list) ? list : []).forEach((proposal) => {
-    const status = String(proposal.status || 'open');
-    if (status === 'applied') return;
-    const id = num(proposal.tagId);
-    if (wanted.has(id)) {
-      if (status !== 'accepted')
-        changes.push({ tagId: id, status: 'accepted' });
-      return;
-    }
-    if (
-      status === 'accepted' &&
-      String(proposal.action || 'split') !== 'keep'
-    ) {
-      changes.push({ tagId: id, status: 'open' });
-    }
-  });
-  return changes;
+function lastApplyFacts(list, now) {
+  const newest = lastApplyAt(list);
+  const day = shortDate(newest, now);
+  if (day === '') return '';
+  const tags = (Array.isArray(list) ? list : []).filter((proposal) => {
+    if (String((proposal && proposal.status) || '') !== 'applied') return false;
+    const date = parseStamp(proposal.updatedAt);
+    return date !== null && date.toDateString() === newest.toDateString();
+  }).length;
+  return `Last apply ${day} · ${grouped(tags)} ${plural(tags, 'tag', 'tags')}`;
 }
 
 /**
- * Writes the status changes, a few at a time, without redrawing anything per
- * row: 945 redraws of the table would take longer than the writes.
+ * Which of its three faces the assistant shows, or the stack in its place.
+ * A job, or the ticking after an order, is the run; the stack is open on
+ * request; a result with anything left to act on is the result; everything
+ * else is the start. Pure on purpose.
+ *
+ * @param {{running: boolean, stack: boolean, live: number}} state
+ * @returns {'running' | 'stack' | 'done' | 'start'}
  */
-async function writeStatuses(changes) {
+function assistState(state) {
+  const input = state || {};
+  if (input.running === true) return 'running';
+  if (input.stack === true) return 'stack';
+  return num(input.live) > 0 ? 'done' : 'start';
+}
+
+/**
+ * The start: the sentence of the page, what a run does, the one button and
+ * the facts line. Without a model the button is dead and the facts line
+ * says why; while a job is asked for it is dead too. Pure on purpose.
+ *
+ * @param {boolean} ready whether a model is configured
+ * @param {string} facts lastApplyFacts()
+ * @param {boolean} [busy] whether a job is being started or runs
+ * @returns {string} markup
+ */
+function htmlStartCard(ready, facts, busy) {
+  const htmlDisabled = ready === true && busy !== true ? '' : ' disabled';
+  const htmlButton = `<button class="zr-btn zr-btn--primary zr-btn--lg" id="simStartBtn" type="button"${htmlDisabled}>${esc(SIMPLIFY_GUIDE.start.button)}</button>`;
+  return htmlAssistStart({
+    icon: 'i-split',
+    title: SIMPLIFY_GUIDE.start.title,
+    what:
+      ready === true
+        ? SIMPLIFY_GUIDE.start.what
+        : SIMPLIFY_GUIDE.start.whatWithoutModel,
+    htmlButton,
+    factsId: 'simStartFacts',
+    facts: ready === true ? String(facts == null ? '' : facts) : NO_MODEL,
+  });
+}
+
+/**
+ * The result: the headline of numbers, what the run cost when the page saw
+ * it, how the tools below are used, and the two buttons. The stack is only
+ * offered while something is unsure; Apply is dead while nothing is ticked
+ * or a job runs. Pure on purpose.
+ *
+ * @param {object} counts resultCounts()
+ * @param {?object} cost lastRunCost
+ * @param {boolean} busy whether a job runs
+ * @returns {string} markup
+ */
+function htmlDoneCard(counts, cost, busy) {
+  const unsure = num(counts && counts.unsure);
+  const proposed = num(counts && counts.proposed);
+  const htmlReview =
+    unsure > 0
+      ? `<button class="zr-btn" id="simReviewBtn" type="button">${esc(reviewLabel(unsure))}</button>`
+      : '';
+  const htmlDisabled = proposed === 0 || busy === true ? ' disabled' : '';
+  const htmlApply = `<button class="zr-btn zr-btn--primary" id="simApplyAcceptedBtn" type="button"${htmlDisabled}>${esc(applyLabel({ tags: proposed, writes: counts && counts.writes }))}</button>`;
+  return htmlAssistDone({
+    headline: doneHeadline(counts),
+    htmlCost: htmlRunCost(cost),
+    next: SIMPLIFY_GUIDE.done.next,
+    htmlActions: `${htmlReview}${htmlApply}`,
+  });
+}
+
+/**
+ * The assistant as the page stands: its face, the run meter or the stack in
+ * its place, and the workspace under it waiting while a job runs or nothing
+ * has been proposed yet. Before the first load it draws nothing, so a page
+ * with a result does not flash the start.
+ */
+function renderAssist() {
+  if (!el.assist) return;
+  const list = [...proposals.values()];
+  const counts = resultCounts(list);
+  const state = assistState({
+    running: jobId !== null || finishing !== null,
+    stack: stacking,
+    live: counts.live,
+  });
+  if (el.progress) el.progress.classList.toggle('hidden', state !== 'running');
+  if (el.stack) el.stack.classList.toggle('hidden', state !== 'stack');
+  if (el.assistCard) {
+    let htmlCard = '';
+    const busy = starting || applying || jobId !== null;
+    if (loaded && state === 'start') {
+      htmlCard = htmlStartCard(
+        modelReady(),
+        lastApplyFacts(list, new Date()),
+        busy
+      );
+    }
+    if (loaded && state === 'done') {
+      htmlCard = htmlDoneCard(counts, lastRunCost, busy);
+    }
+    el.assistCard.innerHTML = htmlCard;
+  }
+  if (loaded || state === 'running') {
+    setWorkspaceWaiting(el.page, state === 'running' || list.length === 0);
+  }
+}
+
+/**
+ * Writes status changes, a few at a time, without redrawing anything per
+ * row: 945 redraws of the groups would take longer than the writes. The
+ * first failure ends every lane after the request it is in, so no status is
+ * written behind the error the page is about to show.
+ *
+ * @param {Array<{tagId: number, status: string}>} changes
+ * @param {(done: number, total: number) => void} [onStep]
+ */
+async function writeStatuses(changes, onStep) {
   let done = 0;
   let next = 0;
-  // The first failure ends every lane after the request it is in, so no
-  // status is written behind the error the page is about to show.
   let failure = null;
   const lane = async () => {
     while (failure === null && next < changes.length) {
@@ -3170,7 +3117,7 @@ async function writeStatuses(changes) {
         return;
       }
       done += 1;
-      showPreparing(`Preparing ${grouped(done)} of ${grouped(changes.length)}`);
+      if (typeof onStep === 'function') onStep(done, changes.length);
     }
   };
   const lanes = Math.min(PATCH_LANES, changes.length);
@@ -3178,66 +3125,158 @@ async function writeStatuses(changes) {
   if (failure !== null) throw failure;
 }
 
-/**
- * The one button of the simple mode: what is ticked becomes what is
- * accepted, and the apply job writes it with the apply progress of both
- * modes.
- */
-async function applyTicked() {
-  if (jobId || applying) return;
-  const all = [...proposals.values()];
-  const ticked = tickedProposals(simpleSections(all), tickOverrides);
-  if (ticked.length === 0) return;
-  const confirmed = await confirmDialog({
-    title: `Apply ${grouped(ticked.length)}`,
-    body: applySummaryText(ticked),
-    confirmLabel: 'Apply',
-    cancelLabel: 'Cancel',
-    tone: 'danger',
+/** The run meter during the step after an order: the proposals being ticked. */
+function renderFinishing() {
+  if (finishing === null) return;
+  const state = Object.assign({}, (progressJob && progressJob.progress) || {}, {
+    phase: 'finishing',
   });
-  if (!confirmed) return;
-  applying = true;
-  updateApplyTicked();
-  if (el.applyResult) el.applyResult.innerHTML = '';
-  const changes = statusChanges(all, ticked);
-  try {
-    if (changes.length > 0) {
-      showPreparing(`Preparing 0 of ${grouped(changes.length)}`);
-      await writeStatuses(changes);
-    }
-  } catch (error) {
-    applying = false;
-    hidePreparing();
-    toast(error.message, { tone: 'danger' });
-    await loadProposals();
-    return;
+  if (el.progressMessage) el.progressMessage.textContent = phaseHeadline(state);
+  renderRunMeter(state);
+  renderAssist();
+}
+
+/**
+ * How the sure changes of a run are accepted with the fewest requests: a
+ * group whose every open or skipped tag is a sure change is accepted whole,
+ * by the decision a group card's Accept sends; what no such group covers is
+ * accepted tag by tag, by the status route every tick uses. Either way
+ * exactly sureChanges() ends up accepted. The global API limit counts every
+ * request, and 945 of them in a row would spend most of it. Pure on
+ * purpose.
+ *
+ * @param {object[]} groupList the groups as the route answered them
+ * @param {object[]} list every proposal
+ * @returns {{groups: Array<{key: string, tags: number}>,
+ *   tags: Array<{tagId: number, status: string}>, total: number}}
+ */
+function acceptPlan(groupList, list) {
+  const sure = new Set(sureChanges(list).map((change) => change.tagId));
+  const covered = new Set();
+  const whole = [];
+  (Array.isArray(groupList) ? [...groupList] : [])
+    .filter((group) => String(group.kind || '') !== 'keep')
+    .sort((a, b) => num(b.tags) - num(a.tags))
+    .forEach((group) => {
+      // What the group's Accept would take: its open and skipped tags.
+      const taken = (Array.isArray(group.members) ? group.members : [])
+        .filter((member) =>
+          ['open', 'skipped'].includes(String(member.status || 'open'))
+        )
+        .map((member) => num(member.tagId));
+      if (taken.length === 0 || !taken.every((id) => sure.has(id))) return;
+      const fresh = taken.filter((id) => !covered.has(id));
+      if (fresh.length === 0) return;
+      fresh.forEach((id) => covered.add(id));
+      whole.push({ key: String(group.key), tags: fresh.length });
+    });
+  const tags = [...sure]
+    .filter((id) => !covered.has(id))
+    .map((tagId) => ({ tagId, status: 'accepted' }));
+  return { groups: whole, tags, total: sure.size };
+}
+
+/**
+ * Writes an acceptPlan(): the whole groups one after the other, then the
+ * single tags a few at a time. `onStep` hears how many tags are ticked.
+ *
+ * @param {ReturnType<typeof acceptPlan>} plan
+ * @param {(done: number) => void} onStep
+ */
+async function writeAcceptPlan(plan, onStep) {
+  let done = 0;
+  for (const group of plan.groups) {
+    await sendJson(
+      'POST',
+      `/api/simplify/groups/${encodeURIComponent(String(group.key))}/decision`,
+      { decision: 'accept' }
+    );
+    done += group.tags;
+    onStep(done);
   }
-  applying = false;
-  await applyOrder(null);
+  const before = done;
+  await writeStatuses(plan.tags, (count) => onStep(before + count));
+}
+
+/**
+ * The end of an order run, wherever the page watched it from: the new
+ * proposals are read, and what the model was sure of or a rule settled is
+ * accepted, once. The unsure ones stay open for the stack. A failure here
+ * leaves the proposals as they are and says so; the run itself is not
+ * undone by it.
+ *
+ * @param {?object} result what the job answered, or null when it is not known
+ * @param {boolean} stopped whether the run was stopped
+ */
+async function finishOrder(result, stopped) {
+  if (result) {
+    orderResult = result;
+    orderStopped = stopped === true;
+  }
+  finishing = { done: 0, total: 0 };
+  renderFinishing();
+  try {
+    await loadVocabulary();
+    await loadGroups();
+    await loadProposals();
+    const plan = acceptPlan(groups, [...proposals.values()]);
+    finishing.total = plan.total;
+    renderFinishing();
+    await writeAcceptPlan(plan, (done) => {
+      finishing.done = done;
+      renderFinishing();
+    });
+  } catch (error) {
+    toast(error.message, { tone: 'danger' });
+  } finally {
+    finishing = null;
+    await loadGroups();
+    await loadProposals();
+    renderOrderSummary();
+  }
+}
+
+/**
+ * Whether an order that ended while no page watched it still has to land as
+ * ticks: it ended with a result, and nothing of that result has been decided
+ * on yet. Once one proposal is accepted or skipped, the page leaves the
+ * statuses alone. Pure on purpose.
+ *
+ * @param {object} job the job the service still holds
+ * @param {object[]} list every proposal
+ * @returns {boolean}
+ */
+function missedFinish(job, list) {
+  const status = String((job && job.status) || '');
+  if (String((job && job.task) || '') !== JOB_TASKS.ORDER) return false;
+  if (status !== 'done' && status !== 'stopped') return false;
+  const all = Array.isArray(list) ? list : [];
+  if (
+    all.some((proposal) =>
+      ['accepted', 'skipped'].includes(String(proposal.status || 'open'))
+    )
+  ) {
+    return false;
+  }
+  return sureChanges(all).length > 0;
 }
 
 /* --- the stack: one decision per screen ----------------------------------- */
 
 /**
- * The bar over the stack: where it is, how far, how much is left, and the one
- * way out of it that is not a decision. Pure on purpose.
+ * The bar over the stack: where it is, how far, and how much is left. Pure
+ * on purpose.
  *
  * @param {number} at zero-based position in the queue
  * @param {number} total how long the queue is
- * @param {number} clear how many rows the model was sure of
  * @returns {string} markup
  */
-function htmlStackBar(at, total, clear) {
+function htmlStackBar(at, total) {
   const size = Math.max(0, num(total));
   const position = Math.min(size, num(at) + 1);
   const left = Math.max(0, size - num(at));
   const percent = size === 0 ? 100 : Math.round((num(at) / size) * 100);
-  const sure = num(clear);
-  const htmlAccept =
-    sure > 0
-      ? `<button class="zr-btn sim-stack-acceptclear" type="button">${esc(`Accept the ${grouped(sure)} clear ${plural(sure, 'one', 'ones')}`)}</button>`
-      : '';
-  return `<div class="zr-runbar"><span class="zr-runbar__position">${esc(`Tag ${position} of ${size}`)}</span><div class="zr-runbar__track"><div class="zr-runbar__fill" style="width: ${num(percent)}%"></div></div><span class="zr-runbar__rest">${esc(`${left} left`)}</span>${htmlAccept}</div>`;
+  return `<div class="zr-runbar"><span class="zr-runbar__position">${esc(`Tag ${position} of ${size}`)}</span><div class="zr-runbar__track"><div class="zr-runbar__fill" style="width: ${num(percent)}%"></div></div><span class="zr-runbar__rest">${esc(`${left} left`)}</span></div>`;
 }
 
 /**
@@ -3323,13 +3362,10 @@ function stackProposals() {
 
 /** The stack as it stands, when it is open. */
 function renderStack() {
-  if (!el.stack || el.stack.classList.contains('hidden')) return;
+  if (!el.stack || !stacking) return;
   const queue = stackProposals();
-  const sections = simpleSections([...proposals.values()]);
-  const clear =
-    sections.split.length + sections.merge.length + sections.delete.length;
   if (el.stackBar) {
-    el.stackBar.innerHTML = htmlStackBar(stackAt, queue.length, clear);
+    el.stackBar.innerHTML = htmlStackBar(stackAt, queue.length);
   }
   const proposal = queue[stackAt];
   if (!proposal) {
@@ -3345,36 +3381,37 @@ function renderStack() {
 }
 
 /**
- * Opens the stack over exactly the unsure rows. It is a mode, not a page: the
- * result gives way to it and comes back when it closes.
+ * Opens the stack over exactly the unsure tags nobody has decided on. It
+ * takes the place of the result in the assistant, and the result comes back
+ * when it closes; the groups under it stay awake and follow every decision.
  */
 function openStack() {
   if (!el.stack) return;
-  stackQueue = simpleSections([...proposals.values()]).unsure.map((proposal) =>
+  stackQueue = unsureOpen([...proposals.values()]).map((proposal) =>
     num(proposal.tagId)
   );
   stackAt = 0;
   stackDecided = 0;
   stackUndo = null;
-  el.stack.classList.remove('hidden');
-  renderSimple();
+  stacking = true;
+  renderAssist();
   renderStack();
   el.stack.focus();
 }
 
 function closeStack() {
   if (!el.stack) return;
-  el.stack.classList.add('hidden');
+  stacking = false;
   stackQueue = [];
   stackAt = 0;
   stackUndo = null;
-  renderSimple();
+  renderAssist();
 }
 
 /**
  * One decision of the stack. Nothing here reaches Paperless-ngx: 'accept' and
  * 'keep' write the proposal's own status, 'later' only moves the queue on. An
- * accepted row is ticked in its checklist; a kept one moves to Unchanged.
+ * accepted tag is ticked in its groups; a kept one moves to Unchanged.
  *
  * @param {string} decision 'accept' | 'keep' | 'later'
  */
@@ -3397,15 +3434,13 @@ async function decideOnStack(decision) {
       action: String(proposal.action || 'split'),
       status: String(proposal.status || 'open'),
     },
-    tick: tickOverrides.has(tagId) ? tickOverrides.get(tagId) : null,
   };
-  if (decision === 'keep') tickOverrides.delete(tagId);
-  else tickOverrides.set(tagId, true);
   const patch =
     decision === 'keep'
       ? { action: 'keep', status: 'accepted' }
       : { status: 'accepted' };
   await patchProposal(tagId, patch);
+  await refreshGroups();
   stackDecided += 1;
   stackQueue = stackQueue.filter((id) => id !== tagId);
   if (stackAt >= stackQueue.length) {
@@ -3415,33 +3450,17 @@ async function decideOnStack(decision) {
   if (el.stack) el.stack.focus();
 }
 
-/** Puts the last decision back the way it was, tick included. */
+/** Puts the last decision back the way it was, in the groups too. */
 async function undoLastDecision() {
   if (stackUndo === null) return;
-  const { tagId, before, tick } = stackUndo;
+  const { tagId, before } = stackUndo;
   stackUndo = null;
-  if (tick === null) tickOverrides.delete(tagId);
-  else tickOverrides.set(tagId, tick);
   await patchProposal(tagId, before);
+  await refreshGroups();
   if (!stackQueue.includes(tagId)) stackQueue.splice(stackAt, 0, tagId);
   stackDecided = Math.max(0, stackDecided - 1);
   renderStack();
   if (el.stack) el.stack.focus();
-}
-
-/**
- * The way out of the stack that is not a decision: every row the model was
- * sure of ticked, the stack closed, and the apply button in reach.
- */
-function acceptClearOnes() {
-  const sections = simpleSections([...proposals.values()]);
-  ['split', 'merge', 'delete'].forEach((kind) => {
-    sections[kind].forEach((proposal) => {
-      tickOverrides.set(num(proposal.tagId), true);
-    });
-  });
-  closeStack();
-  if (el.applyTickedBtn) el.applyTickedBtn.focus();
 }
 
 /* --- the sheet before a run ----------------------------------------------- */
@@ -3628,8 +3647,8 @@ function leverPrice(estimate, count, on) {
 
 /**
  * The switches of the sheet, in their order, each only when it would change
- * something: the decided tags, the tags on few documents, and in simple mode
- * the saved vocabulary. Pure on purpose.
+ * something: the decided tags, the tags on few documents, and the saved
+ * vocabulary when there is one to keep. Pure on purpose.
  *
  * @param {object} estimate normaliseEstimate()
  * @param {object} levers runLevers
@@ -3708,7 +3727,7 @@ function sheetModel(estimate, levers, keepOffer) {
  * @returns {Promise<boolean>} true when Start was pressed
  */
 async function askPreflight(forceKeep) {
-  const keepOffer = mode === 'simple' && vocabularySaved && forceKeep !== true;
+  const keepOffer = vocabularySaved && forceKeep !== true;
   const keepFor = () =>
     forceKeep === true ||
     (vocabularySaved && runLevers.keepVocabulary === true);
@@ -3746,10 +3765,7 @@ async function askPreflight(forceKeep) {
         if (id === 'minDocuments') {
           runLevers.minDocuments = on ? MIN_DOCUMENTS_LEVER : 1;
         }
-        if (id === 'keepVocabulary') {
-          runLevers.keepVocabulary = on;
-          if (el.keepVocabulary) el.keepVocabulary.checked = on;
-        }
+        if (id === 'keepVocabulary') runLevers.keepVocabulary = on;
         refresh();
       },
     });
@@ -3763,11 +3779,21 @@ async function askPreflight(forceKeep) {
 
 /* --- the run meter -------------------------------------------------------- */
 
-/** The bar of the run: where it is, how far, what is left. Pure on purpose. */
+/**
+ * The bar of the run: where it is, how far, what is left. An apply asks no
+ * model and plans no request; its bar counts the tags it writes. Pure on
+ * purpose.
+ */
 function htmlRunbar(progress) {
   const state = progress || {};
   const done = num(state.requestsDone);
   const planned = num(state.requestsPlanned);
+  const tags = num(state.pairsTotal);
+  if (planned <= 0 && String(state.phase || '') === 'applying' && tags > 0) {
+    const written = Math.min(num(state.pairsJudged), tags);
+    const share = Math.round((written / tags) * 100);
+    return `<div class="zr-runbar"><span class="zr-runbar__position">${esc(`Tag ${Math.min(written + 1, tags)} of ${tags}`)}</span><div class="zr-runbar__track"><div class="zr-runbar__fill" style="width: ${num(share)}%"></div></div><span class="zr-runbar__rest">${esc(formatEta(state.etaMs) || `${tags - written} left`)}</span></div>`;
+  }
   const percent = progressPercent(state);
   const position =
     planned > 0
@@ -3795,6 +3821,14 @@ function htmlRunLedger(progress) {
     items.push({ value: `${judged} of ${total}`, unit: 'tags' });
   } else if (judged > 0) {
     items.push({ value: String(judged), unit: 'tags' });
+  }
+  const tally = tallyText(state.tally);
+  if (tally !== '') {
+    items.push({
+      value: tally,
+      unit:
+        String(state.phase || '') === 'ordering' ? 'so far' : 'by the model',
+    });
   }
   if (spent > 0) {
     items.push({
@@ -3838,10 +3872,18 @@ function htmlLiveRequest(progress) {
   const index = num(state.requestsDone) + 1;
   const items = num(state.requestPairs);
   const answers = num(state.requestAnswers);
-  const what =
-    items > 0
-      ? `Request ${index} · ${items} ${plural(items, 'tag', 'tags')} · ${answers} answered`
-      : `Request ${index}`;
+  // The vocabulary pass reads names; the job says 'tags' for the whole run,
+  // so the phase decides what the request in flight is about.
+  const kind =
+    String(state.phase || '') === 'vocabulary'
+      ? 'names'
+      : String(state.kind || '');
+  let what = `Request ${index}`;
+  if (items > 0 && kind === 'names') {
+    what = `Request ${index} · ${items} names`;
+  } else if (items > 0) {
+    what = `Request ${index} · ${itemsText(kind, items)} · ${answers} answered`;
+  }
   const cost =
     running > 0
       ? `${formatTokens(running)} so far${thinking ? ' · thinking' : ''}`
@@ -3850,8 +3892,28 @@ function htmlLiveRequest(progress) {
 }
 
 /**
- * What one finished request did, in one line of facts. `empty` and `failed`
- * are the two that are worth reading. Pure on purpose.
+ * "50 tags", "300 names", "50 items": what a request was about, by the kind
+ * its record carries. Pure on purpose.
+ *
+ * @param {?string} kind 'tags' | 'names' | anything else
+ * @param {number} count
+ * @returns {string}
+ */
+function itemsText(kind, count) {
+  const total = num(count);
+  if (kind === 'tags')
+    return `${grouped(total)} ${plural(total, 'tag', 'tags')}`;
+  if (kind === 'names') {
+    return `${grouped(total)} ${plural(total, 'name', 'names')}`;
+  }
+  return `${grouped(total)} ${plural(total, 'item', 'items')}`;
+}
+
+/**
+ * What one finished request did, in one line of facts, worded by what it was
+ * about: the order's "50 tags · 50 answered", the vocabulary's "300 names
+ * read". "the rest asked again" only when fewer came back than were asked.
+ * `empty` and `failed` are the two that are worth reading. Pure on purpose.
  *
  * @param {object} record an AiReviewRequestRecord
  * @returns {string}
@@ -3861,18 +3923,24 @@ function reqlogText(record) {
   const index = num(entry.index);
   const items = num(entry.items);
   const answers = num(entry.answers);
+  const kind = String(entry.kind || '');
   const outcome = String(entry.outcome || 'answered');
-  const asked = `${items} ${plural(items, 'tag', 'tags')}`;
+  const asked = itemsText(kind, items);
   if (outcome === 'empty') {
     return `Request ${index} · ${formatTokens(entry.thinkingTokens)} thinking · no answer`;
   }
   if (outcome === 'failed') {
     return `Request ${index} · ${asked} · ended by the provider`;
   }
-  if (outcome === 'partial') {
-    return `Request ${index} · ${asked} · ${answers} answered · rest asked again`;
+  // A names row counts what the vocabulary pass proposed from what it
+  // read; nothing of it is asked again.
+  if (kind === 'names') {
+    const proposed =
+      answers > 0 && answers < items ? ` · ${grouped(answers)} proposed` : '';
+    return `Request ${index} · ${asked} read${proposed}`;
   }
-  return `Request ${index} · ${asked} · ${answers} answered`;
+  const rest = answers < items ? ' · the rest asked again' : '';
+  return `Request ${index} · ${asked} · ${grouped(answers)} answered${rest}`;
 }
 
 /** What that request cost, as the row's right hand column. Pure on purpose. */
@@ -3881,9 +3949,23 @@ function reqlogCost(record) {
   const tokens = num(entry.tokens);
   const thinking = num(entry.thinkingTokens);
   if (tokens <= 0) return '0 tokens';
-  if (thinking <= 0) return `${formatTokens(tokens)} tokens`;
+  if (thinking <= 0) {
+    return `${formatTokens(tokens)} ${plural(tokens, 'token', 'tokens')}`;
+  }
   if (thinking >= tokens) return `${formatTokens(tokens)} · all thinking`;
   return `${formatTokens(tokens)} · ${formatTokens(thinking)} thinking`;
+}
+
+/**
+ * How long a request took, as the Duplicates page says it: "9 s" under a
+ * minute, "1:24" from one on. Pure on purpose.
+ *
+ * @param {number} ms
+ * @returns {string}
+ */
+function requestTime(ms) {
+  const seconds = num(ms) / 1000;
+  return seconds >= 60 ? formatElapsed(ms) : `${Math.round(seconds)} s`;
 }
 
 /** The last handful of requests, newest first. Pure on purpose. */
@@ -3896,15 +3978,120 @@ function htmlReqLog(list) {
       const warn = outcome === 'empty' || outcome === 'failed';
       const htmlClass = warn ? ' zr-reqlog__row--warn' : '';
       const htmlMark = `<span class="zr-reqlog__mark">${htmlIconMarkup(warn ? 'i-alert' : 'i-check')}</span>`;
-      return `<div class="zr-reqlog__row${htmlClass}">${htmlMark}<span class="zr-reqlog__what">${esc(reqlogText(record))}</span><span class="zr-reqlog__cost">${esc(reqlogCost(record))}</span><span class="zr-reqlog__state">${esc(formatElapsed(num(record.ms)))}</span></div>`;
+      return `<div class="zr-reqlog__row${htmlClass}">${htmlMark}<span class="zr-reqlog__what">${esc(reqlogText(record))}</span><span class="zr-reqlog__cost">${esc(reqlogCost(record))}</span><span class="zr-reqlog__state">${esc(requestTime(record.ms))}</span></div>`;
     })
     .join('');
   return `<div class="zr-reqlog">${htmlRows}</div>`;
 }
 
+/**
+ * "812 split · 96 merge · 37 delete · 124 keep · 3 unsure": what the model has answered
+ * so far in an order, from the tally the job reports, or '' before the model
+ * answered. Pure on purpose.
+ *
+ * @param {?object} tally {split, merge, delete, keep, unsure}
+ * @returns {string}
+ */
+function tallyText(tally) {
+  if (!tally || typeof tally !== 'object') return '';
+  return ['split', 'merge', 'delete', 'keep', 'unsure']
+    .map((key) => `${grouped(tally[key])} ${key}`)
+    .join(' · ');
+}
+
+/**
+ * What the current step says beside its label: the request the run is at,
+ * or during the step after an order how many proposals are ticked. Pure on
+ * purpose.
+ *
+ * @param {string} key the step
+ * @param {object} progress
+ * @param {?{done: number, total: number}} ticking finishing
+ * @returns {string}
+ */
+function stepSub(key, progress, ticking) {
+  const state = progress || {};
+  if (key === 'finishing') {
+    if (!ticking || num(ticking.total) <= 0) return '';
+    return `${grouped(ticking.done)} of ${grouped(ticking.total)} ticked`;
+  }
+  const planned = num(state.requestsPlanned);
+  if (planned <= 0) return '';
+  return `request ${Math.min(num(state.requestsDone) + 1, planned)} of ${planned}`;
+}
+
+/**
+ * The steps of the run being followed, for the strip above its headline. An
+ * order has them; the other jobs of this page are one step each and show
+ * none. The vocabulary goes when the run keeps the saved one, and a step the
+ * order never reports goes unless it did. Pure on purpose.
+ *
+ * @param {{task: string, keepsVocabulary: boolean, seen: Set<string>,
+ *   finishing: ?object}} run
+ * @param {object} progress
+ * @returns {Array<{key: string, label: string, sub?: string}>}
+ */
+function runSteps(run, progress) {
+  const context = run || {};
+  if (String(context.task || '') !== JOB_TASKS.ORDER) return [];
+  const state = progress || {};
+  const seen = context.seen instanceof Set ? context.seen : new Set();
+  const phase = String(state.phase || '');
+  return SIMPLIFY_GUIDE.steps
+    .filter(
+      (step) =>
+        !(step.key === 'vocabulary' && context.keepsVocabulary === true) &&
+        (!STEPS_NOT_RUN.includes(step.key) || seen.has(step.key))
+    )
+    .map((step) =>
+      step.key === phase
+        ? {
+            key: step.key,
+            label: step.label,
+            sub: stepSub(step.key, state, context.finishing),
+          }
+        : { key: step.key, label: step.label }
+    );
+}
+
+/**
+ * The sentence under the headline: what happens now and why, from the
+ * guide, and while the order asks, what the model has answered so far.
+ * Pure on purpose.
+ *
+ * @param {object} progress
+ * @returns {string} markup
+ */
+function htmlRunSentence(progress) {
+  const state = progress || {};
+  const phase = String(state.phase || '');
+  const tally = phase === 'ordering' ? tallyText(state.tally) : '';
+  return htmlSentence(
+    SIMPLIFY_GUIDE.phases[phase] || null,
+    tally === '' ? '' : `${tally} so far.`
+  );
+}
+
 /** The run meter, from one progress event. */
 function renderRunMeter(progress) {
   const state = progress || {};
+  if (el.steps) {
+    el.steps.innerHTML = htmlSteps(
+      stepStates(
+        runSteps(
+          {
+            task: runTask,
+            keepsVocabulary: runKeepsVocabulary,
+            seen: phasesSeen,
+            finishing,
+          },
+          state
+        ),
+        String(state.phase || '')
+      )
+    );
+  }
+  if (el.sentence) el.sentence.innerHTML = htmlRunSentence(state);
   if (el.runbar) el.runbar.innerHTML = htmlRunbar(state);
   if (el.runLedger) el.runLedger.innerHTML = htmlRunLedger(state);
   if (el.runTokens) {
@@ -3927,7 +4114,7 @@ function renderRunMeter(progress) {
   }
 }
 
-/** What a finished model run cost, kept for the cost line of the result. */
+/** What a finished order cost, kept for the cost line of the result. */
 function keepRunCost(progress) {
   const state = progress || {};
   const tokens = num(state.tokens);
@@ -4104,50 +4291,28 @@ async function retryOne(tagId) {
 
 /* --- wiring --------------------------------------------------------------- */
 
-/** The mode switch in the top bar, and what a change of mode closes. */
-function initMode() {
-  if (!el.page) return;
-  mode = mountModeSwitch({
-    page: 'simplify',
-    root: el.page,
-    slot: el.topbarActions,
-    gate: GATE_LINES,
-    onChange: (next) => {
-      mode = next;
-      // The stack is opened from the simple result; it does not outlive it.
-      if (el.stack && !el.stack.classList.contains('hidden')) closeStack();
-    },
+/** One line under the head of each tool, from the guide; nothing else explains. */
+function initCaptions() {
+  document.querySelectorAll('[data-caption]').forEach((node) => {
+    node.outerHTML = htmlCaption(
+      SIMPLIFY_GUIDE.sections[String(node.dataset.caption)] || ''
+    );
   });
 }
 
-/** The simple mode: the card's button, the ticks, the lists and the apply. */
-function initSimple() {
-  if (el.startBtn) el.startBtn.addEventListener('click', proposeOrder);
-  if (el.againBtn) el.againBtn.addEventListener('click', proposeOrder);
-  if (el.applyTickedBtn) {
-    el.applyTickedBtn.addEventListener('click', applyTicked);
-  }
-  if (!el.lists) return;
-  // A tick is local and moves only the numbers of the button.
-  el.lists.addEventListener('change', (event) => {
-    const box = event.target.closest('.sim-tick');
-    if (!box) return;
-    tickOverrides.set(num(box.dataset.tagId), box.checked === true);
-    updateApplyTicked();
-  });
-  el.lists.addEventListener('click', (event) => {
-    const more = event.target.closest('.sim-list-more');
-    if (more) {
-      listsFull.add(String(more.dataset.section));
-      renderSimple();
+/** The assistant: its buttons are drawn with its card, so one listener serves them. */
+function initAssist() {
+  if (!el.assist) return;
+  el.assist.addEventListener('click', (event) => {
+    if (event.target.closest('#simStartBtn')) {
+      proposeOrder();
       return;
     }
-    if (event.target.closest('.sim-unchanged-toggle')) {
-      unchangedShown = !unchangedShown;
-      renderSimple();
+    if (event.target.closest('#simReviewBtn')) {
+      openStack();
       return;
     }
-    if (event.target.closest('.sim-stack-open')) openStack();
+    if (event.target.closest('#simApplyAcceptedBtn')) applyAllAccepted();
   });
 }
 
@@ -4226,19 +4391,10 @@ function initTypePicker() {
   });
 }
 
-/** The order of the advanced mode: its buttons, the filters and the cards. */
+/** The order: the view switch, the filters, the cards and their ticks. */
 function initOrder() {
-  if (el.orderBtn) el.orderBtn.addEventListener('click', proposeOrder);
   if (el.reproposeBtn) {
     el.reproposeBtn.addEventListener('click', repropose);
-  }
-  if (el.applyAcceptedBtn) {
-    el.applyAcceptedBtn.addEventListener('click', applyAllAccepted);
-  }
-  if (el.keepVocabulary) {
-    el.keepVocabulary.addEventListener('change', () => {
-      runLevers.keepVocabulary = el.keepVocabulary.checked === true;
-    });
   }
 
   const pickOne = (host, attribute, apply) => {
@@ -4272,6 +4428,17 @@ function initOrder() {
   }
 
   if (!el.groups) return;
+  el.groups.addEventListener('change', (event) => {
+    const box = event.target.closest('.sim-member-tick');
+    if (box) {
+      tickMember(num(box.dataset.tagId), box.checked === true);
+      return;
+    }
+    const head = event.target.closest('.sim-group-tick');
+    const card = head ? head.closest('.sim-group') : null;
+    const group = card ? groupByKey(card.dataset.groupKey) : null;
+    if (group) decideGroup(group, head.checked === true ? 'accept' : 'reopen');
+  });
   el.groups.addEventListener('click', (event) => {
     const card = event.target.closest('.sim-group');
     if (!card) return;
@@ -4363,10 +4530,6 @@ function initStack() {
     }
     if (event.target.closest('.sim-stack-close')) {
       closeStack();
-      return;
-    }
-    if (event.target.closest('.sim-stack-acceptclear')) {
-      acceptClearOnes();
       return;
     }
     const remove = event.target.closest('.sim-topic-remove');
@@ -4528,21 +4691,21 @@ function initProposals() {
 }
 
 async function init() {
-  initMode();
-  initSimple();
+  initCaptions();
+  initAssist();
   initVocabulary();
   initOrder();
   initStack();
   initProposals();
   setView('groups');
   await loadVocabulary();
-  await loadDocumentTypes();
   await loadGroups();
   await loadProposals();
-  // Once more after the loads, so a page whose proposals could not be read
-  // still shows its card.
-  renderSimple();
+  // The types are for the picker of the vocabulary, and Paperless-ngx may be
+  // slow to answer them; a run that is going takes the assistant first.
+  const types = loadDocumentTypes();
   await reattachJob();
+  await types;
 }
 
 if (document.readyState === 'loading') {

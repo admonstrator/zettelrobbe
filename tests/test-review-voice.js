@@ -40,7 +40,8 @@ function test(name, fn) {
 
 const FILES = [
   'public/js/modules/review-sheet.js',
-  'public/js/modules/review-mode.js',
+  'public/js/modules/review-assist.js',
+  'public/js/modules/review-guide.js',
   'views/duplicates.ejs',
   'public/js/duplicates.js',
   'views/simplify.ejs',

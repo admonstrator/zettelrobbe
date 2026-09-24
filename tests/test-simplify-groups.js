@@ -29,6 +29,7 @@
  * 14. Out of a merge group and out of delete it becomes keep
  * 15. The keep group has nothing to let go of: 400
  * 16. A tag that is not in the group is 404, an applied one is 409
+ * 17. An order run reports what the model answered as a tally while it goes
  */
 
 'use strict';
@@ -649,6 +650,130 @@ async function main() {
         () => service.removeGroupMember('type:Rechnung', 2),
         409,
         'what was written cannot be taken out again'
+      );
+    });
+
+    /* --- The tally of an order run ---------------------------------------- */
+
+    await test('An order run reports what the model answered as a tally while it goes', async () => {
+      const { createFakePaperless } = require('./helpers/fake-paperless');
+      const paperlessService = require('../services/paperlessService');
+      const duplicateMergeService = require('../services/duplicateMergeService');
+      const AIServiceFactory = require('../services/aiServiceFactory');
+      const config = require('../config/config');
+      const realGetService = AIServiceFactory.getService;
+      const realPerRequest = config.simplifyTagsPerRequest;
+      const realConcurrency = config.duplicatesAiConcurrency;
+
+      // Six tags no rule settles, one per request, so a request that
+      // answers nothing costs exactly one tag.
+      const fake = createFakePaperless({
+        tags: [
+          { id: 2, name: 'Mobilfunkabo' },
+          { id: 3, name: 'Krempel' },
+          { id: 4, name: 'Hobby' },
+          { id: 5, name: 'Nachbarn' },
+          { id: 6, name: 'Nachbarschaft' },
+          { id: 7, name: 'Sammlung' },
+        ],
+        documents: [
+          { id: 100, tags: [2, 3] },
+          { id: 101, tags: [4, 5] },
+          { id: 102, tags: [6, 7] },
+        ],
+      });
+      paperlessService.client = fake.client;
+      await withLog(async () => {
+        paperlessService.clearEntityCaches();
+        duplicateMergeService.invalidateScanCache();
+        await service.saveVocabulary({
+          types: ['Rechnung', 'Vertrag'],
+          topics: ['Strom', 'Telefon'],
+        });
+      });
+      config.simplifyTagsPerRequest = 1;
+      config.duplicatesAiConcurrency = 1;
+
+      const answers = {
+        2: {
+          action: 'split',
+          type: 'Vertrag',
+          topics: ['Telefon'],
+          confidence: 'high',
+          reason: 'a phone contract',
+        },
+        3: { action: 'delete', confidence: 'high', reason: 'says nothing' },
+        5: {
+          action: 'merge',
+          mergeInto: 'Nachbarschaft',
+          confidence: 'low',
+          reason: 'the same people',
+        },
+        6: { action: 'keep', confidence: 'low', reason: 'a subject' },
+        7: { action: 'keep', confidence: 'high', reason: 'a subject' },
+      };
+      const provider = {
+        client: {},
+        lastGenerateTextUsage: null,
+        async generateText(prompt) {
+          provider.lastGenerateTextUsage = { totalTokens: 100 };
+          const ids = [...String(prompt).matchAll(/"id":\s*"(\d+)"/g)].map(
+            (match) => match[1]
+          );
+          // Hobby's request comes back unreadable: a request that answered
+          // nothing, which must leave the tally as it was.
+          if (ids.includes('4')) return 'not an answer';
+          return JSON.stringify(ids.map((id) => ({ id, ...answers[id] })));
+        },
+      };
+      AIServiceFactory.getService = () => provider;
+
+      const patches = [];
+      // The unreadable answer is warned about; the warning is expected here.
+      const realWarn = console.warn;
+      console.warn = () => {};
+      try {
+        await withLog(() =>
+          service.proposeOrder(
+            { vocabulary: 'keep' },
+            { onProgress: (patch) => patches.push({ ...patch }) }
+          )
+        );
+      } finally {
+        console.warn = realWarn;
+        AIServiceFactory.getService = realGetService;
+        config.simplifyTagsPerRequest = realPerRequest;
+        config.duplicatesAiConcurrency = realConcurrency;
+      }
+
+      const ordering = patches.filter((patch) => patch.phase === 'ordering');
+      assert.ok(ordering.length > 0, 'the order pass reported its phase');
+      assert.ok(
+        !('tally' in ordering[0]),
+        'the first report comes before any answer and carries no tally'
+      );
+      const tallies = patches
+        .filter((patch) => 'tally' in patch)
+        .map((patch) => patch.tally);
+      assert.strictEqual(
+        tallies.length,
+        5,
+        'one tally with every request that answered, none with the one that did not'
+      );
+      const sum = (tally) =>
+        tally.split + tally.merge + tally.delete + tally.keep + tally.unsure;
+      tallies.forEach((tally, at) => {
+        assert.strictEqual(sum(tally), at + 1, 'every answer counts once');
+      });
+      assert.deepStrictEqual(
+        tallies[tallies.length - 1],
+        { split: 1, merge: 0, delete: 1, keep: 2, unsure: 1 },
+        'a low confidence answer counts as unsure, unless it is a keep'
+      );
+      assert.notStrictEqual(
+        tallies[0],
+        tallies[1],
+        'every patch carries its own count, not one object that keeps moving'
       );
     });
   } finally {

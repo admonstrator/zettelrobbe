@@ -4,10 +4,10 @@
  * Static checks for the Duplicates page: the view, its navigation entry, its
  * stylesheet and its page script. The page talks to a dozen endpoints and is
  * reviewed in a browser; what is checked here is everything that can drift
- * without anyone noticing. The simple page (the empty card, the sheet before
- * a run, the result head with its checklists, the history line and the stack)
- * is described in tests/test-duplicates-assistant-ui.js; this file covers the
- * page as a whole and the tools of the advanced mode:
+ * without anyone noticing. The assistant on top (the start, the run, the
+ * result), the tick rule, the sheet and the stack are described in
+ * tests/test-duplicates-assistant-ui.js; this file covers the page as a
+ * whole and the tools under the assistant:
  *
  * 1. views/duplicates.ejs renders through the real shell and carries the ids,
  *    the sensitivity options and the threshold field the page script and the
@@ -230,38 +230,51 @@ test('views/duplicates.ejs renders through the real shell partials', () => {
   page = renderSync('duplicates.ejs', LOCALS);
   assert.ok(page.includes('<!DOCTYPE html>'), 'no document was produced');
   assert.ok(
-    page.includes('Merge tags and correspondents that mean the same thing.'),
-    'the view head sentence is missing'
+    page.includes('<section class="dup-assist" id="dupAssist" data-assist'),
+    'the assistant is missing'
   );
 });
 
 test('The view carries the ids the page script and the route agree on', () => {
   [
+    'dupAssist',
+    'dupAssistCard',
+    'dupAiProgress',
+    'dupRunSteps',
+    'dupRunSentence',
     'dupControls',
     'dupScanBtn',
-    'dupEmpty',
-    'dupFindBtn',
     'dupAiNotice',
     'dupApply',
     'dupStack',
-    'dupResult',
-    'dupResultHeadline',
-    'dupResultCost',
-    'dupResultMergeBtn',
-    'dupChecklists',
-    'dupHistoryLine',
     'dupEverything',
     'dupResults',
     'dupLog',
     'dupDismissals',
   ].forEach((id) => {
     assert.ok(page.includes(`id="${id}"`), `#${id} is missing from the view`);
+    // The two tools the script reaches through their parts are not looked
+    // up themselves.
+    if (id === 'dupControls' || id === 'dupDismissals') return;
+    assert.ok(
+      SCRIPT.includes(`'${id}'`),
+      `the page script never looks up #${id}`
+    );
   });
-  // The row of numbers above the results said what the result head says now.
-  ['dupStats', 'dupStatGroups', 'dupStatBuckets'].forEach((id) => {
+  // The row of numbers above the results said what the assistant says now,
+  // and the simple result is gone with its mode.
+  [
+    'dupStats',
+    'dupStatGroups',
+    'dupStatBuckets',
+    'dupEmpty',
+    'dupResult',
+    'dupChecklists',
+    'dupHistoryLine',
+  ].forEach((id) => {
     assert.ok(
       !page.includes(`id="${id}"`),
-      `#${id} repeats the result head and belongs to no mockup`
+      `#${id} repeats the assistant and belongs to no mockup`
     );
   });
 });
@@ -457,7 +470,7 @@ test('The model is rendered only when the route offers it', () => {
   [
     'dupAiReviewBtn',
     'dupAiReviewIcon',
-    'dupAiProgress',
+    'dupAiStopBtn',
     'dupReviewThenMergeBtn',
     'dupAiForgetBtn',
   ].forEach((id) => {
@@ -566,17 +579,16 @@ test('The guided button is rendered only when the model is offered', () => {
   );
 });
 
-test('Without the model the page is whole: both modes, the list and every merge', () => {
+test('Without the model the page is whole: the assistant, the list and every merge', () => {
   // The rule for this page: the model is an addition. Everything a merge
-  // needs has to render and work with the model switched off.
+  // needs has to render and work with the model switched off; the assistant
+  // draws its start and its result from the script either way, and a scan
+  // runs on the same meter.
   const plain = renderSync('duplicates.ejs', LOCALS);
   [
-    'dupEmpty',
-    'dupFindBtn',
-    'dupResult',
-    'dupResultMergeBtn',
-    'dupChecklists',
-    'dupHistoryLine',
+    'dupAssist',
+    'dupAssistCard',
+    'dupAiProgress',
     'dupStack',
     'dupApply',
     'dupResultsBar',
@@ -594,18 +606,13 @@ test('Without the model the page is whole: both modes, the list and every merge'
       `#${id} must not depend on the model`
     );
   });
-  ['Find duplicates', 'Sort: Confidence', 'Select ≥', 'Merge 0'].forEach(
-    (label) => {
-      assert.ok(
-        plain.includes(label),
-        `"${label}" must not depend on the model`
-      );
-    }
-  );
+  ['Sort: Confidence', 'Select ≥', 'Merge 0'].forEach((label) => {
+    assert.ok(plain.includes(label), `"${label}" must not depend on the model`);
+  });
   [
     'dupReviewThenMergeBtn',
     'dupReviewThenMergeIcon',
-    'dupAiProgress',
+    'dupAiStopBtn',
     'dupAiForgetBtn',
     'Ask the model',
   ].forEach((needle) => {
@@ -629,10 +636,15 @@ test('The view falls back to the presets when the route passes no locals', () =>
     'normal is missing'
   );
   assert.ok(output.includes('<option value="0.75">'), 'loose is missing');
-  // The simple page scans at the default the route would have passed.
+  // "Find duplicates" scans with what the row shows, so the row's default
+  // is the only default there is.
   assert.ok(
-    output.includes('data-default-threshold="0.85"'),
-    'the simple page has no threshold to scan with'
+    output.includes('value="85" inputmode="numeric"'),
+    'the threshold field has no default'
+  );
+  assert.ok(
+    !output.includes('data-default-threshold'),
+    'a second default nobody reads is back'
   );
 });
 
@@ -1019,10 +1031,22 @@ test('Every group card carries the select check', () => {
     /<input type="checkbox" class="zr-check dup-select" aria-label="Select this group">/,
     'the card head has no select check'
   );
-  // Unchecked by default: nothing is ever preselected for a destructive step.
+  // The template never ticks: the check follows the selection, and the only
+  // thing that fills the selection unasked is the proposal of a new answer,
+  // by the one rule (isProposed, tested in test-duplicates-assistant-ui.js).
   assert.ok(
     !/class="zr-check dup-select"[^>]*checked/.test(SCRIPT),
-    'the select check must come up unchecked'
+    'the template must not tick a card by itself'
+  );
+  assert.match(
+    SCRIPT,
+    /check\.checked = selectedGroups\.has\(id\);/,
+    'the check does not follow the selection'
+  );
+  assert.strictEqual(
+    (SCRIPT.match(/selectedGroups\.add\(/g) || []).length,
+    5,
+    'the proposal, a tick on the card, "Select ≥", the stack and the guided flow are the ways into the selection'
   );
   // A card that may not be merged says why instead of silently doing nothing.
   [
@@ -1360,11 +1384,11 @@ test('The review dialog shows verdicts and merges what stays ticked', () => {
     /const reason = verdict \? shortReason\(verdict\.reason\) : '';/,
     'the model’s sentence is not cut to length'
   );
-  // Pre-ticked for a settled "same" only; a verdict is information, never a
-  // veto, and a "same" the model is unsure about is not settled.
+  // Pre-ticked by the rule the cards follow: two signs, and never a pair
+  // only the model proposed. Any row can be ticked by hand.
   assert.match(
     row,
-    /isSureSame\(verdict\) \? ' checked' : ''/,
+    /isProposed\(group\) \? ' checked' : ''/,
     'the ticks must follow the pre-tick rule'
   );
   assert.match(
@@ -1431,8 +1455,8 @@ test('The stylesheet carries the toolbar and review classes', () => {
 });
 
 /* ── 10. the two ways to the model ────────────────────────────────────────── */
-/* "Find duplicates" of the simple page scans and asks about everything, and
-   "Ask the model" of the advanced page asks about the scan on the page; both
+/* "Find duplicates" of the assistant scans and asks about everything, and
+   "Ask the model" of the scan row asks about the scan on the page; both
    open the sheet first and send what its levers say. What is checked here is
    that the model stays an addition: the requests are the ones the job route
    knows, and nothing of the paths without a model asks one. */
@@ -1447,12 +1471,12 @@ test('Find duplicates scans, opens the sheet, and asks about everything', () => 
   );
   assert.match(
     body,
-    /const options = simpleOptions\(\);/,
-    'the simple page scans with its own defaults, not the scan row'
+    /const options = controlOptions\(\);/,
+    'the button scans with what the scan row shows'
   );
   // With it, the free scan comes first, on the meter, so the sheet opens
   // with its numbers; the model is asked only after Start.
-  const scan = body.indexOf('await runScan(options, { meter: true });');
+  const scan = body.indexOf('await runScan(options, { withModel: true });');
   const stop = body.indexOf('if (!scanned) return;');
   const sheet = body.indexOf('await confirmRun(options)');
   const ask = body.indexOf('askForVerdicts(');
@@ -1464,11 +1488,11 @@ test('Find duplicates scans, opens the sheet, and asks about everything', () => 
   assert.match(
     body,
     /askForVerdicts\(\{ includeCandidates: true \}, options\)/,
-    'the simple page must have the near-misses judged as well'
+    'the button must have the near-misses judged as well'
   );
   assert.ok(
     !body.includes('groupIds'),
-    'the simple page asks about everything; narrowing it is the guided path'
+    'the button asks about everything; narrowing it is the guided path'
   );
   ['fetch(', 'postJson(', 'requestJson('].forEach((call) => {
     assert.ok(
@@ -1476,11 +1500,11 @@ test('Find duplicates scans, opens the sheet, and asks about everything', () => 
       `the button must not send ${call} itself: the scan and the job are it`
     );
   });
-  // "Ask the model" of the advanced page opens the same sheet.
+  // "Ask the model" of the scan row opens the same sheet.
   assert.match(
     functionBody('runAiReview'),
     /if \(!\(await confirmRun\(options\)\)\) return;/,
-    'the advanced run must price itself first as well'
+    'the run of the scan row must price itself first as well'
   );
 });
 
@@ -1521,7 +1545,7 @@ test('Every run sends the levers of the sheet through the one job route', () => 
   );
 });
 
-test('Only a settled "same" comes up ticked in the verdict dialog', () => {
+test('Only a settled "same" is a sign for a tick', () => {
   const { isSureSame } = helpers(['isSureSame']);
   // What the model is sure about, and what a spelling rule settled without it.
   assert.strictEqual(
@@ -1553,9 +1577,15 @@ test('Only a settled "same" comes up ticked in the verdict dialog', () => {
       `${JSON.stringify(verdict)} must not come up ticked`
     );
   });
+  // The sign is read by the one rule, and the verdict dialog uses the rule.
+  assert.match(
+    functionBody('isProposed'),
+    /return isSureSame\(verdict\);/,
+    'the rule no longer reads the sign'
+  );
   assert.match(
     functionBody('htmlReviewRow'),
-    /isSureSame\(verdict\)/,
+    /isProposed\(group\)/,
     'the row renderer no longer uses the pre-tick rule'
   );
   assert.strictEqual(
@@ -1723,8 +1753,9 @@ test('The member tables line up across cards whatever the names are', () => {
    promises, and that the script really streams (with a fallback) instead of
    waiting for one long POST. */
 
-test('The run meter is rendered only where the model is offered', () => {
+test('The run meter is on every page, and Stop only where a model runs', () => {
   const offered = renderOffered();
+  // A scan runs on the meter too, so the meter is there without the model.
   [
     'dupAiProgress',
     'dupAiProgressBar',
@@ -1733,17 +1764,22 @@ test('The run meter is rendered only where the model is offered', () => {
     'dupRunPosition',
     'dupRunRest',
     'dupRunCeiling',
-    'dupAiStopBtn',
   ].forEach((id) => {
-    assert.ok(
-      offered.includes(`id="${id}"`),
-      `#${id} is missing although the model is offered`
-    );
-    assert.ok(
-      !page.includes(`id="${id}"`),
-      `#${id} must not exist without the model`
-    );
+    [offered, page].forEach((markup) => {
+      assert.ok(markup.includes(`id="${id}"`), `#${id} is missing`);
+    });
   });
+  // A scan cannot be stopped; only a run of the model can.
+  assert.ok(offered.includes('id="dupAiStopBtn"'));
+  assert.ok(
+    !page.includes('id="dupAiStopBtn"'),
+    'nothing can be stopped without the model'
+  );
+  assert.match(
+    functionBody('aiReviewOffered'),
+    /return Boolean\(el\.aiReviewBtn\);/,
+    'the meter on the page no longer says whether a model is offered'
+  );
   // Hidden until a run runs, and a live region so a screen reader hears it.
   assert.match(
     offered,
@@ -1920,7 +1956,7 @@ test('The page follows the review through the job routes and an event stream', (
     'a running review must be attached to, not reported as a failure'
   );
   assert.ok(
-    ask.includes('followReviewJob(job)'),
+    /followReviewJob\(\n?\s*job,/.test(ask),
     'the started job is not followed'
   );
   // Stop is one request and no dialog; the verdicts already reached are kept.
@@ -2071,51 +2107,6 @@ test('progressPercent counts the answers that streamed in', () => {
   );
 });
 
-test('progressCountsText says where the running request is', () => {
-  const { progressCountsText } = helpers(['plural', 'progressCountsText']);
-  assert.strictEqual(
-    progressCountsText({
-      requestsDone: 2,
-      requestsPlanned: 9,
-      pairsJudged: 34,
-      pairsTotal: 82,
-      tokens: 12400,
-      tokenBudget: 200000,
-      requestPairs: 10,
-      requestAnswers: 7,
-    }),
-    'Request 2 of 9 · 7 of 10 answers · 34 of 82 pairs · 12k of 200k tokens'
-  );
-  // Between two requests there is nothing to count, and the part is gone
-  // rather than showing "0 of 0 answers".
-  assert.strictEqual(
-    progressCountsText({
-      requestsDone: 2,
-      requestsPlanned: 9,
-      pairsJudged: 34,
-      pairsTotal: 82,
-      tokens: 12400,
-      tokenBudget: 200000,
-      requestPairs: null,
-      requestAnswers: 0,
-    }),
-    'Request 2 of 9 · 34 of 82 pairs · 12k of 200k tokens'
-  );
-  // An answer count that ran ahead of the request it belongs to is capped
-  // rather than printed as more answers than there are pairs.
-  assert.match(
-    progressCountsText({
-      requestsDone: 1,
-      requestsPlanned: 4,
-      pairsTotal: 40,
-      tokens: 0,
-      requestPairs: 10,
-      requestAnswers: 14,
-    }),
-    /10 of 10 answers/
-  );
-});
-
 test('The headline is the phase, not the sentence that flickers under it', () => {
   const { phaseHeadline } = helpers(['phaseHeadline']);
   // The phase is what stays put while a request thinks.
@@ -2134,36 +2125,6 @@ test('The headline is the phase, not the sentence that flickers under it', () =>
     'Waiting for the scan…'
   );
   assert.strictEqual(phaseHeadline({}), 'Working');
-});
-
-test('The outcome line keeps the measured batch size', () => {
-  const { progressOutcomeText } = helpers([
-    'num',
-    'plural',
-    'formatElapsed',
-    'progressOutcomeText',
-  ]);
-  const progress = {
-    elapsedMs: 84000,
-    requestsDone: 9,
-    requestsPlanned: 9,
-    pairsJudged: 82,
-    pairsTotal: 82,
-    tokens: 12400,
-    batchSize: 9,
-  };
-  assert.strictEqual(
-    progressOutcomeText({ type: 'done', job: { progress } }),
-    'Done in 1:24 · 9 requests · 82 pairs · 12k tokens · 9 pairs per request'
-  );
-  assert.strictEqual(
-    progressOutcomeText({
-      type: 'done',
-      job: { progress: Object.assign({}, progress, { batchSize: null }) },
-    }),
-    'Done in 1:24 · 9 requests · 82 pairs · 12k tokens',
-    'a run that never got to size anything says nothing about it'
-  );
 });
 
 test('The panel says its phase once, and shows that the model is thinking', () => {
@@ -2205,17 +2166,23 @@ test('The panel says its phase once, and shows that the model is thinking', () =
     render.includes('phaseHeadline(state)'),
     'the headline is never written'
   );
-  // The panel of a review that has finished says none of this any more.
+  // The panel of a review that has finished says none of this any more: it
+  // steps down, and the assistant sums the run up as its result.
   const outcome = functionBody('renderProgressOutcome');
   assert.ok(
     outcome.includes("classList.remove('dup-progress__fill--thinking')"),
     'a finished review keeps pulsing'
   );
   assert.ok(
-    outcome.includes('progressCountsText(') &&
-      outcome.includes('el.runPosition.textContent'),
-    'a finished review does not sum itself up'
+    outcome.includes('renderAssist();'),
+    'a finished review does not hand over to the result'
   );
+  ['progressCountsText', 'progressOutcomeText'].forEach((name) => {
+    assert.ok(
+      !SCRIPT.includes(`function ${name}(`),
+      `${name}() wrote a line nobody sees any more`
+    );
+  });
   // The row is held open only while a review runs, so the tiles below do not
   // jump the moment the warm-up fills it.
   assert.ok(
@@ -2582,11 +2549,17 @@ test('The delete goes to its own endpoint, one request per kind', () => {
     deleteFn.includes('markUnusedFailure'),
     'a refused object must keep its reason next to it'
   );
-  // The simple page deletes through the same function, after its own question.
+  // The section is the one way to delete: "Merge" of the assistant merges
+  // the ticked groups and nothing else.
   assert.match(
-    functionBody('mergeTicked'),
-    /if \(unused\.length > 0\) await deleteUnusedEntries\(unused\);/,
-    'the one button of the simple page must delete the way the section does'
+    functionBody('deleteUnused'),
+    /await deleteUnusedEntries\(picked\);/,
+    'the section does not delete through the one function'
+  );
+  assert.strictEqual(
+    (SCRIPT.match(/deleteUnusedEntries\(/g) || []).length,
+    2,
+    'the definition and the section: nothing else deletes'
   );
 });
 
@@ -2790,11 +2763,20 @@ test('The undo of a split says what it takes back', () => {
     undo.indexOf('isSplitEntry(entry)') < undo.indexOf('isDeleteEntry(entry)'),
     'a split is decided before the delete branch, or it reads as a merge'
   );
-  // The history line of the simple page undoes through the same function.
+  // The log is the one place that undoes, and a link from Simplify tags
+  // opens it on a page that has no result yet.
   assert.match(
-    functionBody('undoLast'),
-    /await undoMerge\(historyEntry\.id\);/,
-    'the history line must undo the way the log does'
+    functionBody('undoMerge'),
+    /const entry = logEntries\.get\(num\(id\)\);/,
+    'an undo reads a row of the log'
+  );
+  const visit = functionBody('initLogVisit');
+  assert.ok(
+    visit.includes("'#dupLog'") && visit.includes('el.log.open = true')
+  );
+  assert.ok(
+    visit.includes('assist.logVisit = true;'),
+    'the log of a visit that came for it must not wait for a scan'
   );
 });
 
@@ -2913,7 +2895,7 @@ test('htmlMappingRows names the rule and links the document', () => {
     'the rule is named the way the cards name it, not printed as "plural"'
   );
   assert.ok(
-    linked.includes('<span class="zr-chip">Semantic</span>'),
+    linked.includes('<span class="zr-chip">Synonym</span>'),
     'a sweep-proposed rule reads the same here as on a card'
   );
   assert.ok(
@@ -2997,7 +2979,7 @@ test('The sweep is a switch of the sheet, off and remembered', () => {
   // The label of the reason the sweep produces is the page vocabulary.
   assert.match(
     SCRIPT,
-    /semantic: 'Semantic',/,
+    /semantic: 'Synonym',/,
     'a pair the sweep proposed must read as one wherever reasons are shown'
   );
 });
@@ -3118,12 +3100,12 @@ test('A remembered verdict says so on its chip', () => {
   assert.ok(member.includes('· remembered'));
 });
 
-test('The advanced page offers to clear the verdict memory', () => {
+test('The last tool offers to clear the verdict memory', () => {
   const offered = renderOffered();
   assert.match(
     offered,
     /class="zr-btn" id="dupAiForgetBtn"/,
-    'clearing is a ghost button, never a third way to start a run'
+    'clearing is a plain button, never a third way to start a run'
   );
   assert.ok(
     offered.includes('>Clear verdict memory</button>'),
@@ -3132,7 +3114,7 @@ test('The advanced page offers to clear the verdict memory', () => {
   assert.ok(
     offered.indexOf('id="dupDismissals"') <
       offered.indexOf('id="dupAiForgetBtn"'),
-    'the button closes the advanced tools'
+    'the button closes the toolset'
   );
 
   // Without the model there is no memory to clear, so nothing of it renders.

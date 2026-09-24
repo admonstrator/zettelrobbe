@@ -196,7 +196,7 @@ function verdict(value, reason, extra = {}) {
 function ruleVerdict(reason, basis) {
   return {
     verdict: 'same',
-    reason: `settled by the spelling rule ${reason}`,
+    reason: `settled by the spelling rule: ${require('../services/entityMatchAiService').RULE_LABELS[reason] || reason}`,
     basis,
     confidence: 'high',
     source: 'spelling-rule',
@@ -5253,6 +5253,55 @@ async function main() {
           'and nothing new is written'
         );
       });
+    });
+
+    await test('A "same" about a pair only the model proposed is not remembered', async () => {
+      // A semantic pair has no second sign: keeping the model's "same" would
+      // bring the pair back on every later run without asking again. A
+      // "different" is safe to keep, and a spelling pair keeps both.
+      const written = [];
+      const realSave = documentModel.saveAiPairVerdict;
+      documentModel.saveAiPairVerdict = async (row) => {
+        written.push(row);
+        return true;
+      };
+      try {
+        const context = { memory: { model: 'test-model' }, kind: 'tags' };
+        const semantic = {
+          key: 'tags:1-2',
+          matchedBy: 'semantic',
+          a: { id: 1, name: 'Racun' },
+          b: { id: 2, name: 'Physiotherapie' },
+        };
+        const spelling = {
+          key: 'tags:3-4',
+          matchedBy: 'fuzzy',
+          a: { id: 3, name: 'Rechnung' },
+          b: { id: 4, name: 'Rechnungen' },
+        };
+        const same = {
+          verdict: 'same',
+          basis: 'synonym',
+          confidence: 'high',
+          reason: 'x',
+        };
+        const different = {
+          verdict: 'different',
+          basis: 'meaning',
+          confidence: 'high',
+          reason: 'y',
+        };
+        service._rememberVerdict(context, semantic, same);
+        service._rememberVerdict(context, semantic, different);
+        service._rememberVerdict(context, spelling, same);
+        await service.lastVerdictSave;
+        assert.deepStrictEqual(
+          written.map((row) => `${row.pairKey}:${row.verdict}`),
+          ['tags:1-2:different', 'tags:3-4:same']
+        );
+      } finally {
+        documentModel.saveAiPairVerdict = realSave;
+      }
     });
 
     await test('forgetVerdicts empties the memory and says how much it dropped', async () => {

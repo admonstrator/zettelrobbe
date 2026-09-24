@@ -1092,6 +1092,17 @@
  *         verdictsReused:
  *           type: integer
  *           description: pairs answered from remembered verdicts so far
+ *         tally:
+ *           type: object
+ *           nullable: true
+ *           description: what the model has answered so far; null until it answered
+ *           properties:
+ *             same:
+ *               type: integer
+ *             different:
+ *               type: integer
+ *             unsure:
+ *               type: integer
  *         thinkingTokens:
  *           type: integer
  *           nullable: true
