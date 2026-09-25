@@ -58,6 +58,22 @@ function switchedOn(value) {
   return value === true || String(value).trim().toLowerCase() === 'yes';
 }
 
+/**
+ * AI_PROCESSED_TAG_NAME as a list of names.
+ *
+ * The settings hold one string, but server.js, routes/setup.js and the
+ * duplicates service have always read it as comma-separated. Reading it as a
+ * single name here would turn "ai-processed,done" into one tag with a comma in
+ * it. An unset or blank value yields an empty list, which is what switches the
+ * completion tag off.
+ */
+function splitTagNames(value) {
+  return String(value ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name !== '');
+}
+
 /** The singular noun a log line uses for a kind. */
 function entityNoun(kind) {
   return kind === 'correspondents' ? 'correspondent' : 'tag';
@@ -758,23 +774,24 @@ class PaperlessService {
         (options.restrictToExistingTags === undefined &&
           process.env.RESTRICT_TO_EXISTING_TAGS === 'yes');
 
-      // Input validation
-      if (!tagNames) {
-        console.warn('[DEBUG] No tags provided to processTags');
-        return { tagIds: [], errors: [] };
-      }
-
-      // Convert to array if string is passed
-      const tagsArray =
-        typeof tagNames === 'string'
+      // Input validation. An empty list is not a reason to leave: the
+      // AI-processed tag at the end of this function is the app's own
+      // bookkeeping, and a document analysis found no subject tags for is
+      // still a processed document. Returning here left roughly one document
+      // in ten without the completion tag, so the Paperless-ngx workflow
+      // waiting on it never ran (#248).
+      const tagsArray = !tagNames
+        ? []
+        : typeof tagNames === 'string'
           ? [tagNames]
           : Array.isArray(tagNames)
             ? tagNames
             : [];
 
       if (tagsArray.length === 0) {
-        console.warn('[DEBUG] No valid tags to process');
-        return { tagIds: [], errors: [] };
+        console.warn(
+          '[DEBUG] No subject tags to process; only the AI-processed tag can still apply'
+        );
       }
 
       const tagIds = [];
@@ -859,31 +876,33 @@ class PaperlessService {
         }
       }
 
-      // Add AI-Processed tag if enabled
-      if (
-        process.env.ADD_AI_PROCESSED_TAG === 'yes' &&
-        process.env.AI_PROCESSED_TAG_NAME
-      ) {
-        try {
-          const aiTagName = process.env.AI_PROCESSED_TAG_NAME;
-          let aiTag = await this.findExistingTag(aiTagName);
+      // Add the AI-processed tag(s) if enabled. This runs whatever the subject
+      // tags were, including none at all, and it creates the tag even under
+      // restrictToExistingTags: the completion tag is the app's own
+      // bookkeeping, not a name the model proposed.
+      if (process.env.ADD_AI_PROCESSED_TAG === 'yes') {
+        for (const aiTagName of splitTagNames(
+          process.env.AI_PROCESSED_TAG_NAME
+        )) {
+          try {
+            let aiTag = await this.findExistingTag(aiTagName);
 
-          if (!aiTag) {
-            aiTag = await this.createTagSafely(aiTagName);
-          }
+            if (!aiTag) {
+              aiTag = await this.createTagSafely(aiTagName);
+            }
 
-          if (aiTag && aiTag.id) {
-            tagIds.push(aiTag.id);
+            if (aiTag && aiTag.id) {
+              tagIds.push(aiTag.id);
+            }
+          } catch (error) {
+            // One completion tag that cannot be created must not cost the
+            // subject tags already collected above.
+            console.error(
+              `[ERROR] processing AI tag "${aiTagName}":`,
+              error.message
+            );
+            errors.push({ tagName: aiTagName, error: error.message });
           }
-        } catch (error) {
-          console.error(
-            `[ERROR] processing AI tag "${process.env.AI_PROCESSED_TAG_NAME}":`,
-            error.message
-          );
-          errors.push({
-            tagName: process.env.AI_PROCESSED_TAG_NAME,
-            error: error.message,
-          });
         }
       }
 
