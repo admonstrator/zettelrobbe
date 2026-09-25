@@ -32,14 +32,12 @@ const selectorConstants = section(
   'function updateCustomFieldsJson()'
 );
 assert.ok(
-  selectorConstants.includes('[data-field-name]') &&
-    selectorConstants.includes('p.zr-strong'),
-  'CUSTOM_FIELD_NAME_SELECTOR must include zr/data-hook selectors used by custom field rows'
+  selectorConstants.includes("const CUSTOM_FIELD_NAME_SELECTOR = '[data-field-name]'"),
+  'CUSTOM_FIELD_NAME_SELECTOR must use the stable data hook for custom field names'
 );
 assert.ok(
-  selectorConstants.includes('[data-field-type]') &&
-    selectorConstants.includes('p.zr-sm'),
-  'CUSTOM_FIELD_TYPE_SELECTOR must include zr/data-hook selectors used by custom field rows'
+  selectorConstants.includes("const CUSTOM_FIELD_TYPE_SELECTOR = '[data-field-type]'"),
+  'CUSTOM_FIELD_TYPE_SELECTOR must use the stable data hook for custom field types'
 );
 
 const updateBlock = section(
@@ -78,12 +76,12 @@ const customFieldsSection = section(
   'id="customFieldsJson"'
 );
 assert.ok(
-  /<p class="zr-strong">/.test(customFieldsSection),
-  'views/settings.ejs server-rendered custom field rows must expose the zr-strong name element'
+  /<p class="zr-strong" data-field-name>/.test(customFieldsSection),
+  'views/settings.ejs server-rendered custom field rows must expose a data-field-name hook'
 );
 assert.ok(
-  /<p class="zr-sm zr-faint">/.test(customFieldsSection),
-  'views/settings.ejs server-rendered custom field rows must expose the zr-sm type element'
+  /<p class="zr-sm zr-faint" data-field-type>/.test(customFieldsSection),
+  'views/settings.ejs server-rendered custom field rows must expose a data-field-type hook'
 );
 
 console.log('[PASS] Custom field selector wiring is synced between view and settings.js');

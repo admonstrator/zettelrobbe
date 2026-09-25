@@ -3641,8 +3641,8 @@ function toggleCurrencySelect() {
   }
 }
 
-const CUSTOM_FIELD_NAME_SELECTOR = '[data-field-name], p.zr-strong, p.font-medium';
-const CUSTOM_FIELD_TYPE_SELECTOR = '[data-field-type], p.zr-sm.zr-faint, p.text-sm';
+const CUSTOM_FIELD_NAME_SELECTOR = '[data-field-name]';
+const CUSTOM_FIELD_TYPE_SELECTOR = '[data-field-type]';
 
 function updateCustomFieldsJson() {
   const fieldItems = document.querySelectorAll('.custom-field-item');
