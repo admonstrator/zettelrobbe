@@ -15,9 +15,31 @@ services:
     restart: unless-stopped
     cap_drop:
       - ALL
+    # Granted back one by one on top of cap_drop: ALL. The container starts as
+    # root to prepare /app/data and then drops to PUID:PGID; with none of these
+    # it can do neither and restarts in a loop (issue #241).
+    cap_add:
+      # chown -R /app/data to PUID:PGID - needed for a bind mount that Docker
+      # created as root on the host, and after a PUID/PGID change.
+      - CHOWN
+      # create /app/data and /app/data/logs inside a bind mount whose permission
+      # bits do not let root in through the owner entry.
+      - DAC_OVERRIDE
+      # gosu calls setgid() to drop to PGID.
+      - SETGID
+      # gosu calls setuid() to drop to PUID.
+      - SETUID
     security_opt:
       - no-new-privileges=true
+    # Fully unprivileged alternative: when the directory behind /app/data is
+    # already writable for 1000:1000 - a fresh named volume is, the image seeds
+    # it as root:node 775 - the container never needs root at all. Delete the
+    # cap_add block above and uncomment the next line instead.
+    # user: '1000:1000'
     environment:
+      # Uid/gid the application runs as. The entrypoint chowns /app/data to them
+      # and drops to them; change them only when a bind mount on the host
+      # belongs to somebody else.
       - PUID=1000
       - PGID=1000
       - PAPERLESS_AI_PORT=${PAPERLESS_AI_PORT:-3000}
@@ -49,6 +71,10 @@ services:
       - '3000:${PAPERLESS_AI_PORT:-3000}'
     volumes:
       - paperless-ai-next_data:/app/data
+      # Bind mount instead of a named volume: Docker creates a missing host
+      # directory as root, so the container relies on CAP_CHOWN above to hand it
+      # over to PUID:PGID on the first start.
+      # - ./data:/app/data
 
 volumes:
   # Name intentionally kept from the paperless-ai-next era so existing
