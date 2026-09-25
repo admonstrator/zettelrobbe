@@ -1,7 +1,7 @@
 const assert = require('assert');
 
 /**
- * Regression test for the omnibox/playground metadata lookup.
+ * Regression test for the omnibox metadata lookup.
  *
  * Resolving tag and correspondent names used to issue one detail request per
  * ID (GET /tags/{id}/, GET /correspondents/{id}/), which flooded Paperless-ngx

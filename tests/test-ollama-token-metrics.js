@@ -16,7 +16,7 @@ function restoreModules() {
       id: axiosModulePath,
       filename: axiosModulePath,
       loaded: true,
-      exports: originalAxiosExport
+      exports: originalAxiosExport,
     };
   }
 }
@@ -30,7 +30,7 @@ function loadOllamaServiceWithAxiosMock(axiosMock) {
     id: axiosModulePath,
     filename: axiosModulePath,
     loaded: true,
-    exports: axiosMock
+    exports: axiosMock,
   };
 
   return require('../services/ollamaService');
@@ -45,48 +45,35 @@ async function main() {
         title: 'Invoice',
         document_date: '2026-01-01',
         document_type: 'Invoice',
-        language: 'en'
+        language: 'en',
       },
       prompt_eval_count: 4913,
-      eval_count: 84
+      eval_count: 84,
     },
-    {
-      response: {
-        tags: ['playground'],
-        correspondent: 'ACME',
-        title: 'Playground',
-        document_date: '2026-01-02',
-        document_type: 'Note',
-        language: 'en'
-      },
-      prompt_eval_count: 200,
-      eval_count: 50
-    }
   ];
 
   const axiosMock = {
     create() {
       return {
-        post: async () => ({ data: payloads.shift() })
+        post: async () => ({ data: payloads.shift() }),
       };
-    }
+    },
   };
 
   try {
     const ollamaService = loadOllamaServiceWithAxiosMock(axiosMock);
 
-    const analysis = await ollamaService.analyzeDocument('content', [], [], [], '123');
+    const analysis = await ollamaService.analyzeDocument(
+      'content',
+      [],
+      [],
+      [],
+      '123'
+    );
     assert.deepStrictEqual(
       analysis.metrics,
       { promptTokens: 4913, completionTokens: 84, totalTokens: 4997 },
       'Expected analyzeDocument to map Ollama token counters'
-    );
-
-    const playground = await ollamaService.analyzePlayground('content', 'prompt');
-    assert.deepStrictEqual(
-      playground.metrics,
-      { promptTokens: 200, completionTokens: 50, totalTokens: 250 },
-      'Expected analyzePlayground to map Ollama token counters'
     );
 
     const fallbackMetrics = ollamaService._extractOllamaMetrics({});
