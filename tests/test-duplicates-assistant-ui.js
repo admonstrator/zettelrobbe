@@ -1,3 +1,10 @@
+// The date labels below are formatted in the local zone. Pinned to UTC so the
+// assertions read the same everywhere: east of Greenwich a fixture at
+// 2025-12-31T23:00Z falls on 1 January, and the formatter then drops the year
+// as well, which turned "Last run 31 Dec 2025" into "Last run 1 Jan" on every
+// machine outside UTC while CI stayed green. (#361)
+process.env.TZ = 'UTC';
+
 /**
  * Test: duplicates-assistant-ui
  *
