@@ -47,6 +47,8 @@ const TESTS = {
   'mobile-table-fallback': 'test-mobile-table-fallback.js',
   'form-control-styling': 'test-form-control-styling.js',
   'settings-tag-input-wiring': 'test-settings-tag-input-wiring.js',
+  'settings-custom-fields-selector-sync':
+    'test-settings-custom-fields-selector-sync.js',
   'icon-sizing': 'test-icon-sizing.js',
   'mobile-toolbar-grid': 'test-mobile-toolbar-grid.js',
   'playground-deprecation': 'test-playground-deprecation.js',
@@ -189,6 +191,7 @@ const AREAS = {
     'mobile-table-fallback',
     'form-control-styling',
     'settings-tag-input-wiring',
+    'settings-custom-fields-selector-sync',
     'icon-sizing',
     'mobile-toolbar-grid',
     'playground-deprecation',

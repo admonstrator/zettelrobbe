@@ -745,8 +745,8 @@ const quickstartKeyStored =
                                             <div class="custom-field-item zr-row">
                                                 <div class="zr-faint" style="cursor: move"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-grip"/></svg></div>
                                                 <div class="zr-grow">
-                                                    <p class="zr-strong"><%= field.value %></p>
-                                                    <p class="zr-sm zr-faint">Type: <%= field.data_type %> <%= field.data_type === 'monetary' && field.currency ? `(${field.currency})` : '' %></p>
+                                                    <p class="zr-strong" data-field-name><%= field.value %></p>
+                                                    <p class="zr-sm zr-faint" data-field-type>Type: <%= field.data_type %> <%= field.data_type === 'monetary' && field.currency ? `(${field.currency})` : '' %></p>
                                                 </div>
                                                 <button type="button" onclick="removeCustomField(this)" class="zr-btn zr-btn--ghost zr-btn--icon zr-btn--danger"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg></button>
                                             </div>

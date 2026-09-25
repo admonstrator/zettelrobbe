@@ -3641,27 +3641,40 @@ function toggleCurrencySelect() {
   }
 }
 
+const CUSTOM_FIELD_NAME_SELECTOR = '[data-field-name]';
+const CUSTOM_FIELD_TYPE_SELECTOR = '[data-field-type]';
+
 function updateCustomFieldsJson() {
   const fieldItems = document.querySelectorAll('.custom-field-item');
-  const fields = Array.from(fieldItems).map((item) => {
-    const fieldName = item.querySelector('p.font-medium').textContent;
-    const typeText = item.querySelector('p.text-sm').textContent;
-    const data_type = typeText.split('Type: ')[1].split(' ')[0];
-    const currency = typeText.includes('(')
-      ? typeText.split('(')[1].split(')')[0]
-      : null;
+  const fields = Array.from(fieldItems)
+    .map((item) => {
+      const fieldNameElement = item.querySelector(CUSTOM_FIELD_NAME_SELECTOR);
+      const typeElement = item.querySelector(CUSTOM_FIELD_TYPE_SELECTOR);
+      if (!fieldNameElement || !typeElement) {
+        return null;
+      }
+      const fieldName = fieldNameElement.textContent.trim();
+      const typeText = typeElement.textContent.trim();
+      const data_type = typeText.split('Type: ')[1]?.split(' ')[0];
+      const currencyMatch = typeText.match(/\(([^)]+)\)/);
+      const currency = currencyMatch ? currencyMatch[1] : null;
 
-    const field = {
-      value: fieldName,
-      data_type: data_type,
-    };
+      if (!fieldName || !data_type) {
+        return null;
+      }
 
-    if (currency) {
-      field.currency = currency;
-    }
+      const field = {
+        value: fieldName,
+        data_type: data_type,
+      };
 
-    return field;
-  });
+      if (currency) {
+        field.currency = currency;
+      }
+
+      return field;
+    })
+    .filter(Boolean);
 
   document.getElementById('customFieldsJson').value = JSON.stringify({
     custom_fields: fields,
@@ -3721,7 +3734,7 @@ function addCustomField() {
 
   // Check for duplicates
   const existingFields = Array.from(
-    fieldsList.querySelectorAll('p.font-medium')
+    fieldsList.querySelectorAll(CUSTOM_FIELD_NAME_SELECTOR)
   ).map((p) => p.textContent);
 
   if (existingFields.includes(fieldName)) {
