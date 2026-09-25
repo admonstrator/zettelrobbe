@@ -63,30 +63,6 @@ class OllamaService {
         'language',
       ],
     };
-
-    // Schema for playground analysis (simpler version)
-    this.playgroundSchema = {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        correspondent: { type: 'string' },
-        tags: {
-          type: 'array',
-          items: { type: 'string' },
-        },
-        document_type: { type: 'string' },
-        document_date: { type: 'string' },
-        language: { type: 'string' },
-      },
-      required: [
-        'title',
-        'correspondent',
-        'tags',
-        'document_type',
-        'document_date',
-        'language',
-      ],
-    };
   }
 
   /**
@@ -230,67 +206,6 @@ class OllamaService {
 
       // Log the prompt and response
       await this._logPromptAndResponse(prompt, parsedResponse);
-
-      // Return results in consistent format
-      return {
-        document: parsedResponse,
-        metrics,
-        truncated: false,
-      };
-    } catch (error) {
-      console.error(`Error analyzing document with Ollama: ${error.message}`);
-      console.debug(error);
-      return {
-        document: { tags: [], correspondent: null },
-        metrics: null,
-        error: error.message,
-        // Undefined for everything that is not one of ours; the scan loop
-        // falls back to its generic reason then.
-        errorCode: error.code,
-      };
-    }
-  }
-
-  /**
-   * Analyze a document in playground mode
-   * @param {string} content - Document content
-   * @param {string} prompt - User-provided prompt
-   * @returns {Object} Analysis results
-   */
-  async analyzePlayground(content, prompt) {
-    try {
-      // Calculate context window size — include both prompt and content
-      const fullPrompt = prompt + '\n\n' + JSON.stringify(content);
-      const promptTokenCount = this._calculatePromptTokenCount(fullPrompt);
-      const numCtx = this._calculateNumCtx(
-        promptTokenCount,
-        Number(config.responseTokens)
-      );
-
-      // Generate playground system prompt (simpler than full analysis)
-      const systemPrompt = this._generatePlaygroundSystemPrompt();
-
-      // Call Ollama API
-      const response = await this._callOllamaAPI(
-        fullPrompt,
-        systemPrompt,
-        numCtx,
-        this.playgroundSchema
-      );
-
-      // Process response
-      const parsedResponse = this._processOllamaResponse(response);
-      const metrics = this._extractOllamaMetrics(response);
-
-      // Check for missing data
-      if (
-        parsedResponse.tags.length === 0 &&
-        parsedResponse.correspondent === null
-      ) {
-        console.warn(
-          'No tags or correspondent found in response from Ollama for Document. Please review your prompt or switch to OpenAI for better results.'
-        );
-      }
 
       // Return results in consistent format
       return {
@@ -566,27 +481,6 @@ class OllamaService {
         `;
 
     return systemPromptTemplate.replace('%CUSTOMFIELDS%', customFieldsStr);
-  }
-
-  /**
-   * Generate system prompt for playground analysis
-   * @returns {string} System prompt
-   */
-  _generatePlaygroundSystemPrompt() {
-    return `
-            You are a document analyzer. Your task is to analyze documents and extract relevant information. You do not ask back questions. 
-            YOU MUSTNOT: Ask for additional information or clarification, or ask questions about the document, or ask for additional context.
-            YOU MUSTNOT: Return a response without the desired JSON format.
-            YOU MUST: Analyze the document content and extract the following information into this structured JSON format and only this format!:         {
-            "title": "xxxxx",
-            "correspondent": "xxxxxxxx",
-            "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
-            "document_type": "Invoice/Contract/...",
-            "document_date": "YYYY-MM-DD",
-            "language": "en/de/es/..."
-            }
-            ALWAYS USE THE INFORMATION TO FILL OUT THE JSON OBJECT. DO NOT ASK BACK QUESTIONS.
-        `;
   }
 
   /**
