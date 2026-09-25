@@ -20,7 +20,15 @@ COPY docker-entrypoint.sh start-services.sh ./
 
 RUN chmod +x docker-entrypoint.sh start-services.sh
 
-# Configure persistent data volume
+# Configure persistent data volume.
+# Docker seeds a fresh named volume from the image including ownership and mode,
+# so the data directory is prepared here rather than left to the entrypoint:
+# root:node 775 is writable for root (before the privilege drop) and for the
+# node user (after it), which keeps the default deployment working even when the
+# container has no CAP_CHOWN to repair ownership at runtime.
+RUN mkdir -p /app/data/logs && \
+    chown -R root:node /app/data && \
+    chmod -R 775 /app/data
 VOLUME ["/app/data"]
 
 # Runtime starts as root to initialize mounted volumes, then drops to node via entrypoint
