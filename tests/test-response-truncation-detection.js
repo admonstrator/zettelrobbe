@@ -94,12 +94,24 @@ function completion(finishReason, content = COMPLETE_ANSWER) {
   await check('every OpenAI-compatible analysis path calls the guard', () => {
     // Read from source rather than driven through a stub: the analysis path
     // caches a thumbnail first, which would drag Paperless-ngx into the test.
+    // The guard has to sit inside analyzeDocument(), not merely somewhere in
+    // the file, or a later refactor could move it out without failing here.
     const fs = require('fs');
+    const path = require('path');
     for (const name of ['openaiService', 'azureService', 'customService']) {
-      const source = fs.readFileSync(`services/${name}.js`, 'utf8');
+      const source = fs.readFileSync(
+        path.join(__dirname, '..', 'services', `${name}.js`),
+        'utf8'
+      );
+      const entry = source.indexOf('async analyzeDocument(');
+      assert.notStrictEqual(
+        entry,
+        -1,
+        `${name}: analyzeDocument() is gone — the analysis path moved`
+      );
       assert.ok(
-        source.includes('assertCompletionNotTruncated('),
-        `${name}: the analysis path no longer consults the truncation guard`
+        source.indexOf('assertCompletionNotTruncated(', entry) !== -1,
+        `${name}: analyzeDocument() no longer consults the truncation guard`
       );
     }
   });
