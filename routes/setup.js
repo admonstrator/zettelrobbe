@@ -3229,16 +3229,13 @@ async function buildUpdateData(analysis, doc) {
     config.limitFunctions?.activateTagging === 'no' &&
     config.addAIProcessedTag === 'yes'
   ) {
-    // Add AI processed tags to the document (processTags function awaits a tags array)
-    // get tags from .env file and split them by comma and make an array
+    // The completion tag is the app's own bookkeeping, and processTags()
+    // applies it itself — also for an empty list. Kept in step with the same
+    // branch in server.js.
     console.log(
       '[DEBUG] Tagging is deactivated but AI processed tag will be added'
     );
-    const tags = config.addAIProcessedTags.split(',');
-    const { tagIds, errors } = await paperlessService.processTags(
-      tags,
-      options
-    );
+    const { tagIds, errors } = await paperlessService.processTags([], options);
     if (errors.length > 0) {
       console.warn('[ERROR] Some tags could not be processed:', errors);
     }
