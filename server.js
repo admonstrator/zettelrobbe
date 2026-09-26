@@ -14,6 +14,8 @@ const setupRoutes = require('./routes/setup');
 const { isAuthenticated } = require('./routes/auth');
 const mistralOcrService = require('./services/mistralOcrService');
 const ocrAutoProcessService = require('./services/ocrAutoProcessService');
+const duplicateReviewJobService = require('./services/duplicateReviewJobService');
+const duplicateMergeService = require('./services/duplicateMergeService');
 const reconciliationService = require('./services/reconciliationService');
 const scanHealthService = require('./services/scanHealthService');
 const dashboardStatsService = require('./services/dashboardStatsService');
@@ -96,6 +98,25 @@ async function triggerScanNow(source = 'manual') {
       started: false,
       running: false,
       message: 'OCR auto-processing is currently running.',
+    };
+  }
+
+  // The Duplicates and Simplify pages write tags too; the scan loop itself
+  // stands down for them, and the button is told why nothing started.
+  if (duplicateReviewJobService.isRunning()) {
+    return {
+      started: false,
+      running: false,
+      message:
+        'A Duplicates or Simplify job is running. Try again when it has finished.',
+    };
+  }
+  if (duplicateMergeService.isWriting()) {
+    return {
+      started: false,
+      running: false,
+      message:
+        'A merge, undo or delete is being written. Try again in a moment.',
     };
   }
 
@@ -855,6 +876,8 @@ async function buildUpdateData(analysis, doc) {
       config.restrictToExistingCorrespondents === 'yes',
     restrictToExistingDocumentTypes:
       config.restrictToExistingDocumentTypes === 'yes',
+    // For the creation guard's record of which document a mapping served.
+    documentId: doc?.id ?? null,
   };
 
   // Only process tags if tagging is activated
@@ -871,16 +894,14 @@ async function buildUpdateData(analysis, doc) {
     config.limitFunctions?.activateTagging === 'no' &&
     config.addAIProcessedTag === 'yes'
   ) {
-    // Add AI processed tags to the document (processTags function awaits a tags array)
-    // get tags from .env file and split them by comma and make an array
+    // The completion tag is the app's own bookkeeping, and processTags()
+    // applies it itself — also for an empty list. Passing the name in as a
+    // subject tag as well only ever worked because the function de-duplicates
+    // the ids at the end.
     console.debug(
       'Tagging is deactivated but the AI processed tag will still be added'
     );
-    const tags = config.addAIProcessedTags.split(',');
-    const { tagIds, errors } = await paperlessService.processTags(
-      tags,
-      options
-    );
+    const { tagIds, errors } = await paperlessService.processTags([], options);
     if (errors.length > 0) {
       console.warn('[ERROR] Some tags could not be processed:', errors);
     }
@@ -1091,6 +1112,23 @@ async function scanDocuments(source = 'scheduler') {
   if (ocrAutoProcessService.running) {
     console.info(
       'Scan request ignored because OCR auto-processing is currently running'
+    );
+    return;
+  }
+
+  // The Duplicates and Simplify pages write tags too: their jobs wait for a
+  // running scan, and a scan waits for them, because a scan that tags
+  // documents while a merge deletes tags is how a document ends up with an
+  // id that no longer exists. A merge, undo or delete made by hand counts
+  // as well; it is over in seconds and the next tick catches up.
+  const busy = duplicateReviewJobService.isRunning()
+    ? 'a Duplicates or Simplify job is running'
+    : duplicateMergeService.isWriting()
+      ? 'a merge, undo or delete is being written'
+      : null;
+  if (busy) {
+    console.info(
+      `Scan request ignored because ${busy}; the next scheduled scan tries again`
     );
     return;
   }

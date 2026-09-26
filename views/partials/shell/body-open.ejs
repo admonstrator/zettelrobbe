@@ -53,6 +53,9 @@
                      the same drawer, and one trigger is enough. -->
                 <h1 class="zr-topbar__title"><%= typeof pageTitle !== 'undefined' ? pageTitle : 'Zettelrobbe' %></h1>
                 <span class="zr-topbar__spacer"></span>
+                <!-- A page that has an action for the bar puts it here: the
+                     mode switch of a review page, for one. -->
+                <span class="zr-topbar__actions" id="zrTopbarActions"></span>
 
                 <a class="zr-badge zr-badge--info hidden" id="updateNotification"
                     href="https://github.com/admonstrator/zettelrobbe/releases/" target="_blank" rel="noopener noreferrer">

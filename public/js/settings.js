@@ -2822,6 +2822,62 @@ function initializeRuntimeOverridePills() {
     { selector: '#activateTitle', envKey: 'ACTIVATE_TITLE' },
     { selector: '#activateCustomFields', envKey: 'ACTIVATE_CUSTOM_FIELDS' },
     { selector: '#customFieldsJson', envKey: 'CUSTOM_FIELDS' },
+    { selector: '#duplicatesAiReview', envKey: 'DUPLICATES_AI_REVIEW' },
+    { selector: '#duplicatesAiModel', envKey: 'DUPLICATES_AI_MODEL' },
+    {
+      selector: '#duplicatesAiReviewBatchSize',
+      envKey: 'DUPLICATES_AI_REVIEW_BATCH_SIZE',
+    },
+    {
+      selector: '#duplicatesAiCandidateFloor',
+      envKey: 'DUPLICATES_AI_CANDIDATE_FLOOR',
+    },
+    { selector: '#duplicatesAiExcerpts', envKey: 'DUPLICATES_AI_EXCERPTS' },
+    {
+      selector: '#duplicatesAiExcerptChars',
+      envKey: 'DUPLICATES_AI_EXCERPT_CHARS',
+    },
+    {
+      selector: '#duplicatesAiExcerptDocuments',
+      envKey: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+    },
+    {
+      selector: '#duplicatesAiTokenBudget',
+      envKey: 'DUPLICATES_AI_TOKEN_BUDGET',
+    },
+    {
+      selector: '#duplicatesAiIdleStopSeconds',
+      envKey: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
+    },
+    { selector: '#duplicatesAiThinking', envKey: 'DUPLICATES_AI_THINKING' },
+    {
+      selector: '#duplicatesAiRequestSeconds',
+      envKey: 'DUPLICATES_AI_REQUEST_SECONDS',
+    },
+    {
+      selector: '#duplicatesAiConcurrency',
+      envKey: 'DUPLICATES_AI_CONCURRENCY',
+    },
+    {
+      selector: '#duplicatesAiVerdictMemoryDays',
+      envKey: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
+    },
+    {
+      selector: '#duplicatesGuardNewNames',
+      envKey: 'DUPLICATES_GUARD_NEW_NAMES',
+    },
+    {
+      selector: '#duplicatesAiSweepNames',
+      envKey: 'DUPLICATES_AI_SWEEP_NAMES',
+    },
+    {
+      selector: '#simplifyTagsPerRequest',
+      envKey: 'SIMPLIFY_TAGS_PER_REQUEST',
+    },
+    {
+      selector: '#simplifyVocabularySize',
+      envKey: 'SIMPLIFY_VOCABULARY_SIZE',
+    },
     { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
     { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
     { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
@@ -3585,27 +3641,40 @@ function toggleCurrencySelect() {
   }
 }
 
+const CUSTOM_FIELD_NAME_SELECTOR = '[data-field-name]';
+const CUSTOM_FIELD_TYPE_SELECTOR = '[data-field-type]';
+
 function updateCustomFieldsJson() {
   const fieldItems = document.querySelectorAll('.custom-field-item');
-  const fields = Array.from(fieldItems).map((item) => {
-    const fieldName = item.querySelector('p.font-medium').textContent;
-    const typeText = item.querySelector('p.text-sm').textContent;
-    const data_type = typeText.split('Type: ')[1].split(' ')[0];
-    const currency = typeText.includes('(')
-      ? typeText.split('(')[1].split(')')[0]
-      : null;
+  const fields = Array.from(fieldItems)
+    .map((item) => {
+      const fieldNameElement = item.querySelector(CUSTOM_FIELD_NAME_SELECTOR);
+      const typeElement = item.querySelector(CUSTOM_FIELD_TYPE_SELECTOR);
+      if (!fieldNameElement || !typeElement) {
+        return null;
+      }
+      const fieldName = fieldNameElement.textContent.trim();
+      const typeText = typeElement.textContent.trim();
+      const data_type = typeText.split('Type: ')[1]?.split(' ')[0];
+      const currencyMatch = typeText.match(/\(([^)]+)\)/);
+      const currency = currencyMatch ? currencyMatch[1] : null;
 
-    const field = {
-      value: fieldName,
-      data_type: data_type,
-    };
+      if (!fieldName || !data_type) {
+        return null;
+      }
 
-    if (currency) {
-      field.currency = currency;
-    }
+      const field = {
+        value: fieldName,
+        data_type: data_type,
+      };
 
-    return field;
-  });
+      if (currency) {
+        field.currency = currency;
+      }
+
+      return field;
+    })
+    .filter(Boolean);
 
   document.getElementById('customFieldsJson').value = JSON.stringify({
     custom_fields: fields,
@@ -3665,7 +3734,7 @@ function addCustomField() {
 
   // Check for duplicates
   const existingFields = Array.from(
-    fieldsList.querySelectorAll('p.font-medium')
+    fieldsList.querySelectorAll(CUSTOM_FIELD_NAME_SELECTOR)
   ).map((p) => p.textContent);
 
   if (existingFields.includes(fieldName)) {

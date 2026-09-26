@@ -1,7 +1,7 @@
 /* ==========================================================================
    Cross-page legacy pieces: the pre-framework modal system, .stat-box,
    the manual document search, the queue toolbar and the odds and ends
-   the page scripts of history, playground, settings and manual generate
+   the page scripts of history, settings and manual generate
    at runtime. Not one page — several, which is why they are not in any
    of the page files.
    @layer pages: above the framework layers, below utilities.
@@ -342,31 +342,6 @@
     margin-top: var(--zr-4);
   }
 
-  /* the playground rating dialog is built in JS, not as a <dialog>, so it needs
-     an explicit backdrop element — this matches what `.zr-dialog::backdrop`
-     gives the native ones, and sits one layer below `.zr-modal-center`. */
-  .zr-modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 59;
-    background: var(--zr-scrim);
-    backdrop-filter: blur(2px);
-  }
-  .zr-modal-center {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--zr-4);
-    z-index: 60;
-  }
-  .zr-modal-card {
-    width: 100%;
-    max-width: 440px;
-    position: relative;
-  }
-
   /* the AI-mode toggle in the wizard behaves like a segmented control */
   .setup-mode-btn[aria-pressed='true'] {
     background: var(--zr-brand-soft);
@@ -414,16 +389,5 @@
     font-family: var(--zr-font-mono);
     font-size: var(--zr-fs-sm);
     color: var(--zr-text-muted);
-  }
-
-  /* playground detail modal body */
-  .modal-loader {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--zr-6);
-  }
-  .modal-data {
-    padding: var(--zr-3);
   }
 }

@@ -40,6 +40,10 @@
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-activity"/></svg>
                 Meter &amp; spinner
             </a>
+            <a href="#sg-review">
+                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>
+                Review surfaces
+            </a>
             <a href="#sg-toasts">
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-comment"/></svg>
                 Toasts
@@ -551,6 +555,205 @@
                             <svg class="zr-icon zr-icon--lg" aria-hidden="true"><use href="/icons.svg#i-inbox"/></svg>
                             <div class="zr-empty__title">No document selected</div>
                             <p class="zr-sm zr-faint">Search above and pick a document to preview its content here.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── review surfaces ─────────────────────────────────────────── -->
+        <section class="zr-module" id="sg-review">
+            <div class="zr-module__head">
+                <h3 class="zr-module__title">Review surfaces</h3>
+                <span class="zr-module__meta">css/review.css</span>
+            </div>
+            <div class="zr-module__body zr-col zr-col--loose">
+                <p class="zr-sm zr-faint">
+                    What Duplicates and Simplify tags are built from: a ledger of what something cost,
+                    the sheet before a run, the result as a checklist, one decision at a time, and the line that says what a button writes.
+                </p>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">Ledger and token split</span>
+                    <div class="zr-ledger">
+                        <span class="zr-ledger__item"><span class="zr-ledger__value">23</span> requests</span>
+                        <span class="zr-ledger__item"><span class="zr-ledger__value">1.41 M</span> tokens</span>
+                        <span class="zr-ledger__item"><span class="zr-ledger__value">6:12</span> minutes</span>
+                        <span class="zr-ledger__item"><span class="zr-ledger__value zr-ledger__value--quiet">0</span> writes</span>
+                    </div>
+                    <div class="zr-tokenbar">
+                        <div class="zr-tokenbar__track">
+                            <span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: 26%"></span>
+                            <span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: 21%"></span>
+                            <span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: 53%"></span>
+                        </div>
+                        <div class="zr-tokenbar__legend">
+                            <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>366k question</span>
+                            <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>296k answer</span>
+                            <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>748k thinking</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">The sheet before a run</span>
+                    <div class="zr-sheet" style="max-width: 472px">
+                        <p class="zr-sheet__sub">96 pairs · 12 requests</p>
+                        <div class="zr-sheet__numbers">
+                            <span class="zr-sheet__big"><span class="zr-sheet__value">38k</span><span class="zr-sheet__unit">tokens</span></span>
+                            <span class="zr-sheet__time"><span class="zr-sheet__value">~2 min</span><span class="zr-sheet__timesub">3 at a time</span></span>
+                        </div>
+                        <div class="zr-tokenbar zr-tokenbar--limit">
+                            <div class="zr-tokenbar__track">
+                                <span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: 12%"></span>
+                                <span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: 3%"></span>
+                                <span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: 4%"></span>
+                            </div>
+                            <div class="zr-tokenbar__foot">
+                                <div class="zr-tokenbar__legend">
+                                    <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--prompt"></span>24k question</span>
+                                    <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--answer"></span>6k answer</span>
+                                    <span class="zr-tokenbar__key"><span class="zr-tokenbar__dot zr-tokenbar__dot--thinking"></span>8k thinking</span>
+                                </div>
+                                <span class="zr-tokenbar__limit">200k limit</span>
+                            </div>
+                        </div>
+                        <div class="zr-lanes">
+                            <div class="zr-lanes__head">
+                                <span class="zr-label">Requests at a time</span>
+                                <div class="zr-segment" role="group" aria-label="Requests at a time">
+                                    <button type="button" aria-selected="false">1</button>
+                                    <button type="button" aria-selected="true">3</button>
+                                    <button type="button" aria-selected="false">5</button>
+                                    <button type="button" aria-selected="false">8</button>
+                                </div>
+                            </div>
+                            <div class="zr-lanes__rows">
+                                <div class="zr-lanes__row" style="width: 33.3%"><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span></div>
+                                <div class="zr-lanes__row" style="width: 33.3%"><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span></div>
+                                <div class="zr-lanes__row" style="width: 33.3%"><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span><span class="zr-lanes__block"></span></div>
+                            </div>
+                        </div>
+                        <div class="zr-sheet__levers">
+                            <label class="zr-sheet__lever"><span class="zr-sheet__leverlabel">Excerpts · 31 reads</span><span class="zr-sheet__leverprice">+12k</span><input type="checkbox" class="zr-toggle" checked></label>
+                            <label class="zr-sheet__lever"><span class="zr-sheet__leverlabel">Synonym sweep</span><span class="zr-sheet__leverprice">+4 requests · +9k</span><input type="checkbox" class="zr-toggle"></label>
+                        </div>
+                        <p class="zr-sheet__fact">
+                            <svg class="zr-icon zr-icon--sm zr-sheet__check" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                            <span>Nothing is written.</span>
+                            <span class="zr-sheet__basis">Estimate · not measured yet</span>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">Assistant · before, during, after · the waiting workspace · a caption</span>
+                    <div class="zr-assist zr-assist--start">
+                        <span class="zr-assist__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg></span>
+                        <div class="zr-assist__text">
+                            <h2 class="zr-assist__title">Merge tags and correspondents that mean the same thing.</h2>
+                            <p class="zr-assist__line">A scan pairs names by spelling, the model judges the pairs spelling cannot settle, and each proposal lands below as a tick. Nothing is written before Merge.</p>
+                            <p class="zr-assist__facts">Last run 20 Sep · 275 pairs · 38k tokens · ~6 min</p>
+                        </div>
+                        <button class="zr-btn zr-btn--primary zr-btn--lg" type="button">Find duplicates</button>
+                    </div>
+                    <div class="zr-runmeter">
+                        <ol class="zr-steps">
+                            <li class="zr-steps__step zr-steps__step--done"><span class="zr-steps__mark"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>Compare names</li>
+                            <li class="zr-steps__step zr-steps__step--done"><span class="zr-steps__mark"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>Read documents</li>
+                            <li class="zr-steps__step zr-steps__step--now"><span class="zr-steps__mark">3</span>Judge pairs<span class="zr-steps__sub">· request 5 of 11</span></li>
+                            <li class="zr-steps__step zr-steps__step--next"><span class="zr-steps__mark"></span>Result</li>
+                        </ol>
+                        <div class="zr-runmeter__head"><span class="zr-runmeter__phase">Asking the model</span><button class="zr-btn" type="button"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>Stop</button></div>
+                        <p class="zr-runmeter__sentence">The model reads pairs of names with their evidence and says for each whether both mean the same thing, how sure it is, and why. 7 of 11 pairs so far were the same.</p>
+                    </div>
+                    <div class="zr-assist zr-assist--done">
+                        <span class="zr-assist__icon"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>
+                        <div class="zr-assist__text">
+                            <p class="zr-assist__headline">275 scanned · 34 merges proposed · 5 unsure</p>
+                            <p class="zr-assist__cost"><span class="zr-tokenbar zr-tokenbar--mini"><span class="zr-tokenbar__track"><span class="zr-tokenbar__seg zr-tokenbar__seg--prompt" style="width: 70%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--answer" style="width: 20%"></span><span class="zr-tokenbar__seg zr-tokenbar__seg--thinking" style="width: 10%"></span></span></span><span>12 requests · 38k tokens · ~6 min</span></p>
+                            <ul class="zr-assist__next">
+                                <li>Every tick below is a proposal. Untick a group to keep its names apart.</li>
+                                <li>"Merge" writes the ticked groups. "Not a duplicate" keeps a pair out of later scans.</li>
+                            </ul>
+                        </div>
+                        <div class="zr-assist__actions"><button class="zr-btn" type="button">Review 5 unsure one by one</button><button class="zr-btn zr-btn--primary" type="button">Merge 34 · 61 writes</button></div>
+                    </div>
+                    <div class="zr-workspace--waiting" style="display: contents">
+                        <p class="zr-workspace__note"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-clock"/></svg><span>The tools below wake up with the result.</span></p>
+                    </div>
+                    <p class="zr-module__caption">Pair any two names by hand when the scan did not.</p>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">One decision</span>
+                    <div class="zr-decision">
+                        <div class="zr-decision__head">
+                            <span class="zr-badge">Correspondent</span>
+                            <span class="zr-badge zr-badge--info">Found by the model</span>
+                        </div>
+                        <div class="zr-decision__sides">
+                            <div class="zr-decision__side">
+                                <div class="zr-decision__label">STAYS</div>
+                                <div class="zr-decision__name">Müller GmbH</div>
+                                <div class="zr-decision__meta">140 documents · no matching rule</div>
+                                <ul class="zr-decision__samples">
+                                    <li>Rechnung 2024-08-14</li>
+                                    <li>Mahnung 2024-09-02</li>
+                                </ul>
+                            </div>
+                            <div class="zr-decision__arrow">
+                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-arrow-left"/></svg>
+                            </div>
+                            <div class="zr-decision__side zr-decision__side--from">
+                                <div class="zr-decision__label">GOES AWAY</div>
+                                <div class="zr-decision__name zr-decision__name--from">Mueller GmbH &amp; Co. KG</div>
+                                <div class="zr-decision__meta">9 documents · rule: any word “mueller”</div>
+                            </div>
+                        </div>
+                        <p class="zr-decision__note">The same company. One spelling writes the umlaut out and adds the legal form.</p>
+                        <div class="zr-decision__actions">
+                            <button class="zr-btn zr-btn--primary" type="button">Merge into Müller GmbH</button>
+                            <button class="zr-btn" type="button">Keep both</button>
+                            <button class="zr-btn" type="button">Decide later</button>
+                            <span class="zr-decision__keys">Enter · Esc · L</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">Consequence, run bar and request log</span>
+                    <p class="zr-consequence">
+                        <svg class="zr-icon zr-icon--sm zr-consequence__icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>
+                        Merging rewrites 9 documents in Paperless-ngx and deletes the old correspondent. No model is asked.
+                    </p>
+                    <p class="zr-consequence zr-consequence--free">
+                        <svg class="zr-icon zr-icon--sm zr-consequence__icon" aria-hidden="true"><use href="/icons.svg#i-check"/></svg>
+                        Nothing is written.
+                    </p>
+                    <div class="zr-runbar">
+                        <span class="zr-runbar__position">Request 13 of 23</span>
+                        <div class="zr-runbar__track"><div class="zr-runbar__fill" style="width: 49%"></div></div>
+                        <span class="zr-runbar__rest">about 3 minutes left</span>
+                    </div>
+                    <div class="zr-reqlog">
+                        <div class="zr-reqlog__row zr-reqlog__row--live">
+                            <span class="zr-reqlog__mark"><svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg></span>
+                            <span class="zr-reqlog__what">Request 13 · 50 tags</span>
+                            <span class="zr-reqlog__cost">89.1k so far, all thinking</span>
+                            <span class="zr-reqlog__state">running</span>
+                        </div>
+                        <div class="zr-reqlog__row">
+                            <span class="zr-reqlog__mark"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span>
+                            <span class="zr-reqlog__what">Request 12 · 50 tags, 50 answered</span>
+                            <span class="zr-reqlog__cost">61k · 38k of it thinking</span>
+                            <span class="zr-reqlog__state">44 s</span>
+                        </div>
+                        <div class="zr-reqlog__row zr-reqlog__row--warn">
+                            <span class="zr-reqlog__mark"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg></span>
+                            <span class="zr-reqlog__what">Request 9 · thought for 25k tokens, answered nothing</span>
+                            <span class="zr-reqlog__cost">71k in total</span>
+                            <span class="zr-reqlog__state">1:52</span>
                         </div>
                     </div>
                 </div>

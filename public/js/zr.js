@@ -105,10 +105,13 @@ export function confirmDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   tone = 'primary',
+  className = '',
 } = {}) {
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
-    dlg.className = 'zr-dialog';
+    // A variant class for a dialog whose shape is its own, like the sheet
+    // before a run; the base class stays so every rule still applies.
+    dlg.className = className ? `zr-dialog ${className}` : 'zr-dialog';
     dlg.innerHTML = `
       <form method="dialog">
         <div class="zr-dialog__head"></div>

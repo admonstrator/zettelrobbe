@@ -1,0 +1,1218 @@
+'use strict';
+
+/**
+ * The Duplicates settings section.
+ *
+ * Every DUPLICATES_* variable used to be reachable only by editing the
+ * container environment, which is exactly the kind of setting the settings
+ * page exists for. The section makes the fifteen of them editable, so this
+ * test holds the whole path together: the rendered fields, the nav entry that
+ * reaches them, the POST that stores them, the "Managed by ENV" marking that
+ * greys them out, and the .env export that lists them.
+ *
+ * Round 10 added two of those fifteen — how many model requests may wait for
+ * an answer at once, and how long a verdict about a pair of names is
+ * remembered — and a section of its own after Duplicates for the two settings
+ * of "Simplify tags". Every assertion about the Duplicates section therefore
+ * slices the page between the two sections, not between Duplicates and OCR.
+ *
+ * Two behaviours are deliberate and therefore pinned here. A number outside
+ * its range is clamped rather than rejected — the ranges are guard rails, not
+ * a reason to throw a whole settings form away. A value that is not a number
+ * at all (or a cleared field) keeps what is configured now, so a typo cannot
+ * silently reset a setting to its default.
+ *
+ * The two brakes of a running review — the token budget and the idle stop —
+ * are the only fields of the section whose range starts at zero, because zero
+ * is a meaningful value for both (no token limit, never stop an unwatched
+ * review) rather than an unset one. A clamp that treated them like the others
+ * would quietly turn "no limit" into the smallest allowed limit.
+ *
+ * Two of the fields say how the judge talks to the model: whether it may
+ * think before it answers, and how long one request should take. The seconds
+ * are the only number of the section whose range does not start at or below
+ * one, because a request nobody can measure is no measurement.
+ *
+ * The last two belong to the archive rather than to one review. The guard
+ * switch decides whether document analysis may reuse an existing name instead
+ * of creating a near-duplicate — the one setting of this section that changes
+ * what the app writes into Paperless-ngx — and the sweep size says how many
+ * names one request of the semantic sweep shows the model.
+ *
+ * The page is rendered through the real router, so a field that stops being
+ * emitted, a renamed body key or a group missing from the export all fail
+ * here rather than in production.
+ */
+
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const { mountRouter } = require('./helpers/mount-router');
+
+const API_KEY = 'test-api-key';
+
+// server.js sets these on res.locals for every page; the harness does not run
+// server.js, so the shell partials would throw on the first missing one.
+const SHELL_LOCALS = {
+  theme: 'light',
+  csrfToken: 'test-csrf',
+  appVersion: 'test',
+  appCommitSha: 'test',
+  appPaperlessNgxVersion: 'test',
+  appNodeVersion: 'test',
+  appPlatform: 'test',
+  appNodeEnv: 'test',
+  appAiProvider: 'openai',
+  appOcrProvider: 'mistral',
+  appServerTimeUtc: 'test',
+  appServerTimezone: 'test',
+  appPaperlessApiUrl: 'test',
+  appOllamaApiUrl: 'test',
+  appOllamaModel: 'test',
+  appCustomBaseUrl: 'test',
+  appCustomModel: 'test',
+  appAzureEndpoint: 'test',
+  appAzureDeploymentName: 'test',
+  appAzureApiVersion: 'test',
+  appMistralOcrModel: 'test',
+  appScanInterval: 'test',
+  appTokenLimit: 'test',
+  appResponseTokens: 'test',
+  appTrustProxy: 'test',
+  appUseExistingData: 'no',
+  appRestrictTags: 'no',
+  appRestrictCorrespondents: 'no',
+  appRestrictDocumentTypes: 'no',
+  appDateFormat: 'DD.MM.YYYY',
+  appOcrEnabled: false,
+  appPaperlessTokenSet: false,
+  appOpenAiKeySet: false,
+  appCustomKeySet: false,
+  appAzureKeySet: false,
+  appMistralKeySet: false,
+  appApiKeySet: false,
+};
+
+// Deliberately none of the defaults, so a field that ignores the current
+// configuration and prints its own fallback is visible.
+const START_ENV = {
+  DUPLICATES_AI_REVIEW: 'no',
+  DUPLICATES_AI_MODEL: 'judge-of-record',
+  DUPLICATES_AI_REVIEW_BATCH_SIZE: '40',
+  DUPLICATES_AI_CANDIDATE_FLOOR: '0.72',
+  DUPLICATES_AI_EXCERPTS: 'no',
+  DUPLICATES_AI_EXCERPT_CHARS: '120',
+  DUPLICATES_AI_EXCERPT_DOCUMENTS: '4',
+  DUPLICATES_AI_TOKEN_BUDGET: '120000',
+  DUPLICATES_AI_IDLE_STOP_SECONDS: '90',
+  DUPLICATES_AI_THINKING: 'yes',
+  DUPLICATES_AI_REQUEST_SECONDS: '45',
+  DUPLICATES_AI_CONCURRENCY: '4',
+  DUPLICATES_AI_VERDICT_MEMORY_DAYS: '30',
+  DUPLICATES_GUARD_NEW_NAMES: 'no',
+  DUPLICATES_AI_SWEEP_NAMES: '450',
+  SIMPLIFY_TAGS_PER_REQUEST: '80',
+  SIMPLIFY_VOCABULARY_SIZE: '40',
+};
+
+const ENV_KEYS = Object.keys(START_ENV);
+
+// The body keys the page sends, in the order the section shows them.
+const FIELDS = [
+  { input: 'duplicatesAiReview', envKey: 'DUPLICATES_AI_REVIEW' },
+  { input: 'duplicatesAiModel', envKey: 'DUPLICATES_AI_MODEL' },
+  {
+    input: 'duplicatesAiReviewBatchSize',
+    envKey: 'DUPLICATES_AI_REVIEW_BATCH_SIZE',
+  },
+  {
+    input: 'duplicatesAiCandidateFloor',
+    envKey: 'DUPLICATES_AI_CANDIDATE_FLOOR',
+  },
+  { input: 'duplicatesAiExcerpts', envKey: 'DUPLICATES_AI_EXCERPTS' },
+  { input: 'duplicatesAiExcerptChars', envKey: 'DUPLICATES_AI_EXCERPT_CHARS' },
+  {
+    input: 'duplicatesAiExcerptDocuments',
+    envKey: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+  },
+  { input: 'duplicatesAiTokenBudget', envKey: 'DUPLICATES_AI_TOKEN_BUDGET' },
+  {
+    input: 'duplicatesAiIdleStopSeconds',
+    envKey: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
+  },
+  { input: 'duplicatesAiThinking', envKey: 'DUPLICATES_AI_THINKING' },
+  {
+    input: 'duplicatesAiRequestSeconds',
+    envKey: 'DUPLICATES_AI_REQUEST_SECONDS',
+  },
+  { input: 'duplicatesAiConcurrency', envKey: 'DUPLICATES_AI_CONCURRENCY' },
+  {
+    input: 'duplicatesAiVerdictMemoryDays',
+    envKey: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
+  },
+  { input: 'duplicatesGuardNewNames', envKey: 'DUPLICATES_GUARD_NEW_NAMES' },
+  { input: 'duplicatesAiSweepNames', envKey: 'DUPLICATES_AI_SWEEP_NAMES' },
+];
+
+// The body keys of the section that follows the Duplicates one. They are a
+// list of their own because every assertion about the Duplicates section
+// slices the page between the two.
+const SIMPLIFY_FIELDS = [
+  { input: 'simplifyTagsPerRequest', envKey: 'SIMPLIFY_TAGS_PER_REQUEST' },
+  { input: 'simplifyVocabularySize', envKey: 'SIMPLIFY_VOCABULARY_SIZE' },
+];
+
+let passed = 0;
+let failed = 0;
+
+// A successful POST /settings schedules process.exit(0) five seconds later.
+const realExit = process.exit.bind(process);
+const exitCalls = [];
+process.exit = (code) => {
+  exitCalls.push(code);
+};
+
+async function test(name, fn) {
+  try {
+    await fn();
+    console.log(`✅  ${name}`);
+    passed++;
+  } catch (error) {
+    console.error(`❌  ${name}`);
+    console.error(`    ${error.message}`);
+    failed++;
+  }
+}
+
+function finish() {
+  console.log('\n' + '='.repeat(60));
+  console.log(`Results: ${passed} passed, ${failed} failed`);
+  process.exit = realExit;
+  realExit(failed > 0 ? 1 : 0);
+}
+
+function countOccurrences(haystack, needle) {
+  return haystack.split(needle).length - 1;
+}
+
+function sliceBetween(source, from, to) {
+  const start = source.indexOf(from);
+  assert.ok(start !== -1, `Could not find ${from}`);
+  const end = source.indexOf(to, start);
+  assert.ok(end > start, `Could not delimit the block starting at ${from}`);
+  return source.slice(start, end);
+}
+
+(async () => {
+  const savedConfigs = [];
+  const harness = await mountRouter({
+    env: START_ENV,
+    stub: ({ setupService }) => {
+      // The real saveConfig writes the merged configuration back onto
+      // process.env and touches the data directory. Only the first half
+      // matters here — the route reads the current values from process.env,
+      // so "keeps the previous value" only means anything if a save lands
+      // there.
+      setupService.saveConfig = async (config) => {
+        savedConfigs.push(config);
+        Object.entries(config).forEach(([key, value]) => {
+          process.env[key] = String(value);
+        });
+      };
+    },
+  });
+  Object.assign(harness.app.locals, SHELL_LOCALS);
+
+  const getSettingsPage = async () => {
+    const response = await fetch(harness.base + '/settings', {
+      redirect: 'manual',
+      headers: { 'x-api-key': API_KEY },
+    });
+    assert.strictEqual(response.status, 200, 'GET /settings must render');
+    return response.text();
+  };
+
+  const postSettings = (body) =>
+    fetch(harness.base + '/settings', {
+      method: 'POST',
+      headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  const lastSaved = () => savedConfigs[savedConfigs.length - 1];
+
+  try {
+    // ── 1. The section is on the page, with a way to reach it ───────────────
+    await test('GET /settings renders the Duplicates section and its nav entry', async () => {
+      const html = await getSettingsPage();
+
+      assert.ok(
+        html.includes('id="sec-duplicates"'),
+        'the section itself must be rendered'
+      );
+      assert.ok(
+        html.includes('id="duplicates-tab"'),
+        'the nav entry needs a target block'
+      );
+
+      const desktopNav = sliceBetween(
+        html,
+        '<nav class="zr-sectionnav" data-module="section-nav">',
+        '</nav>'
+      );
+      const mobileNav = sliceBetween(
+        html,
+        '<nav class="zr-sectionnav zr-only-mobile">',
+        '</nav>'
+      );
+
+      [
+        ['desktop', desktopNav],
+        ['mobile', mobileNav],
+      ].forEach(([label, nav]) => {
+        assert.ok(
+          nav.includes('href="#duplicates-tab"'),
+          `the ${label} nav must link the section`
+        );
+        // The nav order has to match the page order or the scroll-spy
+        // highlight jumps around while scrolling.
+        assert.ok(
+          nav.indexOf('href="#ai-tab"') <
+            nav.indexOf('href="#duplicates-tab"') &&
+            nav.indexOf('href="#duplicates-tab"') <
+              nav.indexOf('href="#ocr-tab"'),
+          `the ${label} nav must list Duplicates after AI and before OCR`
+        );
+      });
+
+      assert.ok(
+        desktopNav.includes('/icons.svg#i-merge'),
+        'the desktop nav entry carries the i-merge icon, like every other entry carries one'
+      );
+      assert.ok(
+        html.indexOf('id="ai-tab"') < html.indexOf('id="duplicates-tab"') &&
+          html.indexOf('id="duplicates-tab"') < html.indexOf('id="ocr-tab"'),
+        'the section itself sits after the AI sections and before OCR'
+      );
+    });
+
+    await test('every field is rendered with the value that is configured now', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+
+      FIELDS.forEach(({ input, envKey }) => {
+        assert.ok(
+          section.includes(`name="${input}"`),
+          `${input} must be part of the settings form, or it is never submitted`
+        );
+        assert.ok(
+          section.includes(`value="${START_ENV[envKey]}"`),
+          `${input} must show the configured ${envKey} (${START_ENV[envKey]})`
+        );
+      });
+
+      // All three switches go through the shared partial, so the hidden
+      // yes/no input the POST route reads exists and is driven by the
+      // visible one.
+      [
+        'duplicatesAiReview',
+        'duplicatesAiExcerpts',
+        'duplicatesAiThinking',
+        'duplicatesGuardNewNames',
+      ].forEach((id) => {
+        assert.ok(
+          section.includes(`data-switch-target="${id}"`),
+          `${id} must be a settings-switch, not a bare checkbox`
+        );
+        assert.ok(
+          section.includes(`<input type="hidden" id="${id}" name="${id}"`),
+          `${id} must submit a yes/no value, not a checkbox that vanishes when it is off`
+        );
+      });
+
+      assert.strictEqual(
+        countOccurrences(section, 'class="zr-field__hint"'),
+        15,
+        'each of the fifteen fields says what it does and what its default is'
+      );
+    });
+
+    await test('the two request settings render with their hints and close the section', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+
+      const thinking = sliceBetween(
+        section,
+        'for="duplicatesAiThinkingSwitch"',
+        '</div>'
+      );
+      assert.match(
+        thinking,
+        /Let the judge think/,
+        'the switch says what it switches'
+      );
+      assert.ok(
+        /Default: off/.test(thinking) &&
+          /spend the whole answer budget/.test(thinking),
+        'its hint says what thinking costs and what the default is'
+      );
+      assert.ok(
+        section.includes('data-switch-target="duplicatesAiThinking" checked'),
+        'the switch must show the configured DUPLICATES_AI_THINKING'
+      );
+
+      const seconds = sliceBetween(
+        section,
+        'id="duplicatesAiRequestSeconds"',
+        '</div>'
+      );
+      assert.ok(
+        seconds.includes('min="5"') &&
+          seconds.includes('max="300"') &&
+          seconds.includes('step="5"'),
+        'the request length spans 5 to 300 seconds in steps of five'
+      );
+      assert.ok(
+        seconds.includes('value="45"'),
+        'it must show the configured DUPLICATES_AI_REQUEST_SECONDS'
+      );
+      assert.ok(
+        /measures your model/.test(seconds) && /Default: 30/.test(seconds),
+        'its hint says what the number does and what the default is'
+      );
+
+      // Everything above says what one review may cost, these two say how
+      // the judge talks to the model; only the archive settings follow them.
+      assert.ok(
+        section.indexOf('id="duplicatesAiIdleStopSeconds"') <
+          section.indexOf('id="duplicatesAiThinking"') &&
+          section.indexOf('id="duplicatesAiThinking"') <
+            section.indexOf('id="duplicatesAiRequestSeconds"'),
+        'thinking and the request length follow the brakes, in that order'
+      );
+    });
+
+    // ── The two settings that outlive a single review ──────────────────────
+    await test('the creation guard renders as a switch that is on by default', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+
+      const guard = sliceBetween(
+        section,
+        'for="duplicatesGuardNewNamesSwitch"',
+        '</div>'
+      );
+      assert.match(
+        guard,
+        /Reuse an existing name instead of creating a near-duplicate/,
+        'the switch must say what it switches'
+      );
+      // The hint has to name the tiers, or "the same word in another
+      // spelling" is a promise nobody can check.
+      assert.ok(
+        /case, umlauts, legal form, plural, word order/.test(guard),
+        'the hint must name the spellings the guard treats as the same word'
+      );
+      assert.ok(
+        /A typo-like match is only logged/.test(guard),
+        'the hint must say that a fuzzy match is not mapped, only recorded'
+      );
+      assert.ok(
+        /Default: on/.test(guard),
+        'the hint must say that the guard is on unless it is switched off'
+      );
+      // START_ENV has it off, so an unchecked switch proves the field reads
+      // the configuration rather than printing its own default.
+      assert.ok(
+        section.includes('data-switch-target="duplicatesGuardNewNames"'),
+        'the guard must be a settings-switch, not a bare checkbox'
+      );
+      assert.ok(
+        !section.includes(
+          'data-switch-target="duplicatesGuardNewNames" checked'
+        ),
+        'the switch must show the configured DUPLICATES_GUARD_NEW_NAMES (no)'
+      );
+    });
+
+    await test('the sweep size renders as a number field in steps of fifty', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+
+      const sweep = sliceBetween(
+        section,
+        'id="duplicatesAiSweepNames"',
+        '</div>'
+      );
+      assert.ok(
+        sweep.includes('min="50"') &&
+          sweep.includes('max="1000"') &&
+          sweep.includes('step="50"'),
+        'the sweep size spans 50 to 1000 names in steps of fifty'
+      );
+      assert.ok(
+        sweep.includes('value="450"'),
+        'it must show the configured DUPLICATES_AI_SWEEP_NAMES'
+      );
+      assert.ok(
+        /looks at the whole list/.test(sweep) && /Default: 300/.test(sweep),
+        'its hint says what the number does and what the default is'
+      );
+
+      // The two archive settings close the section, after everything that
+      // only governs one review.
+      assert.ok(
+        section.indexOf('id="duplicatesAiRequestSeconds"') <
+          section.indexOf('id="duplicatesGuardNewNames"') &&
+          section.indexOf('id="duplicatesGuardNewNames"') <
+            section.indexOf('id="duplicatesAiSweepNames"'),
+        'the guard and the sweep size close the section, in that order'
+      );
+    });
+
+    await test('the two brakes render as number fields with a range that starts at zero', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+
+      const budget = sliceBetween(
+        section,
+        'id="duplicatesAiTokenBudget"',
+        '</div>'
+      );
+      assert.ok(
+        budget.includes('min="0"') &&
+          budget.includes('max="10000000"') &&
+          budget.includes('step="1000"'),
+        'the token budget spans 0 to 10000000 and steps in thousands'
+      );
+      assert.ok(
+        budget.includes('value="120000"'),
+        'the token budget shows the configured DUPLICATES_AI_TOKEN_BUDGET'
+      );
+      assert.ok(
+        /0 means no limit/.test(budget) && /Default: 200000/.test(budget),
+        'its hint says what zero means and what the default is'
+      );
+
+      const idle = sliceBetween(
+        section,
+        'id="duplicatesAiIdleStopSeconds"',
+        '</div>'
+      );
+      assert.ok(
+        idle.includes('min="0"') &&
+          idle.includes('max="3600"') &&
+          idle.includes('step="1"'),
+        'the idle stop spans 0 to 3600 seconds'
+      );
+      assert.ok(
+        idle.includes('value="90"'),
+        'the idle stop shows the configured DUPLICATES_AI_IDLE_STOP_SECONDS'
+      );
+      assert.ok(
+        /0 means never/.test(idle) && /Default: 60/.test(idle),
+        'its hint says what zero means and what the default is'
+      );
+
+      // The brakes belong to the section, and they close it — the AI review
+      // settings above them describe what one request looks like, these two
+      // describe when the whole run has to stop.
+      assert.ok(
+        section.indexOf('id="duplicatesAiExcerptDocuments"') <
+          section.indexOf('id="duplicatesAiTokenBudget"') &&
+          section.indexOf('id="duplicatesAiTokenBudget"') <
+            section.indexOf('id="duplicatesAiIdleStopSeconds"'),
+        'the budget and the idle stop close the section, in that order'
+      );
+    });
+
+    await test('every field of the section is marked when it is managed by the environment', async () => {
+      const markedFields = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'js', 'settings.js'),
+        'utf8'
+      );
+
+      [...FIELDS, ...SIMPLIFY_FIELDS].forEach(({ input, envKey }) => {
+        const entry = new RegExp(
+          `selector:\\s*'#${input}',\\s*envKey:\\s*'${envKey}'`
+        );
+        assert.ok(
+          entry.test(markedFields),
+          `${input} must be paired with ${envKey} in settings.js, or an operator-set value is never greyed out`
+        );
+      });
+    });
+
+    // ── 2. Saving stores all of them ────────────────────────────────────────
+    await test('POST /settings persists all thirteen values', async () => {
+      const response = await postSettings({
+        duplicatesAiReview: 'yes',
+        duplicatesAiModel: '  gpt-judge  ',
+        duplicatesAiReviewBatchSize: '12',
+        duplicatesAiCandidateFloor: '0.85',
+        duplicatesAiExcerpts: 'yes',
+        duplicatesAiExcerptChars: '250',
+        duplicatesAiExcerptDocuments: '3',
+        duplicatesAiTokenBudget: '75000',
+        duplicatesAiIdleStopSeconds: '30',
+        duplicatesAiThinking: 'no',
+        duplicatesAiRequestSeconds: '20',
+        duplicatesGuardNewNames: 'yes',
+        duplicatesAiSweepNames: '500',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const expected = {
+        DUPLICATES_AI_REVIEW: 'yes',
+        DUPLICATES_AI_MODEL: 'gpt-judge',
+        DUPLICATES_AI_REVIEW_BATCH_SIZE: '12',
+        DUPLICATES_AI_CANDIDATE_FLOOR: '0.85',
+        DUPLICATES_AI_EXCERPTS: 'yes',
+        DUPLICATES_AI_EXCERPT_CHARS: '250',
+        DUPLICATES_AI_EXCERPT_DOCUMENTS: '3',
+        DUPLICATES_AI_TOKEN_BUDGET: '75000',
+        DUPLICATES_AI_IDLE_STOP_SECONDS: '30',
+        DUPLICATES_AI_THINKING: 'no',
+        DUPLICATES_AI_REQUEST_SECONDS: '20',
+        DUPLICATES_GUARD_NEW_NAMES: 'yes',
+        DUPLICATES_AI_SWEEP_NAMES: '500',
+      };
+      Object.entries(expected).forEach(([key, value]) => {
+        assert.strictEqual(
+          lastSaved()[key],
+          value,
+          `${key} must reach setupService.saveConfig as "${value}"`
+        );
+        assert.strictEqual(
+          process.env[key],
+          value,
+          `${key} must be live after the save`
+        );
+      });
+    });
+
+    await test('an emptied model field hands the judge back to the configured model', async () => {
+      const response = await postSettings({ duplicatesAiModel: '   ' });
+      assert.strictEqual(response.status, 200, await response.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_MODEL,
+        '',
+        'empty is a meaningful value here, unlike the numbers'
+      );
+    });
+
+    // ── 3. Ranges are guard rails, not a reason to lose the form ────────────
+    await test('numbers outside their range are clamped', async () => {
+      const response = await postSettings({
+        // Switched off here so the next case can tell "kept the previous
+        // value" apart from "fell back to the default", which is on.
+        duplicatesAiReview: 'no',
+        duplicatesAiModel: 'gpt-judge',
+        duplicatesAiReviewBatchSize: '999',
+        duplicatesAiCandidateFloor: '0.1',
+        duplicatesAiExcerptChars: '5',
+        duplicatesAiExcerptDocuments: '9',
+        duplicatesAiTokenBudget: '99999999',
+        duplicatesAiIdleStopSeconds: '-5',
+        duplicatesAiRequestSeconds: '2',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const saved = lastSaved();
+      assert.strictEqual(saved.DUPLICATES_AI_REVIEW, 'no');
+      assert.strictEqual(saved.DUPLICATES_AI_REVIEW_BATCH_SIZE, '100');
+      assert.strictEqual(saved.DUPLICATES_AI_CANDIDATE_FLOOR, '0.5');
+      assert.strictEqual(saved.DUPLICATES_AI_EXCERPT_CHARS, '50');
+      assert.strictEqual(saved.DUPLICATES_AI_EXCERPT_DOCUMENTS, '5');
+      assert.strictEqual(
+        saved.DUPLICATES_AI_TOKEN_BUDGET,
+        '10000000',
+        'a budget above the ceiling is capped, not rejected'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        '0',
+        'a negative idle stop lands on zero, which means "never"'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_REQUEST_SECONDS,
+        '5',
+        'a request too short to measure anything is lifted to the floor'
+      );
+    });
+
+    await test('the request length is capped at five minutes', async () => {
+      const response = await postSettings({
+        duplicatesAiRequestSeconds: '999',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_REQUEST_SECONDS,
+        '300',
+        'a request longer than the ceiling is capped, not rejected'
+      );
+    });
+
+    await test('the thinking switch keeps its value and takes the usual spellings', async () => {
+      const on = await postSettings({ duplicatesAiThinking: 'true' });
+      assert.strictEqual(on.status, 200, await on.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_THINKING,
+        'yes',
+        'the switch takes the same spellings as every other one'
+      );
+
+      const nonsense = await postSettings({
+        duplicatesAiThinking: 'sometimes',
+      });
+      assert.strictEqual(nonsense.status, 200, await nonsense.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_THINKING,
+        'yes',
+        'an unknown switch value must not flip thinking back to its default'
+      );
+
+      const off = await postSettings({ duplicatesAiThinking: 'no' });
+      assert.strictEqual(off.status, 200, await off.text());
+      assert.strictEqual(lastSaved().DUPLICATES_AI_THINKING, 'no');
+    });
+
+    await test('what was saved is what the section shows afterwards', async () => {
+      const response = await postSettings({
+        duplicatesAiThinking: 'yes',
+        duplicatesAiRequestSeconds: '15',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+      assert.ok(
+        section.includes('data-switch-target="duplicatesAiThinking" checked'),
+        'a saved switch must come back on, or the page lies about what is configured'
+      );
+      assert.ok(
+        section.includes(
+          '<input type="hidden" id="duplicatesAiThinking" name="duplicatesAiThinking" value="yes">'
+        ),
+        'the hidden input the next POST reads must carry the saved value'
+      );
+      const seconds = sliceBetween(
+        section,
+        'id="duplicatesAiRequestSeconds"',
+        '</div>'
+      );
+      assert.ok(
+        seconds.includes('value="15"'),
+        'the saved request length must come back in the field'
+      );
+    });
+
+    await test('zero is kept for both brakes, because it is a value and not an unset field', async () => {
+      const response = await postSettings({
+        duplicatesAiTokenBudget: '0',
+        duplicatesAiIdleStopSeconds: '0',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const saved = lastSaved();
+      assert.strictEqual(
+        saved.DUPLICATES_AI_TOKEN_BUDGET,
+        '0',
+        '0 means no token limit and must survive the round trip'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        '0',
+        '0 means an unwatched review is never stopped'
+      );
+    });
+
+    await test('a fractional budget is rounded rather than stored as a fraction', async () => {
+      const response = await postSettings({
+        duplicatesAiTokenBudget: '1500.7',
+        duplicatesAiIdleStopSeconds: '45.2',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const saved = lastSaved();
+      assert.strictEqual(saved.DUPLICATES_AI_TOKEN_BUDGET, '1501');
+      assert.strictEqual(saved.DUPLICATES_AI_IDLE_STOP_SECONDS, '45');
+    });
+
+    await test('a value that is not a number keeps the previous one', async () => {
+      const response = await postSettings({
+        duplicatesAiReview: 'maybe',
+        duplicatesAiReviewBatchSize: 'twenty',
+        duplicatesAiCandidateFloor: 'high',
+        duplicatesAiExcerptChars: '',
+        duplicatesAiExcerptDocuments: 'lots',
+        duplicatesAiTokenBudget: '',
+        duplicatesAiIdleStopSeconds: 'forever',
+        duplicatesAiRequestSeconds: '',
+      });
+      assert.strictEqual(response.status, 200, await response.text());
+
+      const saved = lastSaved();
+      assert.strictEqual(
+        saved.DUPLICATES_AI_REVIEW,
+        'no',
+        'an unknown switch value must not flip the setting back to its default'
+      );
+      assert.strictEqual(saved.DUPLICATES_AI_REVIEW_BATCH_SIZE, '100');
+      assert.strictEqual(saved.DUPLICATES_AI_CANDIDATE_FLOOR, '0.5');
+      assert.strictEqual(
+        saved.DUPLICATES_AI_EXCERPT_CHARS,
+        '50',
+        'a cleared field must not reset the setting to its default'
+      );
+      assert.strictEqual(saved.DUPLICATES_AI_EXCERPT_DOCUMENTS, '5');
+      assert.strictEqual(
+        saved.DUPLICATES_AI_TOKEN_BUDGET,
+        '1501',
+        'a cleared budget keeps what the last save stored, not the default'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        '45',
+        'an unparsable idle stop keeps what the last save stored'
+      );
+      assert.strictEqual(
+        saved.DUPLICATES_AI_REQUEST_SECONDS,
+        '15',
+        'a cleared request length keeps what the last save stored'
+      );
+    });
+
+    await test('the sweep size is clamped into its range and rounded', async () => {
+      const tooMany = await postSettings({ duplicatesAiSweepNames: '5000' });
+      assert.strictEqual(tooMany.status, 200, await tooMany.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_SWEEP_NAMES,
+        '1000',
+        'a sweep larger than the ceiling is capped, not rejected'
+      );
+
+      const tooFew = await postSettings({ duplicatesAiSweepNames: '1' });
+      assert.strictEqual(tooFew.status, 200, await tooFew.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_SWEEP_NAMES,
+        '50',
+        'a sweep too small to be worth a request is lifted to the floor'
+      );
+
+      // Not a multiple of the step: the field steps in fifties, the route
+      // does not insist on it — a hand-written 333 is a number, not an error.
+      const odd = await postSettings({ duplicatesAiSweepNames: '333.4' });
+      assert.strictEqual(odd.status, 200, await odd.text());
+      assert.strictEqual(lastSaved().DUPLICATES_AI_SWEEP_NAMES, '333');
+
+      const cleared = await postSettings({ duplicatesAiSweepNames: '' });
+      assert.strictEqual(cleared.status, 200, await cleared.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_SWEEP_NAMES,
+        '333',
+        'a cleared field keeps what the last save stored, not the default'
+      );
+    });
+
+    await test('the creation guard survives the round trip and an unknown answer', async () => {
+      const off = await postSettings({ duplicatesGuardNewNames: 'no' });
+      assert.strictEqual(off.status, 200, await off.text());
+      assert.strictEqual(lastSaved().DUPLICATES_GUARD_NEW_NAMES, 'no');
+
+      const nonsense = await postSettings({
+        duplicatesGuardNewNames: 'sometimes',
+      });
+      assert.strictEqual(nonsense.status, 200, await nonsense.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_GUARD_NEW_NAMES,
+        'no',
+        'an unknown switch value must not turn the guard back on'
+      );
+
+      const on = await postSettings({ duplicatesGuardNewNames: 'true' });
+      assert.strictEqual(on.status, 200, await on.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_GUARD_NEW_NAMES,
+        'yes',
+        'the switch takes the same spellings as every other one'
+      );
+
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+      assert.ok(
+        section.includes(
+          'data-switch-target="duplicatesGuardNewNames" checked'
+        ),
+        'a saved switch must come back on, or the page lies about what is configured'
+      );
+      assert.ok(
+        section.includes(
+          '<input type="hidden" id="duplicatesGuardNewNames" name="duplicatesGuardNewNames" value="yes">'
+        ),
+        'the hidden input the next POST reads must carry the saved value'
+      );
+    });
+
+    // ── 4. The .env export lists them ───────────────────────────────────────
+    await test('the .env export carries a Duplicates group with all thirteen keys', async () => {
+      const response = await fetch(harness.base + '/api/settings/env-file', {
+        headers: { 'x-api-key': API_KEY },
+      });
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      assert.strictEqual(payload.success, true);
+
+      const env = payload.data.env;
+      assert.ok(env.includes('# Duplicates'), 'the group has its own heading');
+      ENV_KEYS.forEach((key) => {
+        assert.ok(
+          env.includes(`${key}=`),
+          `${key} must be part of the exported configuration`
+        );
+      });
+
+      // The export is read top to bottom by a human pasting it into a compose
+      // file, so the two brakes follow the settings they brake.
+      assert.ok(
+        env.indexOf('DUPLICATES_AI_EXCERPT_DOCUMENTS=') <
+          env.indexOf('DUPLICATES_AI_TOKEN_BUDGET=') &&
+          env.indexOf('DUPLICATES_AI_TOKEN_BUDGET=') <
+            env.indexOf('DUPLICATES_AI_IDLE_STOP_SECONDS='),
+        'the group lists the budget and the idle stop after the round-6 keys, in that order'
+      );
+      assert.ok(
+        env.indexOf('DUPLICATES_AI_IDLE_STOP_SECONDS=') <
+          env.indexOf('DUPLICATES_AI_THINKING=') &&
+          env.indexOf('DUPLICATES_AI_THINKING=') <
+            env.indexOf('DUPLICATES_AI_REQUEST_SECONDS='),
+        'the two request settings follow the brakes, in the order the page shows them'
+      );
+      assert.ok(
+        env.indexOf('DUPLICATES_AI_REQUEST_SECONDS=') <
+          env.indexOf('DUPLICATES_GUARD_NEW_NAMES=') &&
+          env.indexOf('DUPLICATES_GUARD_NEW_NAMES=') <
+            env.indexOf('DUPLICATES_AI_SWEEP_NAMES='),
+        'the guard and the sweep size close the group, in the order the page shows them'
+      );
+    });
+    // ── The two settings round 10 added to the section ─────────────────────
+    await test('the concurrency and the verdict memory render with their ranges', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="duplicates-tab"',
+        'id="simplify-tab"'
+      );
+
+      const lanes = sliceBetween(
+        section,
+        'id="duplicatesAiConcurrency"',
+        '</div>'
+      );
+      assert.ok(
+        lanes.includes('min="0"') &&
+          lanes.includes('max="8"') &&
+          lanes.includes('step="1"'),
+        'the lane count spans 0 to 8 in single steps'
+      );
+      assert.ok(
+        lanes.includes('value="4"'),
+        'it must show the configured DUPLICATES_AI_CONCURRENCY'
+      );
+      assert.ok(
+        /0 lets the judge choose/.test(lanes) && /Default: 0/.test(lanes),
+        'its hint must say what zero means and what the default is'
+      );
+      assert.ok(
+        /Wall time divides by it, tokens do not/.test(lanes),
+        'the hint must say what more lanes do and do not save'
+      );
+      assert.ok(
+        section.includes('Model requests at once'),
+        'the field must be labelled'
+      );
+
+      const memory = sliceBetween(
+        section,
+        'id="duplicatesAiVerdictMemoryDays"',
+        '</div>'
+      );
+      assert.ok(
+        memory.includes('min="0"') &&
+          memory.includes('max="365"') &&
+          memory.includes('step="1"'),
+        'the memory spans 0 to 365 days'
+      );
+      assert.ok(
+        memory.includes('value="30"'),
+        'it must show the configured DUPLICATES_AI_VERDICT_MEMORY_DAYS'
+      );
+      assert.ok(
+        /0 switches the memory off/.test(memory) && /Default: 90/.test(memory),
+        'its hint must say what zero means and what the default is'
+      );
+      assert.ok(
+        section.includes('Remember verdicts for (days)'),
+        'the field must be labelled'
+      );
+
+      // Both describe one review, so they sit with the settings that do and
+      // before the two that belong to the archive.
+      assert.ok(
+        section.indexOf('id="duplicatesAiRequestSeconds"') <
+          section.indexOf('id="duplicatesAiConcurrency"') &&
+          section.indexOf('id="duplicatesAiConcurrency"') <
+            section.indexOf('id="duplicatesAiVerdictMemoryDays"') &&
+          section.indexOf('id="duplicatesAiVerdictMemoryDays"') <
+            section.indexOf('id="duplicatesGuardNewNames"'),
+        'the lanes and the memory follow the request length, in that order'
+      );
+    });
+
+    // ── The section of its own that round 10 added ─────────────────────────
+    await test('GET /settings renders the Simplify tags section and its nav entry', async () => {
+      const html = await getSettingsPage();
+
+      assert.ok(
+        html.includes('id="sec-simplify"'),
+        'the section itself must be rendered'
+      );
+      assert.ok(
+        html.includes('id="simplify-tab"'),
+        'the nav entry needs a target block'
+      );
+
+      const desktopNav = sliceBetween(
+        html,
+        '<nav class="zr-sectionnav" data-module="section-nav">',
+        '</nav>'
+      );
+      const mobileNav = sliceBetween(
+        html,
+        '<nav class="zr-sectionnav zr-only-mobile">',
+        '</nav>'
+      );
+
+      [
+        ['desktop', desktopNav],
+        ['mobile', mobileNav],
+      ].forEach(([label, nav]) => {
+        assert.ok(
+          nav.includes('href="#simplify-tab"'),
+          `the ${label} nav must link the section`
+        );
+        assert.ok(
+          nav.indexOf('href="#duplicates-tab"') <
+            nav.indexOf('href="#simplify-tab"') &&
+            nav.indexOf('href="#simplify-tab"') <
+              nav.indexOf('href="#ocr-tab"'),
+          `the ${label} nav must list Simplify tags after Duplicates and before OCR`
+        );
+      });
+
+      assert.ok(
+        desktopNav.includes('/icons.svg#i-split'),
+        'the desktop entry carries the i-split icon the page uses'
+      );
+      assert.ok(
+        html.indexOf('id="duplicates-tab"') <
+          html.indexOf('id="simplify-tab"') &&
+          html.indexOf('id="simplify-tab"') < html.indexOf('id="ocr-tab"'),
+        'the section itself sits between Duplicates and OCR'
+      );
+    });
+
+    await test('both Simplify tags fields render with the value configured now', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(html, 'id="simplify-tab"', 'id="ocr-tab"');
+
+      SIMPLIFY_FIELDS.forEach(({ input, envKey }) => {
+        assert.ok(
+          section.includes(`name="${input}"`),
+          `${input} must be part of the settings form, or it is never submitted`
+        );
+        assert.ok(
+          section.includes(`value="${START_ENV[envKey]}"`),
+          `${input} must show the configured ${envKey} (${START_ENV[envKey]})`
+        );
+      });
+
+      const perRequest = sliceBetween(
+        section,
+        'id="simplifyTagsPerRequest"',
+        '</div>'
+      );
+      assert.ok(
+        perRequest.includes('min="10"') &&
+          perRequest.includes('max="200"') &&
+          perRequest.includes('step="10"'),
+        'the batch spans 10 to 200 tags in steps of ten'
+      );
+      assert.ok(
+        /Default: 50/.test(perRequest),
+        'its hint must say what the default is'
+      );
+
+      const size = sliceBetween(
+        section,
+        'id="simplifyVocabularySize"',
+        '</div>'
+      );
+      assert.ok(
+        size.includes('min="5"') &&
+          size.includes('max="100"') &&
+          size.includes('step="5"'),
+        'the vocabulary size spans 5 to 100 entries in steps of five'
+      );
+      assert.ok(
+        /Default: 25/.test(size),
+        'its hint must say what the default is'
+      );
+
+      assert.strictEqual(
+        countOccurrences(section, 'class="zr-field__hint"'),
+        2,
+        'both fields say what they do and what their default is'
+      );
+      // The section says in one sentence that the model is optional here;
+      // the whole feature works on the rule alone.
+      assert.ok(
+        /needs no model/.test(section),
+        'the section must say that decomposing works without a model'
+      );
+    });
+
+    await test('POST /settings stores and clamps the four settings of round 10', async () => {
+      const stored = await postSettings({
+        duplicatesAiConcurrency: '3',
+        duplicatesAiVerdictMemoryDays: '120',
+        simplifyTagsPerRequest: '40',
+        simplifyVocabularySize: '30',
+      });
+      assert.strictEqual(stored.status, 200, await stored.text());
+      const saved = lastSaved();
+      assert.strictEqual(saved.DUPLICATES_AI_CONCURRENCY, '3');
+      assert.strictEqual(saved.DUPLICATES_AI_VERDICT_MEMORY_DAYS, '120');
+      assert.strictEqual(saved.SIMPLIFY_TAGS_PER_REQUEST, '40');
+      assert.strictEqual(saved.SIMPLIFY_VOCABULARY_SIZE, '30');
+
+      const clamped = await postSettings({
+        duplicatesAiConcurrency: '99',
+        duplicatesAiVerdictMemoryDays: '-7',
+        simplifyTagsPerRequest: '1',
+        simplifyVocabularySize: '900',
+      });
+      assert.strictEqual(clamped.status, 200, await clamped.text());
+      const bounds = lastSaved();
+      assert.strictEqual(
+        bounds.DUPLICATES_AI_CONCURRENCY,
+        '8',
+        'more lanes than the ceiling are capped, not rejected'
+      );
+      assert.strictEqual(
+        bounds.DUPLICATES_AI_VERDICT_MEMORY_DAYS,
+        '0',
+        'a negative memory lands on zero, which means "no memory"'
+      );
+      assert.strictEqual(bounds.SIMPLIFY_TAGS_PER_REQUEST, '10');
+      assert.strictEqual(bounds.SIMPLIFY_VOCABULARY_SIZE, '100');
+
+      // Zero is a value for both of the Duplicates ones: the judge picks the
+      // lane count itself, and no verdict is remembered at all.
+      const zero = await postSettings({
+        duplicatesAiConcurrency: '0',
+        duplicatesAiVerdictMemoryDays: '0',
+      });
+      assert.strictEqual(zero.status, 200, await zero.text());
+      assert.strictEqual(lastSaved().DUPLICATES_AI_CONCURRENCY, '0');
+      assert.strictEqual(lastSaved().DUPLICATES_AI_VERDICT_MEMORY_DAYS, '0');
+
+      const cleared = await postSettings({
+        duplicatesAiConcurrency: '',
+        simplifyVocabularySize: 'lots',
+      });
+      assert.strictEqual(cleared.status, 200, await cleared.text());
+      assert.strictEqual(
+        lastSaved().DUPLICATES_AI_CONCURRENCY,
+        '0',
+        'a cleared field keeps what the last save stored, not the default'
+      );
+      assert.strictEqual(
+        lastSaved().SIMPLIFY_VOCABULARY_SIZE,
+        '100',
+        'a value that is not a number keeps what the last save stored'
+      );
+    });
+
+    await test('the .env export carries a Simplify tags group of its own', async () => {
+      const response = await fetch(harness.base + '/api/settings/env-file', {
+        headers: { 'x-api-key': API_KEY },
+      });
+      assert.strictEqual(response.status, 200);
+      const payload = await response.json();
+      const env = payload.data.env;
+
+      assert.ok(
+        env.includes('# Simplify tags'),
+        'the two Simplify keys get a heading of their own, not the Duplicates one'
+      );
+      SIMPLIFY_FIELDS.forEach(({ envKey }) => {
+        assert.ok(
+          env.includes(`${envKey}=`),
+          `${envKey} must be part of the exported configuration`
+        );
+      });
+      // The two round-10 review settings belong to the Duplicates group, in
+      // the order the page shows them.
+      assert.ok(
+        env.indexOf('DUPLICATES_AI_REQUEST_SECONDS=') <
+          env.indexOf('DUPLICATES_AI_CONCURRENCY=') &&
+          env.indexOf('DUPLICATES_AI_CONCURRENCY=') <
+            env.indexOf('DUPLICATES_AI_VERDICT_MEMORY_DAYS=') &&
+          env.indexOf('DUPLICATES_AI_VERDICT_MEMORY_DAYS=') <
+            env.indexOf('DUPLICATES_GUARD_NEW_NAMES='),
+        'the lanes and the memory sit between the request length and the guard'
+      );
+      assert.ok(
+        env.indexOf('# Duplicates') < env.indexOf('# Simplify tags'),
+        'the Simplify group follows the Duplicates group, as the page does'
+      );
+    });
+  } finally {
+    await harness.close();
+  }
+
+  finish();
+})().catch((error) => {
+  console.error(error);
+  finish();
+});

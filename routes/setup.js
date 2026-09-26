@@ -39,6 +39,11 @@ const reconciliationService = require('../services/reconciliationService');
 const scanHealthService = require('../services/scanHealthService');
 const updateCheckService = require('../services/updateCheckService');
 const dashboardStatsService = require('../services/dashboardStatsService');
+const duplicateMergeService = require('../services/duplicateMergeService');
+const entityNameMatcher = require('../services/entityNameMatcher');
+const entityMatchAiService = require('../services/entityMatchAiService');
+const duplicateReviewJobService = require('../services/duplicateReviewJobService');
+const tagSimplifyService = require('../services/tagSimplifyService');
 const {
   THUMBNAIL_CACHE_DIR,
   getThumbnailCachePath,
@@ -1082,85 +1087,6 @@ router.get('/sampleData/:id', async (req, res) => {
   }
 });
 
-// Documents view route
-/**
- * @swagger
- * /playground:
- *   get:
- *     deprecated: true
- *     summary: AI playground testing environment (deprecated)
- *     description: |
- *       Renders the AI playground page for experimenting with document analysis.
- *
- *       This interactive environment allows users to test different AI providers and prompts
- *       on document content without affecting the actual document processing workflow.
- *       Users can paste document text, customize prompts, and see raw AI responses
- *       to better understand how the AI models analyze document content.
- *
- *       The playground is useful for fine-tuning prompts and testing AI capabilities
- *       before applying them to actual document processing.
- *
- *       Deprecated: the page has been removed from the navigation and will be
- *       removed entirely in a future release. Use /manual to try a prompt
- *       against a single document.
- *     tags:
- *       - Navigation
- *       - Documents
- *     security:
- *       - BearerAuth: []
- *     responses:
- *       200:
- *         description: Playground page rendered successfully
- *         content:
- *           text/html:
- *             schema:
- *               type: string
- *               description: HTML content of the AI playground interface
- *       401:
- *         description: Unauthorized - user not authenticated
- *         headers:
- *           Location:
- *             schema:
- *               type: string
- *               example: "/login"
- *       500:
- *         description: Server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.get('/playground', protectApiRoute, async (req, res) => {
-  try {
-    res.render('playground', {
-      version: configFile.PAPERLESS_AI_VERSION || ' ',
-    });
-  } catch (error) {
-    console.error('[ERROR] loading documents view:', error);
-    res.status(500).send('Error loading documents');
-  }
-});
-
-router.get('/api/playground/bootstrap', protectApiRoute, async (req, res) => {
-  try {
-    const { documents, tagNames, correspondentNames } =
-      await documentsService.getDocumentsWithMetadata();
-
-    res.json({
-      success: true,
-      documents,
-      tagNames,
-      correspondentNames,
-    });
-  } catch (error) {
-    console.error('[ERROR] loading playground bootstrap data:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Error loading playground data',
-    });
-  }
-});
-
 // Compatibility endpoint for omnibox document search used by Manual/OCR views.
 /**
  * @swagger
@@ -1285,45 +1211,6 @@ router.get('/api/chat/documents', isAuthenticated, async (req, res) => {
     });
   }
 });
-
-/**
- * @swagger
- * /api/playground/bootstrap:
- *   get:
- *     deprecated: true
- *     summary: Get playground bootstrap data (deprecated)
- *     description: Returns documents and metadata required to initialize the AI playground UI. Removed from the navigation and scheduled for removal.
- *     tags:
- *       - Documents
- *       - API
- *     security:
- *       - BearerAuth: []
- *       - ApiKeyAuth: []
- *     responses:
- *       200:
- *         description: Playground bootstrap data loaded successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 documents:
- *                   type: array
- *                   items:
- *                     type: object
- *                 tagNames:
- *                   type: array
- *                   items:
- *                     type: string
- *                 correspondentNames:
- *                   type: array
- *                   items:
- *                     type: string
- *       500:
- *         description: Server error
- */
 
 /**
  * @swagger
@@ -3320,6 +3207,8 @@ async function buildUpdateData(analysis, doc) {
       config.restrictToExistingCorrespondents === 'yes' ? true : false,
     restrictToExistingDocumentTypes:
       config.restrictToExistingDocumentTypes === 'yes' ? true : false,
+    // For the creation guard's record of which document a mapping served.
+    documentId: doc?.id ?? null,
   };
 
   console.log(
@@ -3340,16 +3229,13 @@ async function buildUpdateData(analysis, doc) {
     config.limitFunctions?.activateTagging === 'no' &&
     config.addAIProcessedTag === 'yes'
   ) {
-    // Add AI processed tags to the document (processTags function awaits a tags array)
-    // get tags from .env file and split them by comma and make an array
+    // The completion tag is the app's own bookkeeping, and processTags()
+    // applies it itself — also for an empty list. Kept in step with the same
+    // branch in server.js.
     console.log(
       '[DEBUG] Tagging is deactivated but AI processed tag will be added'
     );
-    const tags = config.addAIProcessedTags.split(',');
-    const { tagIds, errors } = await paperlessService.processTags(
-      tags,
-      options
-    );
+    const { tagIds, errors } = await paperlessService.processTags([], options);
     if (errors.length > 0) {
       console.warn('[ERROR] Some tags could not be processed:', errors);
     }
@@ -3863,6 +3749,30 @@ const ENV_EXPORT_GROUPS = [
       'RESTRICT_TO_EXISTING_CORRESPONDENTS',
       'RESTRICT_TO_EXISTING_DOCUMENT_TYPES',
     ],
+  },
+  {
+    title: 'Duplicates',
+    keys: [
+      'DUPLICATES_AI_REVIEW',
+      'DUPLICATES_AI_MODEL',
+      'DUPLICATES_AI_REVIEW_BATCH_SIZE',
+      'DUPLICATES_AI_CANDIDATE_FLOOR',
+      'DUPLICATES_AI_EXCERPTS',
+      'DUPLICATES_AI_EXCERPT_CHARS',
+      'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+      'DUPLICATES_AI_TOKEN_BUDGET',
+      'DUPLICATES_AI_IDLE_STOP_SECONDS',
+      'DUPLICATES_AI_THINKING',
+      'DUPLICATES_AI_REQUEST_SECONDS',
+      'DUPLICATES_AI_CONCURRENCY',
+      'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
+      'DUPLICATES_GUARD_NEW_NAMES',
+      'DUPLICATES_AI_SWEEP_NAMES',
+    ],
+  },
+  {
+    title: 'Simplify tags',
+    keys: ['SIMPLIFY_TAGS_PER_REQUEST', 'SIMPLIFY_VOCABULARY_SIZE'],
   },
   {
     title: 'External API',
@@ -6945,6 +6855,34 @@ router.get('/settings', async (req, res) => {
     CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',
     DISABLE_AUTOMATIC_PROCESSING:
       process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
+    // Duplicates page. The defaults repeat config/config.js so the fields are
+    // never blank on a fresh instance that has none of these set.
+    DUPLICATES_AI_REVIEW: process.env.DUPLICATES_AI_REVIEW || 'yes',
+    DUPLICATES_AI_MODEL: process.env.DUPLICATES_AI_MODEL || '',
+    DUPLICATES_AI_REVIEW_BATCH_SIZE:
+      process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
+    DUPLICATES_AI_CANDIDATE_FLOOR:
+      process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6',
+    DUPLICATES_AI_EXCERPTS: process.env.DUPLICATES_AI_EXCERPTS || 'yes',
+    DUPLICATES_AI_EXCERPT_CHARS:
+      process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
+    DUPLICATES_AI_EXCERPT_DOCUMENTS:
+      process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+    DUPLICATES_AI_TOKEN_BUDGET:
+      process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+    DUPLICATES_AI_IDLE_STOP_SECONDS:
+      process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
+    DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
+    DUPLICATES_AI_REQUEST_SECONDS:
+      process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
+    DUPLICATES_AI_CONCURRENCY: process.env.DUPLICATES_AI_CONCURRENCY || '0',
+    DUPLICATES_AI_VERDICT_MEMORY_DAYS:
+      process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS || '90',
+    DUPLICATES_GUARD_NEW_NAMES: process.env.DUPLICATES_GUARD_NEW_NAMES || 'yes',
+    DUPLICATES_AI_SWEEP_NAMES: process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
+    // Simplify tags — same defaults as config/config.js.
+    SIMPLIFY_TAGS_PER_REQUEST: process.env.SIMPLIFY_TAGS_PER_REQUEST || '50',
+    SIMPLIFY_VOCABULARY_SIZE: process.env.SIMPLIFY_VOCABULARY_SIZE || '25',
     MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
     OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
     OCR_API_URL: process.env.OCR_API_URL || '',
@@ -7824,145 +7762,6 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
 
 /**
  * @swagger
- * /manual/playground:
- *   post:
- *     deprecated: true
- *     summary: Process document using a custom prompt in playground mode (deprecated)
- *     description: |
- *       Analyzes document content using a custom user-provided prompt.
- *       This endpoint is primarily used for testing and experimenting with different prompts
- *       without affecting the actual document processing workflow.
- *
- *       The analysis is performed using the AI provider configured in the application settings,
- *       but with a custom prompt that overrides the default system prompt.
- *     tags:
- *       - Documents
- *       - API
- *     security:
- *       - BearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - content
- *             properties:
- *               content:
- *                 type: string
- *                 description: The document text content to analyze
- *                 example: "Invoice from Acme Corp. Total amount: $125.00, Due date: 2023-08-15"
- *               prompt:
- *                 type: string
- *                 description: Custom prompt to use for analysis
- *                 example: "Extract the company name, invoice amount, and due date from this document."
- *               documentId:
- *                 type: string
- *                 description: Optional document ID for tracking metrics
- *                 example: "doc_123"
- *     responses:
- *       200:
- *         description: Document analysis results using the custom prompt
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 result:
- *                   type: string
- *                   description: The raw AI response using the custom prompt
- *                   example: "Company: Acme Corp\nAmount: $125.00\nDue Date: 2023-08-15"
- *                 metrics:
- *                   type: object
- *                   description: Token usage metrics (when using OpenAI)
- *                   properties:
- *                     promptTokens:
- *                       type: number
- *                       example: 350
- *                     completionTokens:
- *                       type: number
- *                       example: 120
- *                     totalTokens:
- *                       type: number
- *                       example: 470
- *       400:
- *         description: Invalid request parameters
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       500:
- *         description: Server error or AI provider not configured
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.post('/manual/playground', express.json(), async (req, res) => {
-  try {
-    const { content, prompt, documentId } = req.body;
-
-    if (!content || typeof content !== 'string') {
-      console.log('Invalid content received:', content);
-      return res
-        .status(400)
-        .json({ error: 'Valid content string is required' });
-    }
-
-    if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzePlayground(
-        content,
-        prompt
-      );
-      await documentModel.addOpenAIMetrics(
-        documentId,
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzePlayground(
-        content,
-        prompt
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'custom') {
-      const analyzeDocument = await customService.analyzePlayground(
-        content,
-        prompt
-      );
-      await documentModel.addOpenAIMetrics(
-        documentId,
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'azure') {
-      const analyzeDocument = await azureService.analyzePlayground(
-        content,
-        prompt
-      );
-      await documentModel.addOpenAIMetrics(
-        documentId,
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
-      );
-      return res.json(analyzeDocument);
-    } else {
-      return res.status(500).json({ error: 'AI provider not configured' });
-    }
-  } catch (error) {
-    console.error('Analysis error:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * @swagger
  * /manual/updateDocument:
  *   post:
  *     summary: Update document metadata in Paperless-ngx
@@ -8402,6 +8201,106 @@ router.get('/health', async (req, res) => {
  *                 type: boolean
  *                 description: Disable automatic document processing
  *                 example: false
+ *               duplicatesAiReview:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Offer the AI review on the Duplicates page (yes/no). Default yes. Scanning and merging work without it.
+ *                 example: "yes"
+ *               duplicatesAiModel:
+ *                 type: string
+ *                 description: Model of the configured provider used only for judging duplicates. Empty means the provider's configured model.
+ *                 example: ""
+ *               duplicatesAiReviewBatchSize:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 100
+ *                 description: Name pairs per model request (1-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 25
+ *               duplicatesAiCandidateFloor:
+ *                 type: number
+ *                 minimum: 0.5
+ *                 maximum: 0.95
+ *                 description: Lowest matcher score a pair needs to be shown to the model (0.50-0.95, default 0.6). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 0.6
+ *               duplicatesAiExcerpts:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Send document excerpts for pairs the matcher linked by spelling alone (yes/no). Default yes.
+ *                 example: "yes"
+ *               duplicatesAiExcerptChars:
+ *                 type: integer
+ *                 minimum: 50
+ *                 maximum: 500
+ *                 description: Excerpt length in characters (50-500, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 300
+ *               duplicatesAiExcerptDocuments:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 5
+ *                 description: Documents sampled per tag or correspondent for those excerpts (1-5, default 2). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 2
+ *               duplicatesAiTokenBudget:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 10000000
+ *                 description: The most one AI review may spend across all its requests, prompt and completion (0-10000000, default 200000). When it is reached the review stops itself and keeps the verdicts it has; 0 means no limit. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 200000
+ *               duplicatesAiIdleStopSeconds:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 3600
+ *                 description: A running review that no page has been watching for this many seconds stops itself, so a closed tab cannot leave the model running (0-3600, default 60). 0 means never. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 60
+ *               duplicatesAiThinking:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Let the judge reason before it answers (yes/no). Default no; a reasoning model otherwise spends the whole answer budget on its thoughts before the first verdict.
+ *                 example: "no"
+ *               duplicatesAiRequestSeconds:
+ *                 type: integer
+ *                 minimum: 5
+ *                 maximum: 300
+ *                 description: How long one model request should take (5-300 seconds, default 30). The judge measures the model on a small first request and then sizes every later one to fit. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 30
+ *               duplicatesAiConcurrency:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 8
+ *                 description: >-
+ *                   Model requests the judge keeps in flight at once (0-8, default 0).
+ *                   0 lets the judge choose: one for Ollama, three for a hosted
+ *                   endpoint. Wall time divides by it, tokens do not. Out-of-range
+ *                   values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 0
+ *               duplicatesAiVerdictMemoryDays:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 365
+ *                 description: How long a verdict about a pair of names is remembered (0-365 days, default 90). A pair the model judged is not asked again while both names are unchanged; 0 switches the memory off. Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 90
+ *               duplicatesGuardNewNames:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Reuse an existing tag or correspondent when document analysis proposes the same name in another spelling (yes/no). Default yes; the mapping is listed on the Duplicates page.
+ *                 example: "yes"
+ *               duplicatesAiSweepNames:
+ *                 type: integer
+ *                 minimum: 50
+ *                 maximum: 1000
+ *                 description: How many names the model sees per request when the semantic sweep looks at the whole list (50-1000, default 300). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 300
+ *               simplifyTagsPerRequest:
+ *                 type: integer
+ *                 minimum: 10
+ *                 maximum: 200
+ *                 description: How many tag names one model request of "Simplify tags" decomposes into a document type and topic tags (10-200, default 50). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 50
+ *               simplifyVocabularySize:
+ *                 type: integer
+ *                 minimum: 5
+ *                 maximum: 100
+ *                 description: How many entries the vocabulary proposed from the tag names should aim at, types and topics together (5-100, default 25). Out-of-range values are clamped, a non-numeric value keeps the current setting.
+ *                 example: 25
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)
@@ -8506,6 +8405,23 @@ router.post('/settings', express.json(), async (req, res) => {
       activateCustomFields,
       customFields, // Added parameter
       disableAutomaticProcessing,
+      duplicatesAiReview,
+      duplicatesAiModel,
+      duplicatesAiReviewBatchSize,
+      duplicatesAiCandidateFloor,
+      duplicatesAiExcerpts,
+      duplicatesAiExcerptChars,
+      duplicatesAiExcerptDocuments,
+      duplicatesAiTokenBudget,
+      duplicatesAiIdleStopSeconds,
+      duplicatesAiThinking,
+      duplicatesAiRequestSeconds,
+      duplicatesAiConcurrency,
+      duplicatesAiVerdictMemoryDays,
+      duplicatesGuardNewNames,
+      duplicatesAiSweepNames,
+      simplifyTagsPerRequest,
+      simplifyVocabularySize,
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
@@ -8583,6 +8499,35 @@ router.post('/settings', express.json(), async (req, res) => {
       CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}', // Added default
       DISABLE_AUTOMATIC_PROCESSING:
         process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
+      // Duplicates page — same defaults as config/config.js, so a submitted
+      // value that fails its range check falls back to what is configured now.
+      DUPLICATES_AI_REVIEW: process.env.DUPLICATES_AI_REVIEW || 'yes',
+      DUPLICATES_AI_MODEL: process.env.DUPLICATES_AI_MODEL || '',
+      DUPLICATES_AI_REVIEW_BATCH_SIZE:
+        process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
+      DUPLICATES_AI_CANDIDATE_FLOOR:
+        process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6',
+      DUPLICATES_AI_EXCERPTS: process.env.DUPLICATES_AI_EXCERPTS || 'yes',
+      DUPLICATES_AI_EXCERPT_CHARS:
+        process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
+      DUPLICATES_AI_EXCERPT_DOCUMENTS:
+        process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
+      DUPLICATES_AI_TOKEN_BUDGET:
+        process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
+      DUPLICATES_AI_IDLE_STOP_SECONDS:
+        process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
+      DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
+      DUPLICATES_AI_REQUEST_SECONDS:
+        process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
+      DUPLICATES_AI_CONCURRENCY: process.env.DUPLICATES_AI_CONCURRENCY || '0',
+      DUPLICATES_AI_VERDICT_MEMORY_DAYS:
+        process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS || '90',
+      DUPLICATES_GUARD_NEW_NAMES:
+        process.env.DUPLICATES_GUARD_NEW_NAMES || 'yes',
+      DUPLICATES_AI_SWEEP_NAMES: process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
+      // Simplify tags — same defaults as config/config.js.
+      SIMPLIFY_TAGS_PER_REQUEST: process.env.SIMPLIFY_TAGS_PER_REQUEST || '50',
+      SIMPLIFY_VOCABULARY_SIZE: process.env.SIMPLIFY_VOCABULARY_SIZE || '25',
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
@@ -8962,6 +8907,163 @@ router.post('/settings', express.json(), async (req, res) => {
     if (useExistingData) updatedConfig.USE_EXISTING_DATA = useExistingData;
     if (disableAutomaticProcessing)
       updatedConfig.DISABLE_AUTOMATIC_PROCESSING = disableAutomaticProcessing;
+
+    // Duplicates page. The switches arrive as the hidden yes/no inputs the
+    // settings-switch partial writes, the numbers as strings from the number
+    // fields. Out-of-range numbers are clamped rather than rejected — the
+    // ranges are guard rails, not a reason to throw the whole form away — but
+    // a value that is not a number at all keeps what is configured now, so a
+    // cleared field cannot silently reset the setting to its default.
+    const sanitizeDuplicatesSwitch = (rawValue, fallbackValue) => {
+      const normalizedValue = String(rawValue ?? '')
+        .trim()
+        .toLowerCase();
+      if (['yes', 'on', 'true', '1'].includes(normalizedValue)) return 'yes';
+      if (['no', 'off', 'false', '0'].includes(normalizedValue)) return 'no';
+      return String(fallbackValue);
+    };
+
+    const sanitizeDuplicatesNumber = (rawValue, fallbackValue, range) => {
+      const normalizedValue = String(rawValue ?? '').trim();
+      const parsed = Number.parseFloat(normalizedValue);
+      if (!normalizedValue || !Number.isFinite(parsed)) {
+        return String(fallbackValue);
+      }
+      const clamped = Math.min(Math.max(parsed, range.min), range.max);
+      return range.decimals
+        ? String(Number(clamped.toFixed(range.decimals)))
+        : String(Math.round(clamped));
+    };
+
+    if (duplicatesAiReview !== undefined) {
+      updatedConfig.DUPLICATES_AI_REVIEW = sanitizeDuplicatesSwitch(
+        duplicatesAiReview,
+        currentConfig.DUPLICATES_AI_REVIEW
+      );
+    }
+    if (typeof duplicatesAiModel === 'string') {
+      // Empty is meaningful here: it hands the judge back to the provider's
+      // configured model.
+      updatedConfig.DUPLICATES_AI_MODEL = duplicatesAiModel.trim();
+    }
+    if (duplicatesAiReviewBatchSize !== undefined) {
+      updatedConfig.DUPLICATES_AI_REVIEW_BATCH_SIZE = sanitizeDuplicatesNumber(
+        duplicatesAiReviewBatchSize,
+        currentConfig.DUPLICATES_AI_REVIEW_BATCH_SIZE,
+        { min: 1, max: 100 }
+      );
+    }
+    if (duplicatesAiCandidateFloor !== undefined) {
+      updatedConfig.DUPLICATES_AI_CANDIDATE_FLOOR = sanitizeDuplicatesNumber(
+        duplicatesAiCandidateFloor,
+        currentConfig.DUPLICATES_AI_CANDIDATE_FLOOR,
+        { min: 0.5, max: 0.95, decimals: 2 }
+      );
+    }
+    if (duplicatesAiExcerpts !== undefined) {
+      updatedConfig.DUPLICATES_AI_EXCERPTS = sanitizeDuplicatesSwitch(
+        duplicatesAiExcerpts,
+        currentConfig.DUPLICATES_AI_EXCERPTS
+      );
+    }
+    if (duplicatesAiExcerptChars !== undefined) {
+      updatedConfig.DUPLICATES_AI_EXCERPT_CHARS = sanitizeDuplicatesNumber(
+        duplicatesAiExcerptChars,
+        currentConfig.DUPLICATES_AI_EXCERPT_CHARS,
+        { min: 50, max: 500 }
+      );
+    }
+    if (duplicatesAiExcerptDocuments !== undefined) {
+      updatedConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS = sanitizeDuplicatesNumber(
+        duplicatesAiExcerptDocuments,
+        currentConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS,
+        { min: 1, max: 5 }
+      );
+    }
+    // The two brakes of a running review. Zero is a meaningful value for both
+    // (no token limit, never stop an unwatched review), so the ranges start
+    // there instead of at one.
+    if (duplicatesAiTokenBudget !== undefined) {
+      updatedConfig.DUPLICATES_AI_TOKEN_BUDGET = sanitizeDuplicatesNumber(
+        duplicatesAiTokenBudget,
+        currentConfig.DUPLICATES_AI_TOKEN_BUDGET,
+        { min: 0, max: 10000000 }
+      );
+    }
+    if (duplicatesAiIdleStopSeconds !== undefined) {
+      updatedConfig.DUPLICATES_AI_IDLE_STOP_SECONDS = sanitizeDuplicatesNumber(
+        duplicatesAiIdleStopSeconds,
+        currentConfig.DUPLICATES_AI_IDLE_STOP_SECONDS,
+        { min: 0, max: 3600 }
+      );
+    }
+    // How the judge talks to the model: whether it may think before it
+    // answers, and how long one request should take. The seconds are what the
+    // judge sizes its batches against after it measured the model.
+    if (duplicatesAiThinking !== undefined) {
+      updatedConfig.DUPLICATES_AI_THINKING = sanitizeDuplicatesSwitch(
+        duplicatesAiThinking,
+        currentConfig.DUPLICATES_AI_THINKING
+      );
+    }
+    if (duplicatesAiRequestSeconds !== undefined) {
+      updatedConfig.DUPLICATES_AI_REQUEST_SECONDS = sanitizeDuplicatesNumber(
+        duplicatesAiRequestSeconds,
+        currentConfig.DUPLICATES_AI_REQUEST_SECONDS,
+        { min: 5, max: 300 }
+      );
+    }
+    // How many requests may wait for an answer at once, and how long a
+    // verdict about a pair of names is remembered. Zero is meaningful for
+    // both: the judge picks the lane count itself, and no memory at all.
+    if (duplicatesAiConcurrency !== undefined) {
+      updatedConfig.DUPLICATES_AI_CONCURRENCY = sanitizeDuplicatesNumber(
+        duplicatesAiConcurrency,
+        currentConfig.DUPLICATES_AI_CONCURRENCY,
+        { min: 0, max: 8 }
+      );
+    }
+    if (duplicatesAiVerdictMemoryDays !== undefined) {
+      updatedConfig.DUPLICATES_AI_VERDICT_MEMORY_DAYS =
+        sanitizeDuplicatesNumber(
+          duplicatesAiVerdictMemoryDays,
+          currentConfig.DUPLICATES_AI_VERDICT_MEMORY_DAYS,
+          { min: 0, max: 365 }
+        );
+    }
+    // The last two belong to the archive rather than to one review: whether
+    // document analysis may map a proposed name onto an existing object, and
+    // how many names the semantic sweep shows the model per request.
+    if (duplicatesGuardNewNames !== undefined) {
+      updatedConfig.DUPLICATES_GUARD_NEW_NAMES = sanitizeDuplicatesSwitch(
+        duplicatesGuardNewNames,
+        currentConfig.DUPLICATES_GUARD_NEW_NAMES
+      );
+    }
+    if (duplicatesAiSweepNames !== undefined) {
+      updatedConfig.DUPLICATES_AI_SWEEP_NAMES = sanitizeDuplicatesNumber(
+        duplicatesAiSweepNames,
+        currentConfig.DUPLICATES_AI_SWEEP_NAMES,
+        { min: 50, max: 1000 }
+      );
+    }
+
+    // Simplify tags. Same clamping rule as the Duplicates numbers above: out
+    // of range is pulled into it, not a number keeps what is configured now.
+    if (simplifyTagsPerRequest !== undefined) {
+      updatedConfig.SIMPLIFY_TAGS_PER_REQUEST = sanitizeDuplicatesNumber(
+        simplifyTagsPerRequest,
+        currentConfig.SIMPLIFY_TAGS_PER_REQUEST,
+        { min: 10, max: 200 }
+      );
+    }
+    if (simplifyVocabularySize !== undefined) {
+      updatedConfig.SIMPLIFY_VOCABULARY_SIZE = sanitizeDuplicatesNumber(
+        simplifyVocabularySize,
+        currentConfig.SIMPLIFY_VOCABULARY_SIZE,
+        { min: 5, max: 100 }
+      );
+    }
 
     // Update custom fields
     if (processedCustomFields.length > 0 || customFields) {
@@ -10635,6 +10737,3611 @@ router.post(
     }
   }
 );
+
+// ── Duplicates: find, merge and undo tag / correspondent duplicates ─────────
+// Everything here runs on request only. Nothing is scheduled, nothing touches
+// the scan loop, and no object is deleted that still has documents — the merge
+// service verifies that against Paperless-ngx before every DELETE.
+
+/** Who to record as the author of a merge or an undo. */
+function duplicatesPerformedBy(req) {
+  return req.user?.username || (req.user?.apiKey ? 'api-key' : null);
+}
+
+/** Maps a refusal from the merge service onto its HTTP status. */
+function respondDuplicatesError(res, route, error) {
+  const status = Number.isInteger(error?.status) ? error.status : 500;
+  console.error(`[ERROR] ${route}:`, error?.message || error);
+  return res.status(status).json({
+    success: false,
+    error: error?.message || 'Unexpected error',
+  });
+}
+
+/** Reads an optional `kind` query parameter; throws the route's own 400. */
+function readDuplicatesKind(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const kind = String(value);
+  if (!entityNameMatcher.KIND_LIST.includes(kind)) {
+    const error = new Error(`Unknown entity kind: ${kind}`);
+    error.status = 400;
+    throw error;
+  }
+  return kind;
+}
+
+/** A name is a name, not a paragraph; Paperless-ngx stops well before this. */
+const MAX_ENTITY_NAME_LENGTH = 128;
+
+/** How many unused objects one delete request may name. */
+const MAX_UNUSED_DELETE_IDS = 500;
+
+/**
+ * Reads the optional new name for the surviving object off a merge body.
+ * Absent, null or blank means "keep the name it has"; anything that is not a
+ * string, or a name longer than the limit, is the route's own 400.
+ *
+ * @param {unknown} value
+ * @returns {string|null} the trimmed name, or null when none was asked for
+ */
+function readTargetName(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    const error = new Error('targetName must be a string');
+    error.status = 400;
+    throw error;
+  }
+  const name = value.trim();
+  if (name === '') return null;
+  if (name.length > MAX_ENTITY_NAME_LENGTH) {
+    const error = new Error(
+      `targetName must not be longer than ${MAX_ENTITY_NAME_LENGTH} characters`
+    );
+    error.status = 400;
+    throw error;
+  }
+  return name;
+}
+
+/**
+ * Reads the `ids` of an EntityDeleteRequest: a non-empty array of positive
+ * integers, capped so a malformed request cannot turn into a long walk over
+ * Paperless-ngx.
+ *
+ * @param {unknown} value
+ * @returns {number[]}
+ */
+function readDeleteIds(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    const error = new Error('ids must be a non-empty array of entity ids');
+    error.status = 400;
+    throw error;
+  }
+  if (value.length > MAX_UNUSED_DELETE_IDS) {
+    const error = new Error(
+      `ids must not name more than ${MAX_UNUSED_DELETE_IDS} objects`
+    );
+    error.status = 400;
+    throw error;
+  }
+  const ids = value.map((entry) => Number(entry));
+  if (!ids.every((id) => Number.isInteger(id) && id > 0)) {
+    const error = new Error('every entry of ids must be a positive integer');
+    error.status = 400;
+    throw error;
+  }
+  return ids;
+}
+
+/** What a row of the merge log can record; the log route filters on these. */
+const LOG_ACTIONS = ['merge', 'delete', 'split'];
+
+/** Rows the log route reads at most when it filters by action itself. */
+const MAX_LOG_ACTION_SCAN = 2000;
+
+/** One page of that scan; the model pages the log by kind. */
+const LOG_ACTION_PAGE = 200;
+
+/** Reads the optional `action` filter of the log; throws the route's own 400. */
+function readLogAction(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const action = String(value);
+  if (!LOG_ACTIONS.includes(action)) {
+    const error = new Error(`Unknown log action: ${action}`);
+    error.status = 400;
+    throw error;
+  }
+  return action;
+}
+
+/**
+ * The merge log, optionally narrowed to one action.
+ *
+ * The local model pages the log by kind only, so an action filter is applied
+ * here: the newest rows are read in pages and the matching ones sliced out of
+ * them. The window is capped, because the point of the filter is to find the
+ * handful of splits or deletes among recent rows, not to walk a log of years.
+ *
+ * @param {{limit: number, offset: number, kind: string|null, action: string|null}} query
+ * @returns {Promise<{rows: object[], total: number}>}
+ */
+async function readMergeLog({ limit, offset, kind, action }) {
+  if (!action) {
+    return documentModel.getEntityMerges({ limit, offset, kind });
+  }
+  const matched = [];
+  let scanned = 0;
+  while (scanned < MAX_LOG_ACTION_SCAN) {
+    const page = await documentModel.getEntityMerges({
+      limit: LOG_ACTION_PAGE,
+      offset: scanned,
+      kind,
+    });
+    const rows = page.rows || [];
+    if (rows.length === 0) break;
+    scanned += rows.length;
+    for (const row of rows) {
+      const rowAction = row.action ? String(row.action) : 'merge';
+      if (rowAction === action) matched.push(row);
+    }
+    if (rows.length < LOG_ACTION_PAGE) break;
+  }
+  return { rows: matched.slice(offset, offset + limit), total: matched.length };
+}
+
+/**
+ * @swagger
+ * /duplicates:
+ *   get:
+ *     summary: Duplicate tags and correspondents page
+ *     description: |
+ *       Renders the Duplicates page. The page scans on request through
+ *       `/api/duplicates/scan`; nothing runs automatically.
+ *     tags:
+ *       - Navigation
+ *       - Duplicates
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Duplicates page rendered successfully
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.get('/duplicates', protectApiRoute, async (req, res) => {
+  try {
+    return res.render('duplicates', {
+      version: configFile.PAPERLESS_AI_VERSION || ' ',
+      sensitivity: entityNameMatcher.SENSITIVITY,
+      defaultThreshold: entityNameMatcher.DEFAULT_THRESHOLD,
+      // Decides whether the page asks the model at all; a review is only
+      // ever started by the user.
+      aiReviewEnabled: entityMatchAiService.isEnabled(),
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /duplicates:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/scan:
+ *   get:
+ *     summary: Find tags or correspondents whose names mean the same thing
+ *     description: |
+ *       Loads every tag and/or correspondent from Paperless-ngx and groups the
+ *       ones that look like duplicates of each other. Read-only: nothing is
+ *       changed, and pairs the user marked as "not a duplicate" are left out
+ *       unless `includeDismissed` asks for them.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents, all]
+ *           default: all
+ *       - in: query
+ *         name: threshold
+ *         description: score a pair needs, between 0.5 and 1
+ *         schema:
+ *           type: number
+ *           default: 0.85
+ *       - in: query
+ *         name: includeDismissed
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *     responses:
+ *       200:
+ *         description: Groups found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/DuplicateScanResult'
+ *       400:
+ *         description: Unknown kind or threshold outside [0.5, 1]
+ *       401:
+ *         description: Not authenticated
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.get('/api/duplicates/scan', isAuthenticated, async (req, res) => {
+  try {
+    const kind = String(req.query.kind || duplicateMergeService.KIND_ALL);
+    const knownKinds = [
+      duplicateMergeService.KIND_ALL,
+      ...entityNameMatcher.KIND_LIST,
+    ];
+    if (!knownKinds.includes(kind)) {
+      return res
+        .status(400)
+        .json({ success: false, error: `Unknown entity kind: ${kind}` });
+    }
+
+    const rawThreshold = req.query.threshold;
+    const threshold =
+      rawThreshold === undefined || rawThreshold === ''
+        ? entityNameMatcher.DEFAULT_THRESHOLD
+        : Number(rawThreshold);
+    if (!Number.isFinite(threshold) || threshold < 0.5 || threshold > 1) {
+      return res.status(400).json({
+        success: false,
+        error: 'threshold must be a number between 0.5 and 1',
+      });
+    }
+
+    const includeDismissed =
+      String(req.query.includeDismissed ?? 'false').toLowerCase() === 'true';
+
+    const data = await duplicateMergeService.scan({
+      kind,
+      threshold,
+      includeDismissed,
+      // The page only asks for a scan when the user pressed the button, so
+      // what it wants is the archive as it is now, not a cached answer.
+      fresh: true,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/scan', error);
+  }
+});
+
+/**
+ * How many group ids one AI review may be pointed at. Far more than a person
+ * selects by hand, and low enough that a malformed request cannot turn into a
+ * long walk over the scan.
+ */
+const MAX_AI_REVIEW_GROUP_IDS = 500;
+
+/**
+ * Reads a DuplicateAiReviewRequest off a request body.
+ *
+ * Both ways into a review — the synchronous POST and the job the page watches
+ * — validate exactly the same thing, so the validation lives here once instead
+ * of twice; the two can no longer drift apart.
+ *
+ * @param {object} body  the parsed request body
+ * @returns {{options: object}|{status: number, error: string}}
+ *   the options for `reviewScan()`, or the refusal the route sends back
+ */
+function parseAiReviewRequest(body) {
+  const source = body || {};
+  const kind = String(source.kind || duplicateMergeService.KIND_ALL);
+  const knownKinds = [
+    duplicateMergeService.KIND_ALL,
+    ...entityNameMatcher.KIND_LIST,
+  ];
+  if (!knownKinds.includes(kind)) {
+    return { status: 400, error: `Unknown entity kind: ${kind}` };
+  }
+
+  const rawThreshold = source.threshold;
+  const threshold =
+    rawThreshold === undefined || rawThreshold === null || rawThreshold === ''
+      ? entityNameMatcher.DEFAULT_THRESHOLD
+      : Number(rawThreshold);
+  if (!Number.isFinite(threshold) || threshold < 0.5 || threshold > 1) {
+    return {
+      status: 400,
+      error: 'threshold must be a number between 0.5 and 1',
+    };
+  }
+
+  const includeDismissed =
+    source.includeDismissed === true ||
+    String(source.includeDismissed).toLowerCase() === 'true';
+  // The titles are context, not a filter: a request that says nothing about
+  // them gets them, which is what the page's checkbox comes up as.
+  const withTitles =
+    source.withTitles === undefined || source.withTitles === null
+      ? true
+      : source.withTitles === true ||
+        String(source.withTitles).toLowerCase() === 'true';
+  // Same rule for the excerpts, which are the expensive half of the evidence:
+  // on unless the request or the instance says otherwise.
+  const withExcerpts =
+    source.withExcerpts === undefined || source.withExcerpts === null
+      ? true
+      : source.withExcerpts === true ||
+        String(source.withExcerpts).toLowerCase() === 'true';
+
+  // The three targeting options. Each one is left out of the call when the
+  // request says nothing about it, so an untargeted review asks for exactly
+  // what it asked for before.
+  const options = {
+    kind,
+    threshold,
+    includeDismissed,
+    withTitles,
+    withExcerpts,
+  };
+
+  if (source.groupIds !== undefined && source.groupIds !== null) {
+    const groupIds = source.groupIds;
+    if (!Array.isArray(groupIds)) {
+      return { status: 400, error: 'groupIds must be an array of group ids' };
+    }
+    if (groupIds.length > MAX_AI_REVIEW_GROUP_IDS) {
+      return {
+        status: 400,
+        error: `groupIds must not name more than ${MAX_AI_REVIEW_GROUP_IDS} groups`,
+      };
+    }
+    if (!groupIds.every((id) => typeof id === 'string' && id.trim() !== '')) {
+      return {
+        status: 400,
+        error: 'every entry of groupIds must be a non-empty string',
+      };
+    }
+    options.groupIds = groupIds;
+  }
+
+  if (source.minConfidence !== undefined && source.minConfidence !== null) {
+    const minConfidence = Number(source.minConfidence);
+    if (
+      !Number.isFinite(minConfidence) ||
+      minConfidence < 0.5 ||
+      minConfidence > 1
+    ) {
+      return {
+        status: 400,
+        error: 'minConfidence must be a number between 0.5 and 1',
+      };
+    }
+    options.minConfidence = minConfidence;
+  }
+
+  if (
+    source.includeCandidates !== undefined &&
+    source.includeCandidates !== null
+  ) {
+    if (typeof source.includeCandidates !== 'boolean') {
+      return { status: 400, error: 'includeCandidates must be true or false' };
+    }
+    options.includeCandidates = source.includeCandidates;
+  }
+
+  // The semantic sweep costs extra requests, so it is off unless the page
+  // ticked it. A string is not an answer here: a "false" that reads as true
+  // would spend the user's tokens without being asked.
+  if (source.semanticSweep !== undefined && source.semanticSweep !== null) {
+    if (typeof source.semanticSweep !== 'boolean') {
+      return { status: 400, error: 'semanticSweep must be true or false' };
+    }
+    options.semanticSweep = source.semanticSweep;
+  }
+
+  // How many requests this one review keeps in flight, instead of what
+  // DUPLICATES_AI_CONCURRENCY says. Clamped rather than refused: a slider
+  // that sends 40 is the page's mistake, and refusing the whole run over it
+  // helps nobody. Absent means "as configured".
+  const concurrency = readRunConcurrency(source.concurrency);
+  if (concurrency !== null) options.concurrency = concurrency;
+
+  return { options };
+}
+
+/** The most requests one run may keep in flight, whatever it asked for. */
+const MAX_RUN_CONCURRENCY = 8;
+
+/**
+ * Reads the `concurrency` a single run may name for itself: an integer
+ * between 1 and MAX_RUN_CONCURRENCY, clamped into that range, or null when
+ * the request said nothing about it.
+ *
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+function readRunConcurrency(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const wanted = Number(value);
+  if (!Number.isFinite(wanted)) return null;
+  return Math.max(1, Math.min(Math.floor(wanted), MAX_RUN_CONCURRENCY));
+}
+
+/** How often a watched review stream writes a comment line to stay open. */
+const AI_REVIEW_KEEP_ALIVE_MS = 15 * 1000;
+
+/** Looks a review job up and answers the 404 itself; null when it did. */
+function findAiReviewJob(res, id) {
+  const job = duplicateReviewJobService.get(id);
+  if (!job) {
+    res
+      .status(404)
+      .json({ success: false, error: `Unknown AI review job: ${id}` });
+    return null;
+  }
+  return job;
+}
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review:
+ *   post:
+ *     summary: Let the configured AI provider judge what the scan found
+ *     description: |
+ *       Runs the same scan as `/api/duplicates/scan`, shows the configured AI
+ *       provider every pair of the groups plus a wider band of near-misses,
+ *       and returns the scan result with the model's verdict attached to each
+ *       group and member. Groups the model confirmed below the sensitivity
+ *       arrive as extra groups with `source: ai-candidate`.
+ *
+ *       Read-only and never automatic: it runs when the user asks for it,
+ *       nothing is merged, and a verdict is information the user decides on.
+ *
+ *       Two options say how much the model gets to see. `withTitles` gives it
+ *       a few recent document titles per entry and the entries it is usually
+ *       filed with; `withExcerpts` adds the beginning of a couple of documents
+ *       per entry, but only for the pairs the matcher linked by spelling alone
+ *       ("Kontoauszug" / "Kontoumzug"), which is where names and titles are
+ *       not enough. Both default to on; `withExcerpts` is capped by
+ *       DUPLICATES_AI_EXCERPTS, DUPLICATES_AI_EXCERPT_CHARS and
+ *       DUPLICATES_AI_EXCERPT_DOCUMENTS. `aiReview.excerpts` reports how many
+ *       entries were read.
+ *
+ *       The review can be targeted, which is what makes it cheap on a large
+ *       archive: `groupIds` names the scan groups to judge, `minConfidence`
+ *       judges only groups scoring at least that much, and
+ *       `includeCandidates: false` leaves the band of near-misses out
+ *       entirely. Together they narrow the question, not the answer — every
+ *       group of the scan still comes back, the ones nobody asked about with
+ *       `aiVerdict: null` on the group and its members. A group id this scan
+ *       does not know is ignored. `aiReview.targeted`, `aiReview.groupsJudged`
+ *       and `aiReview.groupsSkipped` report what the targeting did.
+ *
+ *       This route runs the review as the same job
+ *       `/api/duplicates/ai-review/jobs` starts and waits for it, so there is
+ *       still only one review at a time: while one runs this answers 409 with
+ *       the running job. A review that stopped early — by the token budget,
+ *       or because somebody pressed Stop — answers 200 with the verdicts it
+ *       reached and `aiReview.stopped`.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *               - type: object
+ *                 properties:
+ *                   concurrency:
+ *                     type: integer
+ *                     minimum: 1
+ *                     maximum: 8
+ *                     description: |
+ *                       How many model requests this one review keeps in
+ *                       flight, instead of what DUPLICATES_AI_CONCURRENCY
+ *                       says. Out of range is clamped into it rather than
+ *                       refused; absent means "as configured".
+ *     responses:
+ *       200:
+ *         description: The reviewed scan result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/DuplicateAiReviewResult'
+ *       400:
+ *         description: |
+ *           Unknown kind, threshold outside [0.5, 1], `groupIds` that is not a
+ *           list of at most 500 non-empty strings, `minConfidence` outside
+ *           [0.5, 1] or an `includeCandidates` that is not a boolean
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: |
+ *           The AI review is switched off (DUPLICATES_AI_REVIEW), or another
+ *           review is already running; in the second case `data.job` names it
+ *       502:
+ *         description: Paperless-ngx or the AI provider could not be reached
+ *       500:
+ *         description: Server error
+ */
+router.post('/api/duplicates/ai-review', isAuthenticated, async (req, res) => {
+  const parsed = parseAiReviewRequest(req.body);
+  if (parsed.error) {
+    return res.status(parsed.status).json({
+      success: false,
+      error: parsed.error,
+    });
+  }
+
+  let job;
+  try {
+    job = duplicateReviewJobService.start(parsed.options);
+  } catch (error) {
+    if (error?.status === 409) {
+      return res.status(409).json({
+        success: false,
+        error: error.message,
+        data: { job: error.job },
+      });
+    }
+    return respondDuplicatesError(res, 'POST /api/duplicates/ai-review', error);
+  }
+
+  // A caller that waits for the whole answer is watching it: without this the
+  // idle stop would end a long review that nobody subscribed to.
+  const unsubscribe = duplicateReviewJobService.subscribe(job.id, () => {});
+  try {
+    const event = await duplicateReviewJobService.wait(job.id);
+    if (!event) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/ai-review',
+        new Error('The AI review job disappeared before it answered')
+      );
+    }
+    if (event.type === 'failed') {
+      const status = Number.isInteger(job.errorStatus) ? job.errorStatus : 500;
+      console.error(
+        '[ERROR] POST /api/duplicates/ai-review:',
+        event.error || 'The AI review failed'
+      );
+      return res.status(status).json({
+        success: false,
+        error: event.error || 'The AI review failed',
+      });
+    }
+    // done and stopped answer the same way: a stopped review is a result with
+    // the verdicts it did reach and `aiReview.stopped` set.
+    return res.json({ success: true, data: event.data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/ai-review', error);
+  } finally {
+    unsubscribe();
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs:
+ *   post:
+ *     summary: Start an AI review as a job the page can watch and stop
+ *     description: |
+ *       Starts the same review `POST /api/duplicates/ai-review` runs, but
+ *       answers at once with the job instead of waiting for it. The page then
+ *       follows it through `/api/duplicates/ai-review/jobs/{id}/events` and
+ *       can end it through `/api/duplicates/ai-review/jobs/{id}/stop`.
+ *
+ *       There is at most one review at a time. While one runs this answers
+ *       409 and carries the running job, so a second tab attaches to it
+ *       instead of failing.
+ *
+ *       The body is validated exactly as the synchronous route validates it.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/DuplicateAiReviewRequest'
+ *               - type: object
+ *                 properties:
+ *                   concurrency:
+ *                     type: integer
+ *                     minimum: 1
+ *                     maximum: 8
+ *                     description: |
+ *                       How many model requests this one review keeps in
+ *                       flight, instead of what DUPLICATES_AI_CONCURRENCY
+ *                       says. Out of range is clamped into it rather than
+ *                       refused; absent means "as configured".
+ *     responses:
+ *       202:
+ *         description: The review was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       400:
+ *         description: The same refusals the synchronous review answers
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A review is already running; `data.job` is that one
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 error:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/duplicates/ai-review/jobs',
+  isAuthenticated,
+  async (req, res) => {
+    const parsed = parseAiReviewRequest(req.body);
+    if (parsed.error) {
+      return res.status(parsed.status).json({
+        success: false,
+        error: parsed.error,
+      });
+    }
+    try {
+      const job = duplicateReviewJobService.start(parsed.options);
+      return res.status(202).json({
+        success: true,
+        data: { job: duplicateReviewJobService.toJSON(job) },
+      });
+    } catch (error) {
+      if (error?.status === 409) {
+        return res.status(409).json({
+          success: false,
+          error: error.message,
+          data: { job: error.job },
+        });
+      }
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/ai-review/jobs',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/current:
+ *   get:
+ *     summary: The AI review that is running, or the last one that finished
+ *     description: |
+ *       What a reloaded page asks first: `job` is the running review, the one
+ *       still winding down after a stop, or the last finished one while it is
+ *       retained, and `null` when there is none. Reading it counts as watching
+ *       the review, so a page that polls keeps it alive.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The current job, or null
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       nullable: true
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/duplicates/ai-review/jobs/current',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const job = duplicateReviewJobService.current();
+      if (job) duplicateReviewJobService.touch(job.id);
+      return res.json({
+        success: true,
+        data: { job: duplicateReviewJobService.toJSON(job) },
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/duplicates/ai-review/jobs/current',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/{id}:
+ *   get:
+ *     summary: One AI review job, with its result once it has one
+ *     description: |
+ *       The polling fallback for a page whose event stream a proxy cut: it
+ *       carries the same job and, once the review ended, the same result the
+ *       stream would have delivered. Reading it counts as watching the review.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The job and, when it has one, its result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *                     result:
+ *                       nullable: true
+ *                       $ref: '#/components/schemas/DuplicateAiReviewResult'
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: No job with that id
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/duplicates/ai-review/jobs/:id',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const job = findAiReviewJob(res, req.params.id);
+      if (!job) return undefined;
+      duplicateReviewJobService.touch(job.id);
+      return res.json({
+        success: true,
+        data: {
+          job: duplicateReviewJobService.toJSON(job),
+          result: duplicateReviewJobService.result(job.id),
+        },
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/duplicates/ai-review/jobs/:id',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/{id}/result:
+ *   get:
+ *     summary: The result of a finished job, on its own
+ *     description: |
+ *       What the stream delivered with its `done` (or partial `stopped`)
+ *       event, without the job around it. The Duplicates page reads the review
+ *       result off the stream; this is for the Simplify tags page, whose two
+ *       tasks answer with something small — a proposed vocabulary, the counts
+ *       of a proposal run — that is worth asking for again after a reload.
+ *
+ *       A job that is still running has no result yet and answers 409.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: What the job returned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   description: the DuplicateAiReviewResult of a review, or what a Simplify tags task returned
+ *                   type: object
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: No job with that id
+ *       409:
+ *         description: The job is still running
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/duplicates/ai-review/jobs/:id/result',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const job = findAiReviewJob(res, req.params.id);
+      if (!job) return undefined;
+      duplicateReviewJobService.touch(job.id);
+      const result = duplicateReviewJobService.result(job.id);
+      if (result === null) {
+        return res.status(409).json({
+          success: false,
+          error: 'This job has no result yet',
+        });
+      }
+      return res.json({ success: true, data: result });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/duplicates/ai-review/jobs/:id/result',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/{id}/events:
+ *   get:
+ *     summary: Follow an AI review as server-sent events
+ *     description: |
+ *       One `AiReviewJobEvent` per `data:` line. The first event is the job as
+ *       it is right now, so a page that attaches late does not wait for the
+ *       next change; then one `progress` event per report of the judge; then
+ *       exactly one of `done`, `stopped` or `failed`, after which the stream
+ *       ends. A comment line every 15 seconds keeps the connection open
+ *       through proxies that close a quiet stream.
+ *
+ *       An open stream is what keeps the review alive: a job nobody watches
+ *       stops itself after DUPLICATES_AI_IDLE_STOP_SECONDS.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The event stream
+ *         content:
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: No job with that id
+ */
+router.get(
+  '/api/duplicates/ai-review/jobs/:id/events',
+  isAuthenticated,
+  (req, res) => {
+    const job = findAiReviewJob(res, req.params.id);
+    if (!job) return undefined;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
+    });
+
+    let unsubscribe = null;
+    let heartbeat = null;
+    let ended = false;
+
+    const cleanup = () => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
+
+    const listener = (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (res.flush) res.flush();
+      if (event.type === 'progress') return;
+      // done, stopped and failed are the last thing this stream says.
+      ended = true;
+      cleanup();
+      res.end();
+    };
+
+    // subscribe() reports the current state straight away, and on a job that
+    // already finished it reports the final event — which ends the stream
+    // before there is anything to unsubscribe from.
+    unsubscribe = duplicateReviewJobService.subscribe(req.params.id, listener);
+    if (ended) {
+      unsubscribe = null;
+      return undefined;
+    }
+
+    heartbeat = setInterval(() => {
+      res.write(': keep-alive\n\n');
+      if (res.flush) res.flush();
+    }, AI_REVIEW_KEEP_ALIVE_MS);
+    if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
+    req.on('close', () => {
+      if (ended) return;
+      ended = true;
+      cleanup();
+    });
+    return undefined;
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/jobs/{id}/stop:
+ *   post:
+ *     summary: Stop a running AI review
+ *     description: |
+ *       Asks the review to end after the request it is in. What it has judged
+ *       so far is kept: the job ends as `stopped` and carries the partial
+ *       result, which the stream delivers like a complete one. Stopping a
+ *       review that already finished changes nothing and still answers with
+ *       the job.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The job, now stopping or already finished
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: No job with that id
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/duplicates/ai-review/jobs/:id/stop',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const known = findAiReviewJob(res, req.params.id);
+      if (!known) return undefined;
+      const job = duplicateReviewJobService.stop(
+        req.params.id,
+        duplicateReviewJobService.STOP_REASONS.USER
+      );
+      return res.json({
+        success: true,
+        data: { job: duplicateReviewJobService.toJSON(job || known) },
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/ai-review/jobs/:id/stop',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/memory:
+ *   delete:
+ *     summary: Forget every remembered verdict of the AI judge
+ *     description: |
+ *       The judge remembers what it decided about a pair of names for
+ *       DUPLICATES_AI_VERDICT_MEMORY_DAYS, so the next review only asks about
+ *       what is new. This empties that memory, which makes the next review ask
+ *       about everything again — the thing to do after the model changed or
+ *       after a verdict turned out to be wrong.
+ *
+ *       Local only: nothing in Paperless-ngx is touched, and no merge is
+ *       undone or repeated.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The memory is empty
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     removed:
+ *                       type: integer
+ *                       description: verdicts that were forgotten
+ *                 message:
+ *                   type: string
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.delete(
+  '/api/duplicates/ai-review/memory',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      // The judge owns the memory and clears its own in-process caches with
+      // it; without that method the table is the whole memory there is.
+      const answer =
+        typeof entityMatchAiService.forgetVerdicts === 'function'
+          ? await entityMatchAiService.forgetVerdicts()
+          : await documentModel.clearAiPairVerdicts();
+      const removed =
+        answer && typeof answer === 'object'
+          ? Number(answer.removed) || 0
+          : Number(answer) || 0;
+      return res.json({
+        success: true,
+        data: { removed },
+        message:
+          removed > 0
+            ? `${removed} remembered verdict(s) forgotten.`
+            : 'There was nothing to forget.',
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'DELETE /api/duplicates/ai-review/memory',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/entities:
+ *   get:
+ *     summary: Every tag or correspondent of the instance
+ *     description: |
+ *       The list the "Merge by hand" module picks from. Read-only: it loads
+ *       one kind from Paperless-ngx and hands the records back sorted by name,
+ *       case-insensitively, so entries that differ only in case sit next to
+ *       each other. Nothing is grouped, scored or filtered here.
+ *
+ *       Unlike the scan, `kind` is required — there is no "both" list.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *     responses:
+ *       200:
+ *         description: The entries of that kind
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityRecord'
+ *       400:
+ *         description: kind is missing or unknown
+ *       401:
+ *         description: Not authenticated
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.get('/api/duplicates/entities', isAuthenticated, async (req, res) => {
+  try {
+    // readDuplicatesKind() treats a missing kind as "not filtered", which is
+    // what the log and the dismissals want. Here there is nothing to list
+    // without it, so the absence is its own refusal.
+    if (req.query.kind === undefined || req.query.kind === '') {
+      return res
+        .status(400)
+        .json({ success: false, error: 'kind is required' });
+    }
+    const kind = readDuplicatesKind(req.query.kind);
+    const data = await duplicateMergeService.listEntities(kind);
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/entities', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/merge:
+ *   post:
+ *     summary: Merge tags or correspondents into one
+ *     description: |
+ *       Moves the documents of every source onto the target and deletes the
+ *       sources afterwards, one source after the other. A source is only
+ *       deleted once Paperless-ngx confirms that no document carries it any
+ *       more; a source that fails that check is reported and kept.
+ *
+ *       `targetName` renames the survivor before the documents move, so the
+ *       group can end up under a name none of its members had. The old name is
+ *       kept in the log entry (`targetRenamedFrom`) and an undo puts it back.
+ *
+ *       The answer carries `success: false` with status 200 when the merge was
+ *       only partial — the log entry exists either way and can be undone.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EntityMergeRequest'
+ *     responses:
+ *       200:
+ *         description: Merge finished (completely or partially)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/EntityMergeResult'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid request, or targetName longer than 128 characters
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Target or a source does not exist in Paperless-ngx
+ *       409:
+ *         description: A document scan is running, or targetName is already taken
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.post('/api/duplicates/merge', isAuthenticated, async (req, res) => {
+  try {
+    const { kind, targetId, sourceIds, copyMatchingRule } = req.body || {};
+    // The survivor may be renamed in the same step. The page only sends the
+    // field when it differs from the current name, so a merge that says
+    // nothing about it keeps the name it found.
+    const targetName = readTargetName((req.body || {}).targetName);
+    const data = await duplicateMergeService.merge({
+      kind,
+      targetId,
+      sourceIds,
+      ...(targetName === null ? {} : { targetName }),
+      copyMatchingRule:
+        copyMatchingRule === true || String(copyMatchingRule) === 'true',
+      performedBy: duplicatesPerformedBy(req),
+    });
+
+    const deleted = data.sources.filter((source) => source.deleted).length;
+    const message =
+      data.status === 'done'
+        ? `${deleted} entr${deleted === 1 ? 'y' : 'ies'} merged into "${data.target.name}", ${data.documentsMoved} document(s) moved.`
+        : `Only ${deleted} of ${data.sources.length} entries were merged into "${data.target.name}". The rest is listed with its reason.`;
+
+    return res.json({ success: data.status !== 'partial', data, message });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/merge', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/delete:
+ *   post:
+ *     summary: Delete tags or correspondents that carry no document
+ *     description: |
+ *       Removes objects the scan listed as unused. Every id is checked against
+ *       Paperless-ngx first: an object that carries a document by now is
+ *       refused and kept, never deleted. What was deleted is written to the
+ *       merge log as one entry with `action: delete`, so the same undo
+ *       re-creates the objects — with new ids, as any undo does.
+ *
+ *       The answer carries `success: false` with status 200 when at least one
+ *       object could not be deleted; the deleted ones are in `data.deleted`
+ *       either way.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EntityDeleteRequest'
+ *     responses:
+ *       200:
+ *         description: Delete finished (completely or partially)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/EntityDeleteResult'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Unknown kind, or ids missing, empty, malformed or longer than 500
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A document scan is running
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.post('/api/duplicates/delete', isAuthenticated, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.kind === undefined || body.kind === null || body.kind === '') {
+      return res
+        .status(400)
+        .json({ success: false, error: 'kind is required' });
+    }
+    const kind = readDuplicatesKind(body.kind);
+    const ids = readDeleteIds(body.ids);
+
+    const data = await duplicateMergeService.deleteUnused({
+      kind,
+      ids,
+      performedBy: duplicatesPerformedBy(req),
+    });
+
+    const deleted = (data.deleted || []).length;
+    const failed = (data.failed || []).length;
+    const label = deleted === 1 ? 'object' : 'objects';
+    const message =
+      failed === 0
+        ? `${deleted} unused ${label} deleted.`
+        : `Only ${deleted} of ${deleted + failed} objects were deleted. The rest is listed with its reason.`;
+
+    return res.json({ success: failed === 0, data, message });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/delete', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/dismiss:
+ *   post:
+ *     summary: Mark entries as "not a duplicate"
+ *     description: |
+ *       Stores every pair among the given ids, so the scan stops offering them
+ *       together until the pair is restored through
+ *       `DELETE /api/duplicates/dismissals/{id}`.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EntityMergeDismissRequest'
+ *     responses:
+ *       200:
+ *         description: Pairs stored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     dismissed:
+ *                       type: integer
+ *                       description: pairs newly stored; known pairs are not counted again
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Not authenticated
+ */
+router.post('/api/duplicates/dismiss', isAuthenticated, async (req, res) => {
+  try {
+    const { kind, ids, names } = req.body || {};
+    const dismissed = await duplicateMergeService.dismiss({
+      kind,
+      ids,
+      names: names && typeof names === 'object' ? names : {},
+    });
+    return res.json({
+      success: true,
+      data: { dismissed },
+      message:
+        dismissed > 0
+          ? `${dismissed} pair(s) marked as not duplicates.`
+          : 'These pairs were already marked as not duplicates.',
+    });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/duplicates/dismiss', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/dismissals:
+ *   get:
+ *     summary: List the pairs marked as "not a duplicate"
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *     responses:
+ *       200:
+ *         description: Dismissed pairs, newest first
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityMergeDismissal'
+ *       400:
+ *         description: Unknown kind
+ *       401:
+ *         description: Not authenticated
+ */
+router.get('/api/duplicates/dismissals', isAuthenticated, async (req, res) => {
+  try {
+    const kind = readDuplicatesKind(req.query.kind);
+    const data = await documentModel.listEntityMergeDismissals(kind);
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/dismissals', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/dismissals/{id}:
+ *   delete:
+ *     summary: Restore a pair marked as "not a duplicate"
+ *     description: The pair is offered by the scan again from the next run on.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Pair restored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid id
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Unknown pair
+ */
+router.delete(
+  '/api/duplicates/dismissals/:id',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid dismissal id' });
+      }
+      const removed = await documentModel.removeEntityMergeDismissal(id);
+      if (!removed) {
+        return res
+          .status(404)
+          .json({ success: false, error: `Dismissal ${id} does not exist` });
+      }
+      return res.json({
+        success: true,
+        message: 'The pair is offered again from the next scan on.',
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'DELETE /api/duplicates/dismissals/:id',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/log:
+ *   get:
+ *     summary: The local merge log
+ *     description: |
+ *       Every merge this instance performed, newest first, with everything an
+ *       undo needs. `recordsTotal` counts the rows matching the filter.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         description: capped at 100
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *       - in: query
+ *         name: action
+ *         description: |
+ *           Keeps only the rows that record this action. The local model pages
+ *           the log by kind alone, so the action is applied in the route over
+ *           the newest 2000 rows; `recordsTotal` counts what matched inside
+ *           that window.
+ *         schema:
+ *           type: string
+ *           enum: [merge, delete, split]
+ *     responses:
+ *       200:
+ *         description: Merge log
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityMergeLogEntry'
+ *                 recordsTotal:
+ *                   type: integer
+ *       400:
+ *         description: Unknown kind or action
+ *       401:
+ *         description: Not authenticated
+ */
+router.get('/api/duplicates/log', isAuthenticated, async (req, res) => {
+  try {
+    const kind = readDuplicatesKind(req.query.kind);
+    const action = readLogAction(req.query.action);
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const limit = Math.min(
+      Math.max(Number.isInteger(requestedLimit) ? requestedLimit : 10, 1),
+      100
+    );
+    const requestedOffset = parseInt(req.query.offset, 10);
+    const offset = Math.max(
+      Number.isInteger(requestedOffset) ? requestedOffset : 0,
+      0
+    );
+
+    const { rows, total } = await readMergeLog({
+      limit,
+      offset,
+      kind,
+      action,
+    });
+    return res.json({ success: true, data: rows, recordsTotal: total });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/log', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/log/{id}/undo:
+ *   post:
+ *     summary: Undo a logged merge
+ *     description: |
+ *       Re-creates every source the merge deleted — a same-named object that
+ *       exists again is adopted instead — and hands back the documents that
+ *       still carry the target. Documents that were changed since the merge
+ *       are counted as skipped and left alone. The re-created objects get new
+ *       ids in Paperless-ngx.
+ *
+ *       The answer carries `success: false` with status 200 when at least one
+ *       source could not be restored.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: id of the merge log entry
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Undo finished (completely or partially)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/EntityMergeUndoResult'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid id
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Unknown merge
+ *       409:
+ *         description: Already undone, or a document scan is running
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.post(
+  '/api/duplicates/log/:id/undo',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const mergeId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(mergeId) || mergeId <= 0) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid merge id' });
+      }
+
+      const data = await duplicateMergeService.undo(mergeId, {
+        performedBy: duplicatesPerformedBy(req),
+      });
+      const restored = data.sources.filter(
+        (source) => source.restoredId != null
+      ).length;
+      const documents = data.sources.reduce(
+        (sum, source) => sum + source.documentsRestored,
+        0
+      );
+      const message =
+        data.status === 'undone'
+          ? `${restored} entr${restored === 1 ? 'y' : 'ies'} restored, ${documents} document(s) moved back.`
+          : `Only ${restored} of ${data.sources.length} entries could be restored. The rest is listed with its reason.`;
+
+      return res.json({
+        success: data.status !== 'undo_failed',
+        data,
+        message,
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/duplicates/log/:id/undo',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/duplicates/mappings:
+ *   get:
+ *     summary: Names document analysis proposed and the guard mapped onto an existing object
+ *     description: |
+ *       Every time the creation guard recognised a proposed tag or
+ *       correspondent as another spelling of one that exists, it recorded the
+ *       mapping. The list is local, newest first, and kept short; it exists so
+ *       a wrong mapping can be noticed and the setting turned off.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Mappings, newest first
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/EntityNameMapping'
+ *       401:
+ *         description: Not authenticated
+ */
+router.get('/api/duplicates/mappings', isAuthenticated, async (req, res) => {
+  try {
+    const data = await documentModel.listEntityNameMappings();
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/duplicates/mappings', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/mappings:
+ *   delete:
+ *     summary: Forget the recorded name mappings
+ *     description: |
+ *       Clears the local list. Nothing in Paperless-ngx changes: the names were
+ *       mapped when the documents were analysed, and this only forgets the
+ *       record of it.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The list is empty again
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     removed:
+ *                       type: integer
+ *                 message:
+ *                   type: string
+ *       401:
+ *         description: Not authenticated
+ */
+router.delete('/api/duplicates/mappings', isAuthenticated, async (req, res) => {
+  try {
+    const removed = await documentModel.clearEntityNameMappings();
+    return res.json({
+      success: true,
+      data: { removed },
+      message:
+        removed > 0
+          ? `${removed} mapping(s) forgotten.`
+          : 'There was nothing to forget.',
+    });
+  } catch (error) {
+    return respondDuplicatesError(
+      res,
+      'DELETE /api/duplicates/mappings',
+      error
+    );
+  }
+});
+
+/**
+ * @swagger
+ * /api/duplicates/ai-review/estimate:
+ *   get:
+ *     summary: What the next AI review would cost, before it starts
+ *     description: |
+ *       Answers the question the page asks before it spends anything: how
+ *       many requests, how many tokens, how long. Nothing here asks a model
+ *       and nothing scans — the page calls this again on every move of a
+ *       lever, so it may only read what is already there.
+ *
+ *       A scan is a walk over every tag and every correspondent of the
+ *       archive, so this never starts one. It answers from the scan the merge
+ *       service still holds for these options, and when there is none it
+ *       answers `needsScan: true` with `items: 0` and `basis: "guess"` — the
+ *       page then says "scan first, then I can tell you" instead of showing a
+ *       number nobody measured.
+ *
+ *       `basis` says where the numbers come from: `run` a finished review of
+ *       this archive, `model` what the judge measured about this model,
+ *       `guess` neither. `requests` is the judging pass alone; `extra` names
+ *       what comes on top — the requests a semantic sweep would add, and the
+ *       entities whose documents would be read for excerpts, which are reads
+ *       of Paperless-ngx rather than model requests.
+ *
+ *       `items` counts the pairs of the scan's groups that the model would be
+ *       asked about. A review that also asks about the candidate band asks
+ *       about more: the band needs the entity list, and reading it is exactly
+ *       the cost this endpoint exists to avoid.
+ *     tags:
+ *       - Duplicates
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: kind
+ *         schema:
+ *           type: string
+ *           enum: [tags, correspondents, all]
+ *         description: What the review would look at; `all` by default
+ *       - in: query
+ *         name: threshold
+ *         schema:
+ *           type: number
+ *           minimum: 0
+ *           maximum: 1
+ *         description: The sensitivity the scan was made with
+ *       - in: query
+ *         name: sweep
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: The semantic sweep is on
+ *       - in: query
+ *         name: excerpts
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: Document excerpts are read as evidence
+ *     responses:
+ *       200:
+ *         description: What the review would cost
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/AiRunEstimate'
+ *                     - type: object
+ *                       properties:
+ *                         model:
+ *                           type: string
+ *                           nullable: true
+ *                         thinking:
+ *                           type: boolean
+ *                         groups:
+ *                           type: integer
+ *                           description: scan groups the review would judge
+ *                         pairs:
+ *                           type: integer
+ *                           description: |
+ *                             every pair of those groups — what the model is
+ *                             asked about plus what a spelling rule settled
+ *                         needsScan:
+ *                           type: boolean
+ *                           description: no cached scan answers for these options
+ *                         extra:
+ *                           type: object
+ *                           properties:
+ *                             sweepRequests:
+ *                               type: integer
+ *                             excerptReads:
+ *                               type: integer
+ *       400:
+ *         description: Unknown kind, or a threshold outside [0, 1]
+ *       401:
+ *         description: Not authenticated
+ *       503:
+ *         description: |
+ *           The AI review is switched off (DUPLICATES_AI_REVIEW), or no AI
+ *           provider is configured; the message names which of the two
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/duplicates/ai-review/estimate',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const kind = String(req.query.kind || duplicateMergeService.KIND_ALL);
+      const knownKinds = [
+        duplicateMergeService.KIND_ALL,
+        ...entityNameMatcher.KIND_LIST,
+      ];
+      if (!knownKinds.includes(kind)) {
+        return res
+          .status(400)
+          .json({ success: false, error: `Unknown entity kind: ${kind}` });
+      }
+      const rawThreshold = req.query.threshold;
+      const threshold =
+        rawThreshold === undefined || rawThreshold === ''
+          ? entityNameMatcher.DEFAULT_THRESHOLD
+          : Number(rawThreshold);
+      if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+        return res.status(400).json({
+          success: false,
+          error: 'threshold must be a number between 0 and 1',
+        });
+      }
+
+      const refusal = aiReviewRefusal();
+      if (refusal) {
+        return res.status(503).json({ success: false, error: refusal });
+      }
+
+      const data = await entityMatchAiService.estimateReview({
+        kind,
+        threshold,
+        sweep: readQueryFlag(req.query.sweep, false),
+        excerpts: readQueryFlag(req.query.excerpts, true),
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/duplicates/ai-review/estimate',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * Why neither estimate may be answered, or null when both may.
+ *
+ * The pages hide their model-backed buttons when the feature is off, so this
+ * is the belt rather than the braces — but it has to name which of the two it
+ * is, because "switch it on" and "configure a provider" are different things
+ * to do.
+ *
+ * @param {boolean} [checkSwitch]  also look at DUPLICATES_AI_REVIEW, which is
+ *   the Duplicates page's switch and says nothing about Simplify tags
+ * @returns {string|null}
+ */
+function aiReviewRefusal(checkSwitch = true) {
+  // The same reading the judge uses: `Boolean('no')` is true, which is the
+  // trap this spelling exists to avoid.
+  const on =
+    configFile.duplicatesAiReview === true ||
+    String(configFile.duplicatesAiReview ?? '')
+      .trim()
+      .toLowerCase() === 'yes';
+  if (checkSwitch && !on) {
+    return 'The AI review is switched off (DUPLICATES_AI_REVIEW)';
+  }
+  if (!configFile.aiProvider) {
+    return 'No AI provider is configured';
+  }
+  return null;
+}
+
+/**
+ * Reads a `0`/`1` query flag the two estimate endpoints use for their
+ * switches. Absent is the default the caller names, not `false`: an estimate
+ * that quietly turned the excerpts off would promise a cheaper run than the
+ * one the button starts.
+ *
+ * @param {unknown} value
+ * @param {boolean} fallback
+ * @returns {boolean}
+ */
+function readQueryFlag(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const text = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off'].includes(text)) return false;
+  return fallback;
+}
+
+// ── Simplify tags: a compound tag becomes a document type and topic tags ────
+// Same rules as the Duplicates block above: nothing runs on its own, every
+// write is confirmed on the page, logged and undoable. The two long-running
+// steps (the vocabulary proposal, the split proposals) run through the one
+// review job, so the page watches and stops them exactly as it watches a
+// review.
+
+/** Entries one dimension of the vocabulary may hold. */
+const MAX_VOCABULARY_ENTRIES = 200;
+
+/** A vocabulary name is a name; Paperless-ngx stops well before this. */
+const MAX_VOCABULARY_NAME_LENGTH = 128;
+
+/** Proposals one apply call may name; the service caps the same number. */
+const MAX_SPLIT_APPLY_IDS = 200;
+
+/** What `status` may ask for when the proposals are listed. */
+const SPLIT_PROPOSAL_STATUSES = ['open', 'accepted', 'applied', 'skipped'];
+
+/** What a proposal's `action` may be; the service keeps the same list. */
+const SPLIT_PROPOSAL_ACTIONS = ['split', 'merge', 'keep', 'delete'];
+
+/** What `status` may be set to by hand; applying is what an apply route does. */
+const SPLIT_PROPOSAL_SETTABLE_STATUSES = ['open', 'accepted', 'skipped'];
+
+/** How the order proposal may treat the vocabulary. */
+const ORDER_VOCABULARY_MODES = ['propose', 'keep'];
+
+/** What a decision on a group may be. */
+const ORDER_GROUP_DECISIONS = ['accept', 'skip', 'reopen'];
+
+/** A group key is 'type:Rechnung', 'topic:Strom', 'merge:Amazon', 'keep' or 'delete'. */
+const MAX_GROUP_KEY_LENGTH = MAX_VOCABULARY_NAME_LENGTH + 16;
+
+/** The route's own 400, worded like the ones of the Duplicates block. */
+function simplifyBadRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+/**
+ * Reads one dimension of a TagVocabularyRequest: a list of names, trimmed,
+ * blanks dropped. Anything that is not a list of short strings is the route's
+ * own 400 rather than something the service has to guess about.
+ *
+ * @param {unknown} value
+ * @param {string} field  the name the refusal quotes
+ * @returns {string[]}
+ */
+function readVocabularyNames(value, field) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw simplifyBadRequest(`${field} must be an array of names`);
+  }
+  if (value.length > MAX_VOCABULARY_ENTRIES) {
+    throw simplifyBadRequest(
+      `${field} must not hold more than ${MAX_VOCABULARY_ENTRIES} names`
+    );
+  }
+  const names = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw simplifyBadRequest(`every entry of ${field} must be a string`);
+    }
+    const name = entry.trim();
+    if (name.length > MAX_VOCABULARY_NAME_LENGTH) {
+      throw simplifyBadRequest(
+        `every name of ${field} must be at most ${MAX_VOCABULARY_NAME_LENGTH} characters`
+      );
+    }
+    if (name !== '') names.push(name);
+  }
+  return names;
+}
+
+/**
+ * Reads a TagSplitProposalPatch: only the fields it names are changed, and a
+ * field it names has to be of the right kind.
+ *
+ * @param {unknown} body
+ * @returns {object} what tagSimplifyService.updateProposal() takes
+ */
+function readSplitProposalPatch(body) {
+  const source = body && typeof body === 'object' ? body : {};
+  const patch = {};
+  if ('typeName' in source) {
+    const value = source.typeName;
+    if (value !== null && typeof value !== 'string') {
+      throw simplifyBadRequest('typeName must be a string or null');
+    }
+    if (
+      typeof value === 'string' &&
+      value.trim().length > MAX_VOCABULARY_NAME_LENGTH
+    ) {
+      throw simplifyBadRequest(
+        `typeName must be at most ${MAX_VOCABULARY_NAME_LENGTH} characters`
+      );
+    }
+    patch.typeName = value;
+  }
+  if ('topicNames' in source) {
+    patch.topicNames = readVocabularyNames(source.topicNames, 'topicNames');
+  }
+  if ('overwriteType' in source) {
+    if (typeof source.overwriteType !== 'boolean') {
+      throw simplifyBadRequest('overwriteType must be true or false');
+    }
+    patch.overwriteType = source.overwriteType;
+  }
+  if ('action' in source) {
+    if (!SPLIT_PROPOSAL_ACTIONS.includes(source.action)) {
+      throw simplifyBadRequest(
+        `action must be one of ${SPLIT_PROPOSAL_ACTIONS.join(', ')}`
+      );
+    }
+    patch.action = source.action;
+  }
+  if ('mergeInto' in source) {
+    const value = source.mergeInto;
+    if (value !== null && typeof value !== 'string') {
+      throw simplifyBadRequest('mergeInto must be a string or null');
+    }
+    if (
+      typeof value === 'string' &&
+      value.trim().length > MAX_VOCABULARY_NAME_LENGTH
+    ) {
+      throw simplifyBadRequest(
+        `mergeInto must be at most ${MAX_VOCABULARY_NAME_LENGTH} characters`
+      );
+    }
+    patch.mergeInto = value;
+  }
+  if ('status' in source) {
+    // 'applied' is not a state the user may set: applying is the apply route.
+    if (!SPLIT_PROPOSAL_SETTABLE_STATUSES.includes(source.status)) {
+      throw simplifyBadRequest('status must be open, accepted or skipped');
+    }
+    patch.status = source.status;
+  }
+  return patch;
+}
+
+/** Reads a tag id out of a path parameter. */
+function readSplitTagId(value) {
+  const id = parseInt(value, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw simplifyBadRequest('Invalid tag id');
+  }
+  return id;
+}
+
+/**
+ * Reads the `tagIds` of a TagSplitApplyRequest: a non-empty list of positive
+ * integers, capped so one malformed request cannot turn into a long walk over
+ * Paperless-ngx.
+ *
+ * @param {unknown} value
+ * @returns {number[]}
+ */
+function readSplitApplyIds(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw simplifyBadRequest('tagIds must be a non-empty array of tag ids');
+  }
+  if (value.length > MAX_SPLIT_APPLY_IDS) {
+    throw simplifyBadRequest(
+      `tagIds must not name more than ${MAX_SPLIT_APPLY_IDS} proposals`
+    );
+  }
+  // A tag id arrives as a number, not as a string that looks like one: this
+  // body is written by the page, and a "12" here would hide a real mistake.
+  const ids = value.map((entry) =>
+    typeof entry === 'number' ? entry : Number.NaN
+  );
+  if (!ids.every((id) => Number.isInteger(id) && id > 0)) {
+    throw simplifyBadRequest(
+      'every entry of tagIds must be a positive integer'
+    );
+  }
+  return ids;
+}
+
+/**
+ * Starts one of the Simplify tags jobs through the review job service and
+ * answers exactly as the review's own start route does — 202 with the job, or
+ * 409 carrying the job that is already running, so a second tab attaches to it
+ * instead of failing.
+ *
+ * @param {object} res
+ * @param {string} route  what a failure logs
+ * @param {string} task   JOB_TASKS.VOCABULARY, SPLITS, ORDER or APPLY
+ * @param {object} options  what the runner is called with, besides the task
+ * @param {(options: object, control: object) => Promise<object>} runner
+ */
+function startSimplifyJob(res, route, task, options, runner) {
+  try {
+    const job = duplicateReviewJobService.start({ ...options, task }, runner);
+    return res.status(202).json({
+      success: true,
+      data: { job: duplicateReviewJobService.toJSON(job) },
+    });
+  } catch (error) {
+    if (error?.status === 409) {
+      return res.status(409).json({
+        success: false,
+        error: error.message,
+        data: { job: error.job },
+      });
+    }
+    return respondDuplicatesError(res, route, error);
+  }
+}
+
+/**
+ * @swagger
+ * /simplify:
+ *   get:
+ *     summary: Simplify tags page
+ *     description: |
+ *       Renders the page that turns compound tags such as "Stromrechnung" into
+ *       a document type ("Rechnung") and topic tags ("Strom"). The vocabulary
+ *       and the proposals are read through `/api/simplify/*`; nothing runs
+ *       automatically and no split happens without a confirmation.
+ *     tags:
+ *       - Navigation
+ *       - Simplify
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Simplify tags page rendered successfully
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.get('/simplify', protectApiRoute, async (req, res) => {
+  try {
+    return res.render('simplify', {
+      version: configFile.PAPERLESS_AI_VERSION || ' ',
+      // Decides whether the page offers the two model-backed proposals at
+      // all. The rule pass and every edit work without a model.
+      aiReviewEnabled: entityMatchAiService.isEnabled(),
+    });
+  } catch (error) {
+    console.error('[ERROR] GET /simplify:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/simplify/vocabulary:
+ *   get:
+ *     summary: The target vocabulary of document types and topic tags
+ *     description: |
+ *       The couple of dozen concepts the archive should end up with, in the
+ *       order the user put them in. Local only: these are names, not objects
+ *       in Paperless-ngx — an entry gets its `paperlessId` when a split first
+ *       needs the object.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The stored vocabulary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagVocabulary'
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ *   put:
+ *     summary: Replace the target vocabulary
+ *     description: |
+ *       Stores the vocabulary as the user edited it: names only, the order
+ *       kept, blanks and repeats dropped. The ids a name already has in
+ *       Paperless-ngx survive the save. A list that is not a list of at most
+ *       200 names of at most 128 characters each is refused with 400.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagVocabularyRequest'
+ *     responses:
+ *       200:
+ *         description: What was stored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagVocabulary'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: A list is too long, or holds something that is not a name
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.get('/api/simplify/vocabulary', isAuthenticated, async (req, res) => {
+  try {
+    const data = await tagSimplifyService.getVocabulary();
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/simplify/vocabulary', error);
+  }
+});
+
+router.put('/api/simplify/vocabulary', isAuthenticated, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const types = readVocabularyNames(body.types, 'types');
+    const topics = readVocabularyNames(body.topics, 'topics');
+    const data = await tagSimplifyService.saveVocabulary({ types, topics });
+    return res.json({
+      success: true,
+      data,
+      message: `Vocabulary saved: ${data.types.length} document type(s), ${data.topics.length} topic(s).`,
+    });
+  } catch (error) {
+    return respondDuplicatesError(res, 'PUT /api/simplify/vocabulary', error);
+  }
+});
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     TagVocabularyDocumentType:
+ *       type: object
+ *       description: |
+ *         One document type of the Paperless-ngx instance, as the picker on
+ *         the "Simplify tags" page offers it.
+ *       properties:
+ *         id:
+ *           type: integer
+ *           description: The id in Paperless-ngx
+ *           example: 7
+ *         name:
+ *           type: string
+ *           description: The name, exactly as Paperless-ngx spells it
+ *           example: Rechnung
+ *         documentCount:
+ *           type: integer
+ *           description: How many documents carry this type
+ *           example: 128
+ *         inVocabulary:
+ *           type: boolean
+ *           description: |
+ *             True when the saved vocabulary holds a document type of exactly
+ *             this name. Names in Paperless-ngx are case sensitive, so the
+ *             comparison is too.
+ *           example: true
+ */
+
+/**
+ * @swagger
+ * /api/simplify/document-types:
+ *   get:
+ *     summary: The document types Paperless-ngx already has
+ *     description: |
+ *       What the "Document type" field of the vocabulary offers. Read-only and
+ *       cached: the list is refreshed when it is empty, when it is older than
+ *       TAG_CACHE_TTL_SECONDS or when `fresh` asks for it, and every write
+ *       that creates or deletes a document type empties it, so a type a split
+ *       just created is listed at once.
+ *
+ *       `inVocabulary` says which of them the saved vocabulary already holds;
+ *       the page marks those rows and does not add them a second time.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: fresh
+ *         required: false
+ *         description: 1, true or yes reads past the cache
+ *         schema:
+ *           type: string
+ *           example: '1'
+ *     responses:
+ *       200:
+ *         description: The document types, sorted by name
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     types:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/TagVocabularyDocumentType'
+ *                     total:
+ *                       type: integer
+ *                       example: 8
+ *                     cachedAt:
+ *                       type: string
+ *                       nullable: true
+ *                       format: date-time
+ *                       description: When the cached list was built; null while nothing was read yet
+ *       401:
+ *         description: Not authenticated
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.get(
+  '/api/simplify/document-types',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const fresh = ['1', 'true', 'yes'].includes(
+        String(req.query.fresh ?? '').toLowerCase()
+      );
+      const records = await paperlessService.listDocumentTypesCached({ fresh });
+      const vocabulary = await tagSimplifyService.getVocabulary();
+      // Names are case sensitive in Paperless-ngx, so "Rechnung" and
+      // "rechnung" are two types and only one of them is in the vocabulary.
+      const known = new Set(vocabulary.types.map((row) => String(row.name)));
+      const types = records
+        .map((record) => ({
+          id: Number(record.id),
+          name: String(record.name ?? ''),
+          documentCount: Number(record.documentCount) || 0,
+          inVocabulary: known.has(String(record.name ?? '')),
+        }))
+        .sort((a, b) => {
+          const byName = a.name.localeCompare(b.name, undefined, {
+            sensitivity: 'base',
+          });
+          // Two names that differ only in case compare equal; the id then
+          // decides, so the same instance always answers in the same order.
+          return byName !== 0 ? byName : a.id - b.id;
+        });
+      const filledAt = paperlessService.documentTypeCacheFilledAt();
+      return res.json({
+        success: true,
+        data: {
+          types,
+          total: types.length,
+          cachedAt: filledAt ? new Date(filledAt).toISOString() : null,
+        },
+      });
+    } catch (error) {
+      // paperlessService throws what axios threw, which carries no status of
+      // its own; the page must be able to tell "unreachable" from "broken".
+      const failure = Number.isInteger(error?.status)
+        ? error
+        : Object.assign(
+            new Error(
+              `Paperless-ngx could not be reached while listing the document types: ${
+                error?.message || 'unknown error'
+              }`
+            ),
+            { status: 502 }
+          );
+      return respondDuplicatesError(
+        res,
+        'GET /api/simplify/document-types',
+        failure
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/vocabulary/propose:
+ *   post:
+ *     summary: Let the model propose a vocabulary from the tag names
+ *     description: |
+ *       Starts a job that shows the model every tag name and asks for the
+ *       couple of dozen document types and topics the archive really has. The
+ *       route answers at once with the job; the page follows it through
+ *       `/api/duplicates/ai-review/jobs/{id}/events` and reads the proposal
+ *       from `/api/duplicates/ai-review/jobs/{id}/result`.
+ *
+ *       The proposal is not saved: it is shown for editing, and only
+ *       `PUT /api/simplify/vocabulary` stores anything.
+ *
+ *       There is one job at a time for the whole app, shared with the AI
+ *       review; while one runs this answers 409 and carries it.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       202:
+ *         description: The proposal was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A job is already running; `data.job` is that one
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/simplify/vocabulary/propose',
+  isAuthenticated,
+  async (req, res) =>
+    startSimplifyJob(
+      res,
+      'POST /api/simplify/vocabulary/propose',
+      duplicateReviewJobService.JOB_TASKS.VOCABULARY,
+      {},
+      (options, control) =>
+        tagSimplifyService.proposeVocabulary(options, control)
+    )
+);
+
+/**
+ * @swagger
+ * /api/simplify/proposals:
+ *   get:
+ *     summary: What every tag stands for, as proposed
+ *     description: |
+ *       One row per tag the last run looked at, by name. Read-only; the rows
+ *       survive a reload and are edited one by one through the PATCH below.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [open, accepted, skipped, applied]
+ *     responses:
+ *       200:
+ *         description: The stored proposals
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/TagSplitProposal'
+ *       400:
+ *         description: Unknown status
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+router.get('/api/simplify/proposals', isAuthenticated, async (req, res) => {
+  try {
+    const raw = req.query.status;
+    let status = null;
+    if (raw !== undefined && raw !== null && raw !== '') {
+      status = String(raw);
+      if (!SPLIT_PROPOSAL_STATUSES.includes(status)) {
+        throw simplifyBadRequest(`Unknown proposal status: ${status}`);
+      }
+    }
+    const data = await tagSimplifyService.listProposals({ status });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/simplify/proposals', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/simplify/proposals/run:
+ *   post:
+ *     summary: Propose for every tag what it stands for
+ *     description: |
+ *       Starts a job that decomposes every tag against the saved vocabulary —
+ *       first by rule, which needs no model at all, then by the model for what
+ *       the rule could not settle. The stored proposals are replaced.
+ *
+ *       Answers like the vocabulary proposal: 202 with the job, or 409 with
+ *       the job that is already running.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fresh:
+ *                 type: boolean
+ *                 description: ask the model again for tags a rule already settled
+ *     responses:
+ *       202:
+ *         description: The run was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A job is already running; `data.job` is that one
+ *       500:
+ *         description: Server error
+ */
+router.post('/api/simplify/proposals/run', isAuthenticated, async (req, res) =>
+  startSimplifyJob(
+    res,
+    'POST /api/simplify/proposals/run',
+    duplicateReviewJobService.JOB_TASKS.SPLITS,
+    { fresh: (req.body || {}).fresh === true },
+    (options, control) => tagSimplifyService.proposeSplits(options, control)
+  )
+);
+
+/**
+ * @swagger
+ * /api/simplify/proposals/{tagId}:
+ *   patch:
+ *     summary: Change one proposal
+ *     description: |
+ *       Only the fields the body names are changed. A changed target marks the
+ *       proposal as the user's, and `status` may only move between open,
+ *       accepted and skipped — applying is what an apply route does.
+ *
+ *       `action` says what the proposed order does with the tag (split, merge,
+ *       keep or delete) and `mergeInto` names the tag a merge goes into; both
+ *       mark the proposal as the user's, exactly as a changed target does.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tagId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagSplitProposalPatch'
+ *     responses:
+ *       200:
+ *         description: The proposal as it is stored now
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagSplitProposal'
+ *       400:
+ *         description: A field of the patch is of the wrong kind
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: There is no proposal for that tag
+ *       409:
+ *         description: The proposal was already applied
+ *       500:
+ *         description: Server error
+ */
+router.patch(
+  '/api/simplify/proposals/:tagId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const tagId = readSplitTagId(req.params.tagId);
+      const patch = readSplitProposalPatch(req.body);
+      const data = await tagSimplifyService.updateProposal(tagId, patch);
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'PATCH /api/simplify/proposals/:tagId',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/proposals/{tagId}/impact:
+ *   get:
+ *     summary: What applying one proposal would do to the documents
+ *     description: |
+ *       Read-only: it asks Paperless-ngx how many documents of the tag would
+ *       get the topics, how many would get the document type, and how many
+ *       already carry a different one and would keep it. The page asks for
+ *       every selected tag before it shows the one confirmation of an apply.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tagId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: What the split would touch
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagSplitImpact'
+ *       400:
+ *         description: Invalid tag id
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: There is no proposal for that tag
+ *       501:
+ *         description: The impact preview is not available on this build
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.get(
+  '/api/simplify/proposals/:tagId/impact',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const tagId = readSplitTagId(req.params.tagId);
+      if (typeof tagSimplifyService.proposalImpact !== 'function') {
+        const error = new Error('The impact preview is not available yet');
+        error.status = 501;
+        throw error;
+      }
+      const data = await tagSimplifyService.proposalImpact(tagId);
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/simplify/proposals/:tagId/impact',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/apply:
+ *   post:
+ *     summary: Apply the proposals of the named tags
+ *     description: |
+ *       One tag after the other: the vocabulary objects are created in
+ *       Paperless-ngx where they are missing, the documents of the tag get the
+ *       topic tags and — where they carry no document type, or always with
+ *       `overwriteType` — the document type, the compound tag is deleted, and
+ *       one merge-log row with `action: split` records what happened per
+ *       document so an undo can play it back.
+ *
+ *       The answer carries `success: false` with status 200 when at least one
+ *       tag failed; what was applied is in `data.applied` either way, and each
+ *       failure names its reason.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagSplitApplyRequest'
+ *     responses:
+ *       200:
+ *         description: The run finished (completely or partially)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagSplitApplyResult'
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: tagIds is missing, empty, too long or not a list of ids
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A document scan is running
+ *       501:
+ *         description: Applying splits is not available on this build
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ */
+router.post('/api/simplify/apply', isAuthenticated, async (req, res) => {
+  try {
+    const tagIds = readSplitApplyIds((req.body || {}).tagIds);
+    const data = await tagSimplifyService.applySplits({
+      tagIds,
+      performedBy: duplicatesPerformedBy(req),
+    });
+    const applied = (data.applied || []).length;
+    const failed = (data.failed || []).length;
+    const documents = (data.applied || []).reduce(
+      (sum, entry) => sum + (Number(entry.documentsUpdated) || 0),
+      0
+    );
+    const message =
+      failed === 0
+        ? `${applied} tag(s) split, ${documents} document(s) updated.`
+        : `Only ${applied} of ${applied + failed} tags were split. The rest is listed with its reason.`;
+    // The merge route's rule: a partial run is a finished request with a
+    // false success, never a 500 — the log rows of what did work exist.
+    return res.json({ success: failed === 0, data, message });
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/simplify/apply', error);
+  }
+});
+
+// ── The proposed order: one job, groups to decide on, apply as a job ────────
+// Round 12. The routes above work one tag at a time, which does not scale to
+// an archive of 1300 tags. These five show the same proposals as groups — one
+// per document type, topic and merge target, plus the two buckets — and let a
+// whole group be accepted or skipped at once. Both long steps (proposing the
+// order, applying what was accepted) run through the one review job, so the
+// page watches and stops them exactly as it watches a review.
+
+/**
+ * Reads the one option of a TagOrderProposeRequest: whether the run lets the
+ * model propose the vocabulary from the tag names, or keeps the saved one.
+ * Absent means `propose`, which is what a first run needs.
+ *
+ * @param {unknown} value
+ * @returns {'propose'|'keep'}
+ */
+function readOrderVocabularyMode(value) {
+  if (value === undefined || value === null || value === '') return 'propose';
+  // A string, not something that stringifies into one: this body is written
+  // by the page, and ['propose'] here would hide a real mistake.
+  if (typeof value !== 'string' || !ORDER_VOCABULARY_MODES.includes(value)) {
+    throw simplifyBadRequest(
+      `vocabulary must be one of ${ORDER_VOCABULARY_MODES.join(', ')}`
+    );
+  }
+  return value;
+}
+
+/**
+ * Reads a group key out of the path.
+ *
+ * Express decodes a path segment itself, so `topic:W%C3%A4rme` arrives as
+ * `topic:Wärme` and a segment that is not valid percent-encoding never
+ * reaches the route at all. What is left to do here is to make sure a key is
+ * there and is short enough to be one — the colon inside it is ordinary text,
+ * the service splits the kind off it.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function readGroupKey(value) {
+  const key = value === undefined || value === null ? '' : String(value).trim();
+  if (key === '') {
+    throw simplifyBadRequest('A group key is required');
+  }
+  if (key.length > MAX_GROUP_KEY_LENGTH) {
+    throw simplifyBadRequest(
+      `A group key must be at most ${MAX_GROUP_KEY_LENGTH} characters`
+    );
+  }
+  return key;
+}
+
+/** Reads the `decision` of a TagGroupDecisionRequest. */
+function readGroupDecision(value) {
+  if (!ORDER_GROUP_DECISIONS.includes(value)) {
+    throw simplifyBadRequest(
+      `decision must be one of ${ORDER_GROUP_DECISIONS.join(', ')}`
+    );
+  }
+  return value;
+}
+
+/**
+ * Reads the optional `groupKey` of a TagOrderApplyRequest: absent or null
+ * applies every accepted proposal, a non-empty string only the accepted
+ * members of that one group.
+ *
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function readOrderApplyGroupKey(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw simplifyBadRequest('groupKey must be a non-empty string or absent');
+  }
+  return readGroupKey(value);
+}
+
+/** What a finished decision says it did, worded for the page's toast. */
+const ORDER_DECISION_DONE = Object.freeze({
+  accept: 'accepted',
+  skip: 'skipped',
+  reopen: 'reopened',
+});
+
+/**
+ * @swagger
+ * /api/simplify/order/propose:
+ *   post:
+ *     summary: Propose the whole order as one job
+ *     description: |
+ *       Starts the one job that proposes the new order of the archive: it
+ *       reads every tag and every document type, proposes the vocabulary
+ *       itself unless `vocabulary` is `keep`, and gives every tag one action —
+ *       split it into a document type and topics, merge it into another tag,
+ *       keep it, or delete it. The stored proposals are replaced.
+ *
+ *       The route answers at once with the job; the page follows it through
+ *       `/api/duplicates/ai-review/jobs/{id}/events` and reads the groups from
+ *       `GET /api/simplify/groups` when it is done. Nothing is written to
+ *       Paperless-ngx here — a proposal is a proposal until it is accepted and
+ *       applied.
+ *
+ *       There is one job at a time for the whole app, shared with the AI
+ *       review; while one runs this answers 409 and carries it.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/TagOrderProposeRequest'
+ *               - type: object
+ *                 properties:
+ *                   skipDecided:
+ *                     type: boolean
+ *                     description: |
+ *                       Leave the tags with a proposal the user has already
+ *                       accepted or applied out of the model pass. Their
+ *                       proposals are kept as they are.
+ *                   minDocuments:
+ *                     type: integer
+ *                     minimum: 0
+ *                     description: |
+ *                       Leave the tags on fewer documents than this out of the
+ *                       model pass; they come back as `keep` with a reason
+ *                       that says so.
+ *                   concurrency:
+ *                     type: integer
+ *                     minimum: 1
+ *                     maximum: 8
+ *                     description: |
+ *                       How many model requests this one run keeps in flight,
+ *                       instead of DUPLICATES_AI_CONCURRENCY. Clamped, not
+ *                       refused; absent means "as configured".
+ *     responses:
+ *       202:
+ *         description: The proposal was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       400:
+ *         description: vocabulary is neither propose nor keep
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A job is already running; `data.job` is that one
+ *       501:
+ *         description: The order proposal is not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/simplify/order/propose',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const body = req.body || {};
+      const vocabulary = readOrderVocabularyMode(body.vocabulary);
+      // The three levers of one run. All three are absent by default, and an
+      // absent one narrows nothing and overrides nothing, so a page that
+      // sends only `vocabulary` starts exactly the run it always started.
+      const run = {
+        vocabulary,
+        skipDecided: readQueryFlag(body.skipDecided, false),
+        minDocuments: readMinDocuments(body.minDocuments),
+        concurrency: readRunConcurrency(body.concurrency),
+      };
+      return startSimplifyJob(
+        res,
+        'POST /api/simplify/order/propose',
+        duplicateReviewJobService.JOB_TASKS.ORDER,
+        run,
+        (options, control) => tagSimplifyService.proposeOrder(run, control)
+      );
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/simplify/order/propose',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * Reads the `minDocuments` floor of a run: a whole number of documents,
+ * clamped into [0, MAX_MIN_DOCUMENTS] rather than refused, and null when the
+ * request named none. Zero is a real answer — every tag has at least zero
+ * documents, so it skips nothing.
+ *
+ * @param {unknown} value
+ * @returns {number|null}
+ */
+function readMinDocuments(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const wanted = Number(value);
+  if (!Number.isFinite(wanted)) return null;
+  return Math.max(0, Math.min(Math.floor(wanted), MAX_MIN_DOCUMENTS));
+}
+
+/** The highest document floor a run may be given; past it nothing is asked. */
+const MAX_MIN_DOCUMENTS = 100000;
+
+/**
+ * @swagger
+ * /api/simplify/order/estimate:
+ *   get:
+ *     summary: What the next run of the proposed order would cost
+ *     description: |
+ *       The same question the Duplicates page asks before its review, for the
+ *       order: how many tags reach the model, how many requests that is, what
+ *       it costs and how long it takes. Nothing here asks a model — the page
+ *       calls it again on every move of a lever.
+ *
+ *       The rule pass is the one the run itself runs before it asks anything,
+ *       so `itemsByRule` and `items` are what the run would really do. The
+ *       tag list it reads is cached for a minute.
+ *
+ *       `skippable` is what each of the two levers would save, counted over
+ *       the tags that would otherwise reach the model: `decided` the ones
+ *       with a proposal the user has already accepted or applied,
+ *       `lowDocument` the ones below `minDocuments` — or below three when the
+ *       request named no floor, so the page has a real number to offer before
+ *       anybody has moved anything.
+ *
+ *       `requests` is the ordering pass alone. `extra.vocabularyRequests` is
+ *       what proposing a new vocabulary adds on top, and is zero when
+ *       `keepVocabulary` is set.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: keepVocabulary
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: Use the saved vocabulary instead of proposing a new one
+ *       - in: query
+ *         name: skipDecided
+ *         schema:
+ *           type: integer
+ *           enum: [0, 1]
+ *         description: Leave out the tags the user has already decided on
+ *       - in: query
+ *         name: minDocuments
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *         description: Leave out the tags on fewer documents than this
+ *     responses:
+ *       200:
+ *         description: What the run would cost
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/AiRunEstimate'
+ *                     - type: object
+ *                       properties:
+ *                         tags:
+ *                           type: integer
+ *                           description: every tag of the archive
+ *                         model:
+ *                           type: string
+ *                           nullable: true
+ *                         thinking:
+ *                           type: boolean
+ *                         skippable:
+ *                           type: object
+ *                           properties:
+ *                             decided:
+ *                               type: integer
+ *                             lowDocument:
+ *                               type: integer
+ *                         extra:
+ *                           type: object
+ *                           properties:
+ *                             vocabularyRequests:
+ *                               type: integer
+ *       401:
+ *         description: Not authenticated
+ *       501:
+ *         description: The proposed order is not available on this build
+ *       502:
+ *         description: Paperless-ngx could not be reached
+ *       503:
+ *         description: No AI provider is configured
+ *       500:
+ *         description: Server error
+ */
+router.get(
+  '/api/simplify/order/estimate',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      if (typeof tagSimplifyService.estimateOrder !== 'function') {
+        return res.status(501).json({
+          success: false,
+          error: 'The proposed order is not available on this build',
+        });
+      }
+      // The Simplify page has no switch of its own; a missing provider is the
+      // only thing that can stop it.
+      const refusal = aiReviewRefusal(false);
+      if (refusal) {
+        return res.status(503).json({ success: false, error: refusal });
+      }
+      const data = await tagSimplifyService.estimateOrder({
+        keepVocabulary: readQueryFlag(req.query.keepVocabulary, false),
+        skipDecided: readQueryFlag(req.query.skipDecided, false),
+        minDocuments: readMinDocuments(req.query.minDocuments),
+        concurrency: readRunConcurrency(req.query.concurrency),
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'GET /api/simplify/order/estimate',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/groups:
+ *   get:
+ *     summary: The proposed order, as groups
+ *     description: |
+ *       The stored proposals seen from the other side: one group per document
+ *       type (`type:Rechnung`), one per topic (`topic:Strom`), one per merge
+ *       target (`merge:Amazon`), and the two buckets `keep` and `delete`. A
+ *       tag with a type and two topics is a member of three groups, so the
+ *       numbers of the groups add up to more than the number of tags — the
+ *       totals next to `groups` are the ones per tag.
+ *
+ *       Read-only, local and instant: this is the same SQLite table the
+ *       proposals route lists, no request leaves the machine.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The groups of the proposed order
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagOrderGroups'
+ *       401:
+ *         description: Not authenticated
+ *       501:
+ *         description: The group view is not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.get('/api/simplify/groups', isAuthenticated, async (req, res) => {
+  try {
+    const data = await tagSimplifyService.listGroups();
+    return res.json({ success: true, data });
+  } catch (error) {
+    return respondDuplicatesError(res, 'GET /api/simplify/groups', error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/simplify/groups/{key}/decision:
+ *   post:
+ *     summary: Accept, skip or reopen one group
+ *     description: |
+ *       One decision for every open member of the group: `accept` marks them
+ *       as accepted so an apply picks them up, `skip` puts them aside, and
+ *       `reopen` takes either back. Members that were already applied are left
+ *       alone — a decision never undoes anything.
+ *
+ *       The key is the one the group carries (`type:Rechnung`, `topic:Strom`,
+ *       `merge:Amazon`, `keep` or `delete`), URL-encoded in the path. The
+ *       answer says how many proposals changed and hands the group back as it
+ *       stands now.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         description: The group key, URL-encoded
+ *         schema:
+ *           type: string
+ *           example: type%3ARechnung
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagGroupDecisionRequest'
+ *     responses:
+ *       200:
+ *         description: What the decision changed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     key:
+ *                       type: string
+ *                     changed:
+ *                       type: integer
+ *                       description: proposals whose status the decision moved
+ *                     group:
+ *                       allOf:
+ *                         - $ref: '#/components/schemas/TagOrderGroup'
+ *                       nullable: true
+ *                       description: the group as it stands now; null once it holds nothing
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: The key is missing or too long, or the decision is unknown
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: There is no group of that key
+ *       501:
+ *         description: Group decisions are not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/simplify/groups/:key/decision',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const key = readGroupKey(req.params.key);
+      const decision = readGroupDecision((req.body || {}).decision);
+      const data = await tagSimplifyService.decideGroup(key, decision);
+      const changed = Number(data?.changed) || 0;
+      return res.json({
+        success: true,
+        data,
+        message: `${changed} tag(s) ${ORDER_DECISION_DONE[decision]}.`,
+      });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'POST /api/simplify/groups/:key/decision',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/groups/{key}/members/{tagId}:
+ *   delete:
+ *     summary: Take one tag out of a group
+ *     description: |
+ *       The exception to the group decision: one tag does not belong here, the
+ *       rest of the group does. Out of a type group the tag loses its document
+ *       type, out of a topic group that one topic, out of a merge group it
+ *       becomes `keep`, and out of `delete` it becomes `keep` as well. A tag
+ *       that is left with nothing to do becomes `keep`.
+ *
+ *       Nothing is deleted in Paperless-ngx: this edits the proposal, which is
+ *       a local row, and hands it back as it now stands.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         description: The group key, URL-encoded
+ *         schema:
+ *           type: string
+ *           example: topic%3AStrom
+ *       - in: path
+ *         name: tagId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: The proposal as it is stored now
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/TagSplitProposal'
+ *       400:
+ *         description: The key is missing or too long, or the tag id is not one
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: There is no such group, or the tag is not a member of it
+ *       409:
+ *         description: The proposal was already applied
+ *       501:
+ *         description: Group edits are not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.delete(
+  '/api/simplify/groups/:key/members/:tagId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const key = readGroupKey(req.params.key);
+      const tagId = readSplitTagId(req.params.tagId);
+      const data = await tagSimplifyService.removeGroupMember(key, tagId);
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondDuplicatesError(
+        res,
+        'DELETE /api/simplify/groups/:key/members/:tagId',
+        error
+      );
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/simplify/order/apply:
+ *   post:
+ *     summary: Apply what was accepted, as one job
+ *     description: |
+ *       Writes the accepted proposals to Paperless-ngx, one tag after the
+ *       other: a split creates the vocabulary objects where they are missing,
+ *       gives the documents their topic tags and document type and deletes the
+ *       compound tag; a merge goes through the same merge the Duplicates page
+ *       uses; a delete takes the tag off its documents. Every one of them
+ *       writes a merge-log row, so every one of them can be taken back.
+ *
+ *       `groupKey` narrows the run to the accepted members of one group;
+ *       without it every accepted proposal is applied. A tag that fails is
+ *       listed in `failed` with its reason and the run goes on, so the job
+ *       finishes as `done` with a partial result rather than failing.
+ *
+ *       Answers like the other jobs: 202 with the job, or 409 with the job
+ *       that is already running. The result of the job
+ *       (`/api/duplicates/ai-review/jobs/{id}/result`) is a TagOrderApplyResult.
+ *     tags:
+ *       - Simplify
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/TagOrderApplyRequest'
+ *     responses:
+ *       202:
+ *         description: The run was started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       $ref: '#/components/schemas/AiReviewJob'
+ *       400:
+ *         description: groupKey is there but not a non-empty string
+ *       401:
+ *         description: Not authenticated
+ *       409:
+ *         description: A job is already running; `data.job` is that one
+ *       501:
+ *         description: Applying the order is not available on this build
+ *       500:
+ *         description: Server error
+ */
+router.post('/api/simplify/order/apply', isAuthenticated, async (req, res) => {
+  try {
+    const groupKey = readOrderApplyGroupKey((req.body || {}).groupKey);
+    const performedBy = duplicatesPerformedBy(req);
+    return startSimplifyJob(
+      res,
+      'POST /api/simplify/order/apply',
+      duplicateReviewJobService.JOB_TASKS.APPLY,
+      { groupKey },
+      (options, control) =>
+        tagSimplifyService.applyAccepted({ groupKey, performedBy }, control)
+    );
+  } catch (error) {
+    return respondDuplicatesError(res, 'POST /api/simplify/order/apply', error);
+  }
+});
 
 /**
  * @swagger

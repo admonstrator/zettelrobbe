@@ -8,6 +8,20 @@ const {
   buildTimeoutErrorMessage,
   toNameList,
 } = require('./serviceUtils');
+const {
+  abortSignal,
+  abortedGenerationError,
+  hasNumber,
+  hasSystemPrompt,
+  isAbortError,
+  modelOverride,
+  progressHandler,
+  readCompletionUsage,
+  reasoningEffortForCompatible,
+  reasoningEnabled,
+  runChatCompletionStream,
+  stripReasoningText,
+} = require('./aiGenerateOptions');
 const OpenAI = require('openai');
 const config = require('../config/config');
 const paperlessService = require('./paperlessService');
@@ -25,6 +39,19 @@ const responseLogPath = path.join(
   'response.txt'
 );
 const CUSTOM_PROVIDER_FALLBACK_API_KEY = 'no-auth-required';
+/** What an operator can do about an answer that hit the completion cap. */
+const TRUNCATION_REMEDY = 'Raise Response Tokens (RESPONSE_TOKENS).';
+/**
+ * The soft switch the Qwen family reads out of the prompt itself.
+ *
+ * `chat_template_kwargs` only reaches a server that applies the model's chat
+ * template; a gateway that forwards the messages and drops the rest leaves the
+ * model thinking anyway. Qwen understands the same wish written into the last
+ * line of the user message, so both are sent and whichever arrives wins.
+ */
+const QWEN_NO_THINK_SWITCH = '/no_think';
+/** Models that understand the line above. */
+const QWEN_MODEL_PATTERN = /qwen/i;
 
 class CustomOpenAIService {
   constructor() {
@@ -484,147 +511,27 @@ class CustomOpenAIService {
     return dataString;
   }
 
-  async analyzePlayground(content, prompt) {
-    const musthavePrompt = `
-    Return the result EXCLUSIVELY as a JSON object. The Tags and Title MUST be in the language that is used in the document.:  
-        {
-          "title": "xxxxx",
-          "correspondent": "xxxxxxxx",
-          "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
-          "document_date": "YYYY-MM-DD",
-          "language": "en/de/es/..."
-        }`;
-
-    try {
-      this.initialize();
-      const now = new Date();
-      const timestamp = now.toLocaleString('de-DE', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-      });
-
-      if (!this.client) {
-        throw new Error(
-          'Custom OpenAI client not initialized - missing API key'
-        );
-      }
-
-      // Calculate total prompt tokens including musthavePrompt
-      const totalPromptTokens = await calculateTotalPromptTokens(
-        prompt + musthavePrompt // Combined system prompt
-      );
-
-      // Calculate available tokens
-      const maxTokens = Number(config.tokenLimit);
-      const reservedTokens = totalPromptTokens + Number(config.responseTokens);
-      const availableTokens = maxTokens - reservedTokens;
-
-      // The same guard analyzeDocument() uses: a broken token limit must fail
-      // loudly instead of silently truncating the content down to nothing.
-      if (!Number.isFinite(availableTokens) || availableTokens <= 0) {
-        console.warn(
-          `[WARNING] No available tokens for content. Reserved: ${reservedTokens}, Max: ${maxTokens}`
-        );
-        throw new Error(
-          'Token limit exceeded: prompt too large for available token limit'
-        );
-      }
-
-      // Truncate content if necessary
-      const truncatedContent = await truncateToTokenLimit(
-        content,
-        availableTokens
-      );
-
-      // Make API request
-      const response = await this.client.chat.completions.create({
-        model: config.custom.model,
-        messages: [
-          {
-            role: 'system',
-            content: prompt + musthavePrompt,
-          },
-          {
-            role: 'user',
-            content: truncatedContent,
-          },
-        ],
-        temperature: config.aiTemperatureAnalysis,
-      });
-
-      // Handle response
-      assertCompletionNotTruncated(
-        response,
-        'Custom OpenAI',
-        'Reduce the number of custom fields the prompt asks for, or use a model with a larger completion limit.'
-      );
-      const message = response?.choices?.[0]?.message;
-      let jsonContent = extractChatMessageContent(message, 'Custom OpenAI');
-      if (!jsonContent) {
-        throw new Error('Invalid API response structure');
-      }
-
-      // Log token usage
-      console.log(`[DEBUG] [${timestamp}] Custom OpenAI request sent`);
-      console.log(
-        `[DEBUG] [${timestamp}] Total tokens: ${response.usage.total_tokens}`
-      );
-
-      const usage = response.usage;
-      const mappedUsage = {
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
-        totalTokens: usage.total_tokens,
-      };
-
-      let parsedResponse;
-      try {
-        const parsedResult = this._parseJsonResponse(jsonContent);
-        parsedResponse = parsedResult.parsed;
-        jsonContent = parsedResult.normalized;
-      } catch (error) {
-        console.error(`Failed to parse JSON response: ${error.message}`);
-        console.debug(error);
-        throw error;
-      }
-
-      // Validate response structure
-      if (
-        !parsedResponse ||
-        !Array.isArray(parsedResponse.tags) ||
-        (typeof parsedResponse.correspondent !== 'string' &&
-          parsedResponse.correspondent !== null)
-      ) {
-        throw new Error(
-          'AI could not determine assignable metadata: no tags or correspondent found'
-        );
-      }
-
-      return {
-        document: parsedResponse,
-        metrics: mappedUsage,
-        truncated: truncatedContent.length < content.length,
-      };
-    } catch (error) {
-      console.error(`Failed to analyze document: ${error.message}`);
-      console.debug(error);
-      return {
-        document: { tags: [], correspondent: null },
-        metrics: null,
-        error: error.message,
-        // Undefined for everything that is not one of ours; the scan loop
-        // falls back to its generic reason then.
-        errorCode: error.code,
-      };
-    }
-  }
-
   /**
    * Generate text based on a prompt
    * @param {string} prompt - The prompt to generate text from
+   * @param {object} [options] - Optional overrides for this one call
+   * @param {string} [options.systemPrompt] - Sent as the system message
+   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
+   * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS, still clamped
+   * @param {AbortSignal} [options.signal] - Cancels the request in flight
+   * @param {Function} [options.onProgress] - Streams the answer and reports it
+   *   as it grows; see GenerateTextProgress in aiGenerateOptions
+   * @param {boolean} [options.reasoning] - Switches the model's thinking off
+   *   or on for this one call; nothing new is sent when the caller says
+   *   nothing. Off also sends reasoning_effort where the model family takes it
    * @returns {Promise<string>} - The generated text
    */
-  async generateText(prompt) {
+  async generateText(prompt, options = {}) {
+    // Read before the try so the catch can tell a stopped request from a
+    // failed one.
+    const signal = abortSignal(options);
+    const onProgress = progressHandler(options);
+
     try {
       this.initialize();
 
@@ -634,9 +541,12 @@ class CustomOpenAIService {
         );
       }
 
-      const model = config.custom.model;
+      const model = modelOverride(options) || config.custom.model;
       const maxContextTokens = Number(config.tokenLimit) || 128000;
-      const desiredCompletionTokens = Number(config.responseTokens) || 1000;
+      const desiredCompletionTokens =
+        hasNumber(options.maxTokens) && options.maxTokens > 0
+          ? Math.floor(options.maxTokens)
+          : Number(config.responseTokens) || 1000;
       const promptTokens = await calculateTokens(prompt, model);
       const availableCompletionTokens = Math.max(
         1,
@@ -654,39 +564,114 @@ class CustomOpenAIService {
         );
       }
 
-      const response = await this.client.chat.completions.create({
-        model: model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: config.aiTemperatureGeneration,
-        max_tokens: maxCompletionTokens,
+      const reasoning = reasoningEnabled(options);
+      const messages = [];
+      if (hasSystemPrompt(options)) {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({
+        role: 'user',
+        content:
+          reasoning === false && QWEN_MODEL_PATTERN.test(model)
+            ? `${prompt}\n${QWEN_NO_THINK_SWITCH}`
+            : prompt,
       });
 
+      const request = {
+        model: model,
+        messages,
+        temperature: hasNumber(options.temperature)
+          ? options.temperature
+          : config.aiTemperatureGeneration,
+        max_tokens: maxCompletionTokens,
+      };
+      // The key every OpenAI-compatible server that applies a chat template
+      // understands; one that does not know it passes it through and the
+      // model decides for itself, as it did before.
+      if (reasoning !== null) {
+        request.chat_template_kwargs = { enable_thinking: reasoning };
+      }
+      // A hosted reasoning model reads neither of the two above and thinks
+      // anyway; the families that take reasoning_effort are told in their own
+      // dialect. Only when the caller asked for no thinking, and only for
+      // those names — another model answers 400 for the field.
+      if (reasoning === false) {
+        const effort = reasoningEffortForCompatible(model);
+        if (effort) request.reasoning_effort = effort;
+      }
+
+      this.lastGenerateTextUsage = null;
+      // The second argument is the SDK's request option bag; a caller that
+      // brought no signal gets the call it always got.
+      const requestOptions = signal ? { signal } : null;
+
+      if (onProgress) {
+        // include_usage buys the exact completion count at the end of the
+        // stream; without it the report is an estimate all the way.
+        return await runChatCompletionStream({
+          client: this.client,
+          request: {
+            ...request,
+            stream: true,
+            stream_options: { include_usage: true },
+          },
+          requestOptions,
+          signal,
+          onProgress,
+          provider: 'Custom OpenAI',
+          remedy: TRUNCATION_REMEDY,
+          onUsage: (usage) => {
+            this.lastGenerateTextUsage = usage;
+          },
+        });
+      }
+
+      const response = requestOptions
+        ? await this.client.chat.completions.create(request, requestOptions)
+        : await this.client.chat.completions.create(request);
+      this.lastGenerateTextUsage = readCompletionUsage(response);
+
+      const message = response?.choices?.[0]?.message;
+      // Reasoning is no part of the answer, and a block the cut-off left
+      // open is no part of it either.
+      const generatedText = extractChatMessageContent(
+        { ...message, content: stripReasoningText(message?.content) },
+        'Custom OpenAI'
+      );
+
+      // After the text is in hand: a cut-off answer is still a failure, but
+      // the caller can keep the prefix instead of paying for it twice.
       assertCompletionNotTruncated(
         response,
         'Custom OpenAI',
-        'Raise Response Tokens (RESPONSE_TOKENS).'
+        TRUNCATION_REMEDY,
+        { partialText: generatedText }
       );
 
-      const generatedText = extractChatMessageContent(
-        response?.choices?.[0]?.message,
-        'Custom OpenAI'
-      );
       if (!generatedText) {
-        throw new Error('Invalid API response structure');
+        // Say what came back: a gateway that timed out behind a 200, a
+        // model that stopped after its reasoning without an answer, or an
+        // empty choices array all end here and need telling apart.
+        const finishReason = response?.choices?.[0]?.finish_reason ?? 'unknown';
+        const head = JSON.stringify(response ?? null).slice(0, 200);
+        throw new Error(
+          `Invalid API response structure: the answer carried no text (finish_reason ${finishReason}; the response begins ${head})`
+        );
       }
 
       return generatedText;
     } catch (error) {
+      // One name for a stopped request, whatever the client called it; an
+      // abort this service raised already carries its partial text.
+      const thrown =
+        isAbortError(error, signal) && error?.name !== 'AbortError'
+          ? abortedGenerationError(error, '')
+          : error;
       console.error(
-        `Error generating text with Custom OpenAI: ${error.message}`
+        `Error generating text with Custom OpenAI: ${thrown.message}`
       );
-      console.debug(error);
-      throw error;
+      console.debug(thrown);
+      throw thrown;
     }
   }
 

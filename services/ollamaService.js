@@ -1,4 +1,16 @@
 const { writePromptToFile, toNameList } = require('./serviceUtils');
+const {
+  abortSignal,
+  abortedGenerationError,
+  createProgressCollector,
+  hasNumber,
+  hasSystemPrompt,
+  isAbortError,
+  modelOverride,
+  progressHandler,
+  reasoningEnabled,
+  stripReasoningText,
+} = require('./aiGenerateOptions');
 const axios = require('axios');
 const config = require('../config/config');
 const fs = require('fs').promises;
@@ -41,30 +53,6 @@ class OllamaService {
           type: 'object',
           additionalProperties: true,
         },
-      },
-      required: [
-        'title',
-        'correspondent',
-        'tags',
-        'document_type',
-        'document_date',
-        'language',
-      ],
-    };
-
-    // Schema for playground analysis (simpler version)
-    this.playgroundSchema = {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        correspondent: { type: 'string' },
-        tags: {
-          type: 'array',
-          items: { type: 'string' },
-        },
-        document_type: { type: 'string' },
-        document_date: { type: 'string' },
-        language: { type: 'string' },
       },
       required: [
         'title',
@@ -218,67 +206,6 @@ class OllamaService {
 
       // Log the prompt and response
       await this._logPromptAndResponse(prompt, parsedResponse);
-
-      // Return results in consistent format
-      return {
-        document: parsedResponse,
-        metrics,
-        truncated: false,
-      };
-    } catch (error) {
-      console.error(`Error analyzing document with Ollama: ${error.message}`);
-      console.debug(error);
-      return {
-        document: { tags: [], correspondent: null },
-        metrics: null,
-        error: error.message,
-        // Undefined for everything that is not one of ours; the scan loop
-        // falls back to its generic reason then.
-        errorCode: error.code,
-      };
-    }
-  }
-
-  /**
-   * Analyze a document in playground mode
-   * @param {string} content - Document content
-   * @param {string} prompt - User-provided prompt
-   * @returns {Object} Analysis results
-   */
-  async analyzePlayground(content, prompt) {
-    try {
-      // Calculate context window size — include both prompt and content
-      const fullPrompt = prompt + '\n\n' + JSON.stringify(content);
-      const promptTokenCount = this._calculatePromptTokenCount(fullPrompt);
-      const numCtx = this._calculateNumCtx(
-        promptTokenCount,
-        Number(config.responseTokens)
-      );
-
-      // Generate playground system prompt (simpler than full analysis)
-      const systemPrompt = this._generatePlaygroundSystemPrompt();
-
-      // Call Ollama API
-      const response = await this._callOllamaAPI(
-        fullPrompt,
-        systemPrompt,
-        numCtx,
-        this.playgroundSchema
-      );
-
-      // Process response
-      const parsedResponse = this._processOllamaResponse(response);
-      const metrics = this._extractOllamaMetrics(response);
-
-      // Check for missing data
-      if (
-        parsedResponse.tags.length === 0 &&
-        parsedResponse.correspondent === null
-      ) {
-        console.warn(
-          'No tags or correspondent found in response from Ollama for Document. Please review your prompt or switch to OpenAI for better results.'
-        );
-      }
 
       // Return results in consistent format
       return {
@@ -557,27 +484,6 @@ class OllamaService {
   }
 
   /**
-   * Generate system prompt for playground analysis
-   * @returns {string} System prompt
-   */
-  _generatePlaygroundSystemPrompt() {
-    return `
-            You are a document analyzer. Your task is to analyze documents and extract relevant information. You do not ask back questions. 
-            YOU MUSTNOT: Ask for additional information or clarification, or ask questions about the document, or ask for additional context.
-            YOU MUSTNOT: Return a response without the desired JSON format.
-            YOU MUST: Analyze the document content and extract the following information into this structured JSON format and only this format!:         {
-            "title": "xxxxx",
-            "correspondent": "xxxxxxxx",
-            "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
-            "document_type": "Invoice/Contract/...",
-            "document_date": "YYYY-MM-DD",
-            "language": "en/de/es/..."
-            }
-            ALWAYS USE THE INFORMATION TO FILL OUT THE JSON OBJECT. DO NOT ASK BACK QUESTIONS.
-        `;
-  }
-
-  /**
    * Calculate prompt token count
    * @param {string} prompt - Prompt text
    * @returns {number} Estimated token count
@@ -724,8 +630,12 @@ class OllamaService {
    * @param {Object} responseData - Ollama /api/generate response
    * @param {number} numPredict - response token limit that was sent
    * @param {number} numCtx - context window that was sent
+   * @param {Object} [extra] - what the caller salvaged from the cut-off answer
+   * @param {string} [extra.partialText] - the text that did arrive, reasoning
+   *   stripped; put on the error as `partialText` the way the OpenAI-compatible
+   *   providers do, so a caller can keep it instead of asking twice
    */
-  _assertNotTruncated(responseData, numPredict, numCtx) {
+  _assertNotTruncated(responseData, numPredict, numCtx, extra) {
     const evalCount = Number(responseData?.eval_count) || 0;
     const promptEvalCount = Number(responseData?.prompt_eval_count) || 0;
 
@@ -760,6 +670,9 @@ class OllamaService {
        elsewhere and have no better handle; this one is raised right here, so
        rewording it should not silently reclassify the failure. */
     error.code = 'ai_response_truncated';
+    if (typeof extra?.partialText === 'string') {
+      error.partialText = extra.partialText;
+    }
     throw error;
   }
 
@@ -916,61 +829,254 @@ class OllamaService {
   /**
    * Generate text based on a prompt
    * @param {string} prompt - The prompt to generate text from
+   * @param {object} [options] - Optional overrides for this one call
+   * @param {string} [options.systemPrompt] - Replaces the generic system prompt
+   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
+   * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS (num_predict)
+   * @param {AbortSignal} [options.signal] - Cancels the request in flight
+   * @param {Function} [options.onProgress] - Streams the answer and reports it
+   *   as it grows; see GenerateTextProgress in aiGenerateOptions
+   * @param {boolean} [options.reasoning] - Sends `think` for this one call and
+   *   overrules OLLAMA_THINK; without it the setting decides, as before
    * @returns {Promise<string>} - The generated text
    */
-  async generateText(prompt) {
+  async generateText(prompt, options = {}) {
+    // Read before the try so the catch can tell a stopped request from a
+    // failed one, and so a cut-off request keeps what it measured.
+    const signal = abortSignal(options);
+    const onProgress = progressHandler(options);
+    let measuredUsage = null;
+
     try {
+      const responseTokens =
+        hasNumber(options.maxTokens) && options.maxTokens > 0
+          ? Math.floor(options.maxTokens)
+          : Number(config.responseTokens);
+
       // Calculate context window size based on prompt length
       const promptTokenCount = this._calculatePromptTokenCount(prompt);
-      const numCtx = this._calculateNumCtx(
-        promptTokenCount,
-        Number(config.responseTokens)
-      );
+      const numCtx = this._calculateNumCtx(promptTokenCount, responseTokens);
 
-      // Simple system prompt for text generation
-      const systemPrompt = `You are a helpful assistant. Generate a clear, concise, and informative response to the user's question or request.`;
+      // Simple system prompt for text generation; a caller that knows the job
+      // better (the Duplicates review) brings its own.
+      const systemPrompt = hasSystemPrompt(options)
+        ? options.systemPrompt
+        : `You are a helpful assistant. Generate a clear, concise, and informative response to the user's question or request.`;
 
       // Call Ollama API without enforcing a specific response format
       const generateTextBody = {
-        model: this.model,
+        model: modelOverride(options) || this.model,
         prompt: prompt,
         system: systemPrompt,
         stream: false,
         options: {
-          temperature: config.aiTemperatureGeneration,
+          temperature: hasNumber(options.temperature)
+            ? options.temperature
+            : config.aiTemperatureGeneration,
           top_p: 0.9,
-          // The line above reserves config.responseTokens in the context; a
+          // The line above reserves the same number in the context; a
           // constant here would have the same quarrel with it that the
           // analysis path had.
-          num_predict: Number(config.responseTokens),
+          num_predict: responseTokens,
           num_ctx: numCtx,
         },
       };
 
-      // Disable thinking for reasoning models (e.g. Qwen3, DeepSeek-R1)
-      // unless explicitly enabled via OLLAMA_THINK=true
-      if (!config.ollama.think) {
+      // A caller that says what it wants overrules the setting; without one
+      // OLLAMA_THINK decides, which is what it did before.
+      const reasoning = reasoningEnabled(options);
+      if (reasoning !== null) {
+        generateTextBody.think = reasoning;
+      } else if (!config.ollama.think) {
+        // Disable thinking for reasoning models (e.g. Qwen3, DeepSeek-R1)
+        // unless explicitly enabled via OLLAMA_THINK=true
         generateTextBody.think = false;
+      }
+
+      // axios takes the signal in the request config; without one the config
+      // is the headers it always was.
+      const requestConfig = { headers: this._buildRequestHeaders() };
+      if (signal) requestConfig.signal = signal;
+
+      if (onProgress) {
+        return await this._generateTextStreamed(
+          generateTextBody,
+          requestConfig,
+          { signal, onProgress, numPredict: responseTokens, numCtx },
+          (usage) => {
+            measuredUsage = usage;
+            this.lastGenerateTextUsage = usage;
+          }
+        );
       }
 
       const response = await this.client.post(
         `${this.apiUrl}/api/generate`,
         generateTextBody,
-        {
-          headers: this._buildRequestHeaders(),
-        }
+        requestConfig
       );
 
       if (!response.data || !response.data.response) {
         throw new Error('Invalid response from Ollama API');
       }
 
-      return response.data.response;
+      // Ollama reports its token counts on the answer itself; the callers
+      // that care (the Duplicates review) read them off the service after
+      // the call, so the return value stays a plain string.
+      const promptTokens = Number(response.data.prompt_eval_count);
+      const completionTokens = Number(response.data.eval_count);
+      measuredUsage =
+        Number.isFinite(promptTokens) || Number.isFinite(completionTokens)
+          ? {
+              promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
+              completionTokens: Number.isFinite(completionTokens)
+                ? completionTokens
+                : null,
+              totalTokens:
+                (Number.isFinite(promptTokens) ? promptTokens : 0) +
+                (Number.isFinite(completionTokens) ? completionTokens : 0),
+            }
+          : null;
+      this.lastGenerateTextUsage = measuredUsage;
+
+      // A model that writes its reasoning into the answer wrote it for
+      // itself; only what it said afterwards is the answer. Anything that is
+      // not a string is left alone — it is a structured answer, not text.
+      const generatedText =
+        typeof response.data.response === 'string'
+          ? stripReasoningText(response.data.response).trim()
+          : response.data.response;
+
+      // The cut-off check the analysis path has always run, now on this path
+      // too, and carrying the prefix the caller can still use.
+      this._assertNotTruncated(response.data, responseTokens, numCtx, {
+        partialText: typeof generatedText === 'string' ? generatedText : '',
+      });
+
+      return generatedText;
     } catch (error) {
-      console.error(`Error generating text with Ollama: ${error.message}`);
-      console.debug(error);
+      // Whatever was measured before the failure stays readable; a failure
+      // that measured nothing still leaves null behind, as it always did.
+      this.lastGenerateTextUsage = measuredUsage;
+      // One name for a stopped request, whatever axios called it; an abort
+      // this service raised already carries its partial text.
+      const thrown =
+        isAbortError(error, signal) && error?.name !== 'AbortError'
+          ? abortedGenerationError(error, '')
+          : error;
+      console.error(`Error generating text with Ollama: ${thrown.message}`);
+      console.debug(thrown);
+      throw thrown;
+    }
+  }
+
+  /**
+   * The streamed half of generateText(): the same request with `stream: true`,
+   * read as the NDJSON lines Ollama answers with.
+   *
+   * Ollama does not speak server-sent events — every line is a complete JSON
+   * object with the next piece of the answer in `response`, the next piece of
+   * the model's thinking in `thinking`, and on the last line the counts and
+   * the reason it stopped. Lines arrive split across socket reads, so the tail
+   * of a read is kept until its newline turns up.
+   *
+   * @param {Object} body - the request body, `stream` still to be set
+   * @param {Object} requestConfig - headers, and the signal if there is one
+   * @param {Object} context
+   * @param {AbortSignal|null} context.signal
+   * @param {Function} context.onProgress
+   * @param {number} context.numPredict - response budget that was sent
+   * @param {number} context.numCtx - context window that was sent
+   * @param {Function} onUsage - told before a cut-off throws
+   * @returns {Promise<string>} the answer, reasoning stripped
+   */
+  async _generateTextStreamed(body, requestConfig, context, onUsage) {
+    const { signal, onProgress, numPredict, numCtx } = context;
+    const collector = createProgressCollector({ onProgress });
+    let last = {};
+
+    try {
+      const response = await this.client.post(
+        `${this.apiUrl}/api/generate`,
+        { ...body, stream: true },
+        { ...requestConfig, responseType: 'stream' }
+      );
+
+      const stream = response.data;
+      // An abort tears the socket down, and a socket error that arrives after
+      // the loop has left would be an unhandled 'error' event — which ends
+      // the process rather than the request.
+      stream.on('error', () => {});
+      let pending = '';
+      const takeLine = (line) => {
+        if (line.trim() === '') return;
+        let parsed;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          // A line that is not JSON is a line this client cannot use; the
+          // stream goes on, and the answer is whatever the rest carries.
+          return;
+        }
+        collector.pushContent(parsed.response);
+        collector.pushReasoning(parsed.thinking);
+        if (parsed.done === true) last = parsed;
+        collector.report();
+      };
+
+      for await (const piece of stream) {
+        if (signal?.aborted) {
+          // Nothing more is wanted, so nothing more is read: the socket goes
+          // now rather than after the model finished talking to itself.
+          stream.destroy();
+          break;
+        }
+        pending += piece.toString('utf8');
+        let at = pending.indexOf('\n');
+        while (at !== -1) {
+          takeLine(pending.slice(0, at));
+          pending = pending.slice(at + 1);
+          at = pending.indexOf('\n');
+        }
+      }
+      if (!signal?.aborted) takeLine(pending);
+
+      if (signal?.aborted) {
+        collector.finish();
+        throw abortedGenerationError(null, collector.text());
+      }
+    } catch (error) {
+      collector.finish();
+      if (error?.name === 'AbortError') throw error;
+      if (isAbortError(error, signal)) {
+        throw abortedGenerationError(error, collector.text());
+      }
       throw error;
     }
+
+    collector.finish();
+
+    const promptTokens = Number(last.prompt_eval_count);
+    const completionTokens = Number(last.eval_count);
+    const measured =
+      Number.isFinite(promptTokens) || Number.isFinite(completionTokens)
+        ? {
+            promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
+            completionTokens: Number.isFinite(completionTokens)
+              ? completionTokens
+              : null,
+            totalTokens:
+              (Number.isFinite(promptTokens) ? promptTokens : 0) +
+              (Number.isFinite(completionTokens) ? completionTokens : 0),
+          }
+        : collector.usageSummary();
+    if (typeof onUsage === 'function') onUsage(measured);
+
+    this._assertNotTruncated(last, numPredict, numCtx, {
+      partialText: collector.text(),
+    });
+
+    return collector.text();
   }
 
   /**

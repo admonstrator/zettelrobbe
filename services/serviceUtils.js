@@ -785,11 +785,18 @@ function validateCustomFieldValue(fieldName, rawValue, dataType) {
  * scan loop records it as the failure reason, and rewording should not
  * silently reclassify the failure.
  *
+ * Ollama has no choices array; generateText() hands in a response shaped like
+ * one so that a cut-off answer reads the same whichever provider produced it.
+ *
  * @param {Object} response - chat.completions response
  * @param {string} provider - name for the message, e.g. "OpenAI"
  * @param {string} remedy - sentence naming the limit the operator can raise
+ * @param {Object} [extra] - what the caller salvaged from the cut-off answer
+ * @param {string} [extra.partialText] - the text that did arrive, reasoning
+ *   stripped; put on the error as `partialText` so a caller can keep it
+ *   instead of paying for the whole answer again
  */
-function assertCompletionNotTruncated(response, provider, remedy) {
+function assertCompletionNotTruncated(response, provider, remedy, extra) {
   if (response?.choices?.[0]?.finish_reason !== 'length') {
     return;
   }
@@ -801,6 +808,9 @@ function assertCompletionNotTruncated(response, provider, remedy) {
     `${provider} stopped generating${spent} because the answer hit a token limit. ${remedy}`
   );
   error.code = 'ai_response_truncated';
+  if (typeof extra?.partialText === 'string') {
+    error.partialText = extra.partialText;
+  }
   throw error;
 }
 
@@ -910,6 +920,51 @@ function buildTimeoutErrorMessage(scope, timeoutMs = null) {
   return `${normalizedScope} response timeout reached${suffix}. Please check provider availability and timeout settings.`;
 }
 
+/** Opening brackets tried per kind before jsonFromText gives up on a text. */
+const JSON_SPAN_ATTEMPTS = 200;
+
+/**
+ * The JSON array or object a text holds, as a string, or '' when it holds
+ * none that parses.
+ *
+ * Made for the reasoning of a model that wrote its answer while thinking and
+ * then stopped. Such a text is prose with drafts in it and the answer at the
+ * end, so two rules: per kind of bracket the span from an opening bracket to
+ * the last closing one, widest first, is tried until one parses (a draft
+ * before the answer spoils the widest span, the answer starts at a later
+ * bracket); of the two kinds, the one whose span ends last wins, because the
+ * answer is what the model wrote last.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function jsonFromText(text) {
+  const raw = typeof text === 'string' ? text : '';
+  if (raw.trim() === '') return '';
+  let best = null;
+  for (const [open, close] of [
+    ['[', ']'],
+    ['{', '}'],
+  ]) {
+    const end = raw.lastIndexOf(close);
+    if (end === -1) continue;
+    let start = raw.indexOf(open);
+    let attempts = 0;
+    while (start !== -1 && start < end && attempts < JSON_SPAN_ATTEMPTS) {
+      attempts += 1;
+      const candidate = raw.slice(start, end + 1);
+      try {
+        JSON.parse(candidate);
+        if (!best || end > best.end) best = { text: candidate, end };
+        break;
+      } catch {
+        start = raw.indexOf(open, start + 1);
+      }
+    }
+  }
+  return best ? best.text : '';
+}
+
 /**
  * Extracts assistant message content from OpenAI-compatible responses.
  * Falls back to extracting JSON from reasoning_content when content is empty.
@@ -936,18 +991,38 @@ function extractChatMessageContent(
     return '';
   }
 
-  const jsonMatch = reasoningContent.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
+  const extracted = jsonFromText(reasoningContent);
+  if (extracted !== '') {
     console.warn(
       `[WARN] [${providerLabel}] Empty message.content, using JSON extracted from reasoning_content.`
     );
-    return jsonMatch[0].trim();
+    return extracted;
   }
 
   console.warn(
     `[WARN] [${providerLabel}] Empty message.content and no JSON found in reasoning_content.`
   );
   return '';
+}
+
+/**
+ * The character-based token estimate, on a length rather than on a string.
+ *
+ * A stream never holds the whole answer: it counts the characters that went
+ * past, reasoning included, and asks for a number of tokens for them. That is
+ * the same ÷4 approximation estimateTokensForNonOpenAI() applies to a string,
+ * so a streamed count and a counted string do not disagree.
+ *
+ * @param {string|number} textOrLength - the text, or how many characters of it
+ * @returns {number} estimated tokens, never negative
+ */
+function estimateTokenCount(textOrLength) {
+  const length =
+    typeof textOrLength === 'number' && Number.isFinite(textOrLength)
+      ? Math.max(0, Math.floor(textOrLength))
+      : String(textOrLength ?? '').length;
+
+  return Math.ceil(length / 4);
 }
 
 module.exports = {
@@ -966,6 +1041,8 @@ module.exports = {
   shouldQueueForOcrOnAiError,
   classifyOcrQueueReasonFromAiError,
   extractChatMessageContent,
+  jsonFromText,
   isTimeoutError,
   buildTimeoutErrorMessage,
+  estimateTokenCount,
 };

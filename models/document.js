@@ -360,7 +360,242 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    version: 11,
+    description:
+      'Create entity_merges and entity_merge_dismissals for the Duplicates page',
+    up: (database) => {
+      // One row per merge run. The JSON columns carry everything an undo
+      // needs: the objects a merge deletes no longer exist in Paperless-ngx
+      // afterwards, so their names, matching rules and document lists have
+      // to be kept here.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS entity_merges (
+          id INTEGER PRIMARY KEY,
+          kind TEXT NOT NULL,
+          target_id INTEGER NOT NULL,
+          target_name TEXT NOT NULL,
+          target_before TEXT DEFAULT NULL,
+          sources TEXT NOT NULL DEFAULT '[]',
+          documents_moved INTEGER NOT NULL DEFAULT 0,
+          copied_matching_rule INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'done',
+          performed_by TEXT DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          undone_at DATETIME DEFAULT NULL,
+          undo_result TEXT DEFAULT NULL
+        )
+      `);
+      // Pairs the user marked as "not a duplicate". Stored with the lower id
+      // first so the same pair can only exist once whichever way it was sent.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS entity_merge_dismissals (
+          id INTEGER PRIMARY KEY,
+          kind TEXT NOT NULL,
+          id_a INTEGER NOT NULL,
+          id_b INTEGER NOT NULL,
+          name_a TEXT DEFAULT NULL,
+          name_b TEXT DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(kind, id_a, id_b)
+        )
+      `);
+    },
+  },
+  {
+    version: 12,
+    description:
+      'Duplicates round 9: merge log actions and renames, name mappings, AI calibration',
+    up: (database) => {
+      // A log row is a merge unless it says otherwise: deleting unused
+      // objects goes through the same log so it can be undone the same way.
+      database.exec(
+        "ALTER TABLE entity_merges ADD COLUMN action TEXT NOT NULL DEFAULT 'merge'"
+      );
+      // The target's name before a merge renamed it, so an undo can put it
+      // back; null when the merge did not rename.
+      database.exec(
+        'ALTER TABLE entity_merges ADD COLUMN target_renamed_from TEXT DEFAULT NULL'
+      );
+      // Every time document analysis proposed a name and the guard used an
+      // existing object instead. Kept short (the newest rows) and shown on
+      // the Duplicates page, so a wrong mapping can be noticed.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS entity_name_mappings (
+          id INTEGER PRIMARY KEY,
+          kind TEXT NOT NULL,
+          proposed_name TEXT NOT NULL,
+          target_id INTEGER NOT NULL,
+          target_name TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          score REAL NOT NULL DEFAULT 0,
+          document_id INTEGER DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      // What the AI judge measured about a model, so the first review after
+      // a restart is already sized.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ai_calibration (
+          model TEXT NOT NULL,
+          thinking INTEGER NOT NULL DEFAULT 0,
+          tokens_per_pair REAL DEFAULT NULL,
+          tokens_per_second REAL DEFAULT NULL,
+          largest_completion INTEGER NOT NULL DEFAULT 0,
+          measured_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (model, thinking)
+        )
+      `);
+    },
+  },
+  {
+    version: 13,
+    description:
+      'Duplicates round 10: split rows in the merge log, the tag vocabulary, split proposals, remembered verdicts',
+    up: (database) => {
+      // What a split did, per document, so an undo can put exactly that back:
+      // the tags it added and the document type it set. Null for merges and
+      // deletes, which carry everything in sources.
+      database.exec(
+        'ALTER TABLE entity_merges ADD COLUMN details TEXT DEFAULT NULL'
+      );
+      // The fixed price a thinking model charges per request, apart from the
+      // tokens per pair, so the batch is sized from the answer alone.
+      database.exec(
+        'ALTER TABLE ai_calibration ADD COLUMN thinking_per_request REAL DEFAULT NULL'
+      );
+      // The target vocabulary of "Simplify tags": document types (dimension
+      // 'type') and topic tags (dimension 'topic') the archive should end up
+      // with. paperless_id is filled once the object exists in Paperless-ngx.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS tag_vocabulary (
+          id INTEGER PRIMARY KEY,
+          dimension TEXT NOT NULL,
+          name TEXT NOT NULL,
+          paperless_id INTEGER DEFAULT NULL,
+          source TEXT NOT NULL DEFAULT 'user',
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (dimension, name)
+        )
+      `);
+      // One proposal per tag: which document type and which topic tags the
+      // tag stands for. Kept until the next run replaces them, so the user
+      // can work through a long list over several sessions.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS tag_split_proposals (
+          tag_id INTEGER PRIMARY KEY,
+          tag_name TEXT NOT NULL,
+          document_count INTEGER NOT NULL DEFAULT 0,
+          type_name TEXT DEFAULT NULL,
+          topic_names TEXT NOT NULL DEFAULT '[]',
+          source TEXT NOT NULL DEFAULT 'rule',
+          confidence TEXT DEFAULT NULL,
+          reason TEXT DEFAULT NULL,
+          documents_with_type INTEGER NOT NULL DEFAULT 0,
+          overwrite_type INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'open',
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      // What the AI judge decided about a pair of names, so the next review
+      // does not ask the same question again while both names are unchanged.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ai_pair_verdicts (
+          kind TEXT NOT NULL,
+          pair_key TEXT NOT NULL,
+          name_a TEXT NOT NULL,
+          name_b TEXT NOT NULL,
+          verdict TEXT NOT NULL,
+          basis TEXT DEFAULT NULL,
+          confidence TEXT DEFAULT NULL,
+          reason TEXT DEFAULT NULL,
+          model TEXT DEFAULT NULL,
+          judged_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (kind, pair_key)
+        )
+      `);
+    },
+  },
+  {
+    version: 14,
+    description:
+      'Simplify tags round 12: the action and the merge target of a proposal',
+    up: (database) => {
+      // The proposed order gives every tag one of four actions: split (a
+      // document type and/or topic tags), merge (into another tag), keep,
+      // delete. Rows from before carry split, which is what they were.
+      database.exec(
+        "ALTER TABLE tag_split_proposals ADD COLUMN action TEXT NOT NULL DEFAULT 'split'"
+      );
+      database.exec(
+        'ALTER TABLE tag_split_proposals ADD COLUMN merge_into TEXT DEFAULT NULL'
+      );
+    },
+  },
+  {
+    version: 15,
+    description:
+      'Round 13: what a model-backed run cost, so the next one is known before it starts',
+    up: (database) => {
+      // One row per finished run of a model-backed task. It exists so a page
+      // can say what the next run will cost before anyone pays for it: the
+      // per-request averages of a real run beat every estimate, because they
+      // carry this task's own prompt and this model's habits at once.
+      //
+      // `items` counts what the model was asked about, `items_by_rule` what
+      // never reached it. A stopped run is kept and marked: half a run still
+      // measures a request.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ai_run_stats (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task TEXT NOT NULL,
+          model TEXT DEFAULT NULL,
+          thinking INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'done',
+          items INTEGER NOT NULL DEFAULT 0,
+          items_by_rule INTEGER NOT NULL DEFAULT 0,
+          requests INTEGER NOT NULL DEFAULT 0,
+          failed_requests INTEGER NOT NULL DEFAULT 0,
+          prompt_tokens INTEGER DEFAULT NULL,
+          completion_tokens INTEGER DEFAULT NULL,
+          thinking_tokens INTEGER DEFAULT NULL,
+          seconds REAL NOT NULL DEFAULT 0,
+          finished_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      database.exec(
+        'CREATE INDEX IF NOT EXISTS idx_ai_run_stats_task ON ai_run_stats (task, id DESC)'
+      );
+    },
+  },
 ];
+
+/** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
+const ENTITY_NAME_MAPPINGS_KEEP = 200;
+
+/** Runs kept per task; the older ones are pruned when a new one is saved. */
+const AI_RUN_STATS_KEEP = 50;
+
+/** One `ai_run_stats` row in the shape the services and the API use. */
+function mapAiRunStats(row) {
+  return {
+    id: Number(row.id),
+    task: row.task,
+    model: row.model ?? null,
+    thinking: row.thinking === 1,
+    status: row.status,
+    items: Number(row.items) || 0,
+    itemsByRule: Number(row.items_by_rule) || 0,
+    requests: Number(row.requests) || 0,
+    failedRequests: Number(row.failed_requests) || 0,
+    promptTokens: row.prompt_tokens ?? null,
+    completionTokens: row.completion_tokens ?? null,
+    thinkingTokens: row.thinking_tokens ?? null,
+    seconds: Number(row.seconds) || 0,
+    finishedAt: row.finished_at,
+  };
+}
 
 function runMigrations(database) {
   const currentVersion = database.pragma('user_version', { simple: true });
@@ -408,6 +643,101 @@ const getActiveProcessing = db.prepare(`
   WHERE start_time >= datetime('now', '-30 seconds')
   ORDER BY start_time DESC LIMIT 1
 `);
+
+// Rows of entity_merges carry JSON columns; every reader gets them parsed and
+// in camelCase so the route can hand them to the page as they are.
+function parseJsonColumn(value, fallback) {
+  if (value == null) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function parseEntityMergeRow(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    targetId: row.target_id,
+    targetName: row.target_name,
+    targetBefore: parseJsonColumn(row.target_before, null),
+    sources: parseJsonColumn(row.sources, []),
+    documentsMoved: row.documents_moved,
+    copiedMatchingRule: Boolean(row.copied_matching_rule),
+    status: row.status,
+    performedBy: row.performed_by,
+    createdAt: row.created_at,
+    undoneAt: row.undone_at,
+    undoResult: parseJsonColumn(row.undo_result, null),
+    action: row.action || 'merge',
+    targetRenamedFrom: row.target_renamed_from ?? null,
+    details: parseJsonColumn(row.details, null),
+  };
+}
+
+/** Actions a merge-log row can record. */
+const ENTITY_MERGE_ACTIONS = ['merge', 'delete', 'split'];
+
+function parseTagVocabularyRow(row) {
+  return {
+    id: row.id,
+    dimension: row.dimension,
+    name: row.name,
+    paperlessId: row.paperless_id ?? null,
+    source: row.source || 'user',
+    position: Number(row.position) || 0,
+    createdAt: row.created_at,
+  };
+}
+
+function parseTagSplitProposalRow(row) {
+  return {
+    tagId: row.tag_id,
+    tagName: row.tag_name,
+    documentCount: Number(row.document_count) || 0,
+    action: row.action || 'split',
+    mergeInto: row.merge_into ?? null,
+    typeName: row.type_name ?? null,
+    topicNames: parseJsonColumn(row.topic_names, []),
+    source: row.source || 'rule',
+    confidence: row.confidence ?? null,
+    reason: row.reason ?? null,
+    documentsWithType: Number(row.documents_with_type) || 0,
+    overwriteType: Boolean(row.overwrite_type),
+    status: row.status || 'open',
+    updatedAt: row.updated_at,
+  };
+}
+
+function parseAiPairVerdictRow(row) {
+  return {
+    kind: row.kind,
+    pairKey: row.pair_key,
+    nameA: row.name_a,
+    nameB: row.name_b,
+    verdict: row.verdict,
+    basis: row.basis ?? null,
+    confidence: row.confidence ?? null,
+    reason: row.reason ?? null,
+    model: row.model ?? null,
+    judgedAt: row.judged_at,
+  };
+}
+
+function parseEntityNameMappingRow(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    proposedName: row.proposed_name,
+    targetId: row.target_id,
+    targetName: row.target_name,
+    reason: row.reason,
+    score: Number(row.score) || 0,
+    documentId: row.document_id ?? null,
+    createdAt: row.created_at,
+  };
+}
 
 module.exports = {
   async addProcessedDocument(documentId, title) {
@@ -1186,6 +1516,286 @@ module.exports = {
   },
 
   // Utility method to close the database connection
+  /**
+   * Records that document analysis proposed a name and the guard used an
+   * existing object instead. Keeps the newest ENTITY_NAME_MAPPINGS_KEEP rows.
+   *
+   * @returns {Promise<number|null>} the row id, null on a database error
+   */
+  async addEntityNameMapping({
+    kind,
+    proposedName,
+    targetId,
+    targetName,
+    reason,
+    score = 0,
+    documentId = null,
+  }) {
+    try {
+      const insert = db.prepare(`
+        INSERT INTO entity_name_mappings
+          (kind, proposed_name, target_id, target_name, reason, score, document_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const prune = db.prepare(`
+        DELETE FROM entity_name_mappings
+        WHERE id NOT IN (
+          SELECT id FROM entity_name_mappings ORDER BY id DESC LIMIT ?
+        )
+      `);
+      const run = db.transaction(() => {
+        const result = insert.run(
+          kind,
+          String(proposedName),
+          Number(targetId),
+          String(targetName),
+          String(reason),
+          Number(score) || 0,
+          documentId == null ? null : Number(documentId)
+        );
+        prune.run(ENTITY_NAME_MAPPINGS_KEEP);
+        return Number(result.lastInsertRowid);
+      });
+      return run();
+    } catch (error) {
+      console.error('[ERROR] recording entity name mapping:', error);
+      return null;
+    }
+  },
+
+  /** The newest mappings first, at most `limit` (default: everything kept). */
+  async listEntityNameMappings({ limit = ENTITY_NAME_MAPPINGS_KEEP } = {}) {
+    try {
+      return db
+        .prepare('SELECT * FROM entity_name_mappings ORDER BY id DESC LIMIT ?')
+        .all(Math.max(1, Number(limit) || ENTITY_NAME_MAPPINGS_KEEP))
+        .map(parseEntityNameMappingRow);
+    } catch (error) {
+      console.error('[ERROR] listing entity name mappings:', error);
+      return [];
+    }
+  },
+
+  /** Forgets every mapping. @returns {Promise<number>} rows removed */
+  async clearEntityNameMappings() {
+    try {
+      return db.prepare('DELETE FROM entity_name_mappings').run().changes;
+    } catch (error) {
+      console.error('[ERROR] clearing entity name mappings:', error);
+      return 0;
+    }
+  },
+
+  /**
+   * Writes down what one finished run cost. A stopped or failed run is saved
+   * too, marked as such: it measured its requests all the same, and a page
+   * that only ever learned from perfect runs would keep guessing.
+   *
+   * @param {object} run
+   * @param {string} run.task               'order' | 'review' | 'vocabulary' | 'splits'
+   * @param {string|null} [run.model]
+   * @param {boolean} [run.thinking]
+   * @param {string} [run.status]           'done' | 'stopped' | 'failed'
+   * @param {number} [run.items]            items the model was asked about
+   * @param {number} [run.itemsByRule]      items a rule settled without it
+   * @param {number} [run.requests]
+   * @param {number} [run.failedRequests]
+   * @param {number|null} [run.promptTokens]
+   * @param {number|null} [run.completionTokens]
+   * @param {number|null} [run.thinkingTokens]
+   * @param {number} [run.seconds]
+   * @returns {Promise<boolean>}
+   */
+  async saveAiRunStats({
+    task,
+    model = null,
+    thinking = false,
+    status = 'done',
+    items = 0,
+    itemsByRule = 0,
+    requests = 0,
+    failedRequests = 0,
+    promptTokens = null,
+    completionTokens = null,
+    thinkingTokens = null,
+    seconds = 0,
+  }) {
+    const name = String(task || '').trim();
+    if (name === '') return false;
+    const count = (value) => Math.max(0, Math.round(Number(value) || 0));
+    const nullable = (value) => {
+      // Number(null) is 0, and a token count nobody reported is not a
+      // measured zero: the next estimate would read it as "this model
+      // answers for free". Keep the difference.
+      if (value === null || value === undefined) return null;
+      const number = Number(value);
+      return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
+    };
+    try {
+      const write = db.transaction(() => {
+        db.prepare(
+          `
+          INSERT INTO ai_run_stats
+            (task, model, thinking, status, items, items_by_rule, requests,
+             failed_requests, prompt_tokens, completion_tokens, thinking_tokens,
+             seconds, finished_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `
+        ).run(
+          name,
+          model == null ? null : String(model),
+          thinking ? 1 : 0,
+          String(status || 'done'),
+          count(items),
+          count(itemsByRule),
+          count(requests),
+          count(failedRequests),
+          nullable(promptTokens),
+          nullable(completionTokens),
+          nullable(thinkingTokens),
+          Math.max(0, Number(seconds) || 0)
+        );
+        db.prepare(
+          `
+          DELETE FROM ai_run_stats
+          WHERE task = ?
+            AND id NOT IN (
+              SELECT id FROM ai_run_stats WHERE task = ? ORDER BY id DESC LIMIT ?
+            )
+        `
+        ).run(name, name, AI_RUN_STATS_KEEP);
+      });
+      write();
+      return true;
+    } catch (error) {
+      console.error('[ERROR] saving AI run stats:', error);
+      return false;
+    }
+  },
+
+  /**
+   * The newest run of a task, or null. `model` narrows it to runs of one
+   * model: a measurement of a model you no longer use is worse than none.
+   *
+   * @param {string} task
+   * @param {string|null} [model]
+   * @returns {Promise<object|null>}
+   */
+  async getLastAiRunStats(task, model = null) {
+    try {
+      const name = String(task || '').trim();
+      if (name === '') return null;
+      const row =
+        model == null
+          ? db
+              .prepare(
+                'SELECT * FROM ai_run_stats WHERE task = ? ORDER BY id DESC LIMIT 1'
+              )
+              .get(name)
+          : db
+              .prepare(
+                'SELECT * FROM ai_run_stats WHERE task = ? AND model = ? ORDER BY id DESC LIMIT 1'
+              )
+              .get(name, String(model));
+      return row ? mapAiRunStats(row) : null;
+    } catch (error) {
+      console.error('[ERROR] reading AI run stats:', error);
+      return null;
+    }
+  },
+
+  /**
+   * The newest runs of a task, newest first.
+   *
+   * @param {string} task
+   * @param {number} [limit]
+   * @returns {Promise<object[]>}
+   */
+  async listAiRunStats(task, limit = 10) {
+    try {
+      const name = String(task || '').trim();
+      if (name === '') return [];
+      const rows = db
+        .prepare(
+          'SELECT * FROM ai_run_stats WHERE task = ? ORDER BY id DESC LIMIT ?'
+        )
+        .all(
+          name,
+          Math.max(1, Math.min(AI_RUN_STATS_KEEP, Number(limit) || 10))
+        );
+      return rows.map(mapAiRunStats);
+    } catch (error) {
+      console.error('[ERROR] listing AI run stats:', error);
+      return [];
+    }
+  },
+
+  /**
+   * What the judge measured about a model, or null when nothing was saved.
+   *
+   * @param {string} model
+   * @param {boolean} thinking
+   * @returns {Promise<{tokensPerPair:number|null, tokensPerSecond:number|null, thinkingPerRequest:number|null, largestCompletion:number, measuredAt:string}|null>}
+   */
+  async getAiCalibration(model, thinking) {
+    try {
+      const row = db
+        .prepare(
+          'SELECT * FROM ai_calibration WHERE model = ? AND thinking = ?'
+        )
+        .get(String(model), thinking ? 1 : 0);
+      return row
+        ? {
+            tokensPerPair: row.tokens_per_pair ?? null,
+            tokensPerSecond: row.tokens_per_second ?? null,
+            thinkingPerRequest: row.thinking_per_request ?? null,
+            largestCompletion: Number(row.largest_completion) || 0,
+            measuredAt: row.measured_at,
+          }
+        : null;
+    } catch (error) {
+      console.error('[ERROR] reading AI calibration:', error);
+      return null;
+    }
+  },
+
+  /** Stores or replaces the measurement of one model and thinking switch. */
+  async saveAiCalibration({
+    model,
+    thinking,
+    tokensPerPair = null,
+    tokensPerSecond = null,
+    thinkingPerRequest = null,
+    largestCompletion = 0,
+  }) {
+    try {
+      db.prepare(
+        `
+        INSERT INTO ai_calibration
+          (model, thinking, tokens_per_pair, tokens_per_second, thinking_per_request, largest_completion, measured_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(model, thinking) DO UPDATE SET
+          tokens_per_pair = excluded.tokens_per_pair,
+          tokens_per_second = excluded.tokens_per_second,
+          thinking_per_request = excluded.thinking_per_request,
+          largest_completion = excluded.largest_completion,
+          measured_at = CURRENT_TIMESTAMP
+      `
+      ).run(
+        String(model),
+        thinking ? 1 : 0,
+        tokensPerPair == null ? null : Number(tokensPerPair),
+        tokensPerSecond == null ? null : Number(tokensPerSecond),
+        thinkingPerRequest == null ? null : Number(thinkingPerRequest),
+        Math.max(0, Math.round(Number(largestCompletion) || 0))
+      );
+      return true;
+    } catch (error) {
+      console.error('[ERROR] saving AI calibration:', error);
+      return false;
+    }
+  },
+
   closeDatabase() {
     return new Promise((resolve, reject) => {
       try {
@@ -1705,6 +2315,671 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] clearing all ignored documents:', error);
       return 0;
+    }
+  },
+
+  // ── Entity merges (Duplicates page) ───────────────────────────────────────
+  // Records of tag / correspondent merges and the pairs the user dismissed.
+  // The merge service writes here; the Duplicates page reads the log and
+  // asks for an undo through the service, never through these methods alone.
+
+  async addEntityMerge({
+    kind,
+    targetId,
+    targetName,
+    targetBefore = null,
+    sources = [],
+    documentsMoved = 0,
+    copiedMatchingRule = false,
+    status = 'done',
+    performedBy = null,
+    action = 'merge',
+    targetRenamedFrom = null,
+    details = null,
+  }) {
+    try {
+      const result = db
+        .prepare(
+          `
+        INSERT INTO entity_merges
+          (kind, target_id, target_name, target_before, sources, documents_moved,
+           copied_matching_rule, status, performed_by, action, target_renamed_from, details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+        )
+        .run(
+          kind,
+          targetId,
+          targetName,
+          targetBefore == null ? null : JSON.stringify(targetBefore),
+          JSON.stringify(Array.isArray(sources) ? sources : []),
+          Number(documentsMoved) || 0,
+          copiedMatchingRule ? 1 : 0,
+          status,
+          performedBy,
+          ENTITY_MERGE_ACTIONS.includes(action) ? action : 'merge',
+          targetRenamedFrom == null ? null : String(targetRenamedFrom),
+          details == null ? null : JSON.stringify(details)
+        );
+      return Number(result.lastInsertRowid);
+    } catch (error) {
+      console.error('[ERROR] recording entity merge:', error);
+      return null;
+    }
+  },
+
+  /* --- Simplify tags: the vocabulary ------------------------------------ */
+
+  /**
+   * The target vocabulary of "Simplify tags": document types (dimension
+   * 'type') and topic tags (dimension 'topic') in the order the user keeps
+   * them. Empty until a vocabulary was saved.
+   *
+   * @returns {Promise<Array<{id:number, dimension:string, name:string, paperlessId:number|null, source:string, position:number, createdAt:string}>>}
+   */
+  async getTagVocabulary() {
+    try {
+      return db
+        .prepare(
+          'SELECT * FROM tag_vocabulary ORDER BY dimension, position, id'
+        )
+        .all()
+        .map(parseTagVocabularyRow);
+    } catch (error) {
+      console.error('[ERROR] reading the tag vocabulary:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Replaces the whole vocabulary in one transaction. Entries keep the order
+   * given (position per dimension); a name repeated in one dimension is kept
+   * once; a paperlessId already known for a name survives when the caller
+   * does not pass one.
+   *
+   * @param {Array<{dimension:'type'|'topic', name:string, paperlessId?:number|null, source?:'model'|'user'}>} entries
+   * @returns {Promise<number>} rows stored
+   */
+  async replaceTagVocabulary(entries) {
+    const rows = Array.isArray(entries) ? entries : [];
+    try {
+      const known = new Map(
+        db
+          .prepare('SELECT dimension, name, paperless_id FROM tag_vocabulary')
+          .all()
+          .map((row) => [`${row.dimension}\u0000${row.name}`, row.paperless_id])
+      );
+      const store = db.transaction(() => {
+        db.prepare('DELETE FROM tag_vocabulary').run();
+        const insert = db.prepare(
+          'INSERT INTO tag_vocabulary (dimension, name, paperless_id, source, position) VALUES (?, ?, ?, ?, ?)'
+        );
+        const seen = new Set();
+        const positions = { type: 0, topic: 0 };
+        let stored = 0;
+        for (const entry of rows) {
+          const dimension = entry?.dimension === 'type' ? 'type' : 'topic';
+          const name = String(entry?.name ?? '').trim();
+          if (name === '') continue;
+          const key = `${dimension}\u0000${name}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const paperlessId =
+            entry.paperlessId == null
+              ? (known.get(key) ?? null)
+              : Number(entry.paperlessId);
+          insert.run(
+            dimension,
+            name,
+            paperlessId,
+            entry.source === 'model' ? 'model' : 'user',
+            positions[dimension]++
+          );
+          stored += 1;
+        }
+        return stored;
+      });
+      return store();
+    } catch (error) {
+      console.error('[ERROR] replacing the tag vocabulary:', error);
+      return 0;
+    }
+  },
+
+  /** Records the Paperless-ngx id of a vocabulary entry once the object exists. */
+  async setTagVocabularyPaperlessId(id, paperlessId) {
+    try {
+      const result = db
+        .prepare('UPDATE tag_vocabulary SET paperless_id = ? WHERE id = ?')
+        .run(paperlessId == null ? null : Number(paperlessId), Number(id));
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] updating a vocabulary entry:', error);
+      return false;
+    }
+  },
+
+  /* --- Simplify tags: split proposals ----------------------------------- */
+
+  /**
+   * Replaces every proposal with the rows of a fresh run, in one transaction.
+   *
+   * @param {Array<{tagId:number, tagName:string, documentCount?:number, typeName?:string|null, topicNames?:string[], source?:string, confidence?:string|null, reason?:string|null, documentsWithType?:number, overwriteType?:boolean, status?:string}>} rows
+   * @returns {Promise<number>} rows stored
+   */
+  async replaceTagSplitProposals(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    try {
+      const store = db.transaction(() => {
+        db.prepare('DELETE FROM tag_split_proposals').run();
+        const insert = db.prepare(
+          `INSERT INTO tag_split_proposals
+             (tag_id, tag_name, document_count, action, merge_into, type_name, topic_names, source, confidence, reason, documents_with_type, overwrite_type, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        let stored = 0;
+        for (const row of list) {
+          const tagId = Number(row?.tagId);
+          if (!Number.isInteger(tagId) || tagId <= 0) continue;
+          insert.run(
+            tagId,
+            String(row.tagName ?? ''),
+            Number(row.documentCount) || 0,
+            row.action || 'split',
+            row.mergeInto == null ? null : String(row.mergeInto),
+            row.typeName == null ? null : String(row.typeName),
+            JSON.stringify(Array.isArray(row.topicNames) ? row.topicNames : []),
+            row.source || 'rule',
+            row.confidence ?? null,
+            row.reason ?? null,
+            Number(row.documentsWithType) || 0,
+            row.overwriteType ? 1 : 0,
+            row.status || 'open'
+          );
+          stored += 1;
+        }
+        return stored;
+      });
+      return store();
+    } catch (error) {
+      console.error('[ERROR] replacing the split proposals:', error);
+      return 0;
+    }
+  },
+
+  /** @returns {Promise<object[]>} proposals, optionally of one status, by name */
+  async listTagSplitProposals({ status = null } = {}) {
+    try {
+      const where = status ? 'WHERE status = ?' : '';
+      const params = status ? [status] : [];
+      return db
+        .prepare(
+          `SELECT * FROM tag_split_proposals ${where} ORDER BY tag_name COLLATE NOCASE`
+        )
+        .all(...params)
+        .map(parseTagSplitProposalRow);
+    } catch (error) {
+      console.error('[ERROR] reading the split proposals:', error);
+      return [];
+    }
+  },
+
+  /** @returns {Promise<object|null>} */
+  async getTagSplitProposal(tagId) {
+    try {
+      const row = db
+        .prepare('SELECT * FROM tag_split_proposals WHERE tag_id = ?')
+        .get(Number(tagId));
+      return row ? parseTagSplitProposalRow(row) : null;
+    } catch (error) {
+      console.error('[ERROR] reading a split proposal:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Changes what the user edited on a proposal: the targets, the overwrite
+   * switch, the status. Fields not in the patch stay.
+   *
+   * @param {number} tagId
+   * @param {{typeName?:string|null, topicNames?:string[], overwriteType?:boolean, status?:string, source?:string, reason?:string|null, confidence?:string|null}} patch
+   * @returns {Promise<boolean>} true when a row changed
+   */
+  async updateTagSplitProposal(tagId, patch = {}) {
+    const sets = [];
+    const params = [];
+    if ('typeName' in patch) {
+      sets.push('type_name = ?');
+      params.push(patch.typeName == null ? null : String(patch.typeName));
+    }
+    if ('topicNames' in patch) {
+      sets.push('topic_names = ?');
+      params.push(
+        JSON.stringify(Array.isArray(patch.topicNames) ? patch.topicNames : [])
+      );
+    }
+    if ('overwriteType' in patch) {
+      sets.push('overwrite_type = ?');
+      params.push(patch.overwriteType ? 1 : 0);
+    }
+    if ('status' in patch) {
+      sets.push('status = ?');
+      params.push(String(patch.status));
+    }
+    if ('source' in patch) {
+      sets.push('source = ?');
+      params.push(String(patch.source));
+    }
+    if ('reason' in patch) {
+      sets.push('reason = ?');
+      params.push(patch.reason == null ? null : String(patch.reason));
+    }
+    if ('confidence' in patch) {
+      sets.push('confidence = ?');
+      params.push(patch.confidence == null ? null : String(patch.confidence));
+    }
+    if ('action' in patch) {
+      sets.push('action = ?');
+      params.push(String(patch.action || 'split'));
+    }
+    if ('mergeInto' in patch) {
+      sets.push('merge_into = ?');
+      params.push(patch.mergeInto == null ? null : String(patch.mergeInto));
+    }
+    if ('documentsWithType' in patch) {
+      sets.push('documents_with_type = ?');
+      params.push(
+        Math.max(0, Math.round(Number(patch.documentsWithType) || 0))
+      );
+    }
+    if (sets.length === 0) return false;
+    sets.push('updated_at = CURRENT_TIMESTAMP');
+    try {
+      const result = db
+        .prepare(
+          `UPDATE tag_split_proposals SET ${sets.join(', ')} WHERE tag_id = ?`
+        )
+        .run(...params, Number(tagId));
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] updating a split proposal:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Sets one status on many proposals in one transaction: a group accepted,
+   * skipped or reopened on the page.
+   *
+   * @param {number[]} tagIds
+   * @param {string} status
+   * @returns {Promise<number>} rows changed
+   */
+  async setTagSplitProposalStatus(tagIds, status) {
+    const ids = (Array.isArray(tagIds) ? tagIds : [])
+      .map(Number)
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) return 0;
+    try {
+      const update = db.prepare(
+        'UPDATE tag_split_proposals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE tag_id = ?'
+      );
+      const run = db.transaction(() => {
+        let changed = 0;
+        for (const id of ids) changed += update.run(String(status), id).changes;
+        return changed;
+      });
+      return run();
+    } catch (error) {
+      console.error('[ERROR] setting the status of split proposals:', error);
+      return 0;
+    }
+  },
+
+  /** @returns {Promise<number>} rows removed */
+  async clearTagSplitProposals() {
+    try {
+      return db.prepare('DELETE FROM tag_split_proposals').run().changes;
+    } catch (error) {
+      console.error('[ERROR] clearing the split proposals:', error);
+      return 0;
+    }
+  },
+
+  /* --- The judge's memory of verdicts ----------------------------------- */
+
+  /**
+   * Stored verdicts for some pairs of one kind. Keys not stored are simply
+   * absent from the answer.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {string[]} pairKeys
+   * @returns {Promise<object[]>}
+   */
+  async getAiPairVerdicts(kind, pairKeys) {
+    const keys = Array.isArray(pairKeys) ? pairKeys.filter(Boolean) : [];
+    if (keys.length === 0) return [];
+    try {
+      const rows = [];
+      const select = db.prepare(
+        'SELECT * FROM ai_pair_verdicts WHERE kind = ? AND pair_key = ?'
+      );
+      for (const key of keys) {
+        const row = select.get(kind, String(key));
+        if (row) rows.push(parseAiPairVerdictRow(row));
+      }
+      return rows;
+    } catch (error) {
+      console.error('[ERROR] reading remembered verdicts:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Remembers one verdict; a pair asked again replaces its row.
+   *
+   * @param {{kind:string, pairKey:string, nameA:string, nameB:string, verdict:string, basis?:string|null, confidence?:string|null, reason?:string|null, model?:string|null}} entry
+   * @returns {Promise<boolean>}
+   */
+  async saveAiPairVerdict(entry) {
+    try {
+      db.prepare(
+        `INSERT INTO ai_pair_verdicts
+           (kind, pair_key, name_a, name_b, verdict, basis, confidence, reason, model, judged_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT (kind, pair_key) DO UPDATE SET
+           name_a = excluded.name_a, name_b = excluded.name_b, verdict = excluded.verdict,
+           basis = excluded.basis, confidence = excluded.confidence, reason = excluded.reason,
+           model = excluded.model, judged_at = CURRENT_TIMESTAMP`
+      ).run(
+        String(entry.kind),
+        String(entry.pairKey),
+        String(entry.nameA ?? ''),
+        String(entry.nameB ?? ''),
+        String(entry.verdict),
+        entry.basis ?? null,
+        entry.confidence ?? null,
+        entry.reason ?? null,
+        entry.model ?? null
+      );
+      return true;
+    } catch (error) {
+      console.error('[ERROR] remembering a verdict:', error);
+      return false;
+    }
+  },
+
+  /** Forgets verdicts older than the given days. @returns {Promise<number>} rows removed */
+  async pruneAiPairVerdicts(maxAgeDays) {
+    const days = Number(maxAgeDays);
+    if (!Number.isFinite(days) || days <= 0) return 0;
+    try {
+      return db
+        .prepare(
+          "DELETE FROM ai_pair_verdicts WHERE judged_at < datetime('now', ?)"
+        )
+        .run(`-${Math.floor(days)} days`).changes;
+    } catch (error) {
+      console.error('[ERROR] pruning remembered verdicts:', error);
+      return 0;
+    }
+  },
+
+  /** @returns {Promise<number>} rows removed */
+  async clearAiPairVerdicts() {
+    try {
+      return db.prepare('DELETE FROM ai_pair_verdicts').run().changes;
+    } catch (error) {
+      console.error('[ERROR] clearing remembered verdicts:', error);
+      return 0;
+    }
+  },
+
+  /** @returns {Promise<number>} */
+  async countAiPairVerdicts() {
+    try {
+      return Number(
+        db.prepare('SELECT COUNT(*) AS n FROM ai_pair_verdicts').get().n
+      );
+    } catch (error) {
+      console.error('[ERROR] counting remembered verdicts:', error);
+      return 0;
+    }
+  },
+
+  async getEntityMerges({ limit = 25, offset = 0, kind = null } = {}) {
+    try {
+      const where = kind ? 'WHERE kind = ?' : '';
+      const params = kind ? [kind] : [];
+      const rows = db
+        .prepare(
+          `SELECT * FROM entity_merges ${where} ORDER BY id DESC LIMIT ? OFFSET ?`
+        )
+        .all(...params, limit, offset)
+        .map(parseEntityMergeRow);
+      const countRow = db
+        .prepare(`SELECT COUNT(*) AS count FROM entity_merges ${where}`)
+        .get(...params);
+      return { rows, total: countRow?.count || 0 };
+    } catch (error) {
+      console.error('[ERROR] listing entity merges:', error);
+      return { rows: [], total: 0 };
+    }
+  },
+
+  async getEntityMergeById(id) {
+    try {
+      const row = db
+        .prepare('SELECT * FROM entity_merges WHERE id = ?')
+        .get(id);
+      return row ? parseEntityMergeRow(row) : null;
+    } catch (error) {
+      console.error('[ERROR] reading entity merge:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Records the outcome of an undo attempt. `undone_at` is only stamped when
+   * the undo succeeded, so a failed attempt leaves the row undoable.
+   */
+  async updateEntityMergeUndo(id, { status, undoResult = null }) {
+    try {
+      const result = db
+        .prepare(
+          `
+        UPDATE entity_merges
+        SET status = ?,
+            undo_result = ?,
+            undone_at = CASE WHEN ? = 'undone' THEN CURRENT_TIMESTAMP ELSE undone_at END
+        WHERE id = ?
+      `
+        )
+        .run(
+          status,
+          undoResult == null ? null : JSON.stringify(undoResult),
+          status,
+          id
+        );
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] updating entity merge undo state:', error);
+      return false;
+    }
+  },
+
+  /**
+   * @param {'tags'|'correspondents'} kind
+   * @param {Array<{idA:number,idB:number,nameA?:string,nameB?:string}>} pairs
+   * @returns {Promise<number>} pairs newly stored (already known pairs are ignored)
+   */
+  async addEntityMergeDismissals(kind, pairs) {
+    try {
+      const insert = db.prepare(`
+        INSERT OR IGNORE INTO entity_merge_dismissals (kind, id_a, id_b, name_a, name_b)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      const insertAll = db.transaction((items) => {
+        let inserted = 0;
+        for (const pair of items) {
+          const a = Number(pair.idA);
+          const b = Number(pair.idB);
+          if (!Number.isInteger(a) || !Number.isInteger(b) || a === b) continue;
+          const [low, high, lowName, highName] =
+            a < b
+              ? [a, b, pair.nameA ?? null, pair.nameB ?? null]
+              : [b, a, pair.nameB ?? null, pair.nameA ?? null];
+          inserted += insert.run(kind, low, high, lowName, highName).changes;
+        }
+        return inserted;
+      });
+      return insertAll(Array.isArray(pairs) ? pairs : []);
+    } catch (error) {
+      console.error('[ERROR] storing entity merge dismissals:', error);
+      return 0;
+    }
+  },
+
+  async listEntityMergeDismissals(kind = null) {
+    try {
+      const where = kind ? 'WHERE kind = ?' : '';
+      const params = kind ? [kind] : [];
+      return db
+        .prepare(
+          `SELECT * FROM entity_merge_dismissals ${where} ORDER BY id DESC`
+        )
+        .all(...params)
+        .map((row) => ({
+          id: row.id,
+          kind: row.kind,
+          idA: row.id_a,
+          idB: row.id_b,
+          nameA: row.name_a,
+          nameB: row.name_b,
+          createdAt: row.created_at,
+        }));
+    } catch (error) {
+      console.error('[ERROR] listing entity merge dismissals:', error);
+      return [];
+    }
+  },
+
+  async removeEntityMergeDismissal(id) {
+    try {
+      const result = db
+        .prepare('DELETE FROM entity_merge_dismissals WHERE id = ?')
+        .run(id);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] removing entity merge dismissal:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Points the local records at another tag or correspondent after a merge
+   * (source -> target) or an undo (target -> re-created source).
+   *
+   * The two tables disagree on what they store: history_documents keeps tag
+   * ids and the correspondent *name*, original_documents keeps tag ids and
+   * the correspondent *id*. Both are rewritten here so the History page and
+   * the Restore action keep working for documents the merge touched.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} change
+   * @param {number} change.fromId
+   * @param {number} change.toId
+   * @param {string} [change.fromName]  correspondents only
+   * @param {string} [change.toName]    correspondents only
+   * @param {number[]|null} [change.documentIds]  limit the rewrite to these documents; null = every row
+   * @returns {Promise<{historyRows:number, originalRows:number}>}
+   */
+  async replaceEntityInLocalRecords(
+    kind,
+    { fromId, toId, fromName = null, toName = null, documentIds = null }
+  ) {
+    const from = Number(fromId);
+    const to = Number(toId);
+    const scope =
+      Array.isArray(documentIds) && documentIds.length > 0
+        ? new Set(documentIds.map(Number))
+        : null;
+    const inScope = (documentId) => !scope || scope.has(Number(documentId));
+
+    try {
+      if (kind === 'tags') {
+        const rewriteTags = db.transaction((table) => {
+          const rows = db
+            .prepare(`SELECT id, document_id, tags FROM ${table}`)
+            .all();
+          const update = db.prepare(
+            `UPDATE ${table} SET tags = ? WHERE id = ?`
+          );
+          let changed = 0;
+          for (const row of rows) {
+            if (!inScope(row.document_id)) continue;
+            let ids;
+            try {
+              ids = JSON.parse(row.tags || '[]');
+            } catch {
+              continue;
+            }
+            if (!Array.isArray(ids)) continue;
+            const numeric = ids.map((value) => parseInt(value, 10));
+            if (!numeric.includes(from)) continue;
+            const rewritten = [
+              ...new Set(numeric.map((id) => (id === from ? to : id))),
+            ].filter((id) => Number.isInteger(id));
+            update.run(JSON.stringify(rewritten), row.id);
+            changed += 1;
+          }
+          return changed;
+        });
+        return {
+          historyRows: rewriteTags('history_documents'),
+          originalRows: rewriteTags('original_documents'),
+        };
+      }
+
+      if (kind === 'correspondents') {
+        const rewriteCorrespondent = db.transaction(() => {
+          let historyRows = 0;
+          let originalRows = 0;
+          if (fromName != null && toName != null) {
+            const rows = db
+              .prepare(
+                'SELECT id, document_id FROM history_documents WHERE correspondent = ?'
+              )
+              .all(fromName);
+            const update = db.prepare(
+              'UPDATE history_documents SET correspondent = ? WHERE id = ?'
+            );
+            for (const row of rows) {
+              if (!inScope(row.document_id)) continue;
+              historyRows += update.run(toName, row.id).changes;
+            }
+          }
+          const originals = db
+            .prepare(
+              'SELECT id, document_id FROM original_documents WHERE CAST(correspondent AS INTEGER) = ?'
+            )
+            .all(from);
+          const updateOriginal = db.prepare(
+            'UPDATE original_documents SET correspondent = ? WHERE id = ?'
+          );
+          for (const row of originals) {
+            if (!inScope(row.document_id)) continue;
+            originalRows += updateOriginal.run(to, row.id).changes;
+          }
+          return { historyRows, originalRows };
+        });
+        return rewriteCorrespondent();
+      }
+
+      return { historyRows: 0, originalRows: 0 };
+    } catch (error) {
+      console.error('[ERROR] rewriting local records after merge:', error);
+      return { historyRows: 0, originalRows: 0 };
     }
   },
 };

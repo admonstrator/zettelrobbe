@@ -24,7 +24,7 @@ class DocumentsService {
 
   /**
    * Unresolved IDs are omitted instead of being filled with a placeholder:
-   * the consumers (playground grid, omnibox result pills) already substitute
+   * the consumers (omnibox result pills) already substitute
    * their own label, and a placeholder would otherwise be rendered as a real
    * tag named "Unknown".
    */

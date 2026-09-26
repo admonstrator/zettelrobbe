@@ -25,6 +25,14 @@
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
                             AI
                         </a>
+                        <a href="#duplicates-tab">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                            Duplicates
+                        </a>
+                        <a href="#simplify-tab">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                            Simplify tags
+                        </a>
                         <a href="#ocr-tab">
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-scan"/></svg>
                             OCR
@@ -48,6 +56,8 @@
                     <a href="#system-tab" aria-current="true">System</a>
                     <a href="#mfa-tab">Security</a>
                     <a href="#ai-tab">AI</a>
+                    <a href="#duplicates-tab">Duplicates</a>
+                    <a href="#simplify-tab">Simplify tags</a>
                     <a href="#ocr-tab">OCR</a>
                     <a href="#troubleshooting-tab">Maintenance</a>
                     <a href="#env-tab">Environment</a>
@@ -735,8 +745,8 @@ const quickstartKeyStored =
                                             <div class="custom-field-item zr-row">
                                                 <div class="zr-faint" style="cursor: move"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-grip"/></svg></div>
                                                 <div class="zr-grow">
-                                                    <p class="zr-strong"><%= field.value %></p>
-                                                    <p class="zr-sm zr-faint">Type: <%= field.data_type %> <%= field.data_type === 'monetary' && field.currency ? `(${field.currency})` : '' %></p>
+                                                    <p class="zr-strong" data-field-name><%= field.value %></p>
+                                                    <p class="zr-sm zr-faint" data-field-type>Type: <%= field.data_type %> <%= field.data_type === 'monetary' && field.currency ? `(${field.currency})` : '' %></p>
                                                 </div>
                                                 <button type="button" onclick="removeCustomField(this)" class="zr-btn zr-btn--ghost zr-btn--icon zr-btn--danger"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg></button>
                                             </div>
@@ -769,6 +779,125 @@ const quickstartKeyStored =
                                 </div>
                                 <input type="hidden" id="customFieldsJson" name="customFields" value='<%= config.CUSTOM_FIELDS || "{\"custom_fields\":[]}" %>'>
                                 <p class="zr-field__hint">Restart required</p>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div id="duplicates-tab" class="zr-col zr-col--loose">
+                            <section class="zr-module" id="sec-duplicates">
+                                <div class="zr-module__head">
+                                    <h2 class="zr-module__title">Duplicates</h2>
+                                </div>
+                                <div class="zr-module__body zr-col zr-col--loose">
+                                <p class="zr-sm zr-muted">
+                                    The Duplicates page finds tags and correspondents that mean the same thing. Finding and merging
+                                    them is deterministic and needs none of these settings; they only govern the optional AI review
+                                    that judges the proposed groups when you ask for it. Nothing here starts a scan or a merge on its own.
+                                </p>
+                                <%- include('partials/settings-switch', {
+                                    id: 'duplicatesAiReview',
+                                    label: 'Offer the AI review on the Duplicates page',
+                                    checked: (config.DUPLICATES_AI_REVIEW || 'yes') === 'yes',
+                                    hint: 'Default: on · Off keeps the model off the page: Find duplicates and Scan apply the spelling rules only · Restart required'
+                                }) %>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiModel" class="zr-field__name">Model for the judge</label>
+                                    <input type="text" id="duplicatesAiModel" name="duplicatesAiModel" value="<%= config.DUPLICATES_AI_MODEL || '' %>" class="zr-input" placeholder="Leave empty to use the configured model">
+                                    <p class="zr-field__hint">A stronger model of the same provider, used only for judging duplicates · Default: empty, which means the provider's configured model · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiReviewBatchSize" class="zr-field__name">Pairs per model request</label>
+                                    <input type="number" id="duplicatesAiReviewBatchSize" name="duplicatesAiReviewBatchSize" min="1" max="100" step="1" value="<%= config.DUPLICATES_AI_REVIEW_BATCH_SIZE || 25 %>" class="zr-input">
+                                    <p class="zr-field__hint">How many name pairs one request asks about; fewer pairs mean more requests, more pairs need a larger context (1-100) · Default: 25 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiCandidateFloor" class="zr-field__name">Lowest matcher score shown to the model</label>
+                                    <input type="number" id="duplicatesAiCandidateFloor" name="duplicatesAiCandidateFloor" min="0.5" max="0.95" step="0.01" value="<%= config.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6' %>" class="zr-input">
+                                    <p class="zr-field__hint">Near-misses below your sensitivity but above this score are judged too; a lower value asks about more pairs (0.50-0.95) · Default: 0.6 · Restart required</p>
+                                </div>
+                                <%- include('partials/settings-switch', {
+                                    id: 'duplicatesAiExcerpts',
+                                    label: 'Read document excerpts for spelling-only pairs',
+                                    checked: (config.DUPLICATES_AI_EXCERPTS || 'yes') === 'yes',
+                                    hint: 'Default: on · Sends a short excerpt of a couple of documents when the matcher linked a pair by spelling alone, so a typo-like pair that means two different things can be told apart · Restart required'
+                                }) %>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiExcerptChars" class="zr-field__name">Excerpt length in characters</label>
+                                    <input type="number" id="duplicatesAiExcerptChars" name="duplicatesAiExcerptChars" min="50" max="500" step="1" value="<%= config.DUPLICATES_AI_EXCERPT_CHARS || 300 %>" class="zr-input">
+                                    <p class="zr-field__hint">How much of each document the judge gets to read; longer excerpts cost tokens (50-500) · Default: 300 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiExcerptDocuments" class="zr-field__name">Documents per entry for excerpts</label>
+                                    <input type="number" id="duplicatesAiExcerptDocuments" name="duplicatesAiExcerptDocuments" min="1" max="5" step="1" value="<%= config.DUPLICATES_AI_EXCERPT_DOCUMENTS || 2 %>" class="zr-input">
+                                    <p class="zr-field__hint">How many documents of each tag or correspondent are sampled for those excerpts (1-5) · Default: 2 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiTokenBudget" class="zr-field__name">Token budget per review</label>
+                                    <input type="number" id="duplicatesAiTokenBudget" name="duplicatesAiTokenBudget" min="0" max="10000000" step="1000" value="<%= config.DUPLICATES_AI_TOKEN_BUDGET || 200000 %>" class="zr-input">
+                                    <p class="zr-field__hint">The most one review may spend across all its requests; when it is reached the review stops and keeps the verdicts it has, and 0 means no limit (0-10000000) · Default: 200000 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiIdleStopSeconds" class="zr-field__name">Stop an unwatched review after (seconds)</label>
+                                    <input type="number" id="duplicatesAiIdleStopSeconds" name="duplicatesAiIdleStopSeconds" min="0" max="3600" step="1" value="<%= config.DUPLICATES_AI_IDLE_STOP_SECONDS || 60 %>" class="zr-input">
+                                    <p class="zr-field__hint">A review nobody has been watching for this long stops itself, so a closed tab cannot leave the model running, and 0 means never (0-3600) · Default: 60 · Restart required</p>
+                                </div>
+                                <%- include('partials/settings-switch', {
+                                    id: 'duplicatesAiThinking',
+                                    label: 'Let the judge think',
+                                    checked: (config.DUPLICATES_AI_THINKING || 'no') === 'yes',
+                                    hint: 'Reasoning models write their thoughts before the answer and spend the whole answer budget on them. Off, the judge gets its evidence instead and answers in a fraction of the time and cost. On only if your model answers badly without it. Default: off · Restart required.'
+                                }) %>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiRequestSeconds" class="zr-field__name">Seconds per model request</label>
+                                    <input type="number" id="duplicatesAiRequestSeconds" name="duplicatesAiRequestSeconds" min="5" max="300" step="5" value="<%= config.DUPLICATES_AI_REQUEST_SECONDS || 30 %>" class="zr-input">
+                                    <p class="zr-field__hint">The judge measures your model on a small first request and then asks about as many pairs per request as fit into this many seconds. Shorter means more, smaller requests and more frequent progress. Default: 30 · Restart required.</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiConcurrency" class="zr-field__name">Model requests at once</label>
+                                    <input type="number" id="duplicatesAiConcurrency" name="duplicatesAiConcurrency" min="0" max="8" step="1" value="<%= config.DUPLICATES_AI_CONCURRENCY || 0 %>" class="zr-input">
+                                    <p class="zr-field__hint">0 lets the judge choose: one for Ollama, three for a hosted endpoint. Wall time divides by it, tokens do not. Default: 0 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiVerdictMemoryDays" class="zr-field__name">Remember verdicts for (days)</label>
+                                    <input type="number" id="duplicatesAiVerdictMemoryDays" name="duplicatesAiVerdictMemoryDays" min="0" max="365" step="1" value="<%= config.DUPLICATES_AI_VERDICT_MEMORY_DAYS || 90 %>" class="zr-input">
+                                    <p class="zr-field__hint">A pair the model judged is not asked again while both names are unchanged; 0 switches the memory off. Default: 90 · Restart required</p>
+                                </div>
+                                <%- include('partials/settings-switch', {
+                                    id: 'duplicatesGuardNewNames',
+                                    label: 'Reuse an existing name instead of creating a near-duplicate',
+                                    checked: (config.DUPLICATES_GUARD_NEW_NAMES || 'yes') === 'yes',
+                                    hint: 'When document analysis proposes a tag or correspondent that is the same word in another spelling (case, umlauts, legal form, plural, word order), the existing one is used and the mapping is listed on the Duplicates page. A typo-like match is only logged. Default: on · Restart required.'
+                                }) %>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="duplicatesAiSweepNames" class="zr-field__name">Names per request for the semantic sweep</label>
+                                    <input type="number" id="duplicatesAiSweepNames" name="duplicatesAiSweepNames" min="50" max="1000" step="50" value="<%= config.DUPLICATES_AI_SWEEP_NAMES || 300 %>" class="zr-input">
+                                    <p class="zr-field__hint">How many names the model sees per request when it looks at the whole list. Default: 300 · Restart required.</p>
+                                </div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div id="simplify-tab" class="zr-col zr-col--loose">
+                            <section class="zr-module" id="sec-simplify">
+                                <div class="zr-module__head">
+                                    <h2 class="zr-module__title">Simplify tags</h2>
+                                </div>
+                                <div class="zr-module__body zr-col zr-col--loose">
+                                <p class="zr-sm zr-muted">
+                                    The Simplify tags page turns a compound tag such as "Stromrechnung" into a document type
+                                    ("Rechnung") and topic tags ("Strom"). Decomposing against a saved vocabulary is a rule and
+                                    needs no model; these two settings only govern the optional proposals the model makes.
+                                </p>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="simplifyTagsPerRequest" class="zr-field__name">Tags per model request</label>
+                                    <input type="number" id="simplifyTagsPerRequest" name="simplifyTagsPerRequest" min="10" max="200" step="10" value="<%= config.SIMPLIFY_TAGS_PER_REQUEST || 50 %>" class="zr-input">
+                                    <p class="zr-field__hint">How many tag names one request asks the model to decompose; fewer names mean more requests (10-200) · Default: 50 · Restart required</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="simplifyVocabularySize" class="zr-field__name">Vocabulary size</label>
+                                    <input type="number" id="simplifyVocabularySize" name="simplifyVocabularySize" min="5" max="100" step="5" value="<%= config.SIMPLIFY_VOCABULARY_SIZE || 25 %>" class="zr-input">
+                                    <p class="zr-field__hint">How many entries the proposed vocabulary should aim at, document types and topics together (5-100) · Default: 25 · Restart required</p>
+                                </div>
                                 </div>
                             </section>
                         </div>

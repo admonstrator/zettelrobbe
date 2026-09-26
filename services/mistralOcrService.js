@@ -1044,6 +1044,8 @@ class MistralOcrService {
         config.restrictToExistingCorrespondents === 'yes',
       restrictToExistingDocumentTypes:
         config.restrictToExistingDocumentTypes === 'yes',
+      // For the creation guard's record of which document a mapping served.
+      documentId,
     };
 
     if (config.limitFunctions?.activateTagging !== 'no') {

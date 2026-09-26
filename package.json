@@ -29,6 +29,7 @@
     "test:scan-stop-flow": "node scripts/run-tests.js --test scan-stop-flow",
     "test:setup-remote-guard": "node scripts/run-tests.js --test setup-remote-guard",
     "test:area:security": "node scripts/run-tests.js --area security",
+    "test:area:duplicates": "node scripts/run-tests.js --area duplicates",
     "test:restriction-service": "node scripts/run-tests.js --test restriction-service",
     "test:updated-service": "node scripts/run-tests.js --test updated-service",
     "test:list": "node scripts/run-tests.js --list",
