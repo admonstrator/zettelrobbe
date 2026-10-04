@@ -18,7 +18,12 @@ COPY --chown=node:node schemas.js swagger.js ./
 COPY --chown=node:node scripts ./scripts/
 COPY docker-entrypoint.sh start-services.sh ./
 
-RUN chmod +x docker-entrypoint.sh start-services.sh
+# An explicit mode rather than +x: the entrypoint re-executes itself after the
+# privilege drop, so the unprivileged user has to be able to read it, too. A
+# build context that hands the files over without read permission for others
+# (e.g. a Samba share with a restrictive create mask) would otherwise produce
+# 0711 and a restart loop with "cannot open ./docker-entrypoint.sh".
+RUN chmod 755 docker-entrypoint.sh start-services.sh
 
 # Configure persistent data volume.
 # Docker seeds a fresh named volume from the image including ownership and mode,
