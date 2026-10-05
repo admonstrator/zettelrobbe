@@ -368,6 +368,29 @@ const getCookieSecureMode = () => {
   return 'auto';
 };
 
+/* Single sign-on through OpenID Connect. Read on every call rather than
+   snapshotted at load, like the other auth getters above, so a runtime
+   override or a test can change it without reloading the module. Off unless
+   OIDC_ENABLED is set; password login keeps working either way. */
+const getOidcConfig = () => ({
+  enabled: parseEnvBoolean(process.env.OIDC_ENABLED, 'no') === 'yes',
+  issuerUrl: String(process.env.OIDC_ISSUER_URL || '').trim(),
+  clientId: String(process.env.OIDC_CLIENT_ID || '').trim(),
+  clientSecret: String(process.env.OIDC_CLIENT_SECRET || ''),
+  // Required: the identity whose e-mail matches signs in as the admin.
+  adminEmail: String(process.env.OIDC_ADMIN_EMAIL || '').trim(),
+  redirectUri: String(process.env.OIDC_REDIRECT_URI || '').trim(),
+  scopes: String(process.env.OIDC_SCOPES || 'openid profile email').trim(),
+  emailClaim: String(process.env.OIDC_EMAIL_CLAIM || 'email').trim() || 'email',
+  // client_secret_basic | client_secret_post | none; empty = automatic.
+  tokenAuthMethod: String(process.env.OIDC_TOKEN_AUTH_METHOD || '').trim(),
+  // Login button appearance.
+  buttonText: String(process.env.OIDC_BUTTON_TEXT || '').trim(),
+  buttonIcon: String(process.env.OIDC_BUTTON_ICON || '').trim(),
+  buttonColor: String(process.env.OIDC_BUTTON_COLOR || '').trim(),
+  buttonTextColor: String(process.env.OIDC_BUTTON_TEXT_COLOR || '').trim(),
+});
+
 // Initialize limit functions with defaults
 const limitFunctions = {
   activateTagging: parseEnvBoolean(process.env.ACTIVATE_TAGGING, 'yes'),
@@ -440,6 +463,7 @@ module.exports = {
   getJwtSecret,
   getTrustProxy,
   getCookieSecureMode,
+  getOidcConfig,
   isProtectedRuntimeEnvKey,
   get apiKey() {
     return getApiKey();

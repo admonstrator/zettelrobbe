@@ -67,6 +67,15 @@ services:
       # Update check (optional) – asks GitHub once a day whether a newer release
       # exists. Set to 'no' for air-gapped installations; nothing else changes.
       # - UPDATE_CHECK_ENABLED=no
+      # Single sign-on through OpenID Connect (optional), see docs/sso-oidc.md.
+      # The identity whose e-mail equals OIDC_ADMIN_EMAIL signs in as the admin.
+      # - OIDC_ENABLED=yes
+      # - OIDC_ISSUER_URL=https://auth.example.com/application/o/zettelrobbe/
+      # - OIDC_CLIENT_ID=your_client_id
+      # - OIDC_CLIENT_SECRET=your_client_secret
+      # - OIDC_REDIRECT_URI=https://zettelrobbe.example.com/auth/oidc/callback
+      # - OIDC_ADMIN_EMAIL=you@example.com
+      # - OIDC_BUTTON_TEXT=Sign in with SSO
     ports:
       - '3000:${PAPERLESS_AI_PORT:-3000}'
     volumes:

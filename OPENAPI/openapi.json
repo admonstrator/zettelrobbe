@@ -10254,6 +10254,75 @@
           }
         }
       }
+    },
+    "/auth/oidc/login": {
+      "get": {
+        "summary": "Start single sign-on with the configured OpenID Connect provider",
+        "description": "Redirects the browser to the identity provider's authorization endpoint\n(authorization code flow with PKCE, state and nonce). Only available when\nOIDC_ENABLED=yes and OIDC_ISSUER_URL, OIDC_CLIENT_ID and OIDC_ADMIN_EMAIL\nare set.\n",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the identity provider"
+          },
+          "404": {
+            "description": "Single sign-on is not enabled"
+          },
+          "502": {
+            "description": "The identity provider could not be reached; the login page is rendered with an error"
+          }
+        }
+      }
+    },
+    "/auth/oidc/callback": {
+      "get": {
+        "summary": "Complete single sign-on",
+        "description": "Redirect target registered with the identity provider. Exchanges the\nauthorization code, validates the ID token and signs in as the\nadministrator account when the identity's e-mail address equals\nOIDC_ADMIN_EMAIL. Sets the session cookie.\n",
+        "tags": [
+          "Authentication"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Authorization code issued by the provider"
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            },
+            "description": "State value echoed back by the provider"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Signed in, redirected to the dashboard",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTTP-only cookie containing the session JWT"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or expired sign-in transaction, or the provider reported an error"
+          },
+          "403": {
+            "description": "The identity's e-mail address does not match OIDC_ADMIN_EMAIL"
+          },
+          "404": {
+            "description": "Single sign-on is not enabled"
+          }
+        }
+      }
     }
   },
   "tags": [

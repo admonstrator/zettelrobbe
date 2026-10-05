@@ -44,6 +44,7 @@ const entityNameMatcher = require('../services/entityNameMatcher');
 const entityMatchAiService = require('../services/entityMatchAiService');
 const duplicateReviewJobService = require('../services/duplicateReviewJobService');
 const tagSimplifyService = require('../services/tagSimplifyService');
+const oidcService = require('../services/oidcService');
 const {
   THUMBNAIL_CACHE_DIR,
   getThumbnailCachePath,
@@ -89,6 +90,7 @@ const SETTINGS_SECRET_FIELDS = [
   'OCR_API_KEY',
   'MISTRAL_API_KEY',
   'API_KEY',
+  'OIDC_CLIENT_SECRET',
 ];
 
 function formatBytes(bytes) {
@@ -395,8 +397,17 @@ const loginLimiter = rateLimit({
  *           example: "#FF5733"
  */
 
-// Routes that don't require authentication
-let PUBLIC_ROUTES = ['/health', '/login', '/logout', '/setup', '/api/setup'];
+// Routes that don't require authentication. /auth/oidc is served by
+// routes/oidc.js, mounted ahead of this router; it is listed so the sign-in
+// callback stays reachable whatever the mount order.
+let PUBLIC_ROUTES = [
+  '/health',
+  '/login',
+  '/logout',
+  '/setup',
+  '/api/setup',
+  '/auth/oidc',
+];
 
 /**
  * Returns true if the incoming request originates from localhost.
@@ -746,6 +757,7 @@ function renderLoginView(res, options = {}) {
     error: options.error || null,
     mfaRequired: Boolean(options.mfaRequired),
     username: options.username || '',
+    sso: oidcService.getLoginButton(),
   });
 }
 
@@ -3593,6 +3605,24 @@ const ENV_EXPORT_GROUPS = [
       'GLOBAL_RATE_LIMIT_MAX',
       'EXPOSE_API_DOCS',
       'CONFIG_SOURCE_MODE',
+    ],
+  },
+  {
+    title: 'Single sign-on (OIDC)',
+    keys: [
+      'OIDC_ENABLED',
+      'OIDC_ISSUER_URL',
+      'OIDC_CLIENT_ID',
+      'OIDC_CLIENT_SECRET',
+      'OIDC_ADMIN_EMAIL',
+      'OIDC_REDIRECT_URI',
+      'OIDC_SCOPES',
+      'OIDC_EMAIL_CLAIM',
+      'OIDC_TOKEN_AUTH_METHOD',
+      'OIDC_BUTTON_TEXT',
+      'OIDC_BUTTON_ICON',
+      'OIDC_BUTTON_COLOR',
+      'OIDC_BUTTON_TEXT_COLOR',
     ],
   },
   {

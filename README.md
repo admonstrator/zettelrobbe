@@ -140,6 +140,23 @@ Then open [http://localhost:3000](http://localhost:3000) to complete setup.
 - The Mistral OCR provider processes PDFs natively and ignores the `OCR_PDF_RENDER_*` settings
 - The OCR queue can be worked through automatically instead of pressing **Process All Pending**: enable `OCR_AUTO_PROCESS_ENABLED` (default `no`) and configure `OCR_AUTO_PROCESS_INTERVAL` (cron, default `*/15 * * * *`), `OCR_AUTO_PROCESS_BATCH_SIZE` (documents per run, default `10`) and `OCR_AUTO_ANALYZE` (run AI analysis right after OCR, default `yes`). Runs are skipped while a document scan is active or while Paperless-ngx is unreachable, so queued documents are never marked as failed because of an outage
 
+### Single Sign-On (OIDC)
+
+Sign in with any OpenID Connect provider (Authentik, Authelia, Keycloak, Kanidm, Pocket ID, Zitadel, Entra ID, Google, ...) through a button on the login page. Zettelrobbe has one administrator account, and the identity whose e-mail address equals `OIDC_ADMIN_EMAIL` signs in as that account. Password login keeps working next to it.
+
+```yaml
+environment:
+  OIDC_ENABLED: 'yes'
+  OIDC_ISSUER_URL: https://auth.example.com/application/o/zettelrobbe/
+  OIDC_CLIENT_ID: zettelrobbe
+  OIDC_CLIENT_SECRET: ${ZETTELROBBE_OIDC_CLIENT_SECRET}
+  OIDC_REDIRECT_URI: https://zettelrobbe.example.com/auth/oidc/callback
+  OIDC_ADMIN_EMAIL: you@example.com # required
+  OIDC_BUTTON_TEXT: Sign in with Authentik # optional, also OIDC_BUTTON_ICON / _COLOR / _TEXT_COLOR
+```
+
+See [docs/sso-oidc.md](docs/sso-oidc.md) for all options, provider examples, button customization, security notes and troubleshooting.
+
 ### Container Images
 
 | Image Tag                         | Size        |
