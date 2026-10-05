@@ -143,6 +143,18 @@ const RELEASES = [
       'New: Settings sections for Duplicates and Simplify tags',
     ],
   },
+  {
+    version: 'v2026.09.03',
+    entries: [
+      'New: Paperless-ngx long text custom fields can be selected in Settings and filled without the 128-character limit',
+      'Fix: Adding a custom field that Paperless-ngx already has under another type is refused instead of silently dropping long values',
+      'Fix: The History page shows the correspondent and document type that were actually set in Paperless-ngx, not the raw model answer',
+      'Fix: Documents that get no subject tags still receive the ai-processed tag',
+      'Fix: The container no longer restarts in a loop on a fresh install with cap_drop: ALL',
+      'Improvement: The log names the tags from TAGS that were not found in Paperless-ngx',
+      'Removed: The deprecated Playground',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];
