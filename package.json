@@ -64,7 +64,7 @@
     "cors": "^2.8.5",
     "csrf-csrf": "^4.0.3",
     "date-fns": "^4.4.0",
-    "dotenv": "^18.0.3",
+    "dotenv": "^18.0.5",
     "ejs": "^6.0.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
@@ -81,10 +81,10 @@
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-jsdoc": "^64.5.4",
-    "globals": "^17.12.0",
+    "globals": "^17.13.0",
     "nodemon": "^3.1.9",
     "prettier": "^3.9.9",
-    "stylelint": "^17.15.0",
+    "stylelint": "^17.16.0",
     "stylelint-config-standard": "^40.0.0"
   },
   "allowScripts": {
