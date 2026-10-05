@@ -23,5 +23,15 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Audit production and dev dependencies
-        run: npm audit --audit-level=moderate
+      # Only what ships in the image can fail the job. Dev tooling (nodemon,
+      # stylelint) pulls in packages that sometimes have no patched release
+      # at all (e.g. braces, GHSA-vfj7-8cjw-p6xm), which would keep the job
+      # red with nothing to act on.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Audit dev dependencies (report only)
+        run: |
+          if ! npm audit --audit-level=moderate; then
+            echo "::warning title=npm audit::Dev dependencies have open advisories - see the log above"
+          fi
