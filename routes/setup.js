@@ -821,6 +821,48 @@ function isMfaEnabledForUser(user) {
   return Boolean(user && (user.mfa_enabled || user.mfaEnabled));
 }
 
+/* Cost the setup wizard hashes the administrator password with. */
+const ADMIN_PASSWORD_BCRYPT_ROUNDS = 15;
+const dummyPasswordHashes = new Map();
+
+/**
+ * Spends the same bcrypt work on a failed username lookup as on a real
+ * password check, so the response time no longer tells an attacker whether
+ * the username exists (CWE-208). The dummy hash uses the cost of the stored
+ * account when there is one, because the comparison time grows with it.
+ *
+ * @param {*} password - the submitted password
+ * @returns {Promise<void>}
+ */
+async function spendPasswordCheckTime(password) {
+  let rounds = ADMIN_PASSWORD_BCRYPT_ROUNDS;
+  try {
+    const users = await documentModel.getUsers();
+    const storedHash = users?.[0]?.password;
+    if (storedHash) {
+      rounds = bcrypt.getRounds(storedHash);
+    }
+  } catch {
+    // Keep the default cost.
+  }
+
+  if (!dummyPasswordHashes.has(rounds)) {
+    dummyPasswordHashes.set(
+      rounds,
+      bcrypt.hash(crypto.randomBytes(32).toString('hex'), rounds)
+    );
+  }
+
+  try {
+    await bcrypt.compare(
+      String(password ?? ''),
+      await dummyPasswordHashes.get(rounds)
+    );
+  } catch {
+    // Only the elapsed time matters here.
+  }
+}
+
 router.get('/login', (req, res) => {
   //check if a user exists beforehand
   documentModel.getUsers().then((users) => {
@@ -975,6 +1017,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const user = await documentModel.getUser(username);
 
     if (!user || !user.password) {
+      await spendPasswordCheckTime(password);
       console.log('[FAILED LOGIN] User not found or invalid data:', username);
       return renderLoginView(res, { error: 'Invalid credentials', username });
     }
