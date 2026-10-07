@@ -471,14 +471,24 @@
           },
           "message": {
             "type": "string",
-            "description": "Additional status information (for non-healthy states)",
+            "description": "Additional status information (for non-healthy states). Authenticated callers only.",
             "example": "Document scan failed 3 time(s) in a row: connect ECONNREFUSED 172.18.0.2:8000"
           },
           "scanner": {
-            "$ref": "#/components/schemas/ScannerHealth"
+            "description": "Authenticated callers only.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScannerHealth"
+              }
+            ]
           },
           "paperless": {
-            "$ref": "#/components/schemas/PaperlessHealth"
+            "description": "Authenticated callers only.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaperlessHealth"
+              }
+            ]
           }
         }
       },
@@ -6567,7 +6577,7 @@
     "/health": {
       "get": {
         "summary": "System health check endpoint",
-        "description": "Reports database connectivity **and** whether the document scanner is\nactually able to work. Used by the Docker healthcheck and monitoring.\n\n`status` is `healthy` when the database is reachable and the scanner is\noperational, `degraded` when automatic processing is enabled but the\nscan loop is not armed or has failed `failureThreshold` runs in a row\n(for example because Paperless-ngx is unreachable), and `database_error`\nwhen the local database cannot be queried.\n\nA `degraded` state answers with HTTP 503 unless `HEALTHCHECK_STRICT=no`\nis configured, in which case the details are reported with HTTP 200.\nWhen automatic processing is switched off via\n`DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and\nnever reported as degraded.\n",
+        "description": "Reports database connectivity **and** whether the document scanner is\nactually able to work. Used by the Docker healthcheck and monitoring.\n\n`status` is `healthy` when the database is reachable and the scanner is\noperational, `degraded` when automatic processing is enabled but the\nscan loop is not armed or has failed `failureThreshold` runs in a row\n(for example because Paperless-ngx is unreachable), and `database_error`\nwhen the local database cannot be queried.\n\nA `degraded` state answers with HTTP 503 unless `HEALTHCHECK_STRICT=no`\nis configured, in which case the details are reported with HTTP 200.\nWhen automatic processing is switched off via\n`DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and\nnever reported as degraded.\n\nWithout authentication the response carries only `status` and\n`database`, with the same HTTP status codes. `message`, `scanner` and\n`paperless` hold raw error messages with internal host names and\nports, so they are returned only with a session (cookie or bearer\ntoken) or the `x-api-key` header.\n",
         "tags": [
           "System"
         ],

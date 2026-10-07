@@ -591,6 +591,20 @@ function hasValidSession(req) {
 }
 
 /**
+ * True when a public route is called with a usable session or the API key.
+ * Like hasValidSession(), for routes the authentication guard lets through.
+ */
+function isAuthenticatedCaller(req) {
+  const currentApiKey = config.getApiKey();
+  const apiKey = req.headers['x-api-key'];
+  if (currentApiKey && apiKey && apiKey === currentApiKey) {
+    return true;
+  }
+
+  return hasValidSession(req);
+}
+
+/**
  * @swagger
  * /login:
  *   get:
@@ -7782,6 +7796,12 @@ function buildScannerHealthSnapshot() {
  *       When automatic processing is switched off via
  *       `DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and
  *       never reported as degraded.
+ *
+ *       Without authentication the response carries only `status` and
+ *       `database`, with the same HTTP status codes. `message`, `scanner` and
+ *       `paperless` hold raw error messages with internal host names and
+ *       ports, so they are returned only with a session (cookie or bearer
+ *       token) or the `x-api-key` header.
  *     tags:
  *       - System
  *     responses:
@@ -7828,8 +7848,22 @@ router.get('/health', async (req, res) => {
 
     const snapshot = buildScannerHealthSnapshot();
     const degraded = snapshot.scanner.degraded;
+    const status = degraded ? 'degraded' : 'healthy';
+
+    // /health is public for container healthchecks and uptime monitors, which
+    // only need the status and the HTTP code. The scanner and Paperless-ngx
+    // details carry raw error messages ("connect ECONNREFUSED 172.18.0.2:8000")
+    // and the schedule, so only an authenticated caller gets them.
+    if (!isAuthenticatedCaller(req)) {
+      const summary = { status, database: 'ok' };
+      if (degraded && scanHealthService.strictHealthEnabled) {
+        return res.status(503).json(summary);
+      }
+      return res.json(summary);
+    }
+
     const payload = {
-      status: degraded ? 'degraded' : 'healthy',
+      status,
       database: 'ok',
       ...snapshot,
     };
@@ -7849,7 +7883,9 @@ router.get('/health', async (req, res) => {
     console.error('Health check failed:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message,
+      message: isAuthenticatedCaller(req)
+        ? error.message
+        : 'Health check failed',
     });
   }
 });
