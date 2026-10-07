@@ -737,18 +737,24 @@ function getAuthenticatedSettingsUsername(req) {
   return null;
 }
 
-function verifyTotpToken(secret, inputToken) {
+/**
+ * Returns the TOTP time step the code belongs to, or null when the code does
+ * not match any step inside the accepted window.
+ *
+ * @param {string} secret - base32 TOTP secret
+ * @param {string} inputToken - the code the user typed
+ * @returns {number|null}
+ */
+function findTotpStep(secret, inputToken) {
   const normalizedInput = String(inputToken || '').replace(/\s+/g, '');
   if (!/^\d{6,8}$/.test(normalizedInput)) {
-    return false;
+    return null;
   }
 
   const now = Math.floor(Date.now() / 1000);
   for (let offset = -TOTP_WINDOW; offset <= TOTP_WINDOW; offset += 1) {
-    const expected = generateTotpToken(
-      secret,
-      now + offset * TOTP_STEP_SECONDS
-    );
+    const unixTimeSeconds = now + offset * TOTP_STEP_SECONDS;
+    const expected = generateTotpToken(secret, unixTimeSeconds);
     if (!expected || expected.length !== normalizedInput.length) {
       continue;
     }
@@ -759,11 +765,47 @@ function verifyTotpToken(secret, inputToken) {
         Buffer.from(normalizedInput)
       )
     ) {
-      return true;
+      return Math.floor(unixTimeSeconds / TOTP_STEP_SECONDS);
     }
   }
 
-  return false;
+  return null;
+}
+
+function verifyTotpToken(secret, inputToken) {
+  return findTotpStep(secret, inputToken) !== null;
+}
+
+// Last accepted TOTP time step per username. RFC 6238 section 5.2: once a
+// code has been accepted, the verifier must not accept it again. Kept in
+// memory: a restart forgets it, and the window it protects is 90 seconds.
+const lastAcceptedTotpSteps = new Map();
+
+/**
+ * Verifies a TOTP code and consumes it, so the same code (or an older one)
+ * is refused for that user until a newer time step comes up. For actions a
+ * captured code must not be able to repeat: signing in, enabling and
+ * disabling MFA.
+ *
+ * @param {string} username - the account the code is for
+ * @param {string} secret - base32 TOTP secret
+ * @param {string} inputToken - the code the user typed
+ * @returns {boolean}
+ */
+function consumeTotpToken(username, secret, inputToken) {
+  const step = findTotpStep(secret, inputToken);
+  if (step === null) {
+    return false;
+  }
+
+  const key = String(username || '').toLowerCase();
+  const lastStep = lastAcceptedTotpSteps.get(key);
+  if (lastStep !== undefined && step <= lastStep) {
+    return false;
+  }
+
+  lastAcceptedTotpSteps.set(key, step);
+  return true;
 }
 
 function renderLoginView(res, options = {}) {
@@ -901,7 +943,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         });
       }
 
-      if (!verifyTotpToken(mfaSecret, mfaToken)) {
+      if (!consumeTotpToken(user.username, mfaSecret, mfaToken)) {
         return renderLoginView(res, {
           error: 'Invalid authentication code. Please try again.',
           mfaRequired: true,
@@ -7194,7 +7236,7 @@ router.post(
         });
       }
 
-      if (!verifyTotpToken(payload.secret, token)) {
+      if (!consumeTotpToken(username, payload.secret, token)) {
         return res
           .status(400)
           .json({ success: false, error: 'Invalid authentication code.' });
@@ -7371,7 +7413,7 @@ router.post(
           .json({ success: false, error: 'MFA is not enabled for this user.' });
       }
 
-      if (!verifyTotpToken(user.mfa_secret, token)) {
+      if (!consumeTotpToken(username, user.mfa_secret, token)) {
         return res
           .status(400)
           .json({ success: false, error: 'Invalid authentication code.' });
