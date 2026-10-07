@@ -352,12 +352,16 @@
  *           example: ok
  *         message:
  *           type: string
- *           description: Additional status information (for non-healthy states)
+ *           description: Additional status information (for non-healthy states). Authenticated callers only.
  *           example: "Document scan failed 3 time(s) in a row: connect ECONNREFUSED 172.18.0.2:8000"
  *         scanner:
- *           $ref: '#/components/schemas/ScannerHealth'
+ *           description: Authenticated callers only.
+ *           allOf:
+ *             - $ref: '#/components/schemas/ScannerHealth'
  *         paperless:
- *           $ref: '#/components/schemas/PaperlessHealth'
+ *           description: Authenticated callers only.
+ *           allOf:
+ *             - $ref: '#/components/schemas/PaperlessHealth'
  *
  *     ScannerHealth:
  *       type: object

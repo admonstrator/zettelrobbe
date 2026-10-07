@@ -130,6 +130,10 @@ const TESTS = {
   'token-limit-config': 'test-token-limit-config.js',
   'truncate-returns-string': 'test-truncate-returns-string.js',
   'session-token-type': 'test-session-token-type.js',
+  'health-disclosure': 'test-health-disclosure.js',
+  'totp-replay': 'test-totp-replay.js',
+  'login-username-timing': 'test-login-username-timing.js',
+  'oidc-sso': 'test-oidc-sso.js',
   'setup-complete-guard': 'test-setup-complete-guard.js',
   'rescan-fetch-before-delete': 'test-rescan-fetch-before-delete.js',
   'ocr-empty-result-guard': 'test-ocr-empty-result-guard.js',
@@ -160,7 +164,7 @@ const TESTS = {
 };
 
 const AREAS = {
-  auth: ['login-mfa-flow', 'rate-limiting', 'thumbnail-auth-guard'],
+  auth: ['login-mfa-flow', 'rate-limiting', 'thumbnail-auth-guard', 'oidc-sso'],
   ocr: [
     'ocr-fallback-ai-errors',
     'ocr-startup-recovery',
@@ -265,6 +269,10 @@ const AREAS = {
     'thumbnail-cache-path-sanitization',
     'url-base-validation',
     'session-token-type',
+    'health-disclosure',
+    'totp-replay',
+    'login-username-timing',
+    'oidc-sso',
     'setup-complete-guard',
   ],
   duplicates: [

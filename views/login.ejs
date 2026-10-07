@@ -116,6 +116,23 @@
                     </button>
                 </div>
             </form>
+
+            <% const ssoButton = typeof sso === 'object' && sso ? sso : { enabled: false }; %>
+            <% if (ssoButton.enabled && !isMfaStep) { %>
+                <div class="zr-col login-sso" data-login-sso>
+                    <div class="login-sso__divider zr-sm"><span>or</span></div>
+                    <a href="/auth/oidc/login" id="ssoButton"
+                        class="zr-btn zr-btn--lg zr-btn--block login-sso__button"
+                        <% if (ssoButton.style) { %>style="<%= ssoButton.style %>"<% } %>>
+                        <% if (ssoButton.icon.type === 'image') { %>
+                            <img class="login-sso__icon" src="<%= ssoButton.icon.src %>" alt="" aria-hidden="true">
+                        <% } else if (ssoButton.icon.type === 'default') { %>
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>
+                        <% } %>
+                        <span><%= ssoButton.text %></span>
+                    </a>
+                </div>
+            <% } %>
         </section>
     </div>
 

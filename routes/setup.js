@@ -44,6 +44,7 @@ const entityNameMatcher = require('../services/entityNameMatcher');
 const entityMatchAiService = require('../services/entityMatchAiService');
 const duplicateReviewJobService = require('../services/duplicateReviewJobService');
 const tagSimplifyService = require('../services/tagSimplifyService');
+const oidcService = require('../services/oidcService');
 const {
   THUMBNAIL_CACHE_DIR,
   getThumbnailCachePath,
@@ -89,6 +90,7 @@ const SETTINGS_SECRET_FIELDS = [
   'OCR_API_KEY',
   'MISTRAL_API_KEY',
   'API_KEY',
+  'OIDC_CLIENT_SECRET',
 ];
 
 function formatBytes(bytes) {
@@ -395,8 +397,17 @@ const loginLimiter = rateLimit({
  *           example: "#FF5733"
  */
 
-// Routes that don't require authentication
-let PUBLIC_ROUTES = ['/health', '/login', '/logout', '/setup', '/api/setup'];
+// Routes that don't require authentication. /auth/oidc is served by
+// routes/oidc.js, mounted ahead of this router; it is listed so the sign-in
+// callback stays reachable whatever the mount order.
+let PUBLIC_ROUTES = [
+  '/health',
+  '/login',
+  '/logout',
+  '/setup',
+  '/api/setup',
+  '/auth/oidc',
+];
 
 /**
  * Returns true if the incoming request originates from localhost.
@@ -580,6 +591,20 @@ function hasValidSession(req) {
 }
 
 /**
+ * True when a public route is called with a usable session or the API key.
+ * Like hasValidSession(), for routes the authentication guard lets through.
+ */
+function isAuthenticatedCaller(req) {
+  const currentApiKey = config.getApiKey();
+  const apiKey = req.headers['x-api-key'];
+  if (currentApiKey && apiKey && apiKey === currentApiKey) {
+    return true;
+  }
+
+  return hasValidSession(req);
+}
+
+/**
  * @swagger
  * /login:
  *   get:
@@ -712,18 +737,24 @@ function getAuthenticatedSettingsUsername(req) {
   return null;
 }
 
-function verifyTotpToken(secret, inputToken) {
+/**
+ * Returns the TOTP time step the code belongs to, or null when the code does
+ * not match any step inside the accepted window.
+ *
+ * @param {string} secret - base32 TOTP secret
+ * @param {string} inputToken - the code the user typed
+ * @returns {number|null}
+ */
+function findTotpStep(secret, inputToken) {
   const normalizedInput = String(inputToken || '').replace(/\s+/g, '');
   if (!/^\d{6,8}$/.test(normalizedInput)) {
-    return false;
+    return null;
   }
 
   const now = Math.floor(Date.now() / 1000);
   for (let offset = -TOTP_WINDOW; offset <= TOTP_WINDOW; offset += 1) {
-    const expected = generateTotpToken(
-      secret,
-      now + offset * TOTP_STEP_SECONDS
-    );
+    const unixTimeSeconds = now + offset * TOTP_STEP_SECONDS;
+    const expected = generateTotpToken(secret, unixTimeSeconds);
     if (!expected || expected.length !== normalizedInput.length) {
       continue;
     }
@@ -734,11 +765,47 @@ function verifyTotpToken(secret, inputToken) {
         Buffer.from(normalizedInput)
       )
     ) {
-      return true;
+      return Math.floor(unixTimeSeconds / TOTP_STEP_SECONDS);
     }
   }
 
-  return false;
+  return null;
+}
+
+function verifyTotpToken(secret, inputToken) {
+  return findTotpStep(secret, inputToken) !== null;
+}
+
+// Last accepted TOTP time step per username. RFC 6238 section 5.2: once a
+// code has been accepted, the verifier must not accept it again. Kept in
+// memory: a restart forgets it, and the window it protects is 90 seconds.
+const lastAcceptedTotpSteps = new Map();
+
+/**
+ * Verifies a TOTP code and consumes it, so the same code (or an older one)
+ * is refused for that user until a newer time step comes up. For actions a
+ * captured code must not be able to repeat: signing in, enabling and
+ * disabling MFA.
+ *
+ * @param {string} username - the account the code is for
+ * @param {string} secret - base32 TOTP secret
+ * @param {string} inputToken - the code the user typed
+ * @returns {boolean}
+ */
+function consumeTotpToken(username, secret, inputToken) {
+  const step = findTotpStep(secret, inputToken);
+  if (step === null) {
+    return false;
+  }
+
+  const key = String(username || '').toLowerCase();
+  const lastStep = lastAcceptedTotpSteps.get(key);
+  if (lastStep !== undefined && step <= lastStep) {
+    return false;
+  }
+
+  lastAcceptedTotpSteps.set(key, step);
+  return true;
 }
 
 function renderLoginView(res, options = {}) {
@@ -746,11 +813,54 @@ function renderLoginView(res, options = {}) {
     error: options.error || null,
     mfaRequired: Boolean(options.mfaRequired),
     username: options.username || '',
+    sso: oidcService.getLoginButton(),
   });
 }
 
 function isMfaEnabledForUser(user) {
   return Boolean(user && (user.mfa_enabled || user.mfaEnabled));
+}
+
+/* Cost the setup wizard hashes the administrator password with. */
+const ADMIN_PASSWORD_BCRYPT_ROUNDS = 15;
+const dummyPasswordHashes = new Map();
+
+/**
+ * Spends the same bcrypt work on a failed username lookup as on a real
+ * password check, so the response time no longer tells an attacker whether
+ * the username exists (CWE-208). The dummy hash uses the cost of the stored
+ * account when there is one, because the comparison time grows with it.
+ *
+ * @param {*} password - the submitted password
+ * @returns {Promise<void>}
+ */
+async function spendPasswordCheckTime(password) {
+  let rounds = ADMIN_PASSWORD_BCRYPT_ROUNDS;
+  try {
+    const users = await documentModel.getUsers();
+    const storedHash = users?.[0]?.password;
+    if (storedHash) {
+      rounds = bcrypt.getRounds(storedHash);
+    }
+  } catch {
+    // Keep the default cost.
+  }
+
+  if (!dummyPasswordHashes.has(rounds)) {
+    dummyPasswordHashes.set(
+      rounds,
+      bcrypt.hash(crypto.randomBytes(32).toString('hex'), rounds)
+    );
+  }
+
+  try {
+    await bcrypt.compare(
+      String(password ?? ''),
+      await dummyPasswordHashes.get(rounds)
+    );
+  } catch {
+    // Only the elapsed time matters here.
+  }
 }
 
 router.get('/login', (req, res) => {
@@ -875,7 +985,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         });
       }
 
-      if (!verifyTotpToken(mfaSecret, mfaToken)) {
+      if (!consumeTotpToken(user.username, mfaSecret, mfaToken)) {
         return renderLoginView(res, {
           error: 'Invalid authentication code. Please try again.',
           mfaRequired: true,
@@ -907,6 +1017,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const user = await documentModel.getUser(username);
 
     if (!user || !user.password) {
+      await spendPasswordCheckTime(password);
       console.log('[FAILED LOGIN] User not found or invalid data:', username);
       return renderLoginView(res, { error: 'Invalid credentials', username });
     }
@@ -3593,6 +3704,24 @@ const ENV_EXPORT_GROUPS = [
       'GLOBAL_RATE_LIMIT_MAX',
       'EXPOSE_API_DOCS',
       'CONFIG_SOURCE_MODE',
+    ],
+  },
+  {
+    title: 'Single sign-on (OIDC)',
+    keys: [
+      'OIDC_ENABLED',
+      'OIDC_ISSUER_URL',
+      'OIDC_CLIENT_ID',
+      'OIDC_CLIENT_SECRET',
+      'OIDC_ADMIN_EMAIL',
+      'OIDC_REDIRECT_URI',
+      'OIDC_SCOPES',
+      'OIDC_EMAIL_CLAIM',
+      'OIDC_TOKEN_AUTH_METHOD',
+      'OIDC_BUTTON_TEXT',
+      'OIDC_BUTTON_ICON',
+      'OIDC_BUTTON_COLOR',
+      'OIDC_BUTTON_TEXT_COLOR',
     ],
   },
   {
@@ -7150,7 +7279,7 @@ router.post(
         });
       }
 
-      if (!verifyTotpToken(payload.secret, token)) {
+      if (!consumeTotpToken(username, payload.secret, token)) {
         return res
           .status(400)
           .json({ success: false, error: 'Invalid authentication code.' });
@@ -7327,7 +7456,7 @@ router.post(
           .json({ success: false, error: 'MFA is not enabled for this user.' });
       }
 
-      if (!verifyTotpToken(user.mfa_secret, token)) {
+      if (!consumeTotpToken(username, user.mfa_secret, token)) {
         return res
           .status(400)
           .json({ success: false, error: 'Invalid authentication code.' });
@@ -7752,6 +7881,12 @@ function buildScannerHealthSnapshot() {
  *       When automatic processing is switched off via
  *       `DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and
  *       never reported as degraded.
+ *
+ *       Without authentication the response carries only `status` and
+ *       `database`, with the same HTTP status codes. `message`, `scanner` and
+ *       `paperless` hold raw error messages with internal host names and
+ *       ports, so they are returned only with a session (cookie or bearer
+ *       token) or the `x-api-key` header.
  *     tags:
  *       - System
  *     responses:
@@ -7798,8 +7933,22 @@ router.get('/health', async (req, res) => {
 
     const snapshot = buildScannerHealthSnapshot();
     const degraded = snapshot.scanner.degraded;
+    const status = degraded ? 'degraded' : 'healthy';
+
+    // /health is public for container healthchecks and uptime monitors, which
+    // only need the status and the HTTP code. The scanner and Paperless-ngx
+    // details carry raw error messages ("connect ECONNREFUSED 172.18.0.2:8000")
+    // and the schedule, so only an authenticated caller gets them.
+    if (!isAuthenticatedCaller(req)) {
+      const summary = { status, database: 'ok' };
+      if (degraded && scanHealthService.strictHealthEnabled) {
+        return res.status(503).json(summary);
+      }
+      return res.json(summary);
+    }
+
     const payload = {
-      status: degraded ? 'degraded' : 'healthy',
+      status,
       database: 'ok',
       ...snapshot,
     };
@@ -7819,7 +7968,9 @@ router.get('/health', async (req, res) => {
     console.error('Health check failed:', error);
     res.status(500).json({
       status: 'error',
-      message: error.message,
+      message: isAuthenticatedCaller(req)
+        ? error.message
+        : 'Health check failed',
     });
   }
 });

@@ -108,4 +108,39 @@
   .login-back-button {
     align-self: center;
   }
+
+  /* login: "or" rule between the password form and the single sign-on
+     button. */
+  .login-sso__divider {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    color: var(--zr-text-faint);
+  }
+  .login-sso__divider::before,
+  .login-sso__divider::after {
+    content: '';
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--zr-line);
+  }
+
+  /* login: the single sign-on button. OIDC_BUTTON_COLOR and
+     OIDC_BUTTON_TEXT_COLOR arrive as these two custom properties on the
+     element; without them it is a regular secondary button. */
+  .login-sso__button {
+    background: var(--login-sso-bg, var(--zr-surface));
+    border-color: var(--login-sso-bg, var(--zr-line-strong));
+    color: var(--login-sso-fg, var(--zr-text));
+  }
+  .login-sso__button:hover {
+    background: var(--login-sso-bg, var(--zr-surface-2));
+    border-color: var(--login-sso-bg, var(--zr-text-faint));
+    filter: brightness(0.95);
+  }
+  .login-sso__icon {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
 }

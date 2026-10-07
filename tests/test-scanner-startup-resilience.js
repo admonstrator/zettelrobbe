@@ -383,7 +383,7 @@ test('/health reports the scanner state', () => {
     'Expected /health to include the scanner snapshot'
   );
   assert.ok(
-    setupRouteSource.includes("status: degraded ? 'degraded' : 'healthy'"),
+    setupRouteSource.includes("degraded ? 'degraded' : 'healthy'"),
     'Expected /health to expose a degraded status'
   );
 });

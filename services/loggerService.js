@@ -43,6 +43,7 @@ const SECRET_ENV_KEYS = [
   'API_KEY',
   'PAPERLESS_AI_API_KEY',
   'EXTERNAL_API_KEY',
+  'OIDC_CLIENT_SECRET',
 ];
 
 /**
