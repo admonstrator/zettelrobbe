@@ -878,7 +878,10 @@ async function main() {
           stub.sent.openai.temperature,
           config.aiTemperatureGeneration
         );
-        assert.strictEqual(stub.sent.azure.temperature, 0.7);
+        assert.strictEqual(
+          stub.sent.azure.temperature,
+          config.aiTemperatureGeneration
+        );
         assert.strictEqual(
           stub.sent.azure.max_tokens,
           Number(config.responseTokens)

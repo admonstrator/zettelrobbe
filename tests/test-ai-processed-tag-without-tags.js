@@ -94,17 +94,27 @@ function createTagServer({ existing = [], failCreateFor = [] } = {}) {
   };
 }
 
+/**
+ * A fresh tag cache for every case, so no case reads tags another one created.
+ * Its similarity search would ask the AI provider about every unknown name; a
+ * stub that never finds a match keeps the test offline.
+ */
+function resetTagCache() {
+  paperlessService._tags = null;
+  paperlessService.tags.ai_service = {
+    generateAnswer: async () => JSON.stringify({ match: null }),
+  };
+}
+
 async function withServer(server, fn) {
   const originalClient = paperlessService.client;
   paperlessService.client = server;
-  paperlessService.tagCache.clear();
-  paperlessService.lastTagRefresh = 0;
+  resetTagCache();
   try {
     return await fn();
   } finally {
     paperlessService.client = originalClient;
-    paperlessService.tagCache.clear();
-    paperlessService.lastTagRefresh = 0;
+    paperlessService._tags = null;
   }
 }
 

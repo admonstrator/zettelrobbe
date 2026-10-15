@@ -48,9 +48,16 @@ function createTagServer({ tagCount, maxPageSize = 100000 }) {
   return {
     requests,
     defaults: { baseURL: BASE_URL },
-    get: async (url) => {
-      requests.push(url);
-      const parsed = new URL(url, BASE_URL);
+    get: async (url, options = {}) => {
+      // Merge axios-style params into the query string, as axios itself would.
+      const merged = new URL(url, BASE_URL);
+      if (options.params) {
+        for (const [key, value] of Object.entries(options.params)) {
+          merged.searchParams.set(key, String(value));
+        }
+      }
+      requests.push(merged.pathname + merged.search);
+      const parsed = merged;
       const requested = Number(parsed.searchParams.get('page_size')) || 25;
       const pageSize = Math.min(requested, maxPageSize);
       const page = Number(parsed.searchParams.get('page')) || 1;
@@ -82,12 +89,13 @@ function createTagServer({ tagCount, maxPageSize = 100000 }) {
     await test('The tag cache is not rebuilt 25 tags at a time', async () => {
       const server = createTagServer({ tagCount: 1331 });
       paperlessService.client = server;
-      paperlessService.tagCache.clear();
+      paperlessService.tags._clear();
+      paperlessService.tags.cache_last_fetch_time = 0;
 
       await paperlessService.refreshTagCache();
 
       assert.strictEqual(
-        paperlessService.tagCache.size,
+        paperlessService.tags.element_list.length,
         1331,
         'Every tag has to reach the cache'
       );
@@ -107,7 +115,8 @@ function createTagServer({ tagCount, maxPageSize = 100000 }) {
     await test('The page size carries into every following page', async () => {
       const server = createTagServer({ tagCount: 1331 });
       paperlessService.client = server;
-      paperlessService.tagCache.clear();
+      paperlessService.tags._clear();
+      paperlessService.tags.cache_last_fetch_time = 0;
 
       await paperlessService.refreshTagCache();
 
@@ -125,12 +134,13 @@ function createTagServer({ tagCount, maxPageSize = 100000 }) {
       // its own maximum and says so only through the shorter result list.
       const server = createTagServer({ tagCount: 1331, maxPageSize: 100 });
       paperlessService.client = server;
-      paperlessService.tagCache.clear();
+      paperlessService.tags._clear();
+      paperlessService.tags.cache_last_fetch_time = 0;
 
       await paperlessService.refreshTagCache();
 
       assert.strictEqual(
-        paperlessService.tagCache.size,
+        paperlessService.tags.element_list.length,
         1331,
         'A clamped page size must not lose tags'
       );
@@ -138,8 +148,9 @@ function createTagServer({ tagCount, maxPageSize = 100000 }) {
     });
   } finally {
     paperlessService.client = originalClient;
-    paperlessService.tagCache.clear();
-    paperlessService.lastTagRefresh = 0;
+    paperlessService.tags._clear();
+    paperlessService.tags.cache_last_fetch_time = 0;
+    paperlessService.tags.cache_last_fetch_time = 0;
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

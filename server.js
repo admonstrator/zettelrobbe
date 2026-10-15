@@ -655,6 +655,50 @@ async function saveOpenApiSpec() {
 }
 
 // Document processing functions
+
+/**
+ * True when the document carries at least one of the tags configured as the
+ * predefined-scan trigger (PROCESS_PREDEFINED_DOCUMENTS=yes + TAGS). Only
+ * meaningful in predefined mode; resolves the tag names to ids through the
+ * shared tag cache.
+ *
+ * @param {Object} doc - document as returned by getAllDocuments() (fields incl. tags)
+ * @returns {Promise<boolean>}
+ */
+async function documentCarriesTriggerTag(doc) {
+  if (config.predefinedMode !== 'yes') {
+    return false;
+  }
+
+  const triggerNames = (process.env.TAGS || '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  if (triggerNames.length === 0) {
+    return false;
+  }
+
+  const docTagIds = new Set(
+    (Array.isArray(doc.tags) ? doc.tags : [])
+      .map((tag) => (typeof tag === 'object' ? Number(tag?.id) : Number(tag)))
+      .filter((id) => Number.isInteger(id))
+  );
+  if (docTagIds.size === 0) {
+    return false;
+  }
+
+  try {
+    const triggerIds = await paperlessService.resolveTagIdsByName(triggerNames);
+    return triggerIds.some((id) => docTagIds.has(id));
+  } catch (error) {
+    console.warn(
+      `[WARN] Could not resolve trigger tags for re-check of document ${doc.id}:`,
+      error.message
+    );
+    return false;
+  }
+}
+
 async function processDocument(
   doc,
   existingTags,
@@ -663,7 +707,19 @@ async function processDocument(
   context = {}
 ) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-  if (isProcessed) return null;
+  if (isProcessed) {
+    // Predefined-scan re-trigger: in "process only specific pre-tagged
+    // documents" mode, the presence of a configured trigger tag on an already
+    // processed document is the operator's explicit request to run it again —
+    // that is how documents are re-queued after fixing a bug. Outside
+    // predefined mode, or without a trigger tag, the record wins.
+    if (!(await documentCarriesTriggerTag(doc))) {
+      return null;
+    }
+    console.info(
+      `Document ${doc.id} carries a configured trigger tag; re-processing despite existing record`
+    );
+  }
 
   // A document that waits in the OCR queue, or sits inside an OCR run right
   // now, gets both its text and its analysis from that path. Analysing it here

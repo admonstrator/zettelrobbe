@@ -4,9 +4,6 @@ const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const setupService = require('../services/setupService.js');
 const paperlessService = require('../services/paperlessService.js');
-const openaiService = require('../services/openaiService.js');
-const ollamaService = require('../services/ollamaService.js');
-const azureService = require('../services/azureService.js');
 const documentModel = require('../models/document.js');
 const AIServiceFactory = require('../services/aiServiceFactory');
 const configFile = require('../config/config.js');
@@ -31,7 +28,6 @@ const {
   verifySessionToken,
   SESSION_TOKEN_TYPE,
 } = require('./auth.js');
-const customService = require('../services/customService.js');
 const mistralOcrService = require('../services/mistralOcrService');
 const quickstartService = require('../services/quickstartService');
 const reconciliationService = require('../services/reconciliationService');
@@ -4774,23 +4770,21 @@ router.get('/setup', async (req, res) => {
       console.warn(
         '[SECURITY] Attempting to access /setup in degraded state (corrupted database)'
       );
-      return res
-        .status(500)
-        .render('setup-error', {
+      try {
+        return res.status(500).render('setup-error', {
           title: 'System Configuration Error',
           errorMessage:
             'The system configuration exists but the database is inaccessible or corrupted. This is an administrative error state. Please check system logs and database integrity.',
           supportText:
             'This may occur if: (1) the database file was deleted or corrupted, (2) file permissions changed, or (3) the database is locked. Restart the application after verifying database and permissions.',
-        })
-        .catch(() => {
-          // Fallback if setup-error template doesn't exist
-          res
-            .status(500)
-            .send(
-              '<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>'
-            );
         });
+      } catch {
+        return res
+          .status(500)
+          .send(
+            '<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>'
+          );
+      }
     }
 
     // Base configuration object - load this FIRST, before any checks
@@ -8191,7 +8185,9 @@ router.post(
  *       This endpoint processes the document text to extract relevant information such as tags,
  *       correspondent, and document type based on content analysis.
  *
- *       The analysis is performed using the AI provider configured in the application settings.
+ *       The analysis is performed by the AI provider configured in the application settings, the
+ *       same one the scan uses. The existing tags, correspondents and document types are read from
+ *       Paperless-ngx. When the request carries an `id`, the token usage is recorded against it.
  *     tags:
  *       - Documents
  *       - API
@@ -8212,53 +8208,23 @@ router.post(
  *                 example: "Invoice from Acme Corp. Total amount: $125.00, Due date: 2023-08-15"
  *               existingTags:
  *                 type: array
- *                 description: List of existing tags in the system to help with tag matching
+ *                 description: Accepted but not read; the existing tags are taken from Paperless-ngx
  *                 items:
  *                   type: string
  *                 example: ["Invoice", "Finance", "Acme Corp"]
  *               id:
  *                 type: string
- *                 description: Optional document ID for tracking metrics
+ *                 description: Optional Paperless-ngx document ID; the token usage is recorded against it
  *                 example: "doc_123"
  *     responses:
  *       200:
- *         description: Document analysis results
+ *         description: |
+ *           The analysis result. A failed analysis is answered with status 200 as well, with
+ *           `error` set and `metrics` null.
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 correspondent:
- *                   type: string
- *                   description: Detected correspondent name
- *                   example: "Acme Corp"
- *                 title:
- *                   type: string
- *                   description: Suggested document title
- *                   example: "Acme Corp Invoice - August 2023"
- *                 tags:
- *                   type: array
- *                   description: Suggested tags for the document
- *                   items:
- *                     type: string
- *                   example: ["Invoice", "Finance"]
- *                 documentType:
- *                   type: string
- *                   description: Detected document type
- *                   example: "Invoice"
- *                 metrics:
- *                   type: object
- *                   description: Token usage metrics (when using OpenAI)
- *                   properties:
- *                     promptTokens:
- *                       type: number
- *                       example: 350
- *                     completionTokens:
- *                       type: number
- *                       example: 120
- *                     totalTokens:
- *                       type: number
- *                       example: 470
+ *               $ref: '#/components/schemas/AnalysisResult'
  *       400:
  *         description: Invalid request parameters
  *         content:
@@ -8266,7 +8232,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: Server error or AI provider not configured
+ *         description: Server error, e.g. Paperless-ngx could not be reached
  *         content:
  *           application/json:
  *             schema:
@@ -8290,71 +8256,25 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
         .json({ error: 'Valid content string is required' });
     }
 
-    if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
+    // The factory picks the provider the scan loop uses. Every provider
+    // answers with the same AnalysisResult; metrics need a document to be
+    // recorded against, and a failed analysis carries none.
+    const analysis = await AIServiceFactory.getService().analyzeDocument(
+      content,
+      existingTagsList,
+      existingCorrespondentList,
+      existingDocumentTypesList,
+      id
+    );
+    if (analysis.metrics && id) {
       await documentModel.addOpenAIMetrics(
         id,
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
+        analysis.metrics.promptTokens,
+        analysis.metrics.completionTokens,
+        analysis.metrics.totalTokens
       );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'custom') {
-      const analyzeDocument = await customService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'azure') {
-      const analyzeDocument = await azureService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'anthropic') {
-      // Through the factory, which owns the Claude service like every scan
-      // does. Its tokens are billed like OpenAI's, so they are recorded too.
-      const analyzeDocument =
-        await AIServiceFactory.getService().analyzeDocument(
-          content,
-          existingTagsList,
-          existingCorrespondentList,
-          existingDocumentTypesList,
-          id || []
-        );
-      if (analyzeDocument.metrics && id) {
-        await documentModel.addOpenAIMetrics(
-          id,
-          analyzeDocument.metrics.promptTokens,
-          analyzeDocument.metrics.completionTokens,
-          analyzeDocument.metrics.totalTokens
-        );
-      }
-      return res.json(analyzeDocument);
-    } else {
-      return res.status(500).json({ error: 'AI provider not configured' });
     }
+    return res.json(analysis);
   } catch (error) {
     console.error('Analysis error:', error);
     return res.status(500).json({ error: error.message });
@@ -10239,10 +10159,6 @@ router.post('/settings', express.json(), async (req, res) => {
       ...updatedConfig,
     };
 
-    // The route has already validated the submitted values (and Paperless
-    // reachability when its settings changed). Skip saveConfig's built-in
-    // validateConfig so saving does not live-test Paperless/AI on every save.
-    await setupService.saveConfig(mergedConfig, { skipValidation: true });
     try {
       for (const field of processedCustomFields) {
         await paperlessService.createCustomFieldSafely(
@@ -10252,8 +10168,16 @@ router.post('/settings', express.json(), async (req, res) => {
         );
       }
     } catch (error) {
-      console.log('[ERROR] Error creating custom fields:', error);
+      if (error.code === 'CUSTOM_FIELD_TYPE_MISMATCH') {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
     }
+
+    // The route has already validated the submitted values (and Paperless
+    // reachability when its settings changed). Skip saveConfig's built-in
+    // validateConfig so saving does not live-test Paperless/AI on every save.
+    await setupService.saveConfig(mergedConfig, { skipValidation: true });
 
     res.json({
       success: true,

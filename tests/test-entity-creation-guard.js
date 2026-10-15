@@ -24,6 +24,8 @@
  *  7. Restriction on plus no match drops the name as before
  *  8. Correspondents: a hard match maps, with "correspondent" in the line
  *  9. Correspondents: a typo-like match creates and hints
+ *  9a. Correspondents: a name holding every word of an existing one is
+ *      answered by the lookup cache and never reaches the guard
  * 10. Correspondents: restriction on plus a hard match maps
  * 11. One list read per kind per minute, whatever the number of documents
  * 12. A name created in between is in the guard's list without a new read
@@ -103,6 +105,17 @@ async function main() {
     paperlessService.correspondentNameCache.clear();
     paperlessService.lastCorrespondentRefresh = 0;
     paperlessService._invalidateGuardEntities();
+    // The lookup caches (CachedNameIdEnum) ask the AI provider about a name
+    // they cannot match by text. Offline that answer is "no match", so the
+    // guard is what decides.
+    for (const cache of [
+      paperlessService.tags,
+      paperlessService.correspondents,
+    ]) {
+      cache.ai_service = {
+        generateAnswer: async () => JSON.stringify({ match: null }),
+      };
+    }
     return fake;
   }
 
@@ -369,40 +382,65 @@ async function main() {
       await clearMappings();
 
       const { value, lines } = await withLog(() =>
-        paperlessService.getOrCreateCorrespondent('Amazon EU S.a.r.l.', {
+        paperlessService.getOrCreateCorrespondent('Amazom EU', {
           documentId: 91,
         })
       );
 
       assert.notStrictEqual(value.id, 90);
-      assert.ok(fake.correspondentNames().includes('Amazon EU S.a.r.l.'));
+      assert.ok(fake.correspondentNames().includes('Amazom EU'));
       assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
       assert.ok(
         duplicateLines(lines).some(
           (line) =>
             line ===
-            '[DUPLICATES] created correspondent "Amazon EU S.a.r.l." although "Amazon EU" is close (prefix, 0.85); not mapped.'
+            '[DUPLICATES] created correspondent "Amazom EU" although "Amazon EU" is close (fuzzy, 0.94); not mapped.'
         ),
         `no hint line:\n${duplicateLines(lines).join('\n')}`
       );
     });
 
-    await test('Correspondents: restriction on plus a hard match maps', async () => {
+    await test('Correspondents: the lookup cache maps a name holding every word of an existing one', async () => {
+      // A prefix match the guard would only hint at. The lookup cache has
+      // settled it already, so nothing is created and the guard records nothing.
       const fake = useFake({
-        correspondents: [{ id: 100, name: 'Telekom Deutschland' }],
+        correspondents: [{ id: 95, name: 'Amazon EU' }],
+      });
+      await clearMappings();
+
+      const { value, lines } = await withLog(() =>
+        paperlessService.getOrCreateCorrespondent('Amazon EU S.a.r.l.', {
+          documentId: 96,
+        })
+      );
+
+      assert.strictEqual(value.id, 95);
+      assert.deepStrictEqual(fake.correspondentNames(), ['Amazon EU']);
+      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.deepStrictEqual(duplicateLines(lines), []);
+    });
+
+    await test('Correspondents: restriction on plus a hard match maps', async () => {
+      // Another legal form rather than an added one: a name that only adds
+      // words is matched by the lookup cache before the guard runs.
+      const fake = useFake({
+        correspondents: [{ id: 100, name: 'Telekom Deutschland GmbH' }],
       });
       await clearMappings();
 
       const { value } = await withLog(() =>
-        paperlessService.getOrCreateCorrespondent('Telekom Deutschland GmbH', {
+        paperlessService.getOrCreateCorrespondent('Telekom Deutschland AG', {
           restrictToExistingCorrespondents: true,
           documentId: 101,
         })
       );
 
-      assert.deepStrictEqual(value, { id: 100, name: 'Telekom Deutschland' });
+      assert.deepStrictEqual(value, {
+        id: 100,
+        name: 'Telekom Deutschland GmbH',
+      });
       assert.deepStrictEqual(fake.correspondentNames(), [
-        'Telekom Deutschland',
+        'Telekom Deutschland GmbH',
       ]);
       const mappings = await documentModel.listEntityNameMappings();
       assert.strictEqual(mappings[0].reason, 'legal-form');
@@ -443,13 +481,13 @@ async function main() {
       const { lines } = await withLog(async () => {
         // Nothing matches this, so it is created ...
         const created = await paperlessService.getOrCreateCorrespondent(
-          'Telekom Deutschland',
+          'Telekom Deutschland GmbH',
           { documentId: 1 }
         );
         assert.ok(created.id > 0);
         // ... and the next document's proposal must find it.
         const mapped = await paperlessService.getOrCreateCorrespondent(
-          'Telekom Deutschland GmbH',
+          'Telekom Deutschland AG',
           { documentId: 2 }
         );
         assert.strictEqual(
@@ -471,7 +509,7 @@ async function main() {
       );
       assert.ok(
         duplicateLines(lines).some((line) =>
-          /mapped correspondent "Telekom Deutschland GmbH"/.test(line)
+          /mapped correspondent "Telekom Deutschland AG"/.test(line)
         )
       );
     });

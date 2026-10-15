@@ -31,6 +31,7 @@ function formatStatus(status) {
 }
 
 const TESTS = {
+  'cached-name-id-enum': 'test-cached-name-id-enum.js',
   'dashboard-stats-cache': 'test-dashboard-stats-cache.js',
   'document-type-restriction': 'test-document-type-restriction.js',
   'effective-document-count-cache': 'test-effective-document-count-cache.js',
@@ -62,6 +63,8 @@ const TESTS = {
   'document-metadata-batching': 'test-document-metadata-batching.js',
   'pr772-fix': 'test-pr772-fix.js',
   'ollama-response-limit': 'test-ollama-response-limit.js',
+  'ollama-upstream-error': 'test-ollama-upstream-error.js',
+  'predefined-retrigger': 'test-predefined-retrigger.js',
   'response-truncation-detection': 'test-response-truncation-detection.js',
   'ollama-temperature-wiring': 'test-ollama-temperature-wiring.js',
   'quickstart-model-classification': 'test-quickstart-model-classification.js',
@@ -80,6 +83,7 @@ const TESTS = {
   'setup-remote-guard': 'test-setup-remote-guard.js',
   'thumbnail-auth-guard': 'test-thumbnail-auth-guard.js',
   'thumbnail-startup-migration': 'test-thumbnail-startup-migration.js',
+  'thumbnail-optional-analysis': 'test-thumbnail-optional-analysis.js',
   'restriction-service': 'test-restriction-service.js',
   'updated-service': 'test-updated-service.js',
   'prompt-existing-data-serialization':
@@ -93,6 +97,16 @@ const TESTS = {
   'ai-temperature-config': 'test-ai-temperature-config.js',
   'custom-field-monetary-normalization':
     'test-custom-field-monetary-normalization.js',
+  'llm-analysis-result-contract': 'test-llm-analysis-result-contract.js',
+  'llm-document-analyzer': 'test-llm-document-analyzer.js',
+  'llm-ocr-fallback-phrases': 'test-llm-ocr-fallback-phrases.js',
+  'llm-prompt-builder': 'test-llm-prompt-builder.js',
+  'llm-response-parser': 'test-llm-response-parser.js',
+  'llm-token-budget': 'test-llm-token-budget.js',
+  'llm-transport-request-mapping': 'test-llm-transport-request-mapping.js',
+  'llm-azure-temperature-wiring': 'test-llm-azure-temperature-wiring.js',
+  'llm-provider-parity': 'test-llm-provider-parity.js',
+  'manual-analyze-route': 'test-manual-analyze-route.js',
   'custom-field-longtext': 'test-custom-field-longtext.js',
   'document-processing-service': 'test-document-processing-service.js',
   'settings-custom-field-type-conflict':
@@ -238,6 +252,7 @@ const AREAS = {
     'scanner-startup-resilience',
     'paperless-unreachable-banner',
     'thumbnail-startup-migration',
+    'thumbnail-optional-analysis',
     'ai-temperature-config',
     'custom-field-monetary-normalization',
     'custom-field-longtext',
@@ -246,6 +261,14 @@ const AREAS = {
     'ollama-token-metrics',
     'reconciliation-service',
     'settings-paperless-url-fallback',
+    'llm-analysis-result-contract',
+    'llm-document-analyzer',
+    'llm-ocr-fallback-phrases',
+    'llm-response-parser',
+    'llm-transport-request-mapping',
+    'llm-azure-temperature-wiring',
+    'llm-provider-parity',
+    'manual-analyze-route',
     'rescan-fetch-before-delete',
   ],
   prompts: [
@@ -253,6 +276,8 @@ const AREAS = {
     'updated-service',
     'prompt-existing-data-serialization',
     'restricted-document-types-placeholder',
+    'llm-prompt-builder',
+    'llm-token-budget',
     'token-limit-config',
     'truncate-returns-string',
   ],

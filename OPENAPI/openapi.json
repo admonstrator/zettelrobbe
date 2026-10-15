@@ -325,6 +325,7 @@
       },
       "AnalysisResult": {
         "type": "object",
+        "description": "What analyzeDocument() returns on every AI provider. A failed analysis is\nreturned, not thrown: `document` is then `{ tags: [], correspondent: null }`,\n`metrics` is null and `error` says why.\n",
         "properties": {
           "document": {
             "type": "object",
@@ -348,6 +349,7 @@
               },
               "correspondent": {
                 "type": "string",
+                "nullable": true,
                 "description": "Suggested correspondent name",
                 "example": "ABC Corporation"
               },
@@ -389,6 +391,8 @@
           },
           "metrics": {
             "type": "object",
+            "nullable": true,
+            "description": "Token usage of the analysis; null when it failed",
             "properties": {
               "promptTokens": {
                 "type": "integer",
@@ -407,9 +411,19 @@
               }
             }
           },
+          "truncated": {
+            "type": "boolean",
+            "description": "Whether the document content was cut to fit the token limit",
+            "example": false
+          },
           "error": {
             "type": "string",
             "description": "Error message if analysis failed",
+            "example": null
+          },
+          "errorCode": {
+            "type": "string",
+            "description": "Machine-readable reason of a failed analysis, when the provider gave one",
             "example": null
           }
         }
@@ -6715,7 +6729,7 @@
     "/manual/analyze": {
       "post": {
         "summary": "Analyze document content manually",
-        "description": "Analyzes document content using the configured AI provider and returns structured metadata.\nThis endpoint processes the document text to extract relevant information such as tags,\ncorrespondent, and document type based on content analysis.\n\nThe analysis is performed using the AI provider configured in the application settings.\n",
+        "description": "Analyzes document content using the configured AI provider and returns structured metadata.\nThis endpoint processes the document text to extract relevant information such as tags,\ncorrespondent, and document type based on content analysis.\n\nThe analysis is performed by the AI provider configured in the application settings, the\nsame one the scan uses. The existing tags, correspondents and document types are read from\nPaperless-ngx. When the request carries an `id`, the token usage is recorded against it.\n",
         "tags": [
           "Documents",
           "API"
@@ -6742,7 +6756,7 @@
                   },
                   "existingTags": {
                     "type": "array",
-                    "description": "List of existing tags in the system to help with tag matching",
+                    "description": "Accepted but not read; the existing tags are taken from Paperless-ngx",
                     "items": {
                       "type": "string"
                     },
@@ -6754,7 +6768,7 @@
                   },
                   "id": {
                     "type": "string",
-                    "description": "Optional document ID for tracking metrics",
+                    "description": "Optional Paperless-ngx document ID; the token usage is recorded against it",
                     "example": "doc_123"
                   }
                 }
@@ -6764,57 +6778,11 @@
         },
         "responses": {
           "200": {
-            "description": "Document analysis results",
+            "description": "The analysis result. A failed analysis is answered with status 200 as well, with\n`error` set and `metrics` null.\n",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "correspondent": {
-                      "type": "string",
-                      "description": "Detected correspondent name",
-                      "example": "Acme Corp"
-                    },
-                    "title": {
-                      "type": "string",
-                      "description": "Suggested document title",
-                      "example": "Acme Corp Invoice - August 2023"
-                    },
-                    "tags": {
-                      "type": "array",
-                      "description": "Suggested tags for the document",
-                      "items": {
-                        "type": "string"
-                      },
-                      "example": [
-                        "Invoice",
-                        "Finance"
-                      ]
-                    },
-                    "documentType": {
-                      "type": "string",
-                      "description": "Detected document type",
-                      "example": "Invoice"
-                    },
-                    "metrics": {
-                      "type": "object",
-                      "description": "Token usage metrics (when using OpenAI)",
-                      "properties": {
-                        "promptTokens": {
-                          "type": "number",
-                          "example": 350
-                        },
-                        "completionTokens": {
-                          "type": "number",
-                          "example": 120
-                        },
-                        "totalTokens": {
-                          "type": "number",
-                          "example": 470
-                        }
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/AnalysisResult"
                 }
               }
             }
@@ -6830,7 +6798,7 @@
             }
           },
           "500": {
-            "description": "Server error or AI provider not configured",
+            "description": "Server error, e.g. Paperless-ngx could not be reached",
             "content": {
               "application/json": {
                 "schema": {

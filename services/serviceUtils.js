@@ -339,7 +339,7 @@ const METADATA_ENDPOINTS = [
 ];
 
 function stripIpv6Brackets(value) {
-  return String(value || '').replace(/^\[|\]$/g, '');
+  return String(value || '').replace(/^\[|]$/g, '');
 }
 
 function normalizeIpAddress(ipAddress) {
@@ -639,6 +639,30 @@ function validateUrlAgainstBase(urlToValidate, expectedBaseUrl) {
     valid: true,
     relativePath: relativePath + parsedUrl.search,
   };
+}
+
+/**
+ * Safely extract the relative path from a pagination `next` URL, validating it
+ * against the base URL of the axios client that received it. This prevents SSRF
+ * by ensuring a server-controlled link cannot point anywhere but the configured
+ * Paperless-ngx origin.
+ *
+ * @param {string} nextUrl - The next URL from an API response
+ * @param {Object} client - Axios client whose defaults.baseURL is the expected origin
+ * @returns {string|null} The relative path if valid, null otherwise
+ */
+function safeExtractRelativePath(nextUrl, client) {
+  if (!nextUrl || !client?.defaults?.baseURL) {
+    return null;
+  }
+
+  const validation = validateUrlAgainstBase(nextUrl, client.defaults.baseURL);
+  if (!validation.valid) {
+    console.error(`[ERROR] URL validation failed: ${validation.error}`);
+    return null;
+  }
+
+  return validation.relativePath;
 }
 
 /**
@@ -1104,6 +1128,7 @@ module.exports = {
   validateUrl,
   validateApiUrl,
   validateUrlAgainstBase,
+  safeExtractRelativePath,
   createRedirectGuard,
   validateCustomFieldValue,
   assertCompletionNotTruncated,
