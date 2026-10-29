@@ -325,7 +325,10 @@ function anthropicMaxTokens(requested, configured) {
  * @returns {Anthropic}
  */
 function createAnthropicClient({ apiKey, apiUrl = '', timeoutMs } = {}) {
-  const clientOptions = { apiKey: String(apiKey || '') };
+  const clientOptions = {
+    apiKey: null,
+    defaultHeaders: { 'x-api-key': String(apiKey || '') },
+  };
   const baseURL = stripTrailingSlashes(String(apiUrl || '').trim());
   if (baseURL) clientOptions.baseURL = baseURL;
   if (typeof timeoutMs === 'number' && timeoutMs > 0) {
