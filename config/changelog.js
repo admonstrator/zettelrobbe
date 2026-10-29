@@ -162,7 +162,7 @@ const RELEASES = [
     entries: [
       'Security: The SSRF check now recognises IPv4-mapped IPv6 answers in every spelling.',
       'Security: The container image now requires Node.js 26.12.1 or newer, which closes the Brotli remote-code-execution flaw and the TLS certificate hostname bypasses of the October 2026 Node.js release.',
-      'Security: follow-redirects updated to 1.16.1, which no longer forwards Authorization headers across a cross-origin redirect',
+      'Security: Updated dependencies to newer versions',
       'Fix: A Paperless-ngx URL written as an IPv6 literal is accepted instead of failing',
       'New: Skip rules keep documents away from OCR and AI - see details in the settings page',
     ],
