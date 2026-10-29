@@ -162,7 +162,7 @@ function startFakeAnthropic() {
     const error = (status, type, message) =>
       send(status, { type: 'error', error: { type, message } });
 
-    if (req.headers['x-api-key'] !== GOOD_KEY) {
+    if (req.headers.authorization !== `Bearer ${GOOD_KEY}`) {
       return error(401, 'authentication_error', 'invalid x-api-key');
     }
     if (req.method === 'GET' && url.pathname === '/v1/models') {

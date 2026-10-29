@@ -325,10 +325,7 @@ function anthropicMaxTokens(requested, configured) {
  * @returns {Anthropic}
  */
 function createAnthropicClient({ apiKey, apiUrl = '', timeoutMs } = {}) {
-  const clientOptions = {
-    apiKey: null,
-    defaultHeaders: { 'x-api-key': String(apiKey || '') },
-  };
+  const clientOptions = { apiKey: String(apiKey || '') };
   const baseURL = stripTrailingSlashes(String(apiUrl || '').trim());
   if (baseURL) clientOptions.baseURL = baseURL;
   if (typeof timeoutMs === 'number' && timeoutMs > 0) {
@@ -345,9 +342,9 @@ const ANTHROPIC_DEFAULT_ORIGIN = 'https://api.anthropic.com';
  * ANTHROPIC_API_URL (empty means api.anthropic.com), or OCR_API_URL while
  * Claude is the OCR provider. A stored key is only substituted for an empty
  * key field when this holds; otherwise any signed-in caller could name their
- * own host and receive the saved key in the x-api-key header. Typed keys are
- * not affected. An empty URL passes: the request then goes to the configured
- * proxy or to api.anthropic.com, both of which already hold the key.
+ * own host and receive the saved key in the Authorization header. Typed keys
+ * are not affected. An empty URL passes: the request then goes to the
+ * configured proxy or to api.anthropic.com, both of which already hold the key.
  *
  * @param {string} requestedUrl - the URL the request names, empty for none
  * @param {NodeJS.ProcessEnv} [env]
