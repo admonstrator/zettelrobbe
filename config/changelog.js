@@ -4,7 +4,7 @@
 // latest release is shown in the modal; older blocks stay here as history.
 // Each entry is displayed as one bullet point in the modal.
 
-const RELEASES = [	
+const RELEASES = [
   {
     version: 'v2026.05.01',
     entries: [
