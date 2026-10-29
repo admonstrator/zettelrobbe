@@ -20,7 +20,7 @@
  * sequence message_start, content_block_start/delta/stop per block,
  * message_delta (stop reason, output tokens), message_stop.
  * `GET /v1/models/:id` knows the models in `models` and answers 404 for any
- * other. With `apiKey` set, a request with any other x-api-key gets 401.
+ * other. With `apiKey` set, a request with any other Bearer key gets 401.
  *
  * Every request is recorded with its body and headers, and every record knows
  * whether the client hung up before the answer was finished.
@@ -202,7 +202,10 @@ async function createFakeAnthropic(script = {}, options = {}) {
     });
     requests.push(record);
 
-    if (expectedKey && request.headers['x-api-key'] !== expectedKey) {
+    if (
+      expectedKey &&
+      request.headers.authorization !== `Bearer ${expectedKey}`
+    ) {
       sendJson(response, 401, errorBody(401, 'invalid x-api-key'));
       return;
     }
@@ -361,7 +364,7 @@ async function createFakeAnthropic(script = {}, options = {}) {
       scripts = Array.isArray(next) ? next.slice() : [next];
       served = 0;
     },
-    /** Requires this x-api-key from now on; null accepts any. */
+    /** Requires this Bearer API key from now on; null accepts any. */
     setApiKey(key) {
       expectedKey = key || null;
     },
