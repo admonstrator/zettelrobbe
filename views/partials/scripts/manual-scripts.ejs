@@ -2,6 +2,8 @@
 // Global Variables
 let availableTags = [];
 let currentDocument = null;
+let documentSelectionVersion = 0;
+let suggestedTitle = null;
 let currentCorrespondent = null;
 let isUpdating = false;
 let manualSearchController = null;
@@ -147,8 +149,26 @@ function updateTitleDisplay(title) {
         titleName.textContent = title.name || title;
         titleInfo.classList.remove('hidden');
     } else {
+        titleName.textContent = '';
         titleInfo.classList.add('hidden');
     }
+}
+
+function updateMetadataSuggestions(analysis = {}) {
+    suggestedTitle = typeof analysis.title === 'string' && analysis.title.trim()
+        ? analysis.title : null;
+    document.getElementById('suggestedTitle').textContent = suggestedTitle || '';
+    document.getElementById('suggestedTitleInfo').classList.toggle('hidden', !suggestedTitle);
+    const documentType = typeof analysis.document_type === 'string' ? analysis.document_type : '';
+    document.getElementById('suggestedDocumentType').textContent = documentType;
+    document.getElementById('suggestedDocumentTypeInfo').classList.toggle('hidden', !documentType);
+}
+
+function resolveTitleSuggestion(accept) {
+    if (accept && suggestedTitle) updateTitleDisplay(suggestedTitle);
+    suggestedTitle = null;
+    document.getElementById('suggestedTitle').textContent = '';
+    document.getElementById('suggestedTitleInfo').classList.add('hidden');
 }
 
 function updateSuggestedTags(tags) {
@@ -255,6 +275,13 @@ function setDocumentActionsEnabled(enabled) {
 
 // Document Handling Functions
 async function handleDocumentSelection(documentId) {
+    const selectionVersion = ++documentSelectionVersion;
+    currentDocument = null;
+    setDocumentActionsEnabled(false);
+    updateMetadataSuggestions();
+    updateTitleDisplay(null);
+    updateCorrespondentDisplay(null);
+    document.getElementById('aiStatus').classList.add('hidden');
     if (!documentId) {
         setDocumentActionsEnabled(false);
         document.getElementById('contentPreview').textContent = '';
@@ -264,13 +291,11 @@ async function handleDocumentSelection(documentId) {
         return;
     }
 
-    currentDocument = documentId;
-    setDocumentActionsEnabled(true);
-    
     try {
         const response = await fetch(`/manual/preview/${documentId}`);
         if (!response.ok) throw new Error('Failed to fetch document content');
         const data = await response.json();
+        if (selectionVersion !== documentSelectionVersion) return;
         
         if (!data.content) {
             throw new Error('Document content is missing');
@@ -295,8 +320,10 @@ async function handleDocumentSelection(documentId) {
 
         updateCorrespondentDisplay(data.correspondent);
         updateTitleDisplay(data.title);
+        currentDocument = documentId;
+        setDocumentActionsEnabled(true);
     } catch (error) {
-        showMessage('Error loading document content: ' + error.message);
+        if (selectionVersion === documentSelectionVersion) showMessage('Error loading document content: ' + error.message);
     }
 }
 
@@ -304,7 +331,10 @@ async function handleDocumentSelection(documentId) {
 async function handleAnalysis() {
     if (!currentDocument) return;
 
+    const selectionVersion = documentSelectionVersion;
+    updateMetadataSuggestions();
     const aiStatus = document.getElementById('aiStatus');
+    document.getElementById('analyzeBtn').disabled = true;
     aiStatus.classList.remove('hidden');
     
     try {
@@ -344,6 +374,7 @@ async function handleAnalysis() {
         }
 
         const result = await response.json();
+        if (selectionVersion !== documentSelectionVersion) return;
 
         let suggestedTags = [];
         if (result.document && result.document.tags) {
@@ -357,14 +388,18 @@ async function handleAnalysis() {
 
         if (result.document && result.document.correspondent) {
             updateCorrespondentDisplay(result.document.correspondent);
-            updateTitleDisplay(result.document.title);
         }
+        updateMetadataSuggestions(result.document || {});
         showMessage('Analysis completed successfully', 'success');
     } catch (error) {
+        if (selectionVersion !== documentSelectionVersion) return;
         showMessage('Error during analysis: ' + error.message);
         console.error('Analysis error:', error);
     } finally {
-        aiStatus.classList.add('hidden');
+        if (selectionVersion === documentSelectionVersion) {
+            aiStatus.classList.add('hidden');
+            document.getElementById('analyzeBtn').disabled = !currentDocument;
+        }
     }
 }
 
@@ -398,7 +433,7 @@ async function updateDocumentTags() {
         }
 
         const result = await response.json();
-        showMessage('Tags updated successfully', 'success');
+        showMessage('Changes saved successfully', 'success');
     } catch (error) {
         showMessage('Error updating tags: ' + error.message);
         console.error('Update error:', error);
@@ -410,6 +445,8 @@ async function updateDocumentTags() {
 
 document.addEventListener('DOMContentLoaded', function() {
     initializeManualOmnibox();
+    document.getElementById('acceptTitleBtn').addEventListener('click', () => resolveTitleSuggestion(true));
+    document.getElementById('declineTitleBtn').addEventListener('click', () => resolveTitleSuggestion(false));
 
     document.getElementById('analyzeBtn').addEventListener('click', handleAnalysis);
     document.getElementById('saveTagsBtn').addEventListener('click', updateDocumentTags);

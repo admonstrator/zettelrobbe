@@ -170,6 +170,7 @@ const TESTS = {
   'ocr-provider-anthropic': 'test-ocr-provider-anthropic.js',
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'session-guard': 'test-session-guard.js',
+  'manual-metadata-review': 'test-manual-metadata-review.js',
 };
 
 const AREAS = {

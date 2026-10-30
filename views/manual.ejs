@@ -80,6 +80,19 @@
                                     <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
                                     Analyze with AI
                                 </button>
+                                <div id="suggestedDocumentTypeInfo" class="zr-kv hidden">
+                                    <span class="zr-kv__k">Suggested document type</span>
+                                    <span id="suggestedDocumentType" class="zr-kv__v"></span>
+                                </div>
+                                <div id="suggestedTitleInfo" class="zr-col hidden" aria-live="polite">
+                                    <span class="zr-label">Suggested title</span>
+                                    <span id="suggestedTitle"></span>
+                                    <div class="zr-row">
+                                        <button id="acceptTitleBtn" type="button" class="zr-btn">Accept title</button>
+                                        <button id="declineTitleBtn" type="button" class="zr-btn">Decline title</button>
+                                    </div>
+                                </div>
+                                <p class="zr-sm zr-muted">Accepted titles are applied when you save changes. The suggested document type is for review only.</p>
                                 <div id="aiStatus" class="zr-row zr-sm zr-muted hidden" role="status">
                                     <svg class="zr-icon zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
                                     AI is analyzing the document...
@@ -95,7 +108,7 @@
                                     <!-- Enabled once a document is selected; there is
                                          nothing to save before that. -->
                                     <button id="saveTagsBtn" type="button" class="zr-btn zr-btn--primary" disabled>
-                                        Save Tags
+                                        Save Changes
                                     </button>
                                 </div>
                             </div>
@@ -117,7 +130,7 @@
                                         <select id="newTagSelect" class="zr-select zr-grow" disabled>
                                             <option value="">Select a tag...</option>
                                         </select>
-                                        <!-- Quiet: Save Tags is the one primary action here. -->
+                                        <!-- Quiet: Save Changes is the one primary action here. -->
                                         <button id="addTagBtn" type="button" class="zr-btn" disabled aria-label="Add tag">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
                                         </button>
