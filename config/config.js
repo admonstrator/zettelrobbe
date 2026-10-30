@@ -688,6 +688,12 @@ module.exports = {
     apiUrl: process.env.CUSTOM_BASE_URL || '',
     apiKey: process.env.CUSTOM_API_KEY || '',
     model: process.env.CUSTOM_MODEL || '',
+    // reasoning_effort for every request, as the endpoint spells it (Mistral
+    // takes low|high|max for GLM). Empty sends nothing; a model that does not
+    // know the field answers 400, so it is strictly opt-in.
+    reasoningEffort: String(process.env.CUSTOM_REASONING_EFFORT || '')
+      .trim()
+      .toLowerCase(),
   },
   azure: {
     apiKey: process.env.AZURE_API_KEY || '',

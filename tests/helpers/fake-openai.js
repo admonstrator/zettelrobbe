@@ -11,9 +11,10 @@
  * real thing breaks. So the tests talk to a server on an ephemeral port, and
  * what that server says is a script the test writes:
  *
- *   content chunks, reasoning_content chunks, a <think> block inside the
- *   content, a finish_reason of stop or length, a usage chunk or none, and a
- *   delay before each chunk so a test can stop a request in the middle of one.
+ *   content chunks, reasoning_content chunks, Mistral thinking chunks, a
+ *   <think> block inside the content, a finish_reason of stop or length, a
+ *   usage chunk or none, and a delay before each chunk so a test can stop a
+ *   request in the middle of one.
  *
  * The same script answers a non-streaming request as one whole completion, so
  * "the streamed answer is the answer" can be asserted against one fixture.
@@ -38,6 +39,9 @@ const DEFAULT_MODEL = 'fake-model';
  * @typedef {object} FakeOpenAIChunk
  * @property {string} [content]    a piece of the answer
  * @property {string} [reasoning]  a piece the API delivers as reasoning_content
+ * @property {string} [thinking]   a piece Mistral delivers as a thinking chunk
+ *   inside content; any of them turns a plain answer's content into
+ *   Mistral's chunk list
  * @property {number} [delayMs]    wait this long before sending it
  */
 
@@ -73,11 +77,18 @@ function normalizeScript(script) {
 function assemble(script) {
   let content = '';
   let reasoning = '';
+  let thinking = '';
   for (const chunk of script.chunks) {
     if (typeof chunk?.content === 'string') content += chunk.content;
     if (typeof chunk?.reasoning === 'string') reasoning += chunk.reasoning;
+    if (typeof chunk?.thinking === 'string') thinking += chunk.thinking;
   }
-  return { content, reasoning };
+  return { content, reasoning, thinking };
+}
+
+/** One thinking chunk the way Mistral writes it. */
+function mistralThinkingChunk(text) {
+  return { type: 'thinking', thinking: [{ type: 'text', text }] };
 }
 
 function readBody(request) {
@@ -164,9 +175,13 @@ async function createFakeOpenAI(script = {}) {
       return;
     }
 
-    const { content, reasoning } = assemble(plan);
+    const { content, reasoning, thinking } = assemble(plan);
     const message = { role: 'assistant', content };
     if (reasoning !== '') message.reasoning_content = reasoning;
+    if (thinking !== '') {
+      message.content = [mistralThinkingChunk(thinking)];
+      if (content !== '') message.content.push({ type: 'text', text: content });
+    }
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(
       JSON.stringify({
@@ -218,6 +233,11 @@ async function createFakeOpenAI(script = {}) {
       if (typeof chunk?.content === 'string') delta.content = chunk.content;
       if (typeof chunk?.reasoning === 'string') {
         delta.reasoning_content = chunk.reasoning;
+      }
+      if (typeof chunk?.thinking === 'string') {
+        delta.content = [
+          { ...mistralThinkingChunk(chunk.thinking), closed: true },
+        ];
       }
       if (!send(frame(delta))) return;
     }

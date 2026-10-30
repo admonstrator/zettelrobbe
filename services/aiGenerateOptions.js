@@ -4,6 +4,7 @@ const {
   assertCompletionNotTruncated,
   estimateTokenCount,
   jsonFromText,
+  splitChatContent,
 } = require('./serviceUtils');
 const {
   assertAnthropicCompleted,
@@ -324,11 +325,14 @@ function createReasoningSplitter() {
  * Used on the whole content of a plain, unstreamed answer; the streaming path
  * gets the same result from the splitter above.
  *
- * @param {unknown} text
+ * Content that arrives as Mistral's chunk list keeps its text chunks only.
+ *
+ * @param {unknown} content
  * @returns {string}
  */
-function stripReasoningText(text) {
-  if (typeof text !== 'string' || text === '') return '';
+function stripReasoningText(content) {
+  const text = splitChatContent(content).text;
+  if (text === '') return '';
   const splitter = createReasoningSplitter();
   splitter.push(text);
   splitter.end();
@@ -535,7 +539,11 @@ async function consumeChatCompletionStream(stream, collector, signal = null) {
     if (signal?.aborted) break;
     const choice = chunk?.choices?.[0];
     const delta = choice?.delta;
-    collector.pushContent(delta?.content);
+    // Mistral streams a reasoning model's thoughts as a chunk list in
+    // content; its answer comes as plain strings, which pass through as is.
+    const parts = splitChatContent(delta?.content);
+    collector.pushContent(parts.text);
+    collector.pushReasoning(parts.reasoning);
     // reasoning_content is what vLLM and its kin send; reasoning is the
     // spelling of the servers that followed the other example.
     collector.pushReasoning(

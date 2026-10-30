@@ -170,6 +170,7 @@ const TESTS = {
   'ocr-provider-anthropic': 'test-ocr-provider-anthropic.js',
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'session-guard': 'test-session-guard.js',
+  'mistral-content-chunks': 'test-mistral-content-chunks.js',
 };
 
 const AREAS = {
@@ -251,6 +252,7 @@ const AREAS = {
     'reconciliation-service',
     'settings-paperless-url-fallback',
     'rescan-fetch-before-delete',
+    'mistral-content-chunks',
   ],
   prompts: [
     'restriction-service',

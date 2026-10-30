@@ -1068,6 +1068,56 @@ function jsonFromText(text) {
 }
 
 /**
+ * The text of one thinking chunk, which Mistral spells as a list of text
+ * parts and a few gateways as a plain string.
+ *
+ * @param {unknown} thinking
+ * @returns {string}
+ */
+function thinkingChunkText(thinking) {
+  if (typeof thinking === 'string') return thinking;
+  if (!Array.isArray(thinking)) return '';
+  return thinking
+    .map((part) =>
+      typeof part === 'string'
+        ? part
+        : typeof part?.text === 'string'
+          ? part.text
+          : ''
+    )
+    .join('');
+}
+
+/**
+ * A chat message's content split into the answer and the model's reasoning.
+ *
+ * Most OpenAI-compatible servers send the content as a string. Mistral sends
+ * a list of chunks for a reasoning model instead — `{ type: 'thinking' }`
+ * chunks with the thoughts and `{ type: 'text' }` chunks with the answer —
+ * both in a plain answer and in each streamed delta. A string comes back as
+ * the answer unchanged; anything else is no answer at all.
+ *
+ * @param {unknown} content
+ * @returns {{ text: string, reasoning: string }}
+ */
+function splitChatContent(content) {
+  if (typeof content === 'string') return { text: content, reasoning: '' };
+  if (!Array.isArray(content)) return { text: '', reasoning: '' };
+  let text = '';
+  let reasoning = '';
+  for (const part of content) {
+    if (typeof part === 'string') {
+      text += part;
+    } else if (part?.type === 'thinking') {
+      reasoning += thinkingChunkText(part.thinking);
+    } else if (part?.type === 'text' && typeof part.text === 'string') {
+      text += part.text;
+    }
+  }
+  return { text, reasoning };
+}
+
+/**
  * Extracts assistant message content from OpenAI-compatible responses.
  * Falls back to extracting JSON from reasoning_content when content is empty.
  *
@@ -1079,8 +1129,8 @@ function extractChatMessageContent(
   message,
   providerLabel = 'OpenAI-compatible'
 ) {
-  const content =
-    typeof message?.content === 'string' ? message.content.trim() : '';
+  const parts = splitChatContent(message?.content);
+  const content = parts.text.trim();
   if (content) {
     return content;
   }
@@ -1088,7 +1138,7 @@ function extractChatMessageContent(
   const reasoningContent =
     typeof message?.reasoning_content === 'string'
       ? message.reasoning_content.trim()
-      : '';
+      : parts.reasoning.trim();
   if (!reasoningContent) {
     return '';
   }
@@ -1200,6 +1250,7 @@ module.exports = {
   shouldQueueForOcrOnAiError,
   classifyOcrQueueReasonFromAiError,
   extractChatMessageContent,
+  splitChatContent,
   jsonFromText,
   isTimeoutError,
   buildTimeoutErrorMessage,

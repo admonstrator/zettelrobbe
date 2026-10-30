@@ -52,6 +52,26 @@ const TRUNCATION_REMEDY = 'Raise Response Tokens (RESPONSE_TOKENS).';
 const QWEN_NO_THINK_SWITCH = '/no_think';
 /** Models that understand the line above. */
 const QWEN_MODEL_PATTERN = /qwen/i;
+/**
+ * Hosts whose API validates the request body and answers 422 for a field it
+ * does not know — `chat_template_kwargs` included, which every other server
+ * passes through.
+ */
+const STRICT_BODY_HOST_PATTERN = /(?:^|\.)mistral\.ai$/i;
+
+/**
+ * Whether the endpoint behind this base URL can be sent chat_template_kwargs.
+ *
+ * @param {unknown} baseURL
+ * @returns {boolean}
+ */
+function takesChatTemplateKwargs(baseURL) {
+  try {
+    return !STRICT_BODY_HOST_PATTERN.test(new URL(String(baseURL)).hostname);
+  } catch {
+    return true;
+  }
+}
 
 class CustomOpenAIService {
   constructor() {
@@ -377,7 +397,7 @@ class CustomOpenAIService {
       // console.log(`[DEBUG] External API data: ${validatedExternalApiData}`);
       // console.log('######################################################################');
 
-      const response = await this.client.chat.completions.create({
+      const request = {
         model: model,
         messages: [
           {
@@ -390,7 +410,11 @@ class CustomOpenAIService {
           },
         ],
         temperature: config.aiTemperatureAnalysis,
-      });
+      };
+      if (config.custom.reasoningEffort) {
+        request.reasoning_effort = config.custom.reasoningEffort;
+      }
+      const response = await this.client.chat.completions.create(request);
 
       // Handle response
       //console.log(`MESSAGE: ${response?.choices?.[0]?.message?.content}`);
@@ -587,17 +611,25 @@ class CustomOpenAIService {
       };
       // The key every OpenAI-compatible server that applies a chat template
       // understands; one that does not know it passes it through and the
-      // model decides for itself, as it did before.
-      if (reasoning !== null) {
+      // model decides for itself, as it did before. A strict host rejects the
+      // whole request for it instead.
+      if (reasoning !== null && takesChatTemplateKwargs(this.client.baseURL)) {
         request.chat_template_kwargs = { enable_thinking: reasoning };
       }
       // A hosted reasoning model reads neither of the two above and thinks
       // anyway; the families that take reasoning_effort are told in their own
       // dialect. Only when the caller asked for no thinking, and only for
-      // those names — another model answers 400 for the field.
+      // those names — another model answers 400 for the field. An operator
+      // who set CUSTOM_REASONING_EFFORT has said the endpoint knows the field:
+      // their value goes out, and 'low' when the caller wants no thinking.
+      const operatorEffort = config.custom.reasoningEffort;
       if (reasoning === false) {
-        const effort = reasoningEffortForCompatible(model);
+        const effort =
+          reasoningEffortForCompatible(model) ||
+          (operatorEffort ? 'low' : null);
         if (effort) request.reasoning_effort = effort;
+      } else if (operatorEffort) {
+        request.reasoning_effort = operatorEffort;
       }
 
       this.lastGenerateTextUsage = null;
