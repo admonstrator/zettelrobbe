@@ -248,27 +248,39 @@ class TidyUpRunService {
    * @returns {Promise<{modelAvailable:boolean, modelLabel:string, splitsAvailable:boolean, counts:{tags:number, correspondents:number}, lastRun:{when:string, accepted:number}|null}>}
    */
   async pageLocals() {
-    // One small request per kind, in parallel and with a short deadline: the
-    // page must come up at once, and a slow or unreachable Paperless-ngx only
-    // costs the numbers on the start screen, never the page.
-    const countOf = async (kind) => {
-      const deadline = new Promise((resolve) =>
-        setTimeout(() => resolve(0), PAGE_COUNT_TIMEOUT_MS).unref?.()
-      );
-      try {
-        return await Promise.race([
-          this._paperless().countEntities(kind),
-          deadline,
-        ]);
-      } catch {
-        return 0;
-      }
-    };
-    const [tags, correspondents] = await Promise.all([
-      countOf('tags'),
-      countOf('correspondents'),
-    ]);
-    const counts = { tags, correspondents };
+    // The dashboard keeps both numbers in memory and refreshes them in the
+    // background; the page takes what is there. Only a process that has not
+    // built its dashboard yet asks Paperless-ngx itself: one small request per
+    // kind, in parallel, with a short deadline, 0 when it does not answer in
+    // time. The page itself never waits longer than that.
+    const dashboard = require('./dashboardStatsService');
+    const peeked =
+      typeof dashboard.peekEntityCounts === 'function'
+        ? dashboard.peekEntityCounts()
+        : null;
+    let counts;
+    if (peeked) {
+      counts = { tags: peeked.tags, correspondents: peeked.correspondents };
+    } else {
+      const countOf = async (kind) => {
+        const deadline = new Promise((resolve) =>
+          setTimeout(() => resolve(0), PAGE_COUNT_TIMEOUT_MS).unref?.()
+        );
+        try {
+          return await Promise.race([
+            this._paperless().countEntities(kind),
+            deadline,
+          ]);
+        } catch {
+          return 0;
+        }
+      };
+      const [tags, correspondents] = await Promise.all([
+        countOf('tags'),
+        countOf('correspondents'),
+      ]);
+      counts = { tags, correspondents };
+    }
     return {
       modelAvailable: this.modelAvailable(),
       modelLabel: this.modelLabel() || '',

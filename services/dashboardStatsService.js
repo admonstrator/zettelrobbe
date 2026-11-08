@@ -127,6 +127,24 @@ class DashboardStatsService {
    * @param {{force?: boolean}} [options]
    * @returns {Promise<{payload: object, cachedAt: number}>} cached or freshly built stats
    */
+  /**
+   * The tag and correspondent counts the cache holds right now, without
+   * waiting for anything: null when nothing has been built yet. The Tidy up
+   * start screen reads these; a page must never wait on Paperless-ngx for
+   * two numbers the dashboard already keeps.
+   *
+   * @returns {{tags:number, correspondents:number, cachedAt:number}|null}
+   */
+  peekEntityCounts() {
+    const data = this.cache?.paperless_data;
+    if (!data) return null;
+    return {
+      tags: Number(data.tagCount) || 0,
+      correspondents: Number(data.correspondentCount) || 0,
+      cachedAt: this.cachedAt || 0,
+    };
+  }
+
   async getStats({ force = false } = {}) {
     if (!force && this.isFresh()) {
       return { payload: this.cache, cachedAt: this.cachedAt };
