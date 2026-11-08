@@ -165,4 +165,12 @@
     width: 11px;
     height: 11px;
   }
+  /* A list pinned by the environment cannot be edited on the page, so its
+     chips show no remove control (settings.js sets data-locked). */
+  .zr-chips[data-locked] .zr-chip {
+    padding-right: 8px;
+  }
+  .zr-chips[data-locked] .zr-chip button {
+    display: none;
+  }
 }

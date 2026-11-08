@@ -364,8 +364,14 @@ class TagsManager {
     });
   }
 
+  // Set by the environment lock (lockChipField): the list is read-only.
+  isLocked() {
+    return this.tagsContainer?.dataset?.locked === 'true';
+  }
+
   initializeTagRemoval(button) {
     button.addEventListener('click', async () => {
+      if (this.isLocked()) return;
       const result = await zrDialog({
         title: `Remove ${this.noun}`,
         text: `Are you sure you want to remove this ${this.noun}?`,
@@ -391,7 +397,7 @@ class TagsManager {
   }
 
   async addTag() {
-    if (!this.tagInput) return;
+    if (!this.tagInput || this.tagInput.disabled || this.isLocked()) return;
 
     const tagText = this.tagInput.value.trim();
     const specialChars = /[,;:\n\r\\/]/;
@@ -430,6 +436,7 @@ class TagsManager {
     // Matches the server-rendered chips in settings.ejs; an added chip used to
     // get an unstyled remove button next to styled ones.
     removeButton.className = 'zr-link';
+    removeButton.disabled = this.isLocked();
     removeButton.innerHTML =
       '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>';
 
@@ -534,7 +541,12 @@ function initializeCoreSettings() {
     'ignoreTitlePatternAddButton',
     'title pattern'
   );
-  new TagsManager('promptTagInput', 'promptTagsContainer', 'promptTags');
+  new TagsManager(
+    'promptTagInput',
+    'promptTagsContainer',
+    'promptTags',
+    'promptTagAddButton'
+  );
   new PromptManager();
 }
 
@@ -2910,6 +2922,26 @@ function annotateEnvKeys(fieldMappings) {
   });
 }
 
+/* A chip field is more than its text input: the Add button next to it and
+   the remove control on every chip edit the list as well. When the input is
+   locked, the whole field is — otherwise a pinned list could still be changed
+   on the page and the save would silently drop the change, because a
+   protected key is never written. The chip list carries data-locked, which
+   TagsManager and the chip styles honour. A field without a chip list is
+   left alone; its buttons (reveal, fetch models) do not write the value. */
+function lockChipField(fieldElement) {
+  const field = fieldElement.closest('.zr-field');
+  const chipLists = field ? [...field.querySelectorAll('.zr-chips')] : [];
+  if (chipLists.length === 0) return;
+  chipLists.forEach((chips) => {
+    chips.dataset.locked = 'true';
+  });
+  field.querySelectorAll('button').forEach((button) => {
+    button.disabled = true;
+    button.setAttribute('aria-disabled', 'true');
+  });
+}
+
 /* A field whose value the container pins is locked: disabled, its value
    left visible, and its hint says where the value comes from. The keys come
    from #setupForm (data-locked-env-keys, rendered by GET /settings). */
@@ -2932,6 +2964,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#scanInterval', envKey: 'SCAN_INTERVAL' },
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },
     { selector: '#showTags', envKey: 'PROCESS_PREDEFINED_DOCUMENTS' },
+    { selector: '#tagInput', envKey: 'TAGS' },
     { selector: '#ignoreTagInput', envKey: 'IGNORE_TAGS' },
     {
       selector: '#removeInboxTagsAfterProcessing',
@@ -2976,6 +3009,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#aiProcessedTag', envKey: 'ADD_AI_PROCESSED_TAG' },
     { selector: '#aiTagName', envKey: 'AI_PROCESSED_TAG_NAME' },
     { selector: '#usePromptTags', envKey: 'USE_PROMPT_TAGS' },
+    { selector: '#promptTagInput', envKey: 'PROMPT_TAGS' },
     { selector: '#systemPrompt', envKey: 'SYSTEM_PROMPT' },
     {
       selector: '#restrictToExistingTags',
@@ -3159,6 +3193,7 @@ function initializeRuntimeOverridePills() {
     // visible toggle is locked along with its hidden yes/no input.
     fieldElement.disabled = true;
     fieldElement.setAttribute('aria-disabled', 'true');
+    lockChipField(fieldElement);
 
     const note = `Set by the environment (${envKey}).`;
     const tile = fieldElement.closest('.zr-checktile');

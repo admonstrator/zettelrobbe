@@ -126,6 +126,7 @@ const TESTS = {
   'setup-ocr-disabled-skip': 'test-setup-ocr-disabled-skip.js',
   'setup-route-security': 'test-setup-route-security.js',
   'setup-wizard-tag-default': 'test-setup-wizard-tag-default.js',
+  'setup-wizard-remove-inbox': 'test-setup-wizard-remove-inbox.js',
   'setupservice-ocr-validation': 'test-setupservice-ocr-validation.js',
   'csrf-token-refresh': 'test-csrf-token-refresh.js',
   'redirect-guard': 'test-redirect-guard.js',
@@ -274,6 +275,7 @@ const AREAS = {
     'settings-quickstart-persistence',
     'runtime-first-setup-state',
     'setup-wizard-tag-default',
+    'setup-wizard-remove-inbox',
     'setup-preset-manual-reset',
   ],
   security: [
