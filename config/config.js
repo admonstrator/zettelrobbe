@@ -698,6 +698,17 @@ defineLive(module.exports, {
     ),
   addAIProcessedTag: () => env('ADD_AI_PROCESSED_TAG', 'no'),
   addAIProcessedTags: () => env('AI_PROCESSED_TAG_NAME', 'ai-processed'),
+  // Tags taken off a document when its analysis is written back, so a
+  // document the analysis filed is done. The switch covers every tag
+  // Paperless-ngx marks as inbox tag; the list names further tags, matched
+  // case-insensitively.
+  removeInboxTagsAfterProcessing: () =>
+    envBool('REMOVE_INBOX_TAGS_AFTER_PROCESSING', 'no'),
+  removeTagsAfterProcessing: () =>
+    String(process.env.REMOVE_TAGS_AFTER_PROCESSING || '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean),
   // Duplicates page: the configured AI provider may judge candidate pairs on
   // request (Find duplicates, Ask the model). `no` keeps the model off the
   // page, which then scans only; nothing runs on its own either way. The

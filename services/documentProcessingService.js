@@ -67,6 +67,14 @@ class DocumentProcessingService {
         console.warn('[ERROR] Some tags could not be processed:', errors);
       }
       updateData.tags = tagIds;
+    } else if (
+      config.removeInboxTagsAfterProcessing === 'yes' ||
+      (config.removeTagsAfterProcessing || []).length > 0
+    ) {
+      // No tag of its own to add, but tags to take off: an empty list keeps
+      // the document's tags and lets updateDocument() remove the configured
+      // ones, so a document is done whether or not the analysis tags it.
+      updateData.tags = [];
     }
 
     // Only process title if title generation is activated

@@ -877,6 +877,36 @@
                                         </div>
                                         <input type="hidden" id="ignoreTags" name="ignoreTags" value="<%= Array.isArray(config.IGNORE_TAGS) ? config.IGNORE_TAGS.join(',') : '' %>">
                                     </div>
+
+                                    <%- include('partials/settings-switch', {
+                                        id: 'removeInboxTagsAfterProcessing',
+                                        label: 'Remove the inbox tag when a document is done',
+                                        hint: 'Paperless-ngx marks the tags it uses as inbox; every one of them is taken off a document once the analysis was written. Use it when you let the analysis file documents on its own.',
+                                        checked: config.REMOVE_INBOX_TAGS_AFTER_PROCESSING === 'yes'
+                                    }) %>
+
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="removeTagInput" class="zr-field__name">Also remove these tags</label>
+                                        <div class="zr-inputgroup">
+                                            <input type="text" id="removeTagInput" class="zr-input" placeholder="Tag name, then Enter">
+                                            <button type="button" id="removeTagAddButton" class="zr-btn zr-btn--primary">
+                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
+                                                Add
+                                            </button>
+                                        </div>
+                                        <div id="removeTagsContainer" class="zr-chips">
+                                            <% if (config.REMOVE_TAGS_AFTER_PROCESSING && Array.isArray(config.REMOVE_TAGS_AFTER_PROCESSING) && config.REMOVE_TAGS_AFTER_PROCESSING.length > 0) { %>
+                                                <% config.REMOVE_TAGS_AFTER_PROCESSING.forEach(tag => { %>
+                                                    <div class="zr-chip">
+                                                        <span><%= tag %></span>
+                                                        <button type="button" class="zr-link"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
+                                                    </div>
+                                                <% }); %>
+                                            <% } %>
+                                        </div>
+                                        <input type="hidden" id="removeTags" name="removeTags" value="<%= Array.isArray(config.REMOVE_TAGS_AFTER_PROCESSING) ? config.REMOVE_TAGS_AFTER_PROCESSING.join(',') : '' %>">
+                                        <p class="zr-field__hint">Taken off a document after a successful analysis, whatever the analysis proposed.</p>
+                                    </div>
                                     </div>
                                 </section>
                         <%- entryClose() %>
