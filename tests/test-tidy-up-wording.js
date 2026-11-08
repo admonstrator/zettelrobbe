@@ -563,5 +563,118 @@ test('recentChangeSentence: one row of the merge log in a sentence', () => {
   }
 });
 
+test('activitySentence: what a decide or undo is doing, in a sentence', () => {
+  const current = (headline, kind = 'merge') => ({
+    id: 'x',
+    ids: ['x'],
+    kind,
+    headline,
+  });
+  const cases = [
+    [
+      {
+        kind: 'accept',
+        total: 9,
+        done: 1,
+        current: current('Merge Invoices into invoice'),
+      },
+      'Merging Invoices into invoice… 2 of 9',
+    ],
+    [
+      {
+        kind: 'accept',
+        total: 1,
+        done: 0,
+        current: current('Merge Invoices into invoice'),
+      },
+      'Merging Invoices into invoice…',
+    ],
+    [
+      {
+        kind: 'accept',
+        total: 2,
+        done: 0,
+        current: current('Are Steuerberatr and Steuerberater the same thing?'),
+      },
+      'Merging Steuerberatr into Steuerberater… 1 of 2',
+    ],
+    [
+      {
+        kind: 'accept',
+        total: 3,
+        done: 2,
+        current: current(
+          'Split Rechnung Auto into a type and a topic',
+          'split'
+        ),
+      },
+      'Splitting Rechnung Auto into a type and a topic… 3 of 3',
+    ],
+    [
+      {
+        kind: 'accept',
+        total: 4,
+        done: 0,
+        current: current('Delete 4 tags nobody uses', 'delete'),
+      },
+      'Deleting 4 tags nobody uses… 1 of 4',
+    ],
+    [
+      {
+        kind: 'accept',
+        total: 2,
+        done: 1,
+        current: current(
+          'Turn Vertrag into the document type Contract',
+          'split'
+        ),
+      },
+      'Turning Vertrag into the document type Contract… 2 of 2',
+    ],
+    [
+      { kind: 'accept', total: 5, done: 5, current: null },
+      'Carrying out 5 changes… 5 of 5',
+    ],
+    [
+      {
+        kind: 'decline',
+        total: 1,
+        done: 0,
+        current: current('Merge A into B'),
+      },
+      'Declining…',
+    ],
+    [
+      {
+        kind: 'decline',
+        total: 3,
+        done: 1,
+        current: current('Merge A into B'),
+      },
+      'Declining 3 suggestions… 2 of 3',
+    ],
+    [
+      { kind: 'undo', total: 9, done: 3, current: current('Merge A into B') },
+      'Undoing 9 changes… 4 of 9',
+    ],
+    [{ kind: 'undo', total: 1, done: 0, current: null }, 'Undoing the change…'],
+  ];
+  for (const [activity, expected] of cases) {
+    assert.strictEqual(wording.activitySentence(activity), expected);
+  }
+  assert.strictEqual(wording.activitySentence(null), '');
+  for (const odd of [
+    {},
+    { kind: 'accept' },
+    { kind: 'accept', total: 0, done: 0, current: { headline: '' } },
+    { kind: 'undo', total: 'x', done: null },
+    { kind: 'rename', total: 2 },
+  ]) {
+    const said = wording.activitySentence(odd);
+    assert.ok(said.length > 0, JSON.stringify(odd));
+    assertReadable(said, JSON.stringify(odd));
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -13,6 +13,10 @@
  *     done (counts, chips, cards, Accept the sure ones, Undo all, evidence,
  *     the split form, Details) → the four failure notices; and no horizontal
  *     scroll at phone width.
+ *  5. While a decide writes: the status strip with the API's sentence, every
+ *     writing button held, the card in flight with a spinner, the list
+ *     redrawn at the end; a page loaded meanwhile shows the strip; a 409
+ *     starts the strip instead of a toast.
  *
  * Set TIDY_UP_SHOTS=<dir> to write a screenshot of every screen at
  * 1280×900 and 390×844.
@@ -242,7 +246,10 @@ function pageRegion(html) {
 });
 
 async function browserTests(playwright) {
-  const { startFakeTidyUpApi } = require('./helpers/fake-tidy-up-api');
+  const {
+    startFakeTidyUpApi,
+    activityFixture,
+  } = require('./helpers/fake-tidy-up-api');
   const wording = require('../services/tidyUpWording');
   let browser;
   try {
@@ -266,12 +273,12 @@ async function browserTests(playwright) {
     await page.goto(`${fake.base}/tidy-up${query}`);
     return page;
   };
-  const shot = async (page, name) => {
+  const shot = async (page, name, { fullPage = true } = {}) => {
     if (!SHOTS) return;
     const width = page.viewportSize().width;
     await page.screenshot({
       path: path.join(SHOTS, `${name}-${width}.png`),
-      fullPage: true,
+      fullPage,
     });
   };
   const noSideScroll = async (page) => {
@@ -660,6 +667,233 @@ async function browserTests(playwright) {
         ['delete:tags:51', 'delete:tags:53', 'delete:tags:54']
       );
       await page.close();
+    });
+
+    /* -- 5. while something is written -------------------------------- */
+    const WRITING_BUTTONS =
+      '.tidy-list [data-act="accept"], .tidy-list [data-act="decline"], .tidy-list [data-act="later"], .tidy-list [data-act="delete-all"], .tidy-list [data-act="pick"], [data-act="accept-sure"], [data-act="run-again"], [data-tidy-find]';
+    const heldButtons = (page) =>
+      page.$$eval(WRITING_BUTTONS, (nodes) =>
+        nodes.map((n) => n.getAttribute('aria-disabled') === 'true')
+      );
+    const stripText = (page) =>
+      page.$eval('[data-tidy-activity]', (n) => n.textContent.trim());
+    const elementShot = async (locator, name) => {
+      if (!SHOTS) return;
+      await locator.screenshot({ path: path.join(SHOTS, `${name}.png`) });
+    };
+
+    await test('a batch accept shows what it is doing, holds the buttons, then redraws', async () => {
+      fake.setScenario('start'); // fresh suggestions
+      fake.setScenario('done');
+      fake.state.requests.length = 0;
+      fake.state.decideDelayMs = 2700;
+      try {
+        const page = await open(1280);
+        await page.waitForSelector('[data-act="accept-sure"]');
+        assert.ok(
+          await page.isHidden('[data-tidy-activity]'),
+          'idle: no strip'
+        );
+        const strip = page.locator('[data-tidy-activity]');
+        assert.strictEqual(await strip.getAttribute('role'), 'status');
+        assert.strictEqual(await strip.getAttribute('aria-live'), 'polite');
+
+        await page.click('[data-act="accept-sure"]');
+        await strip.waitFor({ state: 'visible' });
+        await page.waitForFunction(() =>
+          /^Merging .+… [1-9] of 9$/.test(
+            document.querySelector('[data-tidy-activity]').textContent.trim()
+          )
+        );
+        assert.strictEqual(
+          await stripText(page),
+          fake.state.activity.sentence,
+          'the strip says what the API says'
+        );
+        assert.strictEqual(
+          await strip.locator('.zr-spinner').count(),
+          1,
+          'the framework spinner'
+        );
+        const held = await heldButtons(page);
+        assert.ok(held.length > 5);
+        assert.ok(held.every(Boolean), 'every writing button is held');
+        // The card in flight shows a spinner in place of its buttons.
+        const flying = page.locator('.tidy-list .tidy-inflight');
+        await page.waitForFunction(
+          () =>
+            document.querySelectorAll('.tidy-list .tidy-inflight').length === 1
+        );
+        assert.strictEqual(
+          await flying.locator('.tidy-inflight__mark .zr-spinner').count(),
+          1
+        );
+        assert.strictEqual(
+          await flying.locator('.tidy-actions button:visible').count(),
+          0,
+          'its buttons make way for the spinner'
+        );
+        // A held button sends nothing.
+        const sent = posts('/api/tidy-up/suggestions/decide').length;
+        await page.click('[data-id="merge:tags:18-19"] [data-act="decline"]', {
+          force: true,
+        });
+        assert.strictEqual(
+          posts('/api/tidy-up/suggestions/decide').length,
+          sent,
+          'no second decide'
+        );
+        await shot(page, '5-activity-batch', { fullPage: false });
+        await elementShot(flying, '5-activity-card-inflight-1280');
+
+        // The strip counts on while the batch works.
+        const first = await stripText(page);
+        await page.waitForFunction(
+          (before) =>
+            document
+              .querySelector('[data-tidy-activity]')
+              .textContent.trim() !== before,
+          first
+        );
+
+        // The end: the strip goes, the list is redrawn, the buttons are free.
+        await page.waitForSelector('[data-tidy-activity].hidden', {
+          state: 'attached',
+          timeout: 8000,
+        });
+        await page.waitForSelector('[data-tidy-banner]:not(.hidden)');
+        assert.match(
+          await page.textContent('[data-tidy-banner]'),
+          /9 changes made/
+        );
+        assert.strictEqual(await page.locator('.tidy-line--done').count(), 9);
+        assert.strictEqual(await page.locator('.tidy-inflight').count(), 0);
+        assert.ok(
+          (await heldButtons(page)).every((h) => !h),
+          'the buttons are free again'
+        );
+        assert.strictEqual(await page.locator('.zr-toast').count(), 0);
+        assert.deepStrictEqual(page.errors, []);
+        await page.close();
+      } finally {
+        fake.state.decideDelayMs = 0;
+        fake.state.activity = null;
+      }
+    });
+
+    await test('a page opened while a batch runs shows it and reloads when it ends', async () => {
+      fake.setScenario('start');
+      fake.setScenario('done');
+      const sure = fake.state.suggestions.filter(
+        (s) => s.status === 'open' && s.certainty === 'sure'
+      );
+      fake.state.activity = activityFixture({
+        kind: 'accept',
+        batchId: 'batch-elsewhere',
+        list: sure,
+        done: 2,
+      });
+      try {
+        const page = await open(1280);
+        await page.waitForSelector('[data-tidy-activity]:not(.hidden)');
+        assert.strictEqual(await stripText(page), fake.state.activity.sentence);
+        assert.match(await stripText(page), /… 3 of 9$/);
+        await page.waitForSelector('.tidy-card');
+        assert.ok(
+          (await heldButtons(page)).every(Boolean),
+          'its buttons are held from the start'
+        );
+        assert.strictEqual(
+          await page.locator('.tidy-list .tidy-inflight').count(),
+          1,
+          'the card the other tab works on'
+        );
+        await shot(page, '5-activity-second-tab', { fullPage: false });
+        // The other tab finishes the merge it was on.
+        const s = fake.state.suggestions.find(
+          (x) => x.id === fake.state.activity.current.id
+        );
+        s.status = 'done';
+        s.outcome = '12 documents moved';
+        fake.state.activity = null;
+        await page.waitForSelector('[data-tidy-activity].hidden', {
+          state: 'attached',
+          timeout: 5000,
+        });
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector('[data-tidy-summary] .tidy-title')
+              .textContent.trim() === '13 suggestions'
+        );
+        assert.strictEqual(
+          await page.locator(`.tidy-card[data-id="${s.id}"]`).count(),
+          0,
+          'the list was reloaded'
+        );
+        assert.ok((await heldButtons(page)).every((h) => !h));
+        assert.deepStrictEqual(page.errors, []);
+        await page.close();
+      } finally {
+        fake.state.activity = null;
+      }
+    });
+
+    await test('a 409 starts the strip instead of a toast', async () => {
+      fake.setScenario('start');
+      fake.setScenario('done');
+      fake.state.requests.length = 0;
+      try {
+        const page = await open(1280);
+        await page.waitForSelector('[data-id="merge:tags:18-19"]');
+        // Another tab starts undoing two changes.
+        fake.state.activity = activityFixture({
+          kind: 'undo',
+          batchId: 'batch-elsewhere',
+          list: fake.state.suggestions.slice(0, 2),
+          done: 0,
+        });
+        await page.click('[data-id="merge:tags:18-19"] [data-act="accept"]');
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector('[data-tidy-activity]')
+              .textContent.trim() === 'Undoing 2 changes… 1 of 2'
+        );
+        assert.strictEqual(posts('/api/tidy-up/suggestions/decide').length, 1);
+        assert.strictEqual(
+          await page.locator('.zr-toast').count(),
+          0,
+          'no toast'
+        );
+        assert.strictEqual(
+          await page.getAttribute(
+            '[data-id="merge:tags:18-19"] [data-act="accept"]',
+            'aria-disabled'
+          ),
+          'true',
+          'the clicked button stays held'
+        );
+        fake.state.activity = null;
+        await page.waitForSelector('[data-tidy-activity].hidden', {
+          state: 'attached',
+          timeout: 5000,
+        });
+        assert.strictEqual(
+          await page.getAttribute(
+            '[data-id="merge:tags:18-19"] [data-act="accept"]',
+            'aria-disabled'
+          ),
+          null,
+          'free again once the other tab is done'
+        );
+        assert.strictEqual(await page.locator('.zr-toast').count(), 0);
+        assert.deepStrictEqual(page.errors, []);
+        await page.close();
+      } finally {
+        fake.state.activity = null;
+      }
     });
 
     await test('without a model: no checkboxes, one grey line', async () => {

@@ -21,6 +21,9 @@
  *  8. decide refuses an unknown id and an unknown decision
  *  9. /duplicates and /simplify answer 301 to /tidy-up
  * 10. the page locals: model, splits, counts, last run
+ * 11. GET /suggestions carries the activity of a batch while it writes
+ *     (null when idle); a decide meanwhile is a 409 naming it; an undo
+ *     reports kind undo
  */
 
 const assert = require('assert');
@@ -152,6 +155,7 @@ async function main() {
       assert.strictEqual(list.body.data.runId, null);
       assert.deepStrictEqual(list.body.data.suggestions, []);
       assert.strictEqual(list.body.data.summary.total, 0);
+      assert.strictEqual(list.body.data.activity, null, 'nothing is written');
     });
 
     await test('POST /runs starts one run and refuses what it cannot do', async () => {
@@ -378,6 +382,77 @@ async function main() {
 
       assert.strictEqual(runs.modelLabelOf('claude-haiku-4-5'), 'Claude Haiku');
       assert.strictEqual(runs.modelLabelOf('qwen3:8b'), 'qwen3:8b');
+    });
+
+    await test('GET /suggestions shows a batch at work; a decide meanwhile is a 409 with it', async () => {
+      await archive.reset();
+      await runToEnd({ askModel: false });
+      const invoiceId = pairId('tags', TAGS.invoice, TAGS.invoices);
+      const deleteId = `delete:tags:${TAGS.oldStuff}`;
+      const idle = await call('GET', '/api/tidy-up/suggestions');
+      assert.strictEqual(idle.body.data.activity, null);
+
+      /** GETs /suggestions until it names an activity (or the call ends). */
+      const sample = async (pending) => {
+        let settled = false;
+        pending.finally(() => {
+          settled = true;
+        });
+        while (!settled) {
+          const list = await call('GET', '/api/tidy-up/suggestions');
+          if (list.body.data.activity) return list.body.data.activity;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        return null;
+      };
+
+      archive.store.writeDelayMs = 60;
+      const pending = call('POST', '/api/tidy-up/suggestions/decide', {
+        ids: [invoiceId, deleteId],
+        decision: 'accept',
+      });
+      const activity = await sample(pending);
+      assert.ok(activity, 'the activity is in the suggestions payload');
+      assert.strictEqual(activity.kind, 'accept');
+      assert.strictEqual(activity.total, 2);
+      assert.ok(activity.done >= 0 && activity.done < 2);
+      assert.ok(typeof activity.batchId === 'string' && activity.batchId);
+      assert.ok(activity.current, 'one suggestion is in flight');
+      assert.ok([invoiceId, deleteId].includes(activity.current.id));
+      assert.match(activity.sentence, /^(Merging|Deleting) .+… [12] of 2$/);
+
+      const refused = await call('POST', '/api/tidy-up/suggestions/decide', {
+        ids: [invoiceId],
+        decision: 'decline',
+      });
+      assert.strictEqual(refused.status, 409);
+      assert.strictEqual(refused.body.success, false);
+      assert.match(refused.body.error, /Try again/);
+      assert.strictEqual(refused.body.data.activity.kind, 'accept');
+      assert.strictEqual(refused.body.data.activity.batchId, activity.batchId);
+
+      const decided = await pending;
+      assert.strictEqual(decided.status, 200, JSON.stringify(decided.body));
+      assert.strictEqual(decided.body.data.batchId, activity.batchId);
+      const after = await call('GET', '/api/tidy-up/suggestions');
+      assert.strictEqual(after.body.data.activity, null, 'idle again');
+
+      const undoing = call('POST', '/api/tidy-up/suggestions/undo', {
+        batchId: decided.body.data.batchId,
+      });
+      const undoActivity = await sample(undoing);
+      assert.ok(undoActivity, 'the undo is in the suggestions payload');
+      assert.strictEqual(undoActivity.kind, 'undo');
+      assert.strictEqual(undoActivity.total, 2);
+      assert.match(undoActivity.sentence, /^Undoing 2 changes… [12] of 2$/);
+      const busy = await call('POST', '/api/tidy-up/suggestions/undo', {
+        batchId: decided.body.data.batchId,
+      });
+      assert.strictEqual(busy.status, 409);
+      assert.strictEqual(busy.body.data.activity.kind, 'undo');
+      assert.strictEqual((await undoing).status, 200);
+      const run = await call('GET', '/api/tidy-up/runs/current');
+      assert.strictEqual(run.body.data.activity, null, 'TidyUpRun.activity');
     });
   } finally {
     await archive.close();

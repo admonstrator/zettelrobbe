@@ -1918,6 +1918,50 @@
  *           type: string
  *           format: date-time
  *           nullable: true
+ *         activity:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TidyUpActivity'
+ *           nullable: true
+ *           description: what a decide or undo call is writing right now; null when idle
+ *     TidyUpActivity:
+ *       type: object
+ *       description: |
+ *         A decide or undo call while it writes to Paperless-ngx, one
+ *         suggestion (or undo entry) after the other. GET /api/tidy-up/suggestions
+ *         and the run's event stream carry it; a 409 of decide or undo names it.
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [accept, decline, undo]
+ *         batchId:
+ *           type: string
+ *           nullable: true
+ *           description: the batch an accept creates, or the batch an undo takes back; null for a decline
+ *         total:
+ *           type: integer
+ *           description: suggestions to carry out or decline, or undo entries to take back
+ *         done:
+ *           type: integer
+ *           description: how many of them are finished
+ *         current:
+ *           type: object
+ *           nullable: true
+ *           description: the suggestion in flight; several when unused names are deleted in one call
+ *           properties:
+ *             id: { type: string }
+ *             ids:
+ *               type: array
+ *               items: { type: string }
+ *             kind:
+ *               type: string
+ *               enum: [merge, split, delete]
+ *             headline: { type: string }
+ *         startedAt:
+ *           type: string
+ *           format: date-time
+ *         sentence:
+ *           type: string
+ *           description: tidyUpWording.activitySentence, e.g. Merging Invoices into invoice… 2 of 9
  *     TidyUpEntity:
  *       type: object
  *       properties:

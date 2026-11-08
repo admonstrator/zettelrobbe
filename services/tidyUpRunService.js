@@ -176,8 +176,13 @@ class TidyUpRunService {
   constructor() {
     /** @type {object|null} the running run, or the last one */
     this.run = null;
-    /** True while a decide or undo call writes. */
-    this.deciding = false;
+    /**
+     * What a decide or undo call is writing right now, null when idle:
+     * { kind: 'accept'|'decline'|'undo', batchId, total, done,
+     *   current: { id, ids, kind, headline } | null, startedAt }.
+     * The loops update it with plain field writes; activityNow() reads it.
+     */
+    this.activity = null;
     /** Listeners of run changes the job does not report (suggestions). */
     this.listeners = new Set();
   }
@@ -951,14 +956,90 @@ class TidyUpRunService {
 
   /** The suggestions of the current run, as GET /suggestions serves them. */
   suggestionsOf(run = this.run) {
+    const activity = this.activityNow();
     if (!run) {
-      return { runId: null, summary: summarize([]), suggestions: [] };
+      return { runId: null, summary: summarize([]), suggestions: [], activity };
     }
     return {
       runId: run.id,
       summary: summarize(run.suggestions),
       suggestions: run.suggestions,
+      activity,
     };
+  }
+
+  /**
+   * The activity in the TidyUpActivity shape (schemas.js), with its
+   * sentence; null when no decide or undo call is writing.
+   *
+   * @returns {object|null}
+   */
+  activityNow() {
+    const a = this.activity;
+    if (!a) return null;
+    const snapshot = {
+      kind: a.kind,
+      batchId: a.batchId,
+      total: a.total,
+      done: a.done,
+      current: a.current ? { ...a.current, ids: [...a.current.ids] } : null,
+      startedAt: a.startedAt,
+    };
+    snapshot.sentence = wording.activitySentence(snapshot);
+    return snapshot;
+  }
+
+  /** Refuses a second writer: this service's own, or another request's. */
+  _refuseWhileWriting() {
+    if (this.activity) {
+      const error = new TidyUpError(
+        'Another change is being written to Paperless-ngx. Try again in a moment.',
+        409
+      );
+      error.data = { activity: this.activityNow() };
+      throw error;
+    }
+    if (this._merges().isWriting()) {
+      const error = new TidyUpError(
+        'Paperless-ngx is still being written to by another request. Try again in a moment.',
+        409
+      );
+      error.data = { activity: null };
+      throw error;
+    }
+  }
+
+  _beginActivity(kind, batchId, total) {
+    this.activity = {
+      kind,
+      batchId,
+      total,
+      done: 0,
+      current: null,
+      startedAt: new Date().toISOString(),
+    };
+    this._changed(this.run);
+  }
+
+  /** Names the suggestions in flight; a field write and a throttled ping. */
+  _working(list, headline = null) {
+    const a = this.activity;
+    if (!a || list.length === 0) return;
+    a.current = {
+      id: list[0].id,
+      ids: list.map((s) => s.id),
+      kind: list[0].kind,
+      headline: headline ?? list[0].headline,
+    };
+    this._changed(this.run);
+  }
+
+  /** Counts finished suggestions (or undo entries). */
+  _finished(n = 1) {
+    const a = this.activity;
+    if (!a) return;
+    a.done = Math.min(a.total, a.done + n);
+    a.current = null;
   }
 
   /**
@@ -994,6 +1075,7 @@ class TidyUpRunService {
       summary: summarize(run.suggestions),
       startedAt: run.startedAt,
       finishedAt: job.finishedAt || null,
+      activity: run === this.run ? this.activityNow() : null,
     };
   }
 
@@ -1283,24 +1365,28 @@ class TidyUpRunService {
       // takes it back.
       .filter((s) => s.status !== SUGGESTION_STATUS.DONE);
 
-    if (this.deciding || this._merges().isWriting()) {
-      throw new TidyUpError(
-        'Another change is being written to Paperless-ngx. Try again in a moment.',
-        409
-      );
-    }
-    this.deciding = true;
+    this._refuseWhileWriting();
     let batchId = null;
+    if (decision === 'later') {
+      // Nothing is written: no activity to show.
+      for (const s of chosen) s.status = SUGGESTION_STATUS.LATER;
+      this._changed(run);
+      return { batchId, ...this._listOf(run) };
+    }
+    if (decision === 'accept') batchId = crypto.randomUUID();
+    this._beginActivity(decision, batchId, chosen.length);
     try {
-      if (decision === 'later') {
-        for (const s of chosen) s.status = SUGGESTION_STATUS.LATER;
-      } else if (decision === 'decline') {
-        for (const s of chosen) await this._decline(s);
+      if (decision === 'decline') {
+        for (const s of chosen) {
+          this._working([s]);
+          await this._decline(s);
+          this._finished();
+        }
       } else {
-        batchId = await this._accept(run, chosen, edits, performedByOf(user));
+        await this._accept(run, chosen, edits, performedByOf(user), batchId);
       }
     } finally {
-      this.deciding = false;
+      this.activity = null;
     }
     this._changed(run);
     return { batchId, ...this._listOf(run) };
@@ -1350,8 +1436,13 @@ class TidyUpRunService {
    *
    * @returns {Promise<string>} the batch id
    */
-  async _accept(run, chosen, edits, performedBy) {
-    const batchId = crypto.randomUUID();
+  async _accept(
+    run,
+    chosen,
+    edits,
+    performedBy,
+    batchId = crypto.randomUUID()
+  ) {
     const entries = [];
     const record = (suggestion, undoId) => {
       if (undoId != null) {
@@ -1369,6 +1460,7 @@ class TidyUpRunService {
 
     for (const suggestion of rest) {
       const edit = edits[suggestion.id] || {};
+      this._working([suggestion]);
       try {
         if (suggestion.kind === SUGGESTION_KINDS.MERGE) {
           record(
@@ -1388,12 +1480,14 @@ class TidyUpRunService {
         suggestion.outcome = error?.message || 'It could not be carried out';
         suggestion.undoId = null;
       }
+      this._finished();
     }
 
     for (const kind of ['tags', 'correspondents']) {
       const group = unusedDeletes.filter((s) => s.entityKind === kind);
       if (group.length === 0) continue;
       await this._acceptDeletes(group, kind, edits, performedBy, record);
+      this._finished(group.length);
     }
 
     if (entries.length > 0) {
@@ -1521,6 +1615,16 @@ class TidyUpRunService {
     }
     const targets = group.filter((s) => wanted.has(s.from[0].id));
     if (targets.length === 0) return;
+    // One call deletes them all: the activity names the group as one.
+    this._working(
+      targets,
+      targets.length === 1
+        ? targets[0].headline
+        : wording.deleteHeadline({
+            from: targets.map((s) => s.from[0]),
+            entityKind: kind,
+          })
+    );
     let result;
     try {
       result = await this._merges().deleteUnused({
@@ -1573,18 +1677,19 @@ class TidyUpRunService {
     }
     const batch = run?.batches.get(batchId);
     if (!batch) throw new TidyUpError('Unknown or expired batch', 404);
-    if (this.deciding || this._merges().isWriting()) {
-      throw new TidyUpError(
-        'Another change is being written to Paperless-ngx. Try again in a moment.',
-        409
-      );
-    }
-    this.deciding = true;
+    this._refuseWhileWriting();
     const undone = [];
     const failed = [];
+    const undoIds = [...new Set(batch.entries.map((e) => e.undoId))];
+    this._beginActivity('undo', batchId, undoIds.length);
     try {
-      const undoIds = [...new Set(batch.entries.map((e) => e.undoId))];
       for (const undoId of undoIds) {
+        const covered = new Set(
+          batch.entries
+            .filter((entry) => entry.undoId === undoId)
+            .map((entry) => entry.suggestionId)
+        );
+        this._working(run.suggestions.filter((s) => covered.has(s.id)));
         try {
           const result = await this._merges().undo(Number(undoId), {
             performedBy: performedByOf(user),
@@ -1606,10 +1711,11 @@ class TidyUpRunService {
             error: error?.message || 'It could not be undone',
           });
         }
+        this._finished();
       }
       if (failed.length === 0) run.batches.delete(batchId);
     } finally {
-      this.deciding = false;
+      this.activity = null;
     }
     this._changed(run);
     return { batchId, undone, failed, ...this._listOf(run) };
@@ -1690,7 +1796,7 @@ class TidyUpRunService {
   /** Forgets the run; tests use it between cases. */
   reset() {
     this.run = null;
-    this.deciding = false;
+    this.activity = null;
     this.listeners.clear();
   }
 }

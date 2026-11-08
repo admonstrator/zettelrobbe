@@ -143,10 +143,18 @@ const REAL_ENTITY_METHODS = [
 /**
  * Mounts the router over a fresh copy of the archive and a fake model.
  *
- * @returns {Promise<{harness, fake, fakeOpenAI, reset: () => object, services: object, close: () => Promise<void>}>}
+ * @returns {Promise<{harness, fake, fakeOpenAI, reset: () => object, services: object, store: {fake: object, writeDelayMs: number}, close: () => Promise<void>}>}
  */
 async function mountArchive({ env = {} } = {}) {
-  const store = { fake: createFakePaperless(seed()) };
+  // writeDelayMs: every write to the fake Paperless-ngx (POST, PUT, PATCH,
+  // DELETE) waits this long first, so a test can watch a decide at work.
+  const store = { fake: createFakePaperless(seed()), writeDelayMs: 0 };
+  const slow = async (call) => {
+    if (store.writeDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, store.writeDelayMs));
+    }
+    return call();
+  };
   const fakeOpenAI = await createFakeOpenAI({
     chunks: [{ content: modelAnswer() }],
     usage: { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 },
@@ -166,10 +174,12 @@ async function mountArchive({ env = {} } = {}) {
         defaults: { baseURL: 'http://paperless.test/api' },
         get: (url, config = {}) =>
           store.fake.handle('get', url, config.params || {}),
-        post: (url, body) => store.fake.handle('post', url, {}, body),
-        put: (url, body) => store.fake.handle('put', url, {}, body),
-        patch: (url, body) => store.fake.handle('patch', url, {}, body),
-        delete: (url) => store.fake.handle('delete', url, {}),
+        post: (url, body) =>
+          slow(() => store.fake.handle('post', url, {}, body)),
+        put: (url, body) => slow(() => store.fake.handle('put', url, {}, body)),
+        patch: (url, body) =>
+          slow(() => store.fake.handle('patch', url, {}, body)),
+        delete: (url) => slow(() => store.fake.handle('delete', url, {})),
       };
       const dashboardStatsService = require(
         path.join(REPO_ROOT, 'services', 'dashboardStatsService')
@@ -200,6 +210,7 @@ async function mountArchive({ env = {} } = {}) {
   /** A fresh archive, no run, no cached scan, no remembered verdicts. */
   const reset = async () => {
     store.fake = createFakePaperless(seed());
+    store.writeDelayMs = 0;
     services.jobs.reset();
     services.runs.reset();
     services.merges.invalidateScanCache();
