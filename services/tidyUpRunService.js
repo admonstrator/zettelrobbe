@@ -84,6 +84,8 @@ const MAX_DECIDE_IDS = 500;
 const MAX_NAME_LENGTH = 128;
 /** Rows of the merge log the page lists. */
 const RECENT_LIMIT = 20;
+/** How long the start screen waits for the tag and correspondent counts. */
+const PAGE_COUNT_TIMEOUT_MS = 3000;
 
 /** An error the route answers with its own status. */
 class TidyUpError extends Error {
@@ -246,14 +248,27 @@ class TidyUpRunService {
    * @returns {Promise<{modelAvailable:boolean, modelLabel:string, splitsAvailable:boolean, counts:{tags:number, correspondents:number}, lastRun:{when:string, accepted:number}|null}>}
    */
   async pageLocals() {
-    const counts = { tags: 0, correspondents: 0 };
-    for (const kind of ['tags', 'correspondents']) {
+    // One small request per kind, in parallel and with a short deadline: the
+    // page must come up at once, and a slow or unreachable Paperless-ngx only
+    // costs the numbers on the start screen, never the page.
+    const countOf = async (kind) => {
+      const deadline = new Promise((resolve) =>
+        setTimeout(() => resolve(0), PAGE_COUNT_TIMEOUT_MS).unref?.()
+      );
       try {
-        counts[kind] = (await this._merges().listEntities(kind)).length;
+        return await Promise.race([
+          this._paperless().countEntities(kind),
+          deadline,
+        ]);
       } catch {
-        counts[kind] = 0;
+        return 0;
       }
-    }
+    };
+    const [tags, correspondents] = await Promise.all([
+      countOf('tags'),
+      countOf('correspondents'),
+    ]);
+    const counts = { tags, correspondents };
     return {
       modelAvailable: this.modelAvailable(),
       modelLabel: this.modelLabel() || '',

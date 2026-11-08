@@ -3105,6 +3105,28 @@ class PaperlessService {
    * @returns {Promise<object[]>}
    * @throws on a network error, an HTTP error or an unreadable answer
    */
+  /**
+   * How many tags or correspondents the instance holds, from the `count` of
+   * a one-item page. The Tidy up start screen shows the number before any
+   * run; reading every page for it (listEntities) held the page render for
+   * as long as Paperless-ngx needed to count documents per object.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @returns {Promise<number>}
+   */
+  async countEntities(kind) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`counting ${kind}`);
+    const response = await client.get(`/${kind}/`, {
+      params: { page: 1, page_size: 1 },
+    });
+    const count = Number(response?.data?.count);
+    if (!Number.isFinite(count)) {
+      throw new Error(`Unexpected answer while counting ${kind}`);
+    }
+    return count;
+  }
+
   async listEntities(kind) {
     this._assertEntityKind(kind);
     const client = this._requireClient(`listing ${kind}`);
