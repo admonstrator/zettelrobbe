@@ -2887,10 +2887,10 @@ function initializeTooltipAndValidation() {
 }
 
 /**
- * Names each field's environment variable in its hint ("SCAN_INTERVAL ·
- * Restart required") and on the field itself as data-env-key, unless the
- * markup already names it. A switch carries the key on its hidden yes/no input
- * and on the visible switch alike.
+ * Marks each field with the environment variable it writes (data-env-key).
+ * The hints do not name the variable: the page is for people who set values
+ * here, and the settings search and the lock sentence still know the key.
+ * A switch carries it on its hidden yes/no input and on the visible switch.
  */
 function annotateEnvKeys(fieldMappings) {
   fieldMappings.forEach(({ selector, envKey }) => {
@@ -2901,55 +2901,6 @@ function annotateEnvKeys(fieldMappings) {
       ? document.querySelector(`[data-switch-target="${field.id}"]`)
       : null;
     if (visibleSwitch) visibleSwitch.dataset.envKey = envKey;
-
-    // A tile is a single checkbox with its label; the key goes in its tooltip.
-    const tile = field.closest('.zr-checktile');
-    if (tile) {
-      tile.title = envKey;
-      return;
-    }
-    const container = field.closest('.zr-field, .zr-switchrow');
-    if (!container) return;
-    const hints = [...container.querySelectorAll('.zr-field__hint')];
-    const keyElement = () => {
-      const code = document.createElement('code');
-      code.className = 'zr-envkey';
-      code.textContent = envKey;
-      return code;
-    };
-
-    // A hint that names the key in its markup already gets it set like the
-    // added ones, instead of a second copy.
-    const naming = hints.filter((hint) => hint.textContent.includes(envKey));
-    if (naming.length) {
-      naming.forEach((hint) => {
-        if (hint.querySelector('.zr-envkey')) return;
-        const node = [...hint.childNodes].find(
-          (child) =>
-            child.nodeType === Node.TEXT_NODE &&
-            child.textContent.includes(envKey)
-        );
-        if (!node) return;
-        const at = node.textContent.indexOf(envKey);
-        const rest = node.splitText(at);
-        rest.textContent = rest.textContent.slice(envKey.length);
-        hint.insertBefore(keyElement(), rest);
-      });
-      return;
-    }
-    if (!hints.length) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      hint.append(keyElement());
-      container.append(hint);
-      return;
-    }
-    // Hints that swap with the provider (the OCR key) each name the key, so it
-    // does not vanish with the one that is shown first.
-    const targets = hints.some((hint) => hint.id)
-      ? hints.filter((hint) => hint.id)
-      : [hints[0]];
-    targets.forEach((hint) => hint.prepend(keyElement(), ' · '));
   });
 }
 
@@ -2965,9 +2916,8 @@ function initializeRuntimeOverridePills() {
     console.warn('Failed to parse locked environment keys:', error);
   }
 
-  // Every field with the variable it writes. Besides the pills below, this
-  // names the variable in each hint and gives the settings search
-  // (modules/settings-nav.js) something to find a field by.
+  // Every field with the variable it writes. The locks below and the settings
+  // search (modules/settings-nav.js) find a field by it.
   const fieldMappings = [
     { selector: '#paperlessUrl', envKey: 'PAPERLESS_API_URL' },
     { selector: '#paperlessPublicUrl', envKey: 'PAPERLESS_PUBLIC_URL' },

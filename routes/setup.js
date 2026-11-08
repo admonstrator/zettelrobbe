@@ -4,9 +4,6 @@ const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const setupService = require('../services/setupService.js');
 const paperlessService = require('../services/paperlessService.js');
-const openaiService = require('../services/openaiService.js');
-const ollamaService = require('../services/ollamaService.js');
-const azureService = require('../services/azureService.js');
 const documentModel = require('../models/document.js');
 const AIServiceFactory = require('../services/aiServiceFactory');
 const configFile = require('../config/config.js');
@@ -36,7 +33,6 @@ const {
   verifySessionToken,
   SESSION_TOKEN_TYPE,
 } = require('./auth.js');
-const customService = require('../services/customService.js');
 const mistralOcrService = require('../services/mistralOcrService');
 const skipRuleService = require('../services/skipRuleService');
 const quickstartService = require('../services/quickstartService');
@@ -8287,71 +8283,28 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
         .json({ error: 'Valid content string is required' });
     }
 
-    if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
+    if (!aiProviderRules.PROVIDER_IDS.includes(process.env.AI_PROVIDER)) {
+      return res.status(500).json({ error: 'AI provider not configured' });
+    }
+
+    // Through the factory, which owns the provider service like every scan
+    // does. Every provider's tokens are recorded the same way.
+    const analyzeDocument = await AIServiceFactory.getService().analyzeDocument(
+      content,
+      existingTagsList,
+      existingCorrespondentList,
+      existingDocumentTypesList,
+      id || []
+    );
+    if (analyzeDocument.metrics && id) {
       await documentModel.addOpenAIMetrics(
         id,
         analyzeDocument.metrics.promptTokens,
         analyzeDocument.metrics.completionTokens,
         analyzeDocument.metrics.totalTokens
       );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'custom') {
-      const analyzeDocument = await customService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'azure') {
-      const analyzeDocument = await azureService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'anthropic') {
-      // Through the factory, which owns the Claude service like every scan
-      // does. Its tokens are billed like OpenAI's, so they are recorded too.
-      const analyzeDocument =
-        await AIServiceFactory.getService().analyzeDocument(
-          content,
-          existingTagsList,
-          existingCorrespondentList,
-          existingDocumentTypesList,
-          id || []
-        );
-      if (analyzeDocument.metrics && id) {
-        await documentModel.addOpenAIMetrics(
-          id,
-          analyzeDocument.metrics.promptTokens,
-          analyzeDocument.metrics.completionTokens,
-          analyzeDocument.metrics.totalTokens
-        );
-      }
-      return res.json(analyzeDocument);
-    } else {
-      return res.status(500).json({ error: 'AI provider not configured' });
     }
+    return res.json(analyzeDocument);
   } catch (error) {
     console.error('Analysis error:', error);
     return res.status(500).json({ error: error.message });
