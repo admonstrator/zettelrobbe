@@ -72,7 +72,7 @@ const TESTS = {
   'quickstart-endpoint-protection': 'test-quickstart-endpoint-protection.js',
   'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
   'settings-quickstart-persistence': 'test-settings-quickstart-persistence.js',
-  'settings-duplicates-section': 'test-settings-duplicates-section.js',
+  'settings-tidy-up-section': 'test-settings-tidy-up-section.js',
   'settings-ai-options': 'test-settings-ai-options.js',
   'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
@@ -227,7 +227,7 @@ const AREAS = {
     'icon-sizing',
     'mobile-toolbar-grid',
     'log-secret-redaction',
-    'settings-duplicates-section',
+    'settings-tidy-up-section',
   ],
   processing: [
     'dashboard-stats-cache',

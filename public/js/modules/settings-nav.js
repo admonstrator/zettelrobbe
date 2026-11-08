@@ -12,19 +12,44 @@
  * save names in an error or the browser refuses as invalid.
  */
 
-// Hashes and section ids from before the regrouping. Section ids (#sec-...)
-// need no entry here: any element id inside an entry resolves to that entry.
-const LEGACY_HASHES = {
+// Hashes of entries and sections that were renamed or merged. Section ids
+// (#sec-...) still on the page need no line here: any element id inside an
+// entry resolves to that entry. The ones below name something that is gone.
+export const ENTRY_ALIASES = Object.freeze({
+  // Before the regrouping into one topic per view.
   'system-tab': 'connection',
   'mfa-tab': 'account',
   'ai-tab': 'ai-provider',
-  'duplicates-tab': 'duplicates',
-  'simplify-tab': 'simplify',
+  'duplicates-tab': 'tidy-up',
+  'simplify-tab': 'tidy-up',
   'ocr-tab': 'ocr',
   'troubleshooting-tab': 'caching',
   'env-tab': 'environment',
   'changelog-tab': 'changelog',
-};
+  // Duplicates and Simplify tags became one page, Tidy up, and one section.
+  duplicates: 'tidy-up',
+  simplify: 'tidy-up',
+  'sec-duplicates': 'tidy-up',
+  'sec-duplicates-advanced': 'tidy-up',
+  'sec-simplify': 'tidy-up',
+});
+
+/**
+ * The entry a hash names directly or through an alias, or null when it names
+ * neither (then it may still be an element inside an entry).
+ *
+ * @param {string} key  the hash without its "#"
+ * @param {(id: string) => boolean} isEntry
+ * @returns {string|null}
+ */
+export function entryForHash(key, isEntry) {
+  if (!key) return null;
+  if (isEntry(key)) return key;
+  const alias = Object.prototype.hasOwnProperty.call(ENTRY_ALIASES, key)
+    ? ENTRY_ALIASES[key]
+    : null;
+  return alias && isEntry(alias) ? alias : null;
+}
 
 const MAX_RESULTS = 12;
 const ROW_SELECTOR = '.zr-field, .zr-switchrow, .zr-checktile';
@@ -58,8 +83,8 @@ export default function settingsNav(root) {
   function resolve(hash) {
     const key = decodeURIComponent(String(hash || '').replace(/^#/, ''));
     if (!key) return { id: firstId, target: null };
-    if (byId.has(key)) return { id: key, target: null };
-    if (LEGACY_HASHES[key]) return { id: LEGACY_HASHES[key], target: null };
+    const named = entryForHash(key, (id) => byId.has(id));
+    if (named) return { id: named, target: null };
     const element = document.getElementById(key);
     const entry = element && element.closest('.zr-settings-entry');
     if (entry) {

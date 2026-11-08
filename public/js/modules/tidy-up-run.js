@@ -97,7 +97,7 @@ const ICONS = {
 
 /** Where a notice's settings link goes. */
 export function settingsHref(kind) {
-  return kind === 'paperless' ? '/settings#connection' : '/settings#duplicates';
+  return kind === 'paperless' ? '/settings#connection' : '/settings#tidy-up';
 }
 
 /** One TidyUpFailure as a notice card (screen 4). */

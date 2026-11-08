@@ -302,9 +302,9 @@ function resolveRules(provider, model = '') {
  * @property {ReadonlyArray<ProviderId>|null} providers  which providers show
  *   the option; null means all of them
  * @property {string} [defaultValue]  what applies when the field is empty
- * @property {'provider'|'duplicates'|'simplify'} [section]  which settings
- *   section shows the option: the AI provider, the Duplicates page or the
- *   Simplify tags page; absent means the AI provider
+ * @property {'provider'|'tidy-up'} [section]  which settings section
+ *   shows the option: the AI provider or the Tidy up page; absent means the
+ *   AI provider
  */
 
 /**
@@ -427,54 +427,92 @@ const AI_OPTIONS = Object.freeze([
     section: 'provider',
   },
 
-  // Duplicates page. Finding and merging duplicates is deterministic; these
-  // options govern the optional review in which the model judges the
-  // proposed groups, and the guard that keeps analysis from creating new
-  // near-duplicates. They apply to every provider.
+  // Tidy up page. Finding, merging and splitting names work by rule and need
+  // no model; these options govern what the model does there when a person
+  // asks for it, and the guard that keeps analysis from creating new
+  // near-duplicates. They apply to every provider. The first three are the
+  // basic view; the rest sit behind the section's Advanced options, budget
+  // and brakes first, then evidence, memory, thinking and request sizes.
   {
     key: 'DUPLICATES_AI_REVIEW',
-    label: 'Let the model judge duplicates',
-    help: 'Offers a review on the Duplicates page in which the model reads the proposed groups and says which really mean the same thing. Off, the page finds and merges by spelling rules only. Nothing runs until you start it there.',
+    label: 'Ask the model about unclear pairs',
+    help: 'On the Tidy up page, the model reads the pairs of names that spelling rules cannot settle, looks at a few document titles and says whether they mean the same thing. Off, the page decides by spelling rules alone. Nothing runs until you start a run there.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_GUARD_NEW_NAMES',
     label: 'Reuse an existing name instead of creating a near-duplicate',
-    help: 'When document analysis proposes a tag or correspondent that is an existing one in another spelling (case, umlauts, legal form, plural, word order), the existing one is used and the mapping is listed on the Duplicates page. A typo-like match is only logged; the new name is still created.',
+    help: 'When document analysis proposes a tag or correspondent that already exists in another spelling (upper or lower case, umlauts, a legal form such as GmbH, singular or plural, or the same words in another order), the existing one is used and the Tidy up page lists the mapping. A name that only looks like a typo of an existing one is logged, and the new name is still created.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_MODEL',
-    label: 'Model for the review',
-    help: 'A stronger model of the same provider, used only to judge duplicates. Empty uses the model set under AI provider.',
+    label: 'Model for Tidy up',
+    help: 'A stronger model of the same provider, used only for the questions the Tidy up page asks. Empty uses the model set under AI provider.',
     level: 'basic',
     providers: null,
     defaultValue: '',
-    section: 'duplicates',
+    section: 'tidy-up',
+  },
+  {
+    key: 'DUPLICATES_AI_TOKEN_BUDGET',
+    label: 'Token budget per run',
+    help: 'The most one Tidy up run may spend on the model across all its requests, in tokens (roughly three quarters of a word each). When it is reached the run stops and keeps the answers it already has; 0 means no limit.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '200000',
+    section: 'tidy-up',
+  },
+  {
+    key: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
+    label: 'Stop an unwatched run after (seconds)',
+    help: 'A run nobody has watched for this long stops itself, so a closed browser tab cannot leave the model running; 0 means never.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '60',
+    section: 'tidy-up',
+  },
+  {
+    key: 'DUPLICATES_AI_REQUEST_SECONDS',
+    label: 'Seconds per request',
+    help: 'The page first measures your model on one small request, then puts as many pairs into each request as fit into this many seconds. Shorter means smaller requests and more frequent progress.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '30',
+    section: 'tidy-up',
+  },
+  {
+    key: 'DUPLICATES_AI_CONCURRENCY',
+    label: 'Requests at once',
+    help: 'How many model requests run in parallel. 0 lets the page choose: one for Ollama, three for a hosted provider. More at once finishes sooner but costs the same tokens.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '0',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_REVIEW_BATCH_SIZE',
     label: 'Pairs per request',
-    help: 'How many name pairs one model request asks about. Fewer pairs mean more, shorter requests; more pairs need a model with a larger context.',
+    help: 'How many name pairs one model request asks about. Fewer pairs mean more, shorter requests; more pairs need a model that can read more text at once.',
     level: 'advanced',
     providers: null,
     defaultValue: '25',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_CANDIDATE_FLOOR',
     label: 'Lowest similarity shown to the model',
-    help: 'Pairs the spelling matcher rates below your sensitivity but above this score are judged by the model too. A lower value asks about more pairs.',
+    help: 'Pairs whose spelling is too far apart to be suggested on their own, but more alike than this score (0.5 to 0.95), are shown to the model too. A lower value asks about more pairs and costs more tokens.',
     level: 'advanced',
     providers: null,
     defaultValue: '0.6',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_EXCERPTS',
@@ -483,7 +521,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: null,
     defaultValue: 'yes',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_EXCERPT_CHARS',
@@ -492,7 +530,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: null,
     defaultValue: '300',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
@@ -501,91 +539,52 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: null,
     defaultValue: '2',
-    section: 'duplicates',
-  },
-  {
-    key: 'DUPLICATES_AI_TOKEN_BUDGET',
-    label: 'Token budget per review',
-    help: 'The most one review may spend across all its requests. When it is reached the review stops and keeps the verdicts it has; 0 means no limit.',
-    level: 'advanced',
-    providers: null,
-    defaultValue: '200000',
-    section: 'duplicates',
-  },
-  {
-    key: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
-    label: 'Stop an unwatched review after (seconds)',
-    help: 'A review nobody has watched for this long stops itself, so a closed tab cannot leave the model running; 0 means never.',
-    level: 'advanced',
-    providers: null,
-    defaultValue: '60',
-    section: 'duplicates',
-  },
-  {
-    key: 'DUPLICATES_AI_THINKING',
-    label: 'Let the judge think',
-    help: 'Reasoning models write their thoughts before the answer and spend the whole answer budget on them. Off, the judge gets the evidence instead and answers in a fraction of the time and cost. Switch it on only if your model judges badly without it.',
-    level: 'advanced',
-    providers: null,
-    defaultValue: 'no',
-    section: 'duplicates',
-  },
-  {
-    key: 'DUPLICATES_AI_REQUEST_SECONDS',
-    label: 'Seconds per request',
-    help: 'The judge measures your model on a small first request, then puts as many pairs into each request as fit into this many seconds. Shorter means smaller requests and more frequent progress.',
-    level: 'advanced',
-    providers: null,
-    defaultValue: '30',
-    section: 'duplicates',
-  },
-  {
-    key: 'DUPLICATES_AI_CONCURRENCY',
-    label: 'Requests at once',
-    help: 'How many model requests run in parallel. 0 lets the judge choose: one for Ollama, three for a hosted provider. More at once finishes sooner but costs the same tokens.',
-    level: 'advanced',
-    providers: null,
-    defaultValue: '0',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
-    label: 'Remember verdicts for (days)',
-    help: 'A pair the model has judged is not asked about again while both names stay unchanged. 0 switches this memory off.',
+    label: 'Remember answers for (days)',
+    help: 'A pair the model has already answered about is not asked about again while both names stay unchanged. 0 switches this memory off.',
     level: 'advanced',
     providers: null,
     defaultValue: '90',
-    section: 'duplicates',
+    section: 'tidy-up',
+  },
+  {
+    key: 'DUPLICATES_AI_THINKING',
+    label: 'Let the model think first',
+    help: 'Reasoning models write down their thoughts before the answer and can spend the whole answer budget on them. Off, the model gets the evidence instead and answers in a fraction of the time and cost. Switch it on only if your model answers badly without it.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: 'no',
+    section: 'tidy-up',
   },
   {
     key: 'DUPLICATES_AI_SWEEP_NAMES',
-    label: 'Names per request for the semantic sweep',
-    help: 'The semantic sweep shows the model the whole list of names, to find synonyms and translations the spelling rules cannot see. This is how many names go into one request.',
+    label: 'Names per request when looking for synonyms',
+    help: 'To find synonyms, translations and abbreviations that spelling rules cannot see, the model reads the whole list of names in parts. This is how many names go into one part. The same size applies when the model proposes the document types and topics for splitting tags.',
     level: 'advanced',
     providers: null,
     defaultValue: '300',
-    section: 'duplicates',
+    section: 'tidy-up',
   },
-
-  // Simplify tags page: decomposing against a saved vocabulary needs no
-  // model; these two size the optional proposals the model makes.
   {
     key: 'SIMPLIFY_TAGS_PER_REQUEST',
-    label: 'Tags per request',
-    help: 'How many tag names the model splits up in one request. Fewer names mean more requests; more names need a model with a larger context.',
-    level: 'basic',
+    label: 'Tags per request when splitting',
+    help: 'How many tag names the model looks at in one request when it suggests splitting a combined tag such as "Electricity bill" into a document type and a topic. Fewer names mean more requests; more names need a model that can read more text at once.',
+    level: 'advanced',
     providers: null,
     defaultValue: '50',
-    section: 'simplify',
+    section: 'tidy-up',
   },
   {
     key: 'SIMPLIFY_VOCABULARY_SIZE',
-    label: 'Vocabulary size',
-    help: 'How many entries the proposed vocabulary aims at, document types and topics together. Smaller means fewer, broader topics.',
-    level: 'basic',
+    label: 'Number of document types and topics to propose',
+    help: 'When you have not saved your own list yet, the model proposes the document types and topics that tags are split into. This is about how many it aims for, both together. Smaller means fewer, broader topics.',
+    level: 'advanced',
     providers: null,
     defaultValue: '25',
-    section: 'simplify',
+    section: 'tidy-up',
   },
 ]);
 
@@ -600,7 +599,7 @@ function sectionOf(option) {
  *
  * @param {unknown} provider
  * @param {'basic'|'advanced'} [level]
- * @param {'provider'|'duplicates'|'simplify'} [section]
+ * @param {'provider'|'tidy-up'} [section]
  * @returns {AiOption[]}
  */
 function optionsFor(provider, level, section) {

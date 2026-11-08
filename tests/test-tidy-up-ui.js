@@ -167,7 +167,7 @@ function pageRegion(html) {
           /412 tags · 138 correspondents · last run 3 days ago, 11 accepted/
         );
         assert.match(html, /<details class="tidy-advanced"/);
-        assert.match(html, /href="\/settings#duplicates"/);
+        assert.match(html, /href="\/settings#tidy-up"/);
         assert.match(html, /data-tidy-recent-list/);
         const words = textOf(html).replace(/Model and budget settings/g, '');
         assert.ok(

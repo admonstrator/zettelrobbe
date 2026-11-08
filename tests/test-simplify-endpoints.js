@@ -1722,8 +1722,8 @@ async function main() {
         );
       });
       assert.ok(
-        html.includes('id="sec-simplify"'),
-        'the Simplify tags section must be on the page'
+        html.includes('id="sec-tidy-up"'),
+        'the Tidy up section must be on the page'
       );
     });
 

@@ -15,7 +15,7 @@
  *   An option that does not apply to the selected provider is rendered
  *   hidden; public/js/settings.js toggles the same attribute on a switch.
  * - The Duplicates section follows the same split.
- * - No hint in the four AI sections warns about a restart.
+ * - No hint in the three AI sections warns about a restart.
  * - The Ollama thinking switch round-trips through POST /settings into the
  *   literal 'true'/'false' config.js checks.
  * - Every control the catalogue drives is in the fieldMappings list, which is
@@ -108,12 +108,11 @@ const CONNECTION_INPUTS = {
 };
 const BLOCK_IDS = rules.PROVIDER_IDS.map((id) => `${id}Settings`);
 
-const SECTIONS = ['ai-provider', 'ai-behavior', 'duplicates', 'simplify'];
+const SECTIONS = ['ai-provider', 'ai-behavior', 'tidy-up'];
 const NEXT_ENTRY = {
   'ai-provider': 'ai-behavior',
   'ai-behavior': 'restrictions',
-  duplicates: 'simplify',
-  simplify: 'account',
+  'tidy-up': 'account',
 };
 
 let passed = 0;
@@ -346,17 +345,17 @@ function optionRow(html, key) {
       );
     });
 
-    await test('the Duplicates section keeps its three basic settings outside the disclosure', async () => {
+    await test('the Tidy up section keeps its three basic settings outside the disclosure', async () => {
       const html = await getSettingsPage('openai');
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
-      const advancedStart = section.indexOf('id="sec-duplicates-advanced"');
+      const advancedStart = section.indexOf('id="sec-tidy-up-advanced"');
       assert.ok(
         advancedStart !== -1,
-        'the Duplicates section has advanced options'
+        'the Tidy up section has advanced options'
       );
       [
         'duplicatesAiReview',
@@ -369,27 +368,21 @@ function optionRow(html, key) {
           `${id} is in the basic view`
         );
       });
-      rules.optionsFor('openai', 'advanced', 'duplicates').forEach((option) => {
+      rules.optionsFor('openai', 'advanced', 'tidy-up').forEach((option) => {
         assert.ok(
           section.indexOf(`data-ai-option="${option.key}"`) > advancedStart,
           `${option.key} is under Advanced options`
         );
       });
-      const simplify = sliceBetween(
-        html,
-        'id="entry-simplify"',
-        'id="entry-account"'
-      );
-      assert.ok(
-        !simplify.includes('<details'),
-        'Simplify has nothing to tuck away'
-      );
       ['simplifyTagsPerRequest', 'simplifyVocabularySize'].forEach((id) => {
-        assert.ok(simplify.includes(`name="${id}"`), `${id} stays in Simplify`);
+        assert.ok(
+          section.indexOf(`name="${id}"`) > advancedStart,
+          `${id} is under Advanced options of Tidy up`
+        );
       });
     });
 
-    await test('no hint in the four AI sections says "Restart required"', async () => {
+    await test('no hint in the three AI sections says "Restart required"', async () => {
       for (const provider of rules.PROVIDER_IDS) {
         const html = await getSettingsPage(provider);
         SECTIONS.forEach((id) => {
