@@ -189,6 +189,16 @@ function finish() {
   realExit(failed > 0 ? 1 : 0);
 }
 
+// A browser is available in development containers, not in CI. The model
+// picker is client-side, so it is driven in a real page when one can be had.
+function loadPlaywright() {
+  try {
+    return require('playwright');
+  } catch {
+    return null;
+  }
+}
+
 function countOccurrences(haystack, needle) {
   return haystack.split(needle).length - 1;
 }
@@ -399,7 +409,10 @@ function sliceBetween(source, from, to) {
       );
       // The words a person reads, without the configured values: the test
       // configuration names its model "judge-of-record".
-      const words = section.replace(/ value="[^"]*"/g, '');
+      // The model picker lists the configured model as an option of its own.
+      const words = section
+        .replace(/ [a-z-]*value="[^"]*"/g, '')
+        .replace(/>judge-of-record</g, '><');
       ['Duplicates page', 'Simplify tags page'].forEach((old) => {
         assert.ok(!words.includes(old), `"${old}" became "Tidy up page"`);
       });
@@ -502,6 +515,98 @@ function sliceBetween(source, from, to) {
         countOccurrences(section, 'class="zr-field__hint"'),
         17,
         'each of the seventeen fields says what it does and what its default is'
+      );
+    });
+
+    await test('the model for Tidy up is a model picker with a Fetch models button', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="entry-tidy-up"',
+        'id="entry-account"'
+      );
+      const field = sliceBetween(
+        section,
+        'for="duplicatesAiModel"',
+        'class="zr-field__hint"'
+      );
+      const select = sliceBetween(
+        field,
+        '<select id="duplicatesAiModel" name="duplicatesAiModel"',
+        '</select>'
+      );
+      const options = [
+        ...select.matchAll(/<option value="([^"]*)"([^>]*)>([^<]*)</g),
+      ].map(([, value, attrs, label]) => ({
+        value,
+        label,
+        selected: /\bselected\b/.test(attrs),
+        other: /data-model-other/.test(attrs),
+      }));
+      assert.deepStrictEqual(
+        options.map(({ value, label }) => [value, label]),
+        [
+          ['', 'Same as the analysis model'],
+          ['judge-of-record', 'judge-of-record'],
+          ['', 'Other…'],
+        ],
+        'placeholder first, the stored model, then the way to type one'
+      );
+      assert.deepStrictEqual(
+        options.filter((option) => option.selected).map((o) => o.value),
+        ['judge-of-record'],
+        'the stored model is the selected one'
+      );
+      assert.ok(options[2].other, 'the last option reveals the text field');
+      assert.ok(
+        /data-stored-value="judge-of-record"/.test(select),
+        'the stored model is kept for a provider switch'
+      );
+      assert.ok(
+        /<div class="zr-inputgroup"><select id="duplicatesAiModel"/.test(field),
+        'select and button share the row the provider model fields use'
+      );
+      const button = field.match(
+        /<button type="button" id="fetchTidyUpModelsBtn" class="([^"]*)"[^>]*>([\s\S]*?)<\/button>/
+      );
+      assert.ok(button, 'the Fetch models button is rendered');
+      assert.strictEqual(button[1], 'zr-btn', 'same class as Fetch Models');
+      assert.ok(
+        button[2].includes('/icons.svg#i-list') &&
+          button[2].includes('<span>Fetch models</span>'),
+        'same icon, labelled Fetch models'
+      );
+      assert.ok(
+        /data-locked-by="duplicatesAiModel"/.test(button[0]),
+        'the button is locked with the field'
+      );
+      const other = field.match(
+        /<input type="text" id="duplicatesAiModelOther"[^>]*>/
+      );
+      assert.ok(other, 'the text field for a typed model is rendered');
+      assert.ok(
+        !/\bname=/.test(other[0]),
+        'the text field is not submitted; the select carries the value'
+      );
+      assert.ok(
+        /class="zr-input hidden"/.test(other[0]),
+        'and it is hidden until Other… is chosen'
+      );
+
+      const settingsJs = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'js', 'settings.js'),
+        'utf8'
+      );
+      assert.strictEqual(
+        countOccurrences(settingsJs, "selector: '#duplicatesAiModel'"),
+        1,
+        'one element is mapped to DUPLICATES_AI_MODEL'
+      );
+      assert.ok(
+        settingsJs.includes(
+          "{ selector: '#duplicatesAiModel', envKey: 'DUPLICATES_AI_MODEL' }"
+        ),
+        'and it is the select'
       );
     });
 
@@ -1323,6 +1428,220 @@ function sliceBetween(source, from, to) {
         'the Simplify group follows the Duplicates group, as the page does'
       );
     });
+    // ── 4. The model picker, in a browser when there is one ─────────────────
+    const playwright = loadPlaywright();
+    if (!playwright) {
+      console.log(
+        'ℹ️  no browser available; the model picker was checked in markup only'
+      );
+    } else {
+      const express = require(
+        path.join(__dirname, '..', 'node_modules', 'express')
+      );
+      harness.app.use(express.static(path.join(__dirname, '..', 'public')));
+      // Every START_ENV key is pinned by the harness (it is in the startup
+      // snapshot), so the picker renders locked unless its key is released.
+      const snapshot = global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__;
+      const pinnedModel = snapshot.DUPLICATES_AI_MODEL;
+      const pinnedProvider = snapshot.AI_PROVIDER;
+
+      const openPage = async (browser, discovered) => {
+        const page = await browser.newPage({
+          extraHTTPHeaders: { 'x-api-key': API_KEY },
+        });
+        const discoveryRequests = [];
+        const saves = [];
+        await page.route('**/api/settings/ai/models', async (route) => {
+          discoveryRequests.push(route.request().postDataJSON());
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              success: true,
+              models: discovered,
+              message: `Discovered ${discovered.length} model(s).`,
+            }),
+          });
+        });
+        await page.route('**/settings', async (route) => {
+          if (route.request().method() !== 'POST') return route.continue();
+          saves.push(route.request().postDataJSON());
+          return route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ success: true, restart: false }),
+          });
+        });
+        await page.goto(harness.base + '/settings#tidy-up');
+        await page.waitForSelector('#duplicatesAiModel', { state: 'attached' });
+        return { page, discoveryRequests, saves };
+      };
+      const closeDialog = async (page) => {
+        await page.waitForSelector('dialog.zr-dialog:not([id])[open]');
+        const title = await page.textContent(
+          'dialog.zr-dialog:not([id]) .zr-grow'
+        );
+        await page.click('dialog.zr-dialog:not([id]) button[value="ok"]');
+        await page.waitForSelector('dialog.zr-dialog:not([id])', {
+          state: 'detached',
+        });
+        return title;
+      };
+      const pickerState = (page) =>
+        page.evaluate(() => {
+          const select = document.getElementById('duplicatesAiModel');
+          return {
+            value: select.value,
+            disabled: select.disabled,
+            options: [...select.options].map((option) => option.textContent),
+            otherHidden: document
+              .getElementById('duplicatesAiModelOther')
+              .classList.contains('hidden'),
+            button: {
+              hidden: document
+                .getElementById('fetchTidyUpModelsBtn')
+                .classList.contains('hidden'),
+              disabled: document.getElementById('fetchTidyUpModelsBtn')
+                .disabled,
+            },
+          };
+        });
+      // The submit handler awaits more than the POST; wait for the request.
+      const submitAndWait = async (page, saves, count) => {
+        await page.click('#setupForm button[type="submit"]');
+        const deadline = Date.now() + 10000;
+        while (saves.length < count && Date.now() < deadline) {
+          await page.waitForTimeout(25);
+        }
+        assert.strictEqual(saves.length, count, `save ${count} was sent`);
+      };
+      const switchProvider = (page, provider) =>
+        page.evaluate((value) => {
+          const select = document.getElementById('aiProvider');
+          select.value = value;
+          select.dispatchEvent(new Event('change'));
+        }, provider);
+
+      process.env.DUPLICATES_AI_MODEL = 'proxy-pinned-model';
+      process.env.AI_PROVIDER = 'openai';
+      // The form is validated before it is sent; the harness has no user.
+      process.env.PAPERLESS_USERNAME = 'tidy-up-tester';
+      const browser = await playwright.chromium.launch();
+      try {
+        await test('in a browser, a locked model picker disables the select and the Fetch button', async () => {
+          const { page } = await openPage(browser, []);
+          await page.waitForFunction(
+            () => document.getElementById('duplicatesAiModel').disabled
+          );
+          const state = await pickerState(page);
+          assert.strictEqual(state.value, 'proxy-pinned-model');
+          assert.ok(state.disabled, 'the select is locked');
+          assert.ok(state.button.disabled, 'the Fetch button is locked too');
+          const hint = await page.textContent(
+            '[data-ai-option="DUPLICATES_AI_MODEL"] .zr-field__hint'
+          );
+          assert.match(hint, /Set by the environment \(DUPLICATES_AI_MODEL\)/);
+          await page.close();
+        });
+
+        delete snapshot.DUPLICATES_AI_MODEL;
+        delete snapshot.AI_PROVIDER;
+
+        await test('in a browser, Fetch models fills the picker and keeps the stored model selected', async () => {
+          const { page, discoveryRequests, saves } = await openPage(browser, [
+            'gpt-4.1',
+            'gpt-4.1-mini',
+          ]);
+          await page.waitForFunction(
+            () => !document.getElementById('duplicatesAiModel').disabled
+          );
+          await page.click('#fetchTidyUpModelsBtn');
+          assert.strictEqual(await closeDialog(page), 'Models loaded');
+
+          assert.deepStrictEqual(
+            discoveryRequests,
+            [{ aiProvider: 'openai', apiUrl: '', token: '' }],
+            'the configured provider is asked, with the stored key'
+          );
+          let state = await pickerState(page);
+          assert.deepStrictEqual(state.options, [
+            'Same as the analysis model',
+            'gpt-4.1',
+            'gpt-4.1-mini',
+            'proxy-pinned-model',
+            'Other…',
+          ]);
+          assert.strictEqual(
+            state.value,
+            'proxy-pinned-model',
+            'a model the discovery does not list stays selected'
+          );
+          assert.ok(!state.button.disabled, 'the button is usable again');
+
+          await page.selectOption('#duplicatesAiModel', 'gpt-4.1-mini');
+          await submitAndWait(page, saves, 1);
+          assert.strictEqual(saves[0].duplicatesAiModel, 'gpt-4.1-mini');
+
+          // A model id no list names: Other… reveals the text field and the
+          // select's value is what is typed there.
+          await page.selectOption('#duplicatesAiModel', { label: 'Other…' });
+          state = await pickerState(page);
+          assert.ok(!state.otherHidden, 'Other… reveals the text field');
+          await page.fill('#duplicatesAiModelOther', 'my-fine-tune:v2');
+          state = await pickerState(page);
+          assert.strictEqual(state.value, 'my-fine-tune:v2');
+          await submitAndWait(page, saves, 2);
+          assert.strictEqual(saves[1].duplicatesAiModel, 'my-fine-tune:v2');
+          assert.ok(
+            !Object.prototype.hasOwnProperty.call(
+              saves[1],
+              'duplicatesAiModelOther'
+            ),
+            'the text field itself is not part of the form'
+          );
+
+          // The save path behind the page stores what the page sent.
+          const response = await postSettings({
+            duplicatesAiModel: saves[1].duplicatesAiModel,
+          });
+          assert.strictEqual(response.status, 200);
+          assert.strictEqual(
+            lastSaved().DUPLICATES_AI_MODEL,
+            'my-fine-tune:v2'
+          );
+          process.env.DUPLICATES_AI_MODEL = 'proxy-pinned-model';
+          await page.close();
+        });
+
+        await test('in a browser, a provider switch drops the fetched list and Azure has no Fetch button', async () => {
+          const { page } = await openPage(browser, ['gpt-4.1', 'o4-mini']);
+          await page.waitForFunction(
+            () => !document.getElementById('duplicatesAiModel').disabled
+          );
+          await page.click('#fetchTidyUpModelsBtn');
+          await closeDialog(page);
+          await page.selectOption('#duplicatesAiModel', 'o4-mini');
+
+          await switchProvider(page, 'azure');
+          let state = await pickerState(page);
+          assert.deepStrictEqual(state.options, [
+            'Same as the analysis model',
+            'proxy-pinned-model',
+            'Other…',
+          ]);
+          assert.strictEqual(state.value, 'proxy-pinned-model');
+          assert.ok(state.button.hidden, 'no discovery for Azure');
+
+          await switchProvider(page, 'ollama');
+          state = await pickerState(page);
+          assert.ok(!state.button.hidden, 'the button returns with Ollama');
+          assert.strictEqual(state.value, 'proxy-pinned-model');
+          await page.close();
+        });
+      } finally {
+        await browser.close();
+        snapshot.DUPLICATES_AI_MODEL = pinnedModel;
+        snapshot.AI_PROVIDER = pinnedProvider;
+      }
+    }
   } finally {
     await harness.close();
   }

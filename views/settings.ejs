@@ -259,7 +259,7 @@
                                 AZURE_API_VERSION: { id: 'azureApiVersion', type: 'text', attrs: 'autocomplete="off" spellcheck="false"' },
                                 DUPLICATES_AI_REVIEW: { id: 'duplicatesAiReview', type: 'switch' },
                                 DUPLICATES_GUARD_NEW_NAMES: { id: 'duplicatesGuardNewNames', type: 'switch' },
-                                DUPLICATES_AI_MODEL: { id: 'duplicatesAiModel', type: 'text', placeholder: 'Same as the analysis model' },
+                                DUPLICATES_AI_MODEL: { id: 'duplicatesAiModel', type: 'model', placeholder: 'Same as the analysis model', button: 'fetchTidyUpModelsBtn' },
                                 DUPLICATES_AI_REVIEW_BATCH_SIZE: { id: 'duplicatesAiReviewBatchSize', type: 'number', attrs: 'min="1" max="100" step="1"' },
                                 DUPLICATES_AI_CANDIDATE_FLOOR: { id: 'duplicatesAiCandidateFloor', type: 'number', attrs: 'min="0.5" max="0.95" step="0.01"' },
                                 DUPLICATES_AI_EXCERPTS: { id: 'duplicatesAiExcerpts', type: 'switch' },
@@ -293,6 +293,21 @@
                                         input = `<select id="${control.id}" name="${control.id}" class="zr-input">`
                                             + control.choices.map((choice) => `<option value="${settingsEsc(choice.value)}" ${choice.value === current ? 'selected' : ''}>${settingsEsc(choice.label)}</option>`).join('')
                                             + '</select>';
+                                    } else if (control.type === 'model') {
+                                        // A model picker like the provider's own model fields: the
+                                        // placeholder means "no model of its own", the stored id
+                                        // stays listed, Fetch models (settings.js) fills in what the
+                                        // configured provider offers, and "Other…" reveals a text
+                                        // field for an id the discovery does not list. Azure has no
+                                        // discovery, so its button is hidden there.
+                                        input = `<div class="zr-inputgroup"><select id="${control.id}" name="${control.id}" class="zr-input" data-model-picker data-stored-value="${settingsEsc(current)}" data-placeholder="${settingsEsc(control.placeholder)}">`
+                                            + `<option value="" ${current ? '' : 'selected'}>${settingsEsc(control.placeholder)}</option>`
+                                            + (current ? `<option value="${settingsEsc(current)}" selected>${settingsEsc(current)}</option>` : '')
+                                            + '<option value="" data-model-other>Other…</option>'
+                                            + '</select>'
+                                            + `<button type="button" id="${control.button}" class="zr-btn${aiSelectedProvider === 'azure' ? ' hidden' : ''}" data-model-fetch="${control.id}" data-locked-by="${control.id}">`
+                                            + '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-list"/></svg><span>Fetch models</span></button></div>'
+                                            + `<input type="text" id="${control.id}Other" class="zr-input hidden" value="" autocomplete="off" spellcheck="false" placeholder="Model id" aria-label="${settingsEsc(option.label)}: model id" data-model-other-input="${control.id}" data-locked-by="${control.id}">`;
                                     } else if (control.type === 'secret') {
                                         input = `<div class="zr-inputgroup"><input type="password" id="${control.id}" name="${control.id}" value="" class="zr-input" autocomplete="off" placeholder="${configuredSecrets[option.key] ? 'Configured' : settingsEsc(control.placeholder || fallback)}">`
                                             + `<button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="${control.id}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button></div>`;
