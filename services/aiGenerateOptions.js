@@ -9,6 +9,7 @@ const {
   assertAnthropicCompleted,
   mapAnthropicUsage,
 } = require('./anthropicSupport');
+const { resolveRules } = require('./aiProviderRules');
 
 /**
  * The optional second argument of `generateText(prompt, options)`.
@@ -116,30 +117,33 @@ function reasoningEnabled(options) {
 }
 
 /**
- * The model families whose OpenAI-compatible endpoint takes `reasoning_effort`.
+ * The `reasoning_effort` a provider takes for this model when the caller
+ * wants no thinking, or null when that model has no such field.
  *
  * `chat_template_kwargs` and `/no_think` are for the servers that apply a chat
- * template themselves; a hosted reasoning model reads neither and thinks on,
- * which is what cost the Duplicates review its batch size. These three
- * families take the field instead — and a model that does not know it answers
- * 400, so it is sent for these names and for no others.
+ * template themselves; a hosted reasoning model reads neither and thinks on.
+ * The families that take the field are listed once, in the MODEL_FAMILIES of
+ * services/aiProviderRules.js — a model that does not know the field answers
+ * 400, so it is sent for those names and for no others.
+ *
+ * @param {unknown} provider
+ * @param {unknown} model
+ * @returns {'minimal'|'low'|null}
  */
-const GPT_5_MODEL_PATTERN = /gpt-?5/i;
-const O_SERIES_MODEL_PATTERN = /(?:^|[/:_\s-])o[1-4](?:$|[-_.])/i;
-const GPT_OSS_MODEL_PATTERN = /gpt-?oss/i;
+function reasoningOffEffort(provider, model) {
+  const rules = resolveRules(provider, model);
+  return rules.reasoningEffort ? rules.reasoningOffEffort : null;
+}
 
 /**
- * The `reasoning_effort` the OpenAI and Azure APIs take for this model when
- * the caller wants no thinking, or null when that model has no such field.
+ * The value for the OpenAI and Azure APIs: 'minimal' for gpt-5, 'low' for
+ * the o-series, null for everything else.
  *
  * @param {unknown} model
  * @returns {'minimal'|'low'|null}
  */
 function reasoningEffortForOpenAi(model) {
-  const name = String(model ?? '').trim();
-  if (name === '') return null;
-  if (GPT_5_MODEL_PATTERN.test(name)) return 'minimal';
-  return O_SERIES_MODEL_PATTERN.test(name) ? 'low' : null;
+  return reasoningOffEffort('openai', model);
 }
 
 /**
@@ -150,13 +154,7 @@ function reasoningEffortForOpenAi(model) {
  * @returns {'low'|null}
  */
 function reasoningEffortForCompatible(model) {
-  const name = String(model ?? '').trim();
-  if (name === '') return null;
-  return GPT_OSS_MODEL_PATTERN.test(name) ||
-    GPT_5_MODEL_PATTERN.test(name) ||
-    O_SERIES_MODEL_PATTERN.test(name)
-    ? 'low'
-    : null;
+  return /** @type {'low'|null} */ (reasoningOffEffort('custom', model));
 }
 
 /**
@@ -809,6 +807,7 @@ module.exports = {
   reasoningEnabled,
   reasoningEffortForOpenAi,
   reasoningEffortForCompatible,
+  reasoningOffEffort,
   progressHandler,
   abortSignal,
   hasNumber,

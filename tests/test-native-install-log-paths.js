@@ -25,9 +25,8 @@ function run() {
   console.log('\n=== Native Install Log Path Checks ===');
 
   const filesUsingResponseLogPath = [
-    'services/openaiService.js',
-    'services/customService.js',
-    'services/azureService.js',
+    // OpenAI, Azure and custom share this one analysis path.
+    'services/openaiCompatibleService.js',
   ];
 
   filesUsingResponseLogPath.forEach((relativePath) => {

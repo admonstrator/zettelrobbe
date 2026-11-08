@@ -350,6 +350,16 @@
  *           type: string
  *           description: Result of the local database check
  *           example: ok
+ *         bootId:
+ *           type: string
+ *           description: |
+ *             Random id drawn when the process started. It changes with every
+ *             restart, so a client waiting for one polls until it differs.
+ *           example: 3f2c9a1e-7b4d-4e8a-9c61-2d5f0b8e4a17
+ *         startedAt:
+ *           type: string
+ *           format: date-time
+ *           description: When the process started
  *         message:
  *           type: string
  *           description: Additional status information (for non-healthy states). Authenticated callers only.

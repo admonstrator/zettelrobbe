@@ -65,6 +65,7 @@ const {
   analysisResponseSchema,
   parseAnalysisAnswer,
 } = require('./analysisPrompt');
+const { resolveRules } = require('./aiProviderRules');
 
 const PROVIDER = 'Anthropic';
 const responseLogPath = path.join(
@@ -82,7 +83,11 @@ const TRUNCATION_REMEDY =
 
 class AnthropicService {
   constructor() {
-    this.client = null;
+    /** A client assigned from outside; wins over the configured one. */
+    this._assignedClient = null;
+    /** The configured client and the key and URL it was built from. */
+    this._liveClient = null;
+    this._liveClientKey = null;
     this.lastGenerateTextUsage = null;
     /**
      * Schemas the API refused for a model, as `model\nschema`. The analysis
@@ -92,17 +97,49 @@ class AnthropicService {
     this.rejectedSchemas = new Set();
   }
 
-  initialize() {
-    if (
-      !this.client &&
-      config.aiProvider === 'anthropic' &&
-      config.anthropic.apiKey
-    ) {
-      this.client = createAnthropicClient({
-        apiKey: config.anthropic.apiKey,
-        apiUrl: config.anthropic.apiUrl,
-      });
+  /**
+   * The SDK client for the next request: an assigned one, else the one the
+   * current key and API URL describe (rebuilt when either changed, so a key
+   * saved on the settings page needs no restart), else null when Anthropic
+   * is not the selected provider or has no key.
+   */
+  get client() {
+    if (this._assignedClient) return this._assignedClient;
+    if (config.aiProvider !== 'anthropic' || !config.anthropic.apiKey) {
+      return null;
     }
+    const connection = {
+      apiKey: config.anthropic.apiKey,
+      apiUrl: config.anthropic.apiUrl,
+    };
+    const key = JSON.stringify(connection);
+    if (!this._liveClient || this._liveClientKey !== key) {
+      this._liveClient = createAnthropicClient(connection);
+      this._liveClientKey = key;
+    }
+    return this._liveClient;
+  }
+
+  set client(value) {
+    this._assignedClient = value || null;
+  }
+
+  /**
+   * Kept because callers invoke it before a request. The client is built on
+   * demand from the live configuration, so there is nothing left to set up.
+   */
+  initialize() {}
+
+  /**
+   * What the transport takes (services/aiProviderRules.js): no temperature,
+   * prompt caching, structured output through output_config. The per-model
+   * details — which model thinks how, which takes a schema — stay with
+   * anthropicModelTraits(), which knows more than the generic rules.
+   *
+   * @param {string} model
+   */
+  _rules(model) {
+    return resolveRules('anthropic', model);
   }
 
   /**
@@ -112,10 +149,16 @@ class AnthropicService {
    * the model's minimum is simply not cached, at no extra cost.
    *
    * @param {string} text
+   * @param {string} model
    * @returns {string|Array<object>}
    */
-  _systemField(text) {
-    if (config.anthropic.promptCaching !== 'yes') return text;
+  _systemField(text, model) {
+    if (
+      config.anthropic.promptCaching !== 'yes' ||
+      !this._rules(model).promptCaching
+    ) {
+      return text;
+    }
     return [{ type: 'text', text, cache_control: { type: 'ephemeral' } }];
   }
 
@@ -215,7 +258,7 @@ class AnthropicService {
     const request = {
       model,
       max_tokens: anthropicMaxTokens(null, config.anthropic.maxTokens),
-      system: this._systemField(prompt.systemPrompt),
+      system: this._systemField(prompt.systemPrompt, model),
       messages: [{ role: 'user', content: documentText }],
     };
     if (thinking.thinking) request.thinking = thinking.thinking;
@@ -223,6 +266,7 @@ class AnthropicService {
     const outputConfig = { ...(thinking.output_config || {}) };
     if (
       config.anthropic.structuredOutput === 'yes' &&
+      this._rules(model).structuredOutput === 'anthropic' &&
       anthropicModelTraits(model).structuredOutput
     ) {
       const schema = analysisResponseSchema(prompt);
@@ -528,8 +572,10 @@ class AnthropicService {
         ),
       };
       if (hasSystemPrompt(options)) {
-        request.system = this._systemField(options.systemPrompt);
+        request.system = this._systemField(options.systemPrompt, model);
       }
+      // options.temperature is not forwarded: the rules say this transport
+      // takes none (see _rules()).
       request.messages = [{ role: 'user', content: prompt }];
       Object.assign(request, thinking);
 

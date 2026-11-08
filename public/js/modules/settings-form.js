@@ -32,13 +32,20 @@ export default function settingsForm(root, { confirmDialog }) {
     return fields.filter((field) => initial.get(field) !== valueOf(field));
   }
 
-  // A field needs a restart when its own hint says so — the hints are the single
-  // source of truth for that in this form.
+  // The keys whose change ends in a restart, rendered from
+  // config/restartRequiredKeys.js — the same list the save route decides by.
+  // A field knows its key through data-env-key (annotateEnvKeys in
+  // settings.js), which is set by the time anything is edited.
+  let restartKeys = new Set();
+  try {
+    const parsed = JSON.parse(form.dataset.restartKeys || '[]');
+    restartKeys = new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    restartKeys = new Set();
+  }
+
   function needsRestart(field) {
-    const scope = field.closest(
-      '.zr-field, .zr-switchrow, .zr-formgrid, .zr-row'
-    );
-    return Boolean(scope && /restart required/i.test(scope.textContent || ''));
+    return restartKeys.has(field.dataset.envKey);
   }
 
   function sync() {

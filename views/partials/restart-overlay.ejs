@@ -1,10 +1,13 @@
+<%# Shown after a save that restarts the server. public/js/settings.js polls
+    /health and reloads once a healthy answer carries a boot id other than the
+    one this page was rendered with. %>
 <div id="restartOverlay" class="zr-fullscreen hidden" aria-live="polite" aria-busy="true">
     <div class="zr-fullscreen__card">
         <div class="zr-row">
             <span class="zr-fullscreen__seal" aria-hidden="true">🦭</span>
             <div>
                 <h3 class="zr-module__title">Restarting Zettelrobbe</h3>
-                <p id="restartOverlayStatus" class="zr-sm zr-muted">Saving changes and waiting for the server health check…</p>
+                <p id="restartOverlayStatus" class="zr-sm zr-muted">Settings saved. Waiting for the server to come back…</p>
             </div>
         </div>
 

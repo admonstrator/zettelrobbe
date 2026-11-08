@@ -39,3 +39,6 @@ GEMINI.md
 CVE/*
 .todo/*
 tests/ui-review/
+
+# Local assistant worktrees and scratch
+.claude/

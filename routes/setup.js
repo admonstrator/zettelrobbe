@@ -4,12 +4,14 @@ const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const setupService = require('../services/setupService.js');
 const paperlessService = require('../services/paperlessService.js');
-const openaiService = require('../services/openaiService.js');
-const ollamaService = require('../services/ollamaService.js');
-const azureService = require('../services/azureService.js');
 const documentModel = require('../models/document.js');
 const AIServiceFactory = require('../services/aiServiceFactory');
 const configFile = require('../config/config.js');
+const aiProviderRules = require('../services/aiProviderRules');
+const {
+  RESTART_REQUIRED_KEYS,
+  restartRequiredAmong,
+} = require('../config/restartRequiredKeys');
 const changelog = require('../config/changelog.js');
 const dashboardWidgets = require('../config/dashboardWidgets.js');
 const documentsService = require('../services/documentsService.js');
@@ -31,7 +33,6 @@ const {
   verifySessionToken,
   SESSION_TOKEN_TYPE,
 } = require('./auth.js');
-const customService = require('../services/customService.js');
 const mistralOcrService = require('../services/mistralOcrService');
 const skipRuleService = require('../services/skipRuleService');
 const quickstartService = require('../services/quickstartService');
@@ -7309,48 +7310,6 @@ router.get('/settings', async (req, res) => {
 
   let showErrorCheckSettings = false;
   const isConfigured = await setupService.isConfigured();
-  const runtimeOverrides = await setupService.loadRuntimeOverrides();
-  const injectedEnvSnapshot =
-    global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ || {};
-  const secretKeys = new Set(SETTINGS_SECRET_FIELDS);
-
-  const formatValueForTooltip = (key, value) => {
-    const normalizedValue = value == null ? '' : String(value);
-    if (secretKeys.has(key)) {
-      return normalizedValue ? '[hidden]' : '[empty]';
-    }
-    return normalizedValue === '' ? '[empty]' : normalizedValue;
-  };
-
-  const runtimeOverrideDetails = {};
-  const runtimeOverrideKeys = new Set(
-    Object.keys(runtimeOverrides || {}).filter((key) => {
-      const hasInjectedValue = Object.prototype.hasOwnProperty.call(
-        injectedEnvSnapshot,
-        key
-      );
-      if (!hasInjectedValue) {
-        return false;
-      }
-
-      const injectedValue =
-        injectedEnvSnapshot[key] == null
-          ? ''
-          : String(injectedEnvSnapshot[key]);
-      const overrideValue =
-        runtimeOverrides[key] == null ? '' : String(runtimeOverrides[key]);
-      const isOverwritten = injectedValue !== overrideValue;
-
-      if (isOverwritten) {
-        runtimeOverrideDetails[key] = {
-          injected: formatValueForTooltip(key, injectedValue),
-          override: formatValueForTooltip(key, overrideValue),
-        };
-      }
-
-      return isOverwritten;
-    })
-  );
   // An incomplete configuration now always lands here rather than reopening the
   // setup wizard, so say why - not only in the PAPERLESS_AI_INITIAL_SETUP case.
   if (!isConfigured) {
@@ -7369,6 +7328,7 @@ router.get('/settings', async (req, res) => {
     OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
     OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
     OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
+    OLLAMA_THINK: process.env.OLLAMA_THINK || 'false',
     SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
     RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
     RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
@@ -7538,17 +7498,15 @@ router.get('/settings', async (req, res) => {
   console.log('Current config IGNORE_TAGS:', config.IGNORE_TAGS);
   console.log('Current config PROMPT_TAGS:', config.PROMPT_TAGS);
 
-  const lockedEnvKeys = Object.keys(config).filter((key) =>
-    configFile.isProtectedRuntimeEnvKey(key)
-  );
-  const lockedEnvDetails = Object.fromEntries(
-    lockedEnvKeys.map((key) => [
-      key,
-      {
-        managed: formatValueForTooltip(key, injectedEnvSnapshot[key]),
-      },
-    ])
-  );
+  // The keys the container pins. Their fields render locked; the value
+  // shown is the one in effect. The AI options are listed too, since not
+  // every one of them has a slot in the config object above.
+  const lockedEnvKeys = [
+    ...new Set([
+      ...Object.keys(config),
+      ...aiProviderRules.AI_OPTIONS.map((option) => option.key),
+    ]),
+  ].filter((key) => configFile.isProtectedRuntimeEnvKey(key));
 
   const configuredSecrets = {};
   SETTINGS_SECRET_FIELDS.forEach((key) => {
@@ -7587,12 +7545,19 @@ router.get('/settings', async (req, res) => {
     version,
     config,
     configuredSecrets,
-    runtimeOverrideKeys: Array.from(runtimeOverrideKeys),
-    runtimeOverrideDetails,
     lockedEnvKeys,
-    lockedEnvDetails,
+    // The process's boot id; the page compares /health against it to tell
+    // the restarted server from the one it saved to.
+    bootId: BOOT_IDENTITY.bootId,
     aiProviderPresets,
     anthropicOptions: getAnthropicFormOptions(),
+    // The AI option catalogue (labels, plain-language help, basic/advanced
+    // level, which providers show each) and the keys whose change ends in a
+    // restart. Both come from their single source so the view holds no list
+    // of its own.
+    aiOptions: aiProviderRules.AI_OPTIONS,
+    aiProviders: aiProviderRules.PROVIDERS,
+    restartRequiredKeys: Array.from(RESTART_REQUIRED_KEYS),
     mfaSettings,
     // Single sign-on: the callback URL as this request sees it (what to
     // register at the provider when OIDC_REDIRECT_URI is empty), and what the
@@ -8318,71 +8283,28 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
         .json({ error: 'Valid content string is required' });
     }
 
-    if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
+    if (!aiProviderRules.PROVIDER_IDS.includes(process.env.AI_PROVIDER)) {
+      return res.status(500).json({ error: 'AI provider not configured' });
+    }
+
+    // Through the factory, which owns the provider service like every scan
+    // does. Every provider's tokens are recorded the same way.
+    const analyzeDocument = await AIServiceFactory.getService().analyzeDocument(
+      content,
+      existingTagsList,
+      existingCorrespondentList,
+      existingDocumentTypesList,
+      id || []
+    );
+    if (analyzeDocument.metrics && id) {
       await documentModel.addOpenAIMetrics(
         id,
         analyzeDocument.metrics.promptTokens,
         analyzeDocument.metrics.completionTokens,
         analyzeDocument.metrics.totalTokens
       );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'custom') {
-      const analyzeDocument = await customService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'azure') {
-      const analyzeDocument = await azureService.analyzeDocument(
-        content,
-        existingTagsList,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        id || []
-      );
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'anthropic') {
-      // Through the factory, which owns the Claude service like every scan
-      // does. Its tokens are billed like OpenAI's, so they are recorded too.
-      const analyzeDocument =
-        await AIServiceFactory.getService().analyzeDocument(
-          content,
-          existingTagsList,
-          existingCorrespondentList,
-          existingDocumentTypesList,
-          id || []
-        );
-      if (analyzeDocument.metrics && id) {
-        await documentModel.addOpenAIMetrics(
-          id,
-          analyzeDocument.metrics.promptTokens,
-          analyzeDocument.metrics.completionTokens,
-          analyzeDocument.metrics.totalTokens
-        );
-      }
-      return res.json(analyzeDocument);
-    } else {
-      return res.status(500).json({ error: 'AI provider not configured' });
     }
+    return res.json(analyzeDocument);
   } catch (error) {
     console.error('Analysis error:', error);
     return res.status(500).json({ error: error.message });
@@ -8576,6 +8498,15 @@ function buildScannerHealthSnapshot() {
   };
 }
 
+/* Drawn once per process. The settings page embeds it and, after a save that
+   restarts the server, waits for /health to report a different one: the old
+   process keeps answering healthy for the seconds before it exits, which is
+   how a reload used to land on a server that was already gone. */
+const BOOT_IDENTITY = Object.freeze({
+  bootId: crypto.randomUUID(),
+  startedAt: new Date().toISOString(),
+});
+
 /**
  * @swagger
  * /health:
@@ -8597,11 +8528,15 @@ function buildScannerHealthSnapshot() {
  *       `DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and
  *       never reported as degraded.
  *
- *       Without authentication the response carries only `status` and
- *       `database`, with the same HTTP status codes. `message`, `scanner` and
- *       `paperless` hold raw error messages with internal host names and
- *       ports, so they are returned only with a session (cookie or bearer
- *       token) or the `x-api-key` header.
+ *       Without authentication the response carries only `status`,
+ *       `database`, `bootId` and `startedAt`, with the same HTTP status codes.
+ *       `message`, `scanner` and `paperless` hold raw error messages with
+ *       internal host names and ports, so they are returned only with a
+ *       session (cookie or bearer token) or the `x-api-key` header.
+ *
+ *       `bootId` is a random id the process draws when it starts. A client
+ *       that waits for a restart polls until it sees an id other than the one
+ *       it had before; the old process answers healthy until it exits.
  *     tags:
  *       - System
  *     responses:
@@ -8643,6 +8578,7 @@ router.get('/health', async (req, res) => {
       return res.status(503).json({
         status: 'database_error',
         message: 'Database check failed',
+        ...BOOT_IDENTITY,
       });
     }
 
@@ -8655,7 +8591,7 @@ router.get('/health', async (req, res) => {
     // details carry raw error messages ("connect ECONNREFUSED 172.18.0.2:8000")
     // and the schedule, so only an authenticated caller gets them.
     if (!isAuthenticatedCaller(req)) {
-      const summary = { status, database: 'ok' };
+      const summary = { status, database: 'ok', ...BOOT_IDENTITY };
       if (degraded && scanHealthService.strictHealthEnabled) {
         return res.status(503).json(summary);
       }
@@ -8665,6 +8601,7 @@ router.get('/health', async (req, res) => {
     const payload = {
       status,
       database: 'ok',
+      ...BOOT_IDENTITY,
       ...snapshot,
     };
 
@@ -9078,19 +9015,34 @@ router.get('/health', async (req, res) => {
  *                 example: "#ffffff"
  *     responses:
  *       200:
- *         description: Settings updated successfully
+ *         description: |
+ *           Settings saved. Most values apply at once. When a saved value is
+ *           one the process only reads at boot (the port, a cron schedule, the
+ *           Paperless-ngx connection, ...), `restart` is true, `restartKeys`
+ *           names those keys and the process exits five seconds later so the
+ *           container restarts it. Poll `GET /health` until its `bootId`
+ *           changes to know the new process is up.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 status:
- *                   type: string
- *                   enum: ["success"]
- *                   example: "success"
+ *                 success:
+ *                   type: boolean
+ *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Settings updated successfully"
+ *                   example: "Settings saved. The changes are in effect."
+ *                 restart:
+ *                   type: boolean
+ *                   description: Whether the server restarts to apply the save
+ *                   example: false
+ *                 restartKeys:
+ *                   type: array
+ *                   description: The changed keys that need the restart; empty when restart is false
+ *                   items:
+ *                     type: string
+ *                   example: []
  *       400:
  *         description: |
  *           Invalid configuration parameters, or a custom field added or changed in
@@ -9664,6 +9616,18 @@ router.post('/settings', express.json(), async (req, res) => {
         if (hasOllamaApiKeyInput)
           updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
+        // The switch arrives as the settings-switch partial's yes/no;
+        // config.ollama.think only counts the literal 'true'.
+        if (req.body.ollamaThink !== undefined) {
+          const ollamaThinkValue = String(req.body.ollamaThink ?? '')
+            .trim()
+            .toLowerCase();
+          updatedConfig.OLLAMA_THINK = ['yes', 'on', 'true', '1'].includes(
+            ollamaThinkValue
+          )
+            ? 'true'
+            : 'false';
+        }
       } else if (selectedAiProvider === 'custom') {
         const effectiveCustomBaseUrl =
           customBaseUrl || currentConfig.CUSTOM_BASE_URL;
@@ -10292,10 +10256,26 @@ router.post('/settings', express.json(), async (req, res) => {
       ...updatedConfig,
     };
 
+    // Compared before saveConfig() writes the values onto process.env, and
+    // against the values in effect: currentConfig fills in the defaults the
+    // form submits for keys nobody has set. Only a changed key that something
+    // reads once at boot ends in a restart; every other value is read live
+    // and applies with the save.
+    const changedKeys = setupService.changedConfigKeys(mergedConfig, {
+      ...process.env,
+      ...currentConfig,
+    });
+    const restartKeys = restartRequiredAmong(changedKeys);
+
     // The route has already validated the submitted values (and Paperless
     // reachability when its settings changed). Skip saveConfig's built-in
     // validateConfig so saving does not live-test Paperless/AI on every save.
     await setupService.saveConfig(mergedConfig, { skipValidation: true });
+
+    // The tag cache keeps its lifetime once it has read it.
+    if (changedKeys.includes('TAG_CACHE_TTL_SECONDS')) {
+      paperlessService._cacheTTL = null;
+    }
     try {
       for (const field of processedCustomFields) {
         await paperlessService.createCustomFieldSafely(
@@ -10308,20 +10288,24 @@ router.post('/settings', express.json(), async (req, res) => {
       console.log('[ERROR] Error creating custom fields:', error);
     }
 
+    const restart = restartKeys.length > 0;
     res.json({
       success: true,
-      message: 'Configuration saved successfully.',
-      restart: true,
+      message: restart
+        ? 'Settings saved. The server restarts to apply them.'
+        : 'Settings saved. The changes are in effect.',
+      restart,
+      restartKeys,
     });
 
-    // NOTE: paperlessService caches the tag cache TTL (_cacheTTL) in memory.
-    // The new TAG_CACHE_TTL_SECONDS value will take effect after the server
-    // restart that is triggered below. If the restart mechanism is changed
-    // or removed in the future, make sure to also reset paperlessService._cacheTTL
-    // to null so that its cached TTL is invalidated and reloaded from config.
-    setTimeout(() => {
-      process.exit(0);
-    }, 5000);
+    if (restart) {
+      console.log(
+        `[INFO] Settings saved; restarting for ${restartKeys.join(', ')}.`
+      );
+      setTimeout(() => {
+        process.exit(0);
+      }, 5000);
+    }
   } catch (error) {
     console.error('Settings update error:', error);
     res.status(500).json({

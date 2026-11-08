@@ -96,9 +96,11 @@ function completion(finishReason, content = COMPLETE_ANSWER) {
     // caches a thumbnail first, which would drag Paperless-ngx into the test.
     // The guard has to sit inside analyzeDocument(), not merely somewhere in
     // the file, or a later refactor could move it out without failing here.
+    // OpenAI, Azure and custom share one analysis path in
+    // openaiCompatibleService.
     const fs = require('fs');
     const path = require('path');
-    for (const name of ['openaiService', 'azureService', 'customService']) {
+    for (const name of ['openaiCompatibleService']) {
       const source = fs.readFileSync(
         path.join(__dirname, '..', 'services', `${name}.js`),
         'utf8'
@@ -120,12 +122,7 @@ function completion(finishReason, content = COMPLETE_ANSWER) {
     // The scan loop reads analysis.errorCode; a service that throws the right
     // error but drops the code on the way out records a generic failure.
     const fs = require('fs');
-    for (const name of [
-      'openaiService',
-      'azureService',
-      'customService',
-      'ollamaService',
-    ]) {
+    for (const name of ['openaiCompatibleService', 'ollamaService']) {
       const source = fs.readFileSync(`services/${name}.js`, 'utf8');
       const guards = (source.match(/errorCode: error\.code/g) || []).length;
       const catches = (

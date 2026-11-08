@@ -167,6 +167,18 @@ const RELEASES = [
       'New: Skip rules keep documents away from OCR and AI - see details in the settings page',
     ],
   },
+  {
+    version: 'v2026.11.01',
+    entries: [
+      'New: The AI, Duplicates and Simplify settings show only what makes them work; everything else sits behind "Advanced options" with a plain-language explanation and its default',
+      'New: Saving settings restarts the server only when a changed value needs it (port, proxy and cookie flags, rate limiter, schedules, Paperless connection, log level); everything else applies at once',
+      'Fix: After a restart the page waits for the new server instead of reloading into a 502 from the old one',
+      'Improvement: The settings page no longer explains environment variables; a value pinned by the container is a disabled field with a one-line note, and the .env export under System → Export is the place for operators',
+      'Improvement: Ollama thinking mode (OLLAMA_THINK) can be switched on the settings page',
+      'Improvement: OpenAI, Azure and OpenAI-compatible endpoints share one service driven by per-model rules - GPT-5 and o-series models no longer receive a temperature and get their token cap under the right name, Azure uses the configured temperatures',
+      'Removed: The Local Overrides section on the settings page (the API route stays)',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];

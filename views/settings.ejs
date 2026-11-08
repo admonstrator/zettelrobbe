@@ -57,7 +57,7 @@
         { label: 'System', icon: 'i-server', entries: [
             { id: 'caching', title: 'Caching and history' },
             { id: 'quickstart', title: 'Quickstart auto-detect' },
-            { id: 'environment', title: 'Environment file' },
+            { id: 'environment', title: 'Export' },
             { id: 'changelog', title: 'Changelog' }
         ] }
     ];
@@ -154,17 +154,10 @@
                         </div>
                     <% } %>
 
-                    <div class="zr-alert zr-alert--info">
-                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>
-                        <div class="zr-alert__body">
-                            <p>Every field maps to a runtime environment variable, and says whether a
-                            restart is required. Values injected by the container win over anything set
-                            here. <a href="#environment" class="zr-link zr-link--underline">Environment</a>
-                            shows the whole configuration as a <code>.env</code> file.</p>
-                        </div>
-                    </div>
-
-                    <form id="setupForm" class="zr-col zr-col--loose">
+                    <form id="setupForm" class="zr-col zr-col--loose"
+                        data-locked-env-keys="<%= JSON.stringify(typeof lockedEnvKeys !== 'undefined' && Array.isArray(lockedEnvKeys) ? lockedEnvKeys : []) %>"
+                        data-restart-keys="<%= JSON.stringify(typeof restartRequiredKeys !== 'undefined' && Array.isArray(restartRequiredKeys) ? restartRequiredKeys : []) %>"
+                        data-boot-id="<%= typeof bootId === 'string' ? bootId : '' %>">
                         <%- entryOpen('connection') %>
                                 <section class="zr-module" id="sec-connection">
                                     <div class="zr-module__head">
@@ -179,7 +172,6 @@
                                             </button>
                                         </label>
                                         <input type="text" id="paperlessUrl" name="paperlessUrl" value="<%= config.PAPERLESS_API_URL %>" class="zr-input" placeholder="http://your-paperless-instance:8000" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
@@ -195,7 +187,7 @@
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
-                                        <label for="paperlessPublicUrl" class="zr-field__name">Paperless Public URL Override (optional)</label>
+                                        <label for="paperlessPublicUrl" class="zr-field__name">Paperless public URL (optional)</label>
                                         <input type="text" id="paperlessPublicUrl" name="paperlessPublicUrl" value="<%= config.PAPERLESS_PUBLIC_URL || '' %>" class="zr-input" placeholder="https://paperless.example.com">
                                         <p class="zr-field__hint">Leave empty to use auto-detection/fallback</p>
                                     </div>
@@ -208,13 +200,14 @@
                                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg>
                                             </button>
                                         </div>
-                                        <p class="zr-field__hint">Restart required<%= configuredSecrets.PAPERLESS_API_TOKEN ? ' · Leave empty to keep the stored value' : '' %></p>
+                                        <% if (configuredSecrets.PAPERLESS_API_TOKEN) { %>
+                                        <p class="zr-field__hint">Leave empty to keep the stored value</p>
+                                        <% } %>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
                                         <label for="paperlessUsername" class="zr-field__name">Paperless-ngx Username</label>
                                         <input type="text" id="paperlessUsername" name="paperlessUsername" value="<%= config.PAPERLESS_USERNAME %>" class="zr-input" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     </div>
                                 </section>
@@ -233,13 +226,112 @@
                                                 <option value="DD.MM.YYYY" <%= String(config.DATE_FORMAT || 'DD.MM.YYYY').toUpperCase() === 'YYYY-MM-DD' ? '' : 'selected' %>>DD.MM.YYYY</option>
                                                 <option value="YYYY-MM-DD" <%= String(config.DATE_FORMAT || 'DD.MM.YYYY').toUpperCase() === 'YYYY-MM-DD' ? 'selected' : '' %>>YYYY-MM-DD</option>
                                             </select>
-                                            <p class="zr-field__hint">Every date in the interface: 15 August 2026 reads as 15.08.2026 or 2026-08-15 · Restart required</p>
+                                            <p class="zr-field__hint">Every date in the interface: 15 August 2026 reads as 15.08.2026 or 2026-08-15</p>
                                         </div>
                                     </div>
                                     </div>
                                 </section>
                         <%- entryClose() %>
 
+                        <%
+                            // The AI options (labels, help, basic or advanced, which
+                            // providers show them, defaults) come from AI_OPTIONS in
+                            // services/aiProviderRules.js. The table below only says which
+                            // control each key drives, so the existing ids and names stay.
+                            const aiOptionList = Array.isArray(typeof aiOptions !== 'undefined' ? aiOptions : null) ? aiOptions : [];
+                            const aiProviderIds = (Array.isArray(typeof aiProviders !== 'undefined' ? aiProviders : null) ? aiProviders : []).map((provider) => provider.id);
+                            // The selected provider's connection block is shown from the
+                            // first paint; settings.js takes over on a switch.
+                            const aiSelectedProvider = String(config.AI_PROVIDER || 'openai').trim().toLowerCase();
+                            const aiBlockHidden = (id) => (id === aiSelectedProvider ? '' : 'hidden');
+                            const aiSwitchOn = (value, fallback) => ['yes', 'true', '1', 'on'].includes(String(value == null || value === '' ? fallback : value).trim().toLowerCase());
+                            const aiOptionControls = {
+                                RESPONSE_TOKENS: { id: 'responseTokens', type: 'number', attrs: 'min="1" step="1"' },
+                                TOKEN_LIMIT: { id: 'tokenLimit', type: 'number', attrs: 'min="1" step="1"' },
+                                AI_TEMPERATURE_ANALYSIS: { id: 'aiTemperatureAnalysis', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
+                                AI_TEMPERATURE_GENERATION: { id: 'aiTemperatureGeneration', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
+                                ANTHROPIC_EFFORT: { id: 'anthropicEffort', type: 'select', choices: [{ value: '', label: 'Model default' }].concat(anthropicEffortLevels.map((level) => ({ value: level, label: anthropicEffortLabels[level] || level }))) },
+                                ANTHROPIC_MAX_TOKENS: { id: 'anthropicMaxTokens', type: 'number', attrs: 'min="1" step="1"' },
+                                ANTHROPIC_STRUCTURED_OUTPUT: { id: 'anthropicStructuredOutput', type: 'switch' },
+                                ANTHROPIC_PROMPT_CACHING: { id: 'anthropicPromptCaching', type: 'switch' },
+                                ANTHROPIC_API_URL: { id: 'anthropicApiUrl', type: 'text', placeholder: 'https://api.anthropic.com', attrs: 'autocomplete="off" spellcheck="false"' },
+                                OLLAMA_THINK: { id: 'ollamaThink', type: 'switch' },
+                                OLLAMA_API_KEY: { id: 'ollamaApiKey', type: 'secret', placeholder: 'Optional' },
+                                AZURE_API_VERSION: { id: 'azureApiVersion', type: 'text', attrs: 'autocomplete="off" spellcheck="false"' },
+                                DUPLICATES_AI_REVIEW: { id: 'duplicatesAiReview', type: 'switch' },
+                                DUPLICATES_GUARD_NEW_NAMES: { id: 'duplicatesGuardNewNames', type: 'switch' },
+                                DUPLICATES_AI_MODEL: { id: 'duplicatesAiModel', type: 'text', placeholder: 'Same as the analysis model' },
+                                DUPLICATES_AI_REVIEW_BATCH_SIZE: { id: 'duplicatesAiReviewBatchSize', type: 'number', attrs: 'min="1" max="100" step="1"' },
+                                DUPLICATES_AI_CANDIDATE_FLOOR: { id: 'duplicatesAiCandidateFloor', type: 'number', attrs: 'min="0.5" max="0.95" step="0.01"' },
+                                DUPLICATES_AI_EXCERPTS: { id: 'duplicatesAiExcerpts', type: 'switch' },
+                                DUPLICATES_AI_EXCERPT_CHARS: { id: 'duplicatesAiExcerptChars', type: 'number', attrs: 'min="50" max="500" step="1"' },
+                                DUPLICATES_AI_EXCERPT_DOCUMENTS: { id: 'duplicatesAiExcerptDocuments', type: 'number', attrs: 'min="1" max="5" step="1"' },
+                                DUPLICATES_AI_TOKEN_BUDGET: { id: 'duplicatesAiTokenBudget', type: 'number', attrs: 'min="0" max="10000000" step="1000"' },
+                                DUPLICATES_AI_IDLE_STOP_SECONDS: { id: 'duplicatesAiIdleStopSeconds', type: 'number', attrs: 'min="0" max="3600" step="1"' },
+                                DUPLICATES_AI_THINKING: { id: 'duplicatesAiThinking', type: 'switch' },
+                                DUPLICATES_AI_REQUEST_SECONDS: { id: 'duplicatesAiRequestSeconds', type: 'number', attrs: 'min="5" max="300" step="5"' },
+                                DUPLICATES_AI_CONCURRENCY: { id: 'duplicatesAiConcurrency', type: 'number', attrs: 'min="0" max="8" step="1"' },
+                                DUPLICATES_AI_VERDICT_MEMORY_DAYS: { id: 'duplicatesAiVerdictMemoryDays', type: 'number', attrs: 'min="0" max="365" step="1"' },
+                                DUPLICATES_AI_SWEEP_NAMES: { id: 'duplicatesAiSweepNames', type: 'number', attrs: 'min="50" max="1000" step="50"' },
+                                SIMPLIFY_TAGS_PER_REQUEST: { id: 'simplifyTagsPerRequest', type: 'number', attrs: 'min="10" max="200" step="10"' },
+                                SIMPLIFY_VOCABULARY_SIZE: { id: 'simplifyVocabularySize', type: 'number', attrs: 'min="5" max="100" step="5"' }
+                            };
+                            const aiOptionsIn = (section, level) => aiOptionList.filter((option) => (option.section || 'provider') === section && option.level === level && aiOptionControls[option.key]);
+                            const aiOptionField = (option) => {
+                                const control = aiOptionControls[option.key];
+                                const fallback = option.defaultValue == null ? '' : String(option.defaultValue);
+                                const current = config[option.key] == null ? '' : String(config[option.key]);
+                                const providers = option.providers === null ? aiProviderIds : option.providers;
+                                let hint = option.help;
+                                if (fallback) hint += ` Default: ${control.type === 'switch' ? (aiSwitchOn(fallback, 'no') ? 'on' : 'off') : fallback}.`;
+                                if (control.type === 'secret' && configuredSecrets[option.key]) hint += ' Leave empty to keep the stored value.';
+                                let field;
+                                if (control.type === 'switch') {
+                                    field = include('partials/settings-switch', { id: control.id, label: option.label, checked: aiSwitchOn(current, fallback || 'no'), hint });
+                                } else {
+                                    let input;
+                                    if (control.type === 'select') {
+                                        input = `<select id="${control.id}" name="${control.id}" class="zr-input">`
+                                            + control.choices.map((choice) => `<option value="${settingsEsc(choice.value)}" ${choice.value === current ? 'selected' : ''}>${settingsEsc(choice.label)}</option>`).join('')
+                                            + '</select>';
+                                    } else if (control.type === 'secret') {
+                                        input = `<div class="zr-inputgroup"><input type="password" id="${control.id}" name="${control.id}" value="" class="zr-input" autocomplete="off" placeholder="${configuredSecrets[option.key] ? 'Configured' : settingsEsc(control.placeholder || fallback)}">`
+                                            + `<button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="${control.id}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button></div>`;
+                                    } else {
+                                        input = `<input type="${control.type}" id="${control.id}" name="${control.id}" ${control.attrs ? control.attrs + ' ' : ''}value="${settingsEsc(current)}" class="zr-input" placeholder="${settingsEsc(control.placeholder || fallback)}">`;
+                                    }
+                                    field = `<div class="zr-field zr-field--stacked"><label for="${control.id}" class="zr-field__name">${settingsEsc(option.label)}</label>${input}<p class="zr-field__hint">${settingsEsc(hint)}</p></div>`;
+                                }
+                                const shown = providers.includes(aiSelectedProvider);
+                                return `<div class="zr-settings-option${shown ? '' : ' hidden'}" data-ai-option="${settingsEsc(option.key)}" data-level="${settingsEsc(option.level)}" data-providers="${settingsEsc(providers.join(','))}">${field}</div>`;
+                            };
+                            // Short controls (numbers, selects) share the two-column grid;
+                            // switches and text fields take the full width, as elsewhere.
+                            const aiOptionBlock = (list) => {
+                                let html = '';
+                                let run = [];
+                                const flush = () => {
+                                    if (run.length) html += `<div class="zr-formgrid">${run.map(aiOptionField).join('')}</div>`;
+                                    run = [];
+                                };
+                                list.forEach((option) => {
+                                    if (['number', 'select'].includes(aiOptionControls[option.key].type)) run.push(option);
+                                    else { flush(); html += aiOptionField(option); }
+                                });
+                                flush();
+                                return html;
+                            };
+                            // One closed disclosure per section; settings-advanced opens or
+                            // closes all of them together and remembers the choice.
+                            const aiAdvanced = (id, summary, list) => list.length ? `<details class="zr-module zr-settings-advanced" id="${id}" data-advanced data-module="settings-advanced">
+                                    <summary class="zr-module__head">
+                                        <h2 class="zr-module__title">Advanced options</h2>
+                                        <span class="zr-field__hint zr-grow">${settingsEsc(summary)}</span>
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </summary>
+                                    <div class="zr-module__body zr-col zr-col--loose">${aiOptionBlock(list)}</div>
+                                </details>` : '';
+                        %>
                         <%- entryOpen('ai-provider') %>
                                 <section class="zr-module" id="sec-provider">
                                     <div class="zr-module__head">
@@ -260,17 +352,17 @@
                                             <option value="azure" <%= config.AI_PROVIDER === 'azure' ? 'selected' : '' %>>Azure</option>
                                             <option value="anthropic" <%= anthropicSelected ? 'selected' : '' %>>Anthropic (Claude)</option>
                                         </select>
-                                        <p class="zr-field__hint">Restart required</p>
+                                        <p class="zr-field__hint">The service that reads your documents. Each one asks for its own key and model below.</p>
                                     </div>
-    
-                                    <div id="openaiSettings" class="zr-col zr-col--loose">
+
+                                    <div id="openaiSettings" class="zr-col zr-col--loose <%= aiBlockHidden('openai') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="openaiKey" class="zr-field__name">OpenAI API Key</label>
                                             <div class="zr-inputgroup">
                                                 <input type="password" id="openaiKey" name="openaiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.OPENAI_API_KEY ? 'Configured' : 'Enter OpenAI API key' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="openaiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.OPENAI_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <% if (configuredSecrets.OPENAI_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="openaiModel" class="zr-field__name">OpenAI Model</label>
@@ -280,23 +372,13 @@
                                                 <option value="o3-mini" <%= config.OPENAI_MODEL === 'o3-mini' ? 'selected' : '' %>>o3-mini</option>
                                                 <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>>GPT-4o-mini</option>
                                             </select>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                     </div>
-    
-                                    <div id="ollamaSettings" class="zr-col zr-col--loose hidden">
+
+                                    <div id="ollamaSettings" class="zr-col zr-col--loose <%= aiBlockHidden('ollama') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="ollamaUrl" class="zr-field__name">Ollama API URL</label>
-                                            <input type="text" id="ollamaUrl" name="ollamaUrl" value="<%= config.OLLAMA_API_URL %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="ollamaApiKey" class="zr-field__name">Ollama API Key (optional)</label>
-                                            <div class="zr-inputgroup">
-                                                <input type="password" id="ollamaApiKey" name="ollamaApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.OLLAMA_API_KEY ? 'Configured' : 'Optional' %>">
-                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="ollamaApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
-                                            </div>
-                                            <p class="zr-field__hint">Restart required · Only needed if your endpoint requires a token<%= configuredSecrets.OLLAMA_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <input type="text" id="ollamaUrl" name="ollamaUrl" value="<%= config.OLLAMA_API_URL %>" class="zr-input" placeholder="http://localhost:11434">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="ollamaModel" class="zr-field__name">Ollama Model</label>
@@ -309,15 +391,15 @@
                                                     <span>Fetch Models</span>
                                                 </button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <p class="zr-field__hint">Fetch Models lists the models installed on the server.</p>
                                         </div>
                                     </div>
-    
-                                    <div id="customSettings" class="zr-col zr-col--loose hidden">
+
+                                    <div id="customSettings" class="zr-col zr-col--loose <%= aiBlockHidden('custom') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="customBaseUrl" class="zr-field__name">Custom Base URL</label>
-                                            <input type="text" id="customBaseUrl" name="customBaseUrl" value="<%= config.CUSTOM_BASE_URL %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <input type="text" id="customBaseUrl" name="customBaseUrl" value="<%= config.CUSTOM_BASE_URL %>" class="zr-input" placeholder="http://localhost:8080/v1">
+                                            <p class="zr-field__hint">The address of the OpenAI-compatible API, usually ending in /v1.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="customApiKey" class="zr-field__name">Custom API Key</label>
@@ -325,7 +407,7 @@
                                                 <input type="password" id="customApiKey" name="customApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.CUSTOM_API_KEY ? 'Configured' : 'Enter Custom API key' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="customApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.CUSTOM_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <p class="zr-field__hint"><%= configuredSecrets.CUSTOM_API_KEY ? 'Leave empty to keep the stored key.' : 'Leave empty if the endpoint needs no key.' %></p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="customModel" class="zr-field__name">Custom Model</label>
@@ -338,15 +420,14 @@
                                                     <span>Fetch Models</span>
                                                 </button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <p class="zr-field__hint">Fetch Models lists the models the endpoint offers.</p>
                                         </div>
                                     </div>
-    
-                                    <div id="azureSettings" class="zr-col zr-col--loose hidden">
+
+                                    <div id="azureSettings" class="zr-col zr-col--loose <%= aiBlockHidden('azure') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureEndpoint" class="zr-field__name">Azure Endpoint</label>
-                                            <input type="text" id="azureEndpoint" name="azureEndpoint" value="<%= config.AZURE_ENDPOINT %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <input type="text" id="azureEndpoint" name="azureEndpoint" value="<%= config.AZURE_ENDPOINT %>" class="zr-input" placeholder="https://your-resource.openai.azure.com">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureApiKey" class="zr-field__name">Azure API Key</label>
@@ -354,20 +435,15 @@
                                                 <input type="password" id="azureApiKey" name="azureApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.AZURE_API_KEY ? 'Configured' : 'Enter Azure API key' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="azureApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.AZURE_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <% if (configuredSecrets.AZURE_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureDeploymentName" class="zr-field__name">Deployment</label>
                                             <input type="text" id="azureDeploymentName" name="azureDeploymentName" value="<%= config.AZURE_DEPLOYMENT_NAME %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="azureApiVersion" class="zr-field__name">API Version</label>
-                                            <input type="text" id="azureApiVersion" name="azureApiVersion" value="<%= config.AZURE_API_VERSION %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <p class="zr-field__hint">The name you gave the model deployment in Azure.</p>
                                         </div>
                                     </div>
-    
+
                                     <div id="anthropicSettings" class="zr-col zr-col--loose <%= anthropicSelected ? '' : 'hidden' %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="anthropicApiKey" class="zr-field__name">Anthropic API Key</label>
@@ -375,7 +451,7 @@
                                                 <input type="password" id="anthropicApiKey" name="anthropicApiKey" value="" class="zr-input" autocomplete="off" placeholder="<%= configuredSecrets.ANTHROPIC_API_KEY ? 'Configured' : 'sk-ant-...' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="anthropicApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.ANTHROPIC_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <% if (configuredSecrets.ANTHROPIC_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="anthropicModel" class="zr-field__name">Claude Model</label>
@@ -395,71 +471,13 @@
                                                     <span>Fetch Models</span>
                                                 </button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required · Fetch Models lists every model the API key can use</p>
-                                        </div>
-                                        <div class="zr-formgrid">
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="anthropicEffort" class="zr-field__name">Effort</label>
-                                                <select id="anthropicEffort" name="anthropicEffort" class="zr-input">
-                                                    <option value="" <%= config.ANTHROPIC_EFFORT ? '' : 'selected' %>>Model default</option>
-                                                    <% anthropicEffortLevels.forEach((level) => { %>
-                                                    <option value="<%= level %>" <%= config.ANTHROPIC_EFFORT === level ? 'selected' : '' %>><%= anthropicEffortLabels[level] || level %></option>
-                                                    <% }) %>
-                                                </select>
-                                                <p class="zr-field__hint">Higher levels think longer and spend more tokens · Restart required</p>
-                                            </div>
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="anthropicMaxTokens" class="zr-field__name">Max Tokens</label>
-                                                <input type="number" id="anthropicMaxTokens" name="anthropicMaxTokens" value="<%= config.ANTHROPIC_MAX_TOKENS || anthropic.defaultMaxTokens || '' %>" min="1" step="1" class="zr-input">
-                                                <p class="zr-field__hint">Cap per request; thinking counts toward it · Restart required</p>
-                                            </div>
-                                        </div>
-                                        <%- include('partials/settings-switch', {
-                                            id: 'anthropicStructuredOutput',
-                                            label: 'Structured output',
-                                            checked: anthropicSwitchOn(config.ANTHROPIC_STRUCTURED_OUTPUT),
-                                            hint: 'Constrain the analysis answer to a JSON schema · Restart required'
-                                        }) %>
-                                        <%- include('partials/settings-switch', {
-                                            id: 'anthropicPromptCaching',
-                                            label: 'Prompt caching',
-                                            checked: anthropicSwitchOn(config.ANTHROPIC_PROMPT_CACHING),
-                                            hint: 'Cache the system prompt, which repeats for every document of a scan · Restart required'
-                                        }) %>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="anthropicApiUrl" class="zr-field__name">API URL (optional)</label>
-                                            <input type="text" id="anthropicApiUrl" name="anthropicApiUrl" value="<%= config.ANTHROPIC_API_URL || '' %>" class="zr-input" placeholder="https://api.anthropic.com" autocomplete="off" spellcheck="false">
-                                            <p class="zr-field__hint">Only for a proxy; leave empty for api.anthropic.com · Restart required</p>
+                                            <p class="zr-field__hint">Fetch Models lists every model the API key can use.</p>
                                         </div>
                                     </div>
-    
-                                    <h4 class="zr-label">Model Parameters</h4>
-                                    <div class="zr-formgrid">
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="tokenLimit" class="zr-field__name">Token Limit</label>
-                                            <input type="number" id="tokenLimit" name="tokenLimit" value="<%= config.TOKEN_LIMIT %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="responseTokens" class="zr-field__name">Response Tokens</label>
-                                            <input type="number" id="responseTokens" name="responseTokens" value="<%= config.RESPONSE_TOKENS %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="aiTemperatureAnalysis" class="zr-field__name">Analysis Temperature</label>
-                                            <input type="number" id="aiTemperatureAnalysis" name="aiTemperatureAnalysis" value="<%= config.AI_TEMPERATURE_ANALYSIS || '0.3' %>" min="0" max="2" step="0.1" class="zr-input">
-                                            <p class="zr-field__hint">Range: 0.0-2.0 · Restart required</p>
-                                            <p class="zr-field__hint <%= anthropicSelected ? '' : 'hidden' %>" data-anthropic-hint>Claude models ignore the temperature</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="aiTemperatureGeneration" class="zr-field__name">Generation Temperature</label>
-                                            <input type="number" id="aiTemperatureGeneration" name="aiTemperatureGeneration" value="<%= config.AI_TEMPERATURE_GENERATION || '0.7' %>" min="0" max="2" step="0.1" class="zr-input">
-                                            <p class="zr-field__hint">Range: 0.0-2.0 · Restart required</p>
-                                            <p class="zr-field__hint <%= anthropicSelected ? '' : 'hidden' %>" data-anthropic-hint>Claude models ignore the temperature</p>
-                                        </div>
-                                    </div>
+                                    <%- aiOptionBlock(aiOptionsIn('provider', 'basic')) %>
                                     </div>
                                 </section>
+                                <%- aiAdvanced('sec-provider-advanced', 'Limits, creativity and provider extras. The defaults suit most archives.', aiOptionsIn('provider', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('ai-behavior') %>
@@ -472,19 +490,18 @@
                                         id: 'aiProcessedTag',
                                         label: 'Add AI-processed tag to documents',
                                         checked: config.ADD_AI_PROCESSED_TAG === 'yes',
-                                        hint: 'Restart required'
+                                        hint: 'Tags every document the AI has handled, so you can find or filter them in Paperless-ngx.'
                                     }) %>
                                     <div id="aiTagNameSection" class="<%= config.ADD_AI_PROCESSED_TAG === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
                                         <label for="aiTagName" class="zr-field__name">AI-processed Tag Name</label>
-                                        <input type="text" id="aiTagName" name="aiTagName" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>" class="zr-input">
-                                        <p class="zr-field__hint">Restart required</p>
+                                        <input type="text" id="aiTagName" name="aiTagName" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>" class="zr-input" placeholder="ai-processed">
                                     </div>
     
                                     <%- include('partials/settings-switch', {
                                         id: 'usePromptTags',
                                         label: 'Use specific tags in prompt',
                                         checked: config.USE_PROMPT_TAGS === 'yes',
-                                        hint: 'Restart required'
+                                        hint: 'The model only matches documents against the tags listed here. The prompt description below is not used while this is on.'
                                     }) %>
     
                                     <div id="promptTagsSection" class="<%= config.USE_PROMPT_TAGS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
@@ -516,7 +533,7 @@
                                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-bulb"/></svg>
                                             Example
                                         </button>
-                                        <p class="zr-field__hint">Restart required</p>
+                                        <p class="zr-field__hint">Tells the model what to look for and how to name things. Example inserts a starting point.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -542,7 +559,6 @@
                                             <span>Restrict to Existing Document Types</span>
                                         </label>
                                     </div>
-                                    <p class="zr-field__hint">Restart required</p>
                                     </div>
                                 </section>
 
@@ -558,7 +574,6 @@
                                         <label for="activateTitle" class="zr-checktile"><input type="checkbox" id="activateTitle" name="activateTitle" class="zr-toggle" <%= config.ACTIVATE_TITLE === 'yes' ? 'checked' : '' %>><span>Title Generation</span></label>
                                         <label for="activateCustomFields" class="zr-checktile"><input type="checkbox" id="activateCustomFields" name="activateCustomFields" class="zr-toggle" <%= config.ACTIVATE_CUSTOM_FIELDS === 'yes' ? 'checked' : '' %>><span>Custom Fields</span></label>
                                     </div>
-                                    <p class="zr-field__hint">Restart required</p>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -610,7 +625,6 @@
                                         <div><button type="button" onclick="addCustomField()" class="zr-btn zr-btn--primary zr-btn--block">Add</button></div>
                                     </div>
                                     <input type="hidden" id="customFieldsJson" name="customFields" value='<%= config.CUSTOM_FIELDS || "{\"custom_fields\":[]}" %>'>
-                                    <p class="zr-field__hint">Restart required</p>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -624,7 +638,6 @@
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
                                             <label for="externalApiEnabled" class="zr-field__name">Enable External API Integration</label>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <input type="checkbox" class="zr-toggle" id="externalApiEnabled" name="externalApiEnabled" <%= config.EXTERNAL_API_ENABLED === 'yes' ? 'checked' : '' %>>
                                     </div>
@@ -661,10 +674,8 @@
                                         <%- include('partials/settings-switch', {
                                             id: 'externalApiAllowPrivateIps',
                                             label: 'Allow private IPs for external API',
-                                            checked: config.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes',
-                                            hint: 'Restart required'
+                                            checked: config.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes'
                                         }) %>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     </div>
                                 </section>
@@ -679,8 +690,7 @@
                                     <%- include('partials/settings-switch', {
                                         id: 'mistralOcrEnabled',
                                         label: 'Enable OCR',
-                                        checked: config.MISTRAL_OCR_ENABLED === 'yes',
-                                        hint: 'Restart required'
+                                        checked: config.MISTRAL_OCR_ENABLED === 'yes'
                                     }) %>
                                     <div id="ocrFieldsContainer" class="zr-field zr-field--stacked <%= config.MISTRAL_OCR_ENABLED === 'yes' ? '' : 'hidden' %>">
                                     <div class="zr-field zr-field--stacked">
@@ -690,13 +700,11 @@
                                             <option value="custom" <%= ((config.OCR_PROVIDER || 'mistral') === 'custom' || (config.OCR_PROVIDER || 'mistral') === 'ollama') ? 'selected' : '' %>>Custom (Ollama, LM Studio, local models)</option>
                                             <option value="anthropic" <%= ocrStoredForAnthropic ? 'selected' : '' %>>Claude (Anthropic)</option>
                                         </select>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <div id="ocrApiUrlContainer" class="zr-field zr-field--stacked">
-                                        <label for="ocrApiUrl" class="zr-field__name">OCR API URL (optional override)</label>
+                                        <label for="ocrApiUrl" class="zr-field__name">OCR API URL (optional)</label>
                                         <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Leave empty to use provider default" data-placeholder-default="Leave empty to use provider default" data-placeholder-anthropic="Optional proxy URL">
                                         <p id="ocrApiUrlAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>">Only for a proxy; empty uses the Anthropic API URL of the AI provider, then api.anthropic.com</p>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <div id="ocrApiKeyContainer" class="zr-field zr-field--stacked">
                                         <label for="ocrApiKey" class="zr-field__name">OCR API Key</label>
@@ -704,8 +712,8 @@
                                             <input type="password" id="ocrApiKey" name="ocrApiKey" value="" class="zr-input" placeholder="<%= ocrStoredForAnthropic ? (ocrKeyConfiguredAnthropic ? 'Configured' : 'Optional') : (ocrKeyConfiguredDefault ? 'Configured' : 'Required for Mistral') %>" data-placeholder-default="<%= ocrKeyConfiguredDefault ? 'Configured' : 'Required for Mistral' %>" data-placeholder-anthropic="<%= ocrKeyConfiguredAnthropic ? 'Configured' : 'Optional' %>">
                                             <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="ocrApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                         </div>
-                                        <p id="ocrApiKeyHint" class="zr-field__hint <%= ocrStoredForAnthropic ? 'hidden' : '' %>">Restart required · Optional for local and custom providers<%= ocrKeyConfiguredDefault ? ' · Leave empty to keep the stored value' : '' %></p>
-                                        <p id="ocrApiKeyAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>">Restart required · <%= ocrKeyConfiguredAnthropic ? 'Leave empty to keep the stored value' : 'Empty uses the Anthropic API key from the AI provider' %></p>
+                                        <p id="ocrApiKeyHint" class="zr-field__hint <%= ocrStoredForAnthropic ? 'hidden' : '' %>">Optional for local and custom providers<%= ocrKeyConfiguredDefault ? ' · Leave empty to keep the stored value' : '' %></p>
+                                        <p id="ocrApiKeyAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>"><%= ocrKeyConfiguredAnthropic ? 'Leave empty to keep the stored value' : 'Empty uses the Anthropic API key from the AI provider' %></p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="mistralOcrModel" class="zr-field__name">OCR Model</label>
@@ -719,25 +727,24 @@
                                             </button>
                                         </div>
                                         <p id="ocrModelVisionHint" class="zr-field__hint <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">Vision support is detected from the model name, so the list is grouped rather than filtered &middot; models outside the recommended group may still work</p>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <div id="ocrPdfRenderContainer" class="zr-col zr-col--loose">
                                         <%- include('partials/settings-switch', {
                                             id: 'ocrPdfRenderEnabled',
                                             label: 'Render PDF Pages (poppler)',
                                             checked: (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes',
-                                            hint: 'Render PDF pages with poppler (pdftoppm) so local vision models can OCR multi-page documents; falls back to the first-page thumbnail when poppler is not installed · Restart required'
+                                            hint: 'Render PDF pages with poppler (pdftoppm) so local vision models can OCR multi-page documents; falls back to the first-page thumbnail when poppler is not installed'
                                         }) %>
                                         <div id="ocrPdfRenderOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? '' : 'hidden' %>">
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrPdfRenderMaxPages" class="zr-field__name">Max PDF Pages per Document</label>
                                                 <input type="number" id="ocrPdfRenderMaxPages" name="ocrPdfRenderMaxPages" min="1" max="50" step="1" value="<%= config.OCR_PDF_RENDER_MAX_PAGES || 10 %>" class="zr-input">
-                                                <p class="zr-field__hint">Each page is one vision model request; pages beyond the limit are skipped · Restart required</p>
+                                                <p class="zr-field__hint">Each page is one vision model request; pages beyond the limit are skipped</p>
                                             </div>
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrPdfRenderDpi" class="zr-field__name">PDF Render Resolution (DPI)</label>
                                                 <input type="number" id="ocrPdfRenderDpi" name="ocrPdfRenderDpi" min="72" max="300" step="1" value="<%= config.OCR_PDF_RENDER_DPI || 150 %>" class="zr-input">
-                                                <p class="zr-field__hint">Higher values improve OCR accuracy but increase image size (72–300) · Restart required</p>
+                                                <p class="zr-field__hint">Higher values improve OCR accuracy but increase image size (72–300)</p>
                                             </div>
                                         </div>
                                     </div>
@@ -746,24 +753,24 @@
                                             id: 'ocrAutoProcessEnabled',
                                             label: 'Process OCR Queue Automatically',
                                             checked: (config.OCR_AUTO_PROCESS_ENABLED || 'no') === 'yes',
-                                            hint: 'Work through queued documents on a schedule instead of pressing "Process All Pending" on the OCR page · Restart required'
+                                            hint: 'Work through queued documents on a schedule instead of pressing "Process All Pending" on the OCR page'
                                         }) %>
                                         <div id="ocrAutoProcessOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_AUTO_PROCESS_ENABLED || 'no') === 'yes' ? '' : 'hidden' %>">
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrAutoProcessInterval" class="zr-field__name">OCR Processing Interval (Cron)</label>
                                                 <input type="text" id="ocrAutoProcessInterval" name="ocrAutoProcessInterval" value="<%= config.OCR_AUTO_PROCESS_INTERVAL || '*/15 * * * *' %>" class="zr-input" placeholder="*/15 * * * *">
-                                                <p class="zr-field__hint">Default: every 15 minutes · Runs are skipped while a document scan is active · Restart required</p>
+                                                <p class="zr-field__hint">Default: every 15 minutes · Runs are skipped while a document scan is active</p>
                                             </div>
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrAutoProcessBatchSize" class="zr-field__name">Documents per Run</label>
                                                 <input type="number" id="ocrAutoProcessBatchSize" name="ocrAutoProcessBatchSize" min="1" max="100" step="1" value="<%= config.OCR_AUTO_PROCESS_BATCH_SIZE || 10 %>" class="zr-input">
-                                                <p class="zr-field__hint">Caps how many queued documents one run handles; the rest follow at the next interval (1-100) · Restart required</p>
+                                                <p class="zr-field__hint">Caps how many queued documents one run handles; the rest follow at the next interval (1-100)</p>
                                             </div>
                                             <%- include('partials/settings-switch', {
                                                 id: 'ocrAutoAnalyze',
                                                 label: 'AI Analysis After OCR',
                                                 checked: (config.OCR_AUTO_ANALYZE || 'yes') === 'yes',
-                                                hint: 'Analyse each document right after OCR. Keep this on: when Paperless-ngx rejects the content write-back the OCR text only exists locally, where a regular scan would never see it · Restart required'
+                                                hint: 'Analyse each document right after OCR. Keep this on: when Paperless-ngx rejects the content write-back the OCR text only exists locally, where a regular scan would never see it'
                                             }) %>
                                         </div>
                                     </div>
@@ -796,14 +803,13 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="scanInterval" class="zr-field__name">Scan Interval (Cron Format)</label>
                                         <input type="text" id="scanInterval" name="scanInterval" value="<%= config.SCAN_INTERVAL %>" class="zr-input" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
                                         <div class="zr-switchrow">
                                             <div class="zr-grow">
                                                 <label for="disableAutomaticProcessing" class="zr-field__name">Disable automatic processing</label>
-                                                <p class="zr-field__hint">If enabled, scans are not processed by AI automatically · Restart required</p>
+                                                <p class="zr-field__hint">If enabled, scans are not processed by AI automatically</p>
                                             </div>
                                             <input type="checkbox" class="zr-toggle" id="disableAutomaticProcessing" <%= config.DISABLE_AUTOMATIC_PROCESSING === 'yes' ? 'checked' : '' %>>
                                         </div>
@@ -812,8 +818,7 @@
                                     <%- include('partials/settings-switch', {
                                         id: 'useExistingData',
                                         label: 'Use existing correspondents and tags',
-                                        checked: config.USE_EXISTING_DATA === 'yes',
-                                        hint: 'Restart required'
+                                        checked: config.USE_EXISTING_DATA === 'yes'
                                     }) %>
                                     </div>
                                 </section>
@@ -826,8 +831,7 @@
                                     <%- include('partials/settings-switch', {
                                         id: 'showTags',
                                         label: 'Process only specific pre-tagged documents',
-                                        checked: config.PROCESS_PREDEFINED_DOCUMENTS === 'yes',
-                                        hint: 'Restart required'
+                                        checked: config.PROCESS_PREDEFINED_DOCUMENTS === 'yes'
                                     }) %>
     
                                     <div id="tagsInputSection" class="<%= config.PROCESS_PREDEFINED_DOCUMENTS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
@@ -872,7 +876,6 @@
                                             <% } %>
                                         </div>
                                         <input type="hidden" id="ignoreTags" name="ignoreTags" value="<%= Array.isArray(config.IGNORE_TAGS) ? config.IGNORE_TAGS.join(',') : '' %>">
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     </div>
                                 </section>
@@ -933,17 +936,14 @@
                                         <div class="zr-field zr-field--stacked">
                                             <label for="globalRateLimitWindowMs" class="zr-field__name">Global rate-limit window (ms)</label>
                                             <input type="number" id="globalRateLimitWindowMs" name="globalRateLimitWindowMs" value="<%= config.GLOBAL_RATE_LIMIT_WINDOW_MS || 900000 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="globalRateLimitMax" class="zr-field__name">Global rate-limit max requests</label>
                                             <input type="number" id="globalRateLimitMax" name="globalRateLimitMax" value="<%= config.GLOBAL_RATE_LIMIT_MAX || 1000 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="trustProxy" class="zr-field__name">Trust Proxy</label>
                                             <input type="text" id="trustProxy" name="trustProxy" value="<%= config.TRUST_PROXY %>" class="zr-input" placeholder="false | true | 1 | loopback">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="cookieSecureMode" class="zr-field__name">Cookie Secure Mode</label>
@@ -952,17 +952,14 @@
                                                 <option value="always" <%= String(config.COOKIE_SECURE_MODE || 'auto').toLowerCase() === 'always' ? 'selected' : '' %>>always</option>
                                                 <option value="never" <%= String(config.COOKIE_SECURE_MODE || 'auto').toLowerCase() === 'never' ? 'selected' : '' %>>never</option>
                                             </select>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="minContentLength" class="zr-field__name">Minimum content length</label>
                                             <input type="number" id="minContentLength" name="minContentLength" value="<%= config.MIN_CONTENT_LENGTH || 10 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="paperlessAiPort" class="zr-field__name">Zettelrobbe Port</label>
                                             <input type="number" id="paperlessAiPort" name="paperlessAiPort" value="<%= config.PAPERLESS_AI_PORT || 3000 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="logLevel" class="zr-field__name">Log Level</label>
@@ -972,7 +969,6 @@
                                                 <option value="info" <%= String(config.LOG_LEVEL || 'info').toLowerCase() === 'info' ? 'selected' : '' %>>info (default)</option>
                                                 <option value="debug" <%= String(config.LOG_LEVEL || 'info').toLowerCase() === 'debug' ? 'selected' : '' %>>debug</option>
                                             </select>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                     </div>
                                     </div>
@@ -990,87 +986,10 @@
                                         them is deterministic and needs none of these settings; they only govern the optional AI review
                                         that judges the proposed groups when you ask for it. Nothing here starts a scan or a merge on its own.
                                     </p>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesAiReview',
-                                        label: 'Offer the AI review on the Duplicates page',
-                                        checked: (config.DUPLICATES_AI_REVIEW || 'yes') === 'yes',
-                                        hint: 'Default: on · Off keeps the model off the page: Find duplicates and Scan apply the spelling rules only · Restart required'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiModel" class="zr-field__name">Model for the judge</label>
-                                        <input type="text" id="duplicatesAiModel" name="duplicatesAiModel" value="<%= config.DUPLICATES_AI_MODEL || '' %>" class="zr-input" placeholder="Leave empty to use the configured model">
-                                        <p class="zr-field__hint">A stronger model of the same provider, used only for judging duplicates · Default: empty, which means the provider's configured model · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiReviewBatchSize" class="zr-field__name">Pairs per model request</label>
-                                        <input type="number" id="duplicatesAiReviewBatchSize" name="duplicatesAiReviewBatchSize" min="1" max="100" step="1" value="<%= config.DUPLICATES_AI_REVIEW_BATCH_SIZE || 25 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many name pairs one request asks about; fewer pairs mean more requests, more pairs need a larger context (1-100) · Default: 25 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiCandidateFloor" class="zr-field__name">Lowest matcher score shown to the model</label>
-                                        <input type="number" id="duplicatesAiCandidateFloor" name="duplicatesAiCandidateFloor" min="0.5" max="0.95" step="0.01" value="<%= config.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6' %>" class="zr-input">
-                                        <p class="zr-field__hint">Near-misses below your sensitivity but above this score are judged too; a lower value asks about more pairs (0.50-0.95) · Default: 0.6 · Restart required</p>
-                                    </div>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesAiExcerpts',
-                                        label: 'Read document excerpts for spelling-only pairs',
-                                        checked: (config.DUPLICATES_AI_EXCERPTS || 'yes') === 'yes',
-                                        hint: 'Default: on · Sends a short excerpt of a couple of documents when the matcher linked a pair by spelling alone, so a typo-like pair that means two different things can be told apart · Restart required'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiExcerptChars" class="zr-field__name">Excerpt length in characters</label>
-                                        <input type="number" id="duplicatesAiExcerptChars" name="duplicatesAiExcerptChars" min="50" max="500" step="1" value="<%= config.DUPLICATES_AI_EXCERPT_CHARS || 300 %>" class="zr-input">
-                                        <p class="zr-field__hint">How much of each document the judge gets to read; longer excerpts cost tokens (50-500) · Default: 300 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiExcerptDocuments" class="zr-field__name">Documents per entry for excerpts</label>
-                                        <input type="number" id="duplicatesAiExcerptDocuments" name="duplicatesAiExcerptDocuments" min="1" max="5" step="1" value="<%= config.DUPLICATES_AI_EXCERPT_DOCUMENTS || 2 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many documents of each tag or correspondent are sampled for those excerpts (1-5) · Default: 2 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiTokenBudget" class="zr-field__name">Token budget per review</label>
-                                        <input type="number" id="duplicatesAiTokenBudget" name="duplicatesAiTokenBudget" min="0" max="10000000" step="1000" value="<%= config.DUPLICATES_AI_TOKEN_BUDGET || 200000 %>" class="zr-input">
-                                        <p class="zr-field__hint">The most one review may spend across all its requests; when it is reached the review stops and keeps the verdicts it has, and 0 means no limit (0-10000000) · Default: 200000 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiIdleStopSeconds" class="zr-field__name">Stop an unwatched review after (seconds)</label>
-                                        <input type="number" id="duplicatesAiIdleStopSeconds" name="duplicatesAiIdleStopSeconds" min="0" max="3600" step="1" value="<%= config.DUPLICATES_AI_IDLE_STOP_SECONDS || 60 %>" class="zr-input">
-                                        <p class="zr-field__hint">A review nobody has been watching for this long stops itself, so a closed tab cannot leave the model running, and 0 means never (0-3600) · Default: 60 · Restart required</p>
-                                    </div>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesAiThinking',
-                                        label: 'Let the judge think',
-                                        checked: (config.DUPLICATES_AI_THINKING || 'no') === 'yes',
-                                        hint: 'Reasoning models write their thoughts before the answer and spend the whole answer budget on them. Off, the judge gets its evidence instead and answers in a fraction of the time and cost. On only if your model answers badly without it. Default: off · Restart required.'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiRequestSeconds" class="zr-field__name">Seconds per model request</label>
-                                        <input type="number" id="duplicatesAiRequestSeconds" name="duplicatesAiRequestSeconds" min="5" max="300" step="5" value="<%= config.DUPLICATES_AI_REQUEST_SECONDS || 30 %>" class="zr-input">
-                                        <p class="zr-field__hint">The judge measures your model on a small first request and then asks about as many pairs per request as fit into this many seconds. Shorter means more, smaller requests and more frequent progress. Default: 30 · Restart required.</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiConcurrency" class="zr-field__name">Model requests at once</label>
-                                        <input type="number" id="duplicatesAiConcurrency" name="duplicatesAiConcurrency" min="0" max="8" step="1" value="<%= config.DUPLICATES_AI_CONCURRENCY || 0 %>" class="zr-input">
-                                        <p class="zr-field__hint">0 lets the judge choose: one for Ollama, three for a hosted endpoint. Wall time divides by it, tokens do not. Default: 0 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiVerdictMemoryDays" class="zr-field__name">Remember verdicts for (days)</label>
-                                        <input type="number" id="duplicatesAiVerdictMemoryDays" name="duplicatesAiVerdictMemoryDays" min="0" max="365" step="1" value="<%= config.DUPLICATES_AI_VERDICT_MEMORY_DAYS || 90 %>" class="zr-input">
-                                        <p class="zr-field__hint">A pair the model judged is not asked again while both names are unchanged; 0 switches the memory off. Default: 90 · Restart required</p>
-                                    </div>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesGuardNewNames',
-                                        label: 'Reuse an existing name instead of creating a near-duplicate',
-                                        checked: (config.DUPLICATES_GUARD_NEW_NAMES || 'yes') === 'yes',
-                                        hint: 'When document analysis proposes a tag or correspondent that is the same word in another spelling (case, umlauts, legal form, plural, word order), the existing one is used and the mapping is listed on the Duplicates page. A typo-like match is only logged. Default: on · Restart required.'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiSweepNames" class="zr-field__name">Names per request for the semantic sweep</label>
-                                        <input type="number" id="duplicatesAiSweepNames" name="duplicatesAiSweepNames" min="50" max="1000" step="50" value="<%= config.DUPLICATES_AI_SWEEP_NAMES || 300 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many names the model sees per request when it looks at the whole list. Default: 300 · Restart required.</p>
-                                    </div>
+                                    <%- aiOptionBlock(aiOptionsIn('duplicates', 'basic')) %>
                                     </div>
                                 </section>
+                                <%- aiAdvanced('sec-duplicates-advanced', 'How the review sizes, limits and remembers its requests.', aiOptionsIn('duplicates', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('simplify') %>
@@ -1084,16 +1003,7 @@
                                         ("Rechnung") and topic tags ("Strom"). Decomposing against a saved vocabulary is a rule and
                                         needs no model; these two settings only govern the optional proposals the model makes.
                                     </p>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="simplifyTagsPerRequest" class="zr-field__name">Tags per model request</label>
-                                        <input type="number" id="simplifyTagsPerRequest" name="simplifyTagsPerRequest" min="10" max="200" step="10" value="<%= config.SIMPLIFY_TAGS_PER_REQUEST || 50 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many tag names one request asks the model to decompose; fewer names mean more requests (10-200) · Default: 50 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="simplifyVocabularySize" class="zr-field__name">Vocabulary size</label>
-                                        <input type="number" id="simplifyVocabularySize" name="simplifyVocabularySize" min="5" max="100" step="5" value="<%= config.SIMPLIFY_VOCABULARY_SIZE || 25 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many entries the proposed vocabulary should aim at, document types and topics together (5-100) · Default: 25 · Restart required</p>
-                                    </div>
+                                    <%- aiOptionBlock(aiOptionsIn('simplify', 'basic')) %>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -1197,17 +1107,17 @@
                                         id: 'oidcEnabled',
                                         label: 'Sign in through an OpenID Connect provider',
                                         checked: oidcSwitchOn(config.OIDC_ENABLED, 'no'),
-                                        hint: 'OIDC_ENABLED · Password sign-in keeps working next to it · Restart required'
+                                        hint: 'OIDC_ENABLED · Password sign-in keeps working next to it'
                                     }) %>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcIssuerUrl" class="zr-field__name">Issuer URL</label>
                                         <input type="text" inputmode="url" id="oidcIssuerUrl" name="oidcIssuerUrl" value="<%= config.OIDC_ISSUER_URL || '' %>" class="zr-input" placeholder="https://auth.example.com/application/o/zettelrobbe/" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_ISSUER_URL · The provider's issuer; the full discovery URL works too · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_ISSUER_URL · The provider's issuer; the full discovery URL works too</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcClientId" class="zr-field__name">Client ID</label>
                                         <input type="text" id="oidcClientId" name="oidcClientId" value="<%= config.OIDC_CLIENT_ID || '' %>" class="zr-input" placeholder="zettelrobbe" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_CLIENT_ID · Client ID of the application registered at the provider · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_CLIENT_ID · Client ID of the application registered at the provider</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcClientSecret" class="zr-field__name">Client secret</label>
@@ -1215,7 +1125,7 @@
                                             <input type="password" id="oidcClientSecret" name="oidcClientSecret" value="" class="zr-input" autocomplete="new-password" placeholder="<%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Configured' : 'Empty for a public client' %>">
                                             <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="oidcClientSecret" aria-label="Show client secret"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                         </div>
-                                        <p class="zr-field__hint">OIDC_CLIENT_SECRET · <%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Leave empty to keep the stored value' : 'Only for a confidential client' %> · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_CLIENT_SECRET · <%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Leave empty to keep the stored value' : 'Only for a confidential client' %></p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcRedirectUri" class="zr-field__name">Redirect URI</label>
@@ -1226,7 +1136,7 @@
                                                 <span>Copy</span>
                                             </button>
                                         </div>
-                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider · Empty uses the address shown, set it behind a reverse proxy · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider · Empty uses the address shown, set it behind a reverse proxy</p>
                                     </div>
                                     <div class="zr-col zr-col--tight zr-sso-test">
                                         <div class="zr-row zr-row--wrap">
@@ -1250,18 +1160,18 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcAdminEmail" class="zr-field__name">Administrator e-mail</label>
                                         <input type="text" inputmode="email" id="oidcAdminEmail" name="oidcAdminEmail" value="<%= config.OIDC_ADMIN_EMAIL || '' %>" class="zr-input" placeholder="you@example.com" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_ADMIN_EMAIL · Your address at the provider, compared without regard to case · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_ADMIN_EMAIL · Your address at the provider, compared without regard to case</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcEmailClaim" class="zr-field__name">E-mail claim</label>
                                         <input type="text" id="oidcEmailClaim" name="oidcEmailClaim" value="<%= config.OIDC_EMAIL_CLAIM || 'email' %>" class="zr-input" placeholder="email" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_EMAIL_CLAIM · The claim that carries the address · Default: email · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_EMAIL_CLAIM · The claim that carries the address · Default: email</p>
                                     </div>
                                     <%- include('partials/settings-switch', {
                                         id: 'oidcAllowUnverifiedEmail',
                                         label: 'Accept unverified e-mail addresses',
                                         checked: oidcSwitchOn(config.OIDC_ALLOW_UNVERIFIED_EMAIL, 'no'),
-                                        hint: 'OIDC_ALLOW_UNVERIFIED_EMAIL · Only for providers that never confirm addresses; restrict the application at the provider then · Default: off · Restart required'
+                                        hint: 'OIDC_ALLOW_UNVERIFIED_EMAIL · Only for providers that never confirm addresses; restrict the application at the provider then · Default: off'
                                     }) %>
                                     </div>
                                 </section>
@@ -1286,12 +1196,12 @@
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonText" class="zr-field__name">Text</label>
                                             <input type="text" id="oidcButtonText" name="oidcButtonText" value="<%= config.OIDC_BUTTON_TEXT || '' %>" class="zr-input" maxlength="60" placeholder="Sign in with SSO">
-                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT · Up to 60 characters · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT · Up to 60 characters</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonIcon" class="zr-field__name">Icon</label>
                                             <input type="text" id="oidcButtonIcon" name="oidcButtonIcon" value="<%= config.OIDC_BUTTON_ICON || '' %>" class="zr-input" placeholder="Key icon" autocomplete="off" spellcheck="false">
-                                            <p class="zr-field__hint">OIDC_BUTTON_ICON · An https:// image URL, a path on this server such as /favicon.png, or none · Empty shows the key icon · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_ICON · An https:// image URL, a path on this server such as /favicon.png, or none · Empty shows the key icon</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonColor" class="zr-field__name">Background</label>
@@ -1299,7 +1209,7 @@
                                                 <span class="zr-sso-swatch" data-swatch-for="oidcButtonColor" aria-hidden="true"></span>
                                                 <input type="text" id="oidcButtonColor" name="oidcButtonColor" value="<%= config.OIDC_BUTTON_COLOR || '' %>" class="zr-input" placeholder="Theme default" autocomplete="off" spellcheck="false">
                                             </div>
-                                            <p class="zr-field__hint">OIDC_BUTTON_COLOR · #rrggbb, #rgb, a colour name, rgb(…) or hsl(…) · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_COLOR · #rrggbb, #rgb, a colour name, rgb(…) or hsl(…)</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonTextColor" class="zr-field__name">Text colour</label>
@@ -1307,7 +1217,7 @@
                                                 <span class="zr-sso-swatch" data-swatch-for="oidcButtonTextColor" aria-hidden="true"></span>
                                                 <input type="text" id="oidcButtonTextColor" name="oidcButtonTextColor" value="<%= config.OIDC_BUTTON_TEXT_COLOR || '' %>" class="zr-input" placeholder="Theme default" autocomplete="off" spellcheck="false">
                                             </div>
-                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT_COLOR · Same formats as the background · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT_COLOR · Same formats as the background</p>
                                         </div>
                                     </div>
                                     </div>
@@ -1323,7 +1233,7 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcScopes" class="zr-field__name">Scopes</label>
                                         <input type="text" id="oidcScopes" name="oidcScopes" value="<%= config.OIDC_SCOPES || 'openid profile email' %>" class="zr-input" placeholder="openid profile email" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_SCOPES · openid is always added; keep email, it carries the address · Default: openid profile email · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_SCOPES · openid is always added; keep email, it carries the address · Default: openid profile email</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcTokenAuthMethod" class="zr-field__name">Token authentication</label>
@@ -1334,7 +1244,7 @@
                                             <option value="client_secret_post" <%= oidcAuthMethod === 'client_secret_post' ? 'selected' : '' %>>client_secret_post</option>
                                             <option value="none" <%= oidcAuthMethod === 'none' ? 'selected' : '' %>>none (public client)</option>
                                         </select>
-                                        <p class="zr-field__hint">OIDC_TOKEN_AUTH_METHOD · Automatic uses none without a secret, otherwise client_secret_basic unless the provider only offers client_secret_post · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_TOKEN_AUTH_METHOD · Automatic uses none without a secret, otherwise client_secret_basic unless the provider only offers client_secret_post</p>
                                     </div>
                                     </div>
                                 </details>
@@ -1374,7 +1284,6 @@
                                             </button>
                                         </label>
                                         <input type="number" id="tagCacheTTL" name="tagCacheTTL" min="60" max="3600" value="<%= config.TAG_CACHE_TTL_SECONDS || 300 %>" class="zr-input" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <button type="button" id="clearTagCacheBtn" class="zr-btn">
                                         <svg class="zr-icon zr-icon--sm" id="clearCacheIcon" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
@@ -1426,13 +1335,12 @@
                                         <%- include('partials/settings-switch', {
                                             id: 'reconciliationEnabled',
                                             label: 'Automatic Reconciliation',
-                                            checked: String(config.RECONCILIATION_ENABLED || 'yes').toLowerCase() === 'yes',
-                                            hint: 'Restart required'
+                                            checked: String(config.RECONCILIATION_ENABLED || 'yes').toLowerCase() === 'yes'
                                         }) %>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="reconciliationInterval" class="zr-field__name">Reconciliation Interval (Cron)</label>
                                             <input type="text" id="reconciliationInterval" name="reconciliationInterval" value="<%= config.RECONCILIATION_INTERVAL || '0 * * * *' %>" class="zr-input" placeholder="0 * * * *">
-                                            <p class="zr-field__hint">Default: every hour · Restart required</p>
+                                            <p class="zr-field__hint">Default: every hour</p>
                                         </div>
                                     </div>
                                     <div>
@@ -1441,22 +1349,6 @@
                                             <span>Force Reconciliation Now</span>
                                         </button>
                                         <div id="reconcileResult" class="hidden"></div>
-                                    </div>
-                                    </div>
-                                </section>
-
-                                <section class="zr-module" id="sec-local-overrides">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Local Overrides</h2>
-                                    </div>
-                                    <div class="zr-module__body zr-col zr-col--loose">
-                                    <div class="zr-field zr-field--stacked">
-                                        <p class="zr-sm zr-muted">Reset local runtime overrides to fall back to container-managed environment values after restart.</p>
-                                        <button type="button" id="resetLocalOverridesBtn" data-runtime-override-keys="<%- JSON.stringify(runtimeOverrideKeys || []).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" data-runtime-override-details="<%- JSON.stringify(runtimeOverrideDetails || {}).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" data-locked-env-keys="<%- JSON.stringify(lockedEnvKeys || []).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" data-locked-env-details="<%- JSON.stringify(lockedEnvDetails || {}).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" class="zr-btn zr-btn--danger">
-                                            <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-undo"/></svg>
-                                            <span>Reset Local Overrides (Password Required)</span>
-                                        </button>
-                                        <p class="zr-field__hint">Removes only local override data (`data/runtime-overrides.json`). Requires your current account password and an interactive user session. Restart to apply container-managed ENV values.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -1541,25 +1433,25 @@
                         <%- entryOpen('environment') %>
                                 <section class="zr-module" id="sec-env-file" data-module="env-file">
                                     <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Environment file</h2>
+                                        <h2 class="zr-module__title">Configuration as a .env file</h2>
                                     </div>
                                     <div class="zr-module__body zr-col">
                                         <p class="zr-sm zr-muted">
-                                            The running configuration as a <code>.env</code> file — the same variables the
-                                            fields on this page write, grouped by topic and limited to what is actually set.
-                                            Use it to move this instance or to pin its settings into a docker compose file.
+                                            The running configuration as a <code>.env</code> file, grouped by topic and
+                                            limited to what is set. Use it to move this instance or to carry its settings
+                                            into a docker compose file.
                                         </p>
-    
+
                                         <div class="zr-alert zr-alert--warn">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
                                             <div class="zr-alert__body">
                                                 <p class="zr-sm">
-                                                    This includes API tokens and keys in clear text. <code>JWT_SECRET</code>
-                                                    is left out on purpose — a fresh instance generates its own.
+                                                    It contains API tokens and keys in clear text. <code>JWT_SECRET</code>
+                                                    is left out; a fresh instance generates its own.
                                                 </p>
                                             </div>
                                         </div>
-    
+
                                         <div class="zr-row zr-row--wrap">
                                             <button type="button" id="envFileShowBtn" class="zr-btn zr-btn--primary">
                                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-code"/></svg>

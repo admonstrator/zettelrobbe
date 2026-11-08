@@ -71,6 +71,7 @@ const TESTS = {
   'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
   'settings-quickstart-persistence': 'test-settings-quickstart-persistence.js',
   'settings-duplicates-section': 'test-settings-duplicates-section.js',
+  'settings-ai-options': 'test-settings-ai-options.js',
   'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
   'scan-stop-flow': 'test-scan-stop-flow.js',
@@ -167,8 +168,11 @@ const TESTS = {
   'anthropic-support': 'test-anthropic-support.js',
   'anthropic-provider': 'test-anthropic-provider.js',
   'anthropic-settings': 'test-anthropic-settings.js',
+  'ai-provider-rules': 'test-ai-provider-rules.js',
+  'openai-compatible-service': 'test-openai-compatible-service.js',
   'ocr-provider-anthropic': 'test-ocr-provider-anthropic.js',
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
+  'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
 };
 
@@ -289,6 +293,7 @@ const AREAS = {
     'url-base-validation',
     'session-token-type',
     'health-disclosure',
+    'settings-save-restart',
     'totp-replay',
     'login-username-timing',
     'oidc-sso',
@@ -317,6 +322,9 @@ const AREAS = {
     'simplify-assistant-ui',
   ],
   review: ['review-sheet', 'review-assist', 'review-voice'],
+  'settings-ai': ['settings-ai-options'],
+  'ai-rules': ['ai-provider-rules'],
+  providers: ['openai-compatible-service'],
   anthropic: [
     'anthropic-support',
     'anthropic-provider',

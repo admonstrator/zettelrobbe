@@ -474,18 +474,19 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_SWEEP_NAMES'
       );
       assert.ok(
-        /looks at the whole list/.test(sweep) && /Default: 300/.test(sweep),
+        /the whole list of names/.test(sweep) && /Default: 300/.test(sweep),
         'its hint says what the number does and what the default is'
       );
 
-      // The two archive settings close the section, after everything that
-      // only governs one review.
+      // The guard is part of the basic view; the sweep size is a tuning
+      // knob and closes the advanced options.
+      const advancedStart = section.indexOf('id="sec-duplicates-advanced"');
       assert.ok(
-        section.indexOf('id="duplicatesAiRequestSeconds"') <
-          section.indexOf('id="duplicatesGuardNewNames"') &&
-          section.indexOf('id="duplicatesGuardNewNames"') <
+        section.indexOf('id="duplicatesGuardNewNames"') < advancedStart &&
+          advancedStart < section.indexOf('id="duplicatesAiSweepNames"') &&
+          section.indexOf('id="duplicatesAiRequestSeconds"') <
             section.indexOf('id="duplicatesAiSweepNames"'),
-        'the guard and the sweep size close the section, in that order'
+        'the guard sits in the basic view, the sweep size closes the advanced options'
       );
     });
 
@@ -956,11 +957,11 @@ function sliceBetween(source, from, to) {
         'its hint must say what zero means and what the default is'
       );
       assert.ok(
-        /Wall time divides by it, tokens do not/.test(lanes),
+        /finishes sooner but costs the same tokens/.test(lanes),
         'the hint must say what more lanes do and do not save'
       );
       assert.ok(
-        section.includes('Model requests at once'),
+        section.includes('Requests at once'),
         'the field must be labelled'
       );
 
@@ -980,7 +981,7 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_VERDICT_MEMORY_DAYS'
       );
       assert.ok(
-        /0 switches the memory off/.test(memory) && /Default: 90/.test(memory),
+        /0 switches this memory off/.test(memory) && /Default: 90/.test(memory),
         'its hint must say what zero means and what the default is'
       );
       assert.ok(
@@ -988,15 +989,18 @@ function sliceBetween(source, from, to) {
         'the field must be labelled'
       );
 
-      // Both describe one review, so they sit with the settings that do and
-      // before the two that belong to the archive.
+      // Both describe one review, so they sit with the settings that do,
+      // under the section's advanced options.
+      const advanced = sliceBetween(
+        section,
+        'id="sec-duplicates-advanced"',
+        '</details>'
+      );
       assert.ok(
-        section.indexOf('id="duplicatesAiRequestSeconds"') <
-          section.indexOf('id="duplicatesAiConcurrency"') &&
-          section.indexOf('id="duplicatesAiConcurrency"') <
-            section.indexOf('id="duplicatesAiVerdictMemoryDays"') &&
-          section.indexOf('id="duplicatesAiVerdictMemoryDays"') <
-            section.indexOf('id="duplicatesGuardNewNames"'),
+        advanced.indexOf('id="duplicatesAiRequestSeconds"') <
+          advanced.indexOf('id="duplicatesAiConcurrency"') &&
+          advanced.indexOf('id="duplicatesAiConcurrency"') <
+            advanced.indexOf('id="duplicatesAiVerdictMemoryDays"'),
         'the lanes and the memory follow the request length, in that order'
       );
     });
