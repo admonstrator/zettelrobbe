@@ -193,6 +193,17 @@ function pageRegion(html) {
     });
 
     /* -- 3. nav and stylesheet ----------------------------------------- */
+    await test('the nav has one Tidy up entry instead of Duplicates and Simplify tags', () => {
+      const nav = read('views', 'partials', 'nav.ejs');
+      assert.match(
+        nav,
+        /\{ href: '\/tidy-up', icon: 'i-wand', label: 'Tidy up' \}/
+      );
+      assert.ok(!/href: '\/duplicates'/.test(nav));
+      assert.ok(!/href: '\/simplify'/.test(nav));
+      assert.match(read('public', 'icons.svg'), /<symbol id="i-wand"/);
+    });
+
     await test('tidy-up.css is linked after simplify.css and sits in one pages layer', () => {
       const head = read('views', 'partials', 'shell', 'head-start.ejs');
       const a = head.indexOf('/css/pages/simplify.css');
