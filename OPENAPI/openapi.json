@@ -5763,6 +5763,29 @@
         "tags": [
           "Setup"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually.\n",
+                "properties": {
+                  "processedTag": {
+                    "type": "string",
+                    "description": "Tag added after a document was analysed; empty turns the tag off. It is also added to the excluded tags.\n"
+                  },
+                  "removeInboxTagsAfterProcessing": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Take every Paperless-ngx inbox tag off a document once its analysis was written. Saved as REMOVE_INBOX_TAGS_AFTER_PROCESSING; an absent value saves \"no\".\n"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Setup completed successfully"

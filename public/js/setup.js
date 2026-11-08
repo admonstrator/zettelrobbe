@@ -114,6 +114,9 @@ class SetupWizard {
     this.addExcludeTagBtn = document.getElementById('addExcludeTagBtn');
     this.excludeTagsContainer = document.getElementById('excludeTagsContainer');
     this.processedTag = document.getElementById('processedTag');
+    this.removeInboxTagsAfterProcessing = document.getElementById(
+      'removeInboxTagsAfterProcessing'
+    );
     this.automaticScanEnabled = document.getElementById('automaticScanEnabled');
     this.scanInterval = document.getElementById('scanInterval');
     this.paperlessTagsDatalist = document.getElementById(
@@ -251,6 +254,12 @@ class SetupWizard {
     this.ocrValidationTimeout.value = this.getOcrValidationTimeoutSeconds();
     this.processedTag.value =
       this.config.AI_PROCESSED_TAG_NAME || 'ai-processed';
+    if (this.removeInboxTagsAfterProcessing) {
+      this.removeInboxTagsAfterProcessing.checked =
+        String(this.config.REMOVE_INBOX_TAGS_AFTER_PROCESSING || '')
+          .trim()
+          .toLowerCase() === 'yes';
+    }
     this.aiValidationTimeout.value = this.getAiValidationTimeoutSeconds();
 
     const provider = String(this.config.AI_PROVIDER || 'custom')
@@ -2502,6 +2511,9 @@ class SetupWizard {
       `AI_PROCESSED_TAG_NAME=${this.processedTag.value.trim() || 'ai-processed'}`
     );
     preview.push(
+      `REMOVE_INBOX_TAGS_AFTER_PROCESSING=${this.removeInboxTagsAfterProcessing?.checked ? 'yes' : 'no'}`
+    );
+    preview.push(
       `DISABLE_AUTOMATIC_PROCESSING=${this.automaticScanEnabled.value === 'yes' ? 'no' : 'yes'}`
     );
     preview.push(
@@ -2643,6 +2655,9 @@ class SetupWizard {
       includeTags: scanAll ? [] : this.getEffectiveIncludeTags(),
       excludeTags: this.getEffectiveExcludeTags(),
       processedTag: this.processedTag.value.trim(),
+      removeInboxTagsAfterProcessing: Boolean(
+        this.removeInboxTagsAfterProcessing?.checked
+      ),
       automaticScanEnabled: this.automaticScanEnabled.value === 'yes',
       scanInterval: this.scanInterval.value.trim(),
       aiProvider: this.aiProvider.value.trim().toLowerCase(),

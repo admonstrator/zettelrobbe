@@ -3847,6 +3847,7 @@ function toEnvPreviewLines(config) {
     'IGNORE_TAGS',
     'ADD_AI_PROCESSED_TAG',
     'AI_PROCESSED_TAG_NAME',
+    'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
     'DISABLE_AUTOMATIC_PROCESSING',
     'SCAN_INTERVAL',
     'AI_PROVIDER',
@@ -4840,6 +4841,8 @@ router.get('/setup', async (req, res) => {
       ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
       AI_PROCESSED_TAG_NAME:
         process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
+      REMOVE_INBOX_TAGS_AFTER_PROCESSING:
+        process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
       USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
       PROMPT_TAGS: normalizeArray(process.env.PROMPT_TAGS),
       PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
@@ -6047,6 +6050,31 @@ router.post(
  *       accept a connection whose validation failed.
  *     tags:
  *       - Setup
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: true
+ *             description: >
+ *               The wizard's answers (administrator, Paperless-ngx connection,
+ *               document scope, AI and OCR settings). Only the fields below are
+ *               described individually.
+ *             properties:
+ *               processedTag:
+ *                 type: string
+ *                 description: >
+ *                   Tag added after a document was analysed; empty turns the
+ *                   tag off. It is also added to the excluded tags.
+ *               removeInboxTagsAfterProcessing:
+ *                 type: boolean
+ *                 default: false
+ *                 description: >
+ *                   Take every Paperless-ngx inbox tag off a document once its
+ *                   analysis was written. Saved as
+ *                   REMOVE_INBOX_TAGS_AFTER_PROCESSING; an absent value saves
+ *                   "no".
  *     responses:
  *       200:
  *         description: Setup completed successfully
@@ -6097,6 +6125,11 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const processedTag = String(req.body?.processedTag || '').trim();
     const effectiveExcludeTags = Array.from(
       new Set([...excludeTags, ...(processedTag ? [processedTag] : [])])
+    );
+    // Absent in requests from older clients: those keep the inbox tags.
+    const removeInboxTagsAfterProcessing = parseBooleanInput(
+      req.body?.removeInboxTagsAfterProcessing,
+      false
     );
     const automaticScanEnabled = parseBooleanInput(
       req.body?.automaticScanEnabled,
@@ -6310,6 +6343,9 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       IGNORE_TAGS: effectiveExcludeTags,
       ADD_AI_PROCESSED_TAG: processedTag ? 'yes' : 'no',
       AI_PROCESSED_TAG_NAME: processedTag || 'ai-processed',
+      REMOVE_INBOX_TAGS_AFTER_PROCESSING: removeInboxTagsAfterProcessing
+        ? 'yes'
+        : 'no',
       DISABLE_AUTOMATIC_PROCESSING: automaticScanEnabled ? 'no' : 'yes',
       TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
       RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
