@@ -57,7 +57,7 @@
         { label: 'System', icon: 'i-server', entries: [
             { id: 'caching', title: 'Caching and history' },
             { id: 'quickstart', title: 'Quickstart auto-detect' },
-            { id: 'environment', title: 'Environment file' },
+            { id: 'environment', title: 'Export' },
             { id: 'changelog', title: 'Changelog' }
         ] }
     ];
@@ -154,17 +154,10 @@
                         </div>
                     <% } %>
 
-                    <div class="zr-alert zr-alert--info">
-                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>
-                        <div class="zr-alert__body">
-                            <p>Every field maps to a runtime environment variable, and says whether a
-                            restart is required. Values injected by the container win over anything set
-                            here. <a href="#environment" class="zr-link zr-link--underline">Environment</a>
-                            shows the whole configuration as a <code>.env</code> file.</p>
-                        </div>
-                    </div>
-
-                    <form id="setupForm" class="zr-col zr-col--loose">
+                    <form id="setupForm" class="zr-col zr-col--loose"
+                        data-locked-env-keys="<%= JSON.stringify(typeof lockedEnvKeys !== 'undefined' && Array.isArray(lockedEnvKeys) ? lockedEnvKeys : []) %>"
+                        data-restart-keys="<%= JSON.stringify(typeof restartRequiredKeys !== 'undefined' && Array.isArray(restartRequiredKeys) ? restartRequiredKeys : []) %>"
+                        data-boot-id="<%= typeof bootId === 'string' ? bootId : '' %>">
                         <%- entryOpen('connection') %>
                                 <section class="zr-module" id="sec-connection">
                                     <div class="zr-module__head">
@@ -179,7 +172,6 @@
                                             </button>
                                         </label>
                                         <input type="text" id="paperlessUrl" name="paperlessUrl" value="<%= config.PAPERLESS_API_URL %>" class="zr-input" placeholder="http://your-paperless-instance:8000" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
@@ -195,7 +187,7 @@
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
-                                        <label for="paperlessPublicUrl" class="zr-field__name">Paperless Public URL Override (optional)</label>
+                                        <label for="paperlessPublicUrl" class="zr-field__name">Paperless public URL (optional)</label>
                                         <input type="text" id="paperlessPublicUrl" name="paperlessPublicUrl" value="<%= config.PAPERLESS_PUBLIC_URL || '' %>" class="zr-input" placeholder="https://paperless.example.com">
                                         <p class="zr-field__hint">Leave empty to use auto-detection/fallback</p>
                                     </div>
@@ -208,13 +200,14 @@
                                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg>
                                             </button>
                                         </div>
-                                        <p class="zr-field__hint">Restart required<%= configuredSecrets.PAPERLESS_API_TOKEN ? ' · Leave empty to keep the stored value' : '' %></p>
+                                        <% if (configuredSecrets.PAPERLESS_API_TOKEN) { %>
+                                        <p class="zr-field__hint">Leave empty to keep the stored value</p>
+                                        <% } %>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
                                         <label for="paperlessUsername" class="zr-field__name">Paperless-ngx Username</label>
                                         <input type="text" id="paperlessUsername" name="paperlessUsername" value="<%= config.PAPERLESS_USERNAME %>" class="zr-input" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     </div>
                                 </section>
@@ -233,7 +226,7 @@
                                                 <option value="DD.MM.YYYY" <%= String(config.DATE_FORMAT || 'DD.MM.YYYY').toUpperCase() === 'YYYY-MM-DD' ? '' : 'selected' %>>DD.MM.YYYY</option>
                                                 <option value="YYYY-MM-DD" <%= String(config.DATE_FORMAT || 'DD.MM.YYYY').toUpperCase() === 'YYYY-MM-DD' ? 'selected' : '' %>>YYYY-MM-DD</option>
                                             </select>
-                                            <p class="zr-field__hint">Every date in the interface: 15 August 2026 reads as 15.08.2026 or 2026-08-15 · Restart required</p>
+                                            <p class="zr-field__hint">Every date in the interface: 15 August 2026 reads as 15.08.2026 or 2026-08-15</p>
                                         </div>
                                     </div>
                                     </div>
@@ -566,7 +559,6 @@
                                             <span>Restrict to Existing Document Types</span>
                                         </label>
                                     </div>
-                                    <p class="zr-field__hint">Restart required</p>
                                     </div>
                                 </section>
 
@@ -582,7 +574,6 @@
                                         <label for="activateTitle" class="zr-checktile"><input type="checkbox" id="activateTitle" name="activateTitle" class="zr-toggle" <%= config.ACTIVATE_TITLE === 'yes' ? 'checked' : '' %>><span>Title Generation</span></label>
                                         <label for="activateCustomFields" class="zr-checktile"><input type="checkbox" id="activateCustomFields" name="activateCustomFields" class="zr-toggle" <%= config.ACTIVATE_CUSTOM_FIELDS === 'yes' ? 'checked' : '' %>><span>Custom Fields</span></label>
                                     </div>
-                                    <p class="zr-field__hint">Restart required</p>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -634,7 +625,6 @@
                                         <div><button type="button" onclick="addCustomField()" class="zr-btn zr-btn--primary zr-btn--block">Add</button></div>
                                     </div>
                                     <input type="hidden" id="customFieldsJson" name="customFields" value='<%= config.CUSTOM_FIELDS || "{\"custom_fields\":[]}" %>'>
-                                    <p class="zr-field__hint">Restart required</p>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -648,7 +638,6 @@
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
                                             <label for="externalApiEnabled" class="zr-field__name">Enable External API Integration</label>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <input type="checkbox" class="zr-toggle" id="externalApiEnabled" name="externalApiEnabled" <%= config.EXTERNAL_API_ENABLED === 'yes' ? 'checked' : '' %>>
                                     </div>
@@ -685,10 +674,8 @@
                                         <%- include('partials/settings-switch', {
                                             id: 'externalApiAllowPrivateIps',
                                             label: 'Allow private IPs for external API',
-                                            checked: config.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes',
-                                            hint: 'Restart required'
+                                            checked: config.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes'
                                         }) %>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     </div>
                                 </section>
@@ -703,8 +690,7 @@
                                     <%- include('partials/settings-switch', {
                                         id: 'mistralOcrEnabled',
                                         label: 'Enable OCR',
-                                        checked: config.MISTRAL_OCR_ENABLED === 'yes',
-                                        hint: 'Restart required'
+                                        checked: config.MISTRAL_OCR_ENABLED === 'yes'
                                     }) %>
                                     <div id="ocrFieldsContainer" class="zr-field zr-field--stacked <%= config.MISTRAL_OCR_ENABLED === 'yes' ? '' : 'hidden' %>">
                                     <div class="zr-field zr-field--stacked">
@@ -714,13 +700,11 @@
                                             <option value="custom" <%= ((config.OCR_PROVIDER || 'mistral') === 'custom' || (config.OCR_PROVIDER || 'mistral') === 'ollama') ? 'selected' : '' %>>Custom (Ollama, LM Studio, local models)</option>
                                             <option value="anthropic" <%= ocrStoredForAnthropic ? 'selected' : '' %>>Claude (Anthropic)</option>
                                         </select>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <div id="ocrApiUrlContainer" class="zr-field zr-field--stacked">
-                                        <label for="ocrApiUrl" class="zr-field__name">OCR API URL (optional override)</label>
+                                        <label for="ocrApiUrl" class="zr-field__name">OCR API URL (optional)</label>
                                         <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Leave empty to use provider default" data-placeholder-default="Leave empty to use provider default" data-placeholder-anthropic="Optional proxy URL">
                                         <p id="ocrApiUrlAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>">Only for a proxy; empty uses the Anthropic API URL of the AI provider, then api.anthropic.com</p>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <div id="ocrApiKeyContainer" class="zr-field zr-field--stacked">
                                         <label for="ocrApiKey" class="zr-field__name">OCR API Key</label>
@@ -728,8 +712,8 @@
                                             <input type="password" id="ocrApiKey" name="ocrApiKey" value="" class="zr-input" placeholder="<%= ocrStoredForAnthropic ? (ocrKeyConfiguredAnthropic ? 'Configured' : 'Optional') : (ocrKeyConfiguredDefault ? 'Configured' : 'Required for Mistral') %>" data-placeholder-default="<%= ocrKeyConfiguredDefault ? 'Configured' : 'Required for Mistral' %>" data-placeholder-anthropic="<%= ocrKeyConfiguredAnthropic ? 'Configured' : 'Optional' %>">
                                             <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="ocrApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                         </div>
-                                        <p id="ocrApiKeyHint" class="zr-field__hint <%= ocrStoredForAnthropic ? 'hidden' : '' %>">Restart required · Optional for local and custom providers<%= ocrKeyConfiguredDefault ? ' · Leave empty to keep the stored value' : '' %></p>
-                                        <p id="ocrApiKeyAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>">Restart required · <%= ocrKeyConfiguredAnthropic ? 'Leave empty to keep the stored value' : 'Empty uses the Anthropic API key from the AI provider' %></p>
+                                        <p id="ocrApiKeyHint" class="zr-field__hint <%= ocrStoredForAnthropic ? 'hidden' : '' %>">Optional for local and custom providers<%= ocrKeyConfiguredDefault ? ' · Leave empty to keep the stored value' : '' %></p>
+                                        <p id="ocrApiKeyAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>"><%= ocrKeyConfiguredAnthropic ? 'Leave empty to keep the stored value' : 'Empty uses the Anthropic API key from the AI provider' %></p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="mistralOcrModel" class="zr-field__name">OCR Model</label>
@@ -743,25 +727,24 @@
                                             </button>
                                         </div>
                                         <p id="ocrModelVisionHint" class="zr-field__hint <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">Vision support is detected from the model name, so the list is grouped rather than filtered &middot; models outside the recommended group may still work</p>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <div id="ocrPdfRenderContainer" class="zr-col zr-col--loose">
                                         <%- include('partials/settings-switch', {
                                             id: 'ocrPdfRenderEnabled',
                                             label: 'Render PDF Pages (poppler)',
                                             checked: (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes',
-                                            hint: 'Render PDF pages with poppler (pdftoppm) so local vision models can OCR multi-page documents; falls back to the first-page thumbnail when poppler is not installed · Restart required'
+                                            hint: 'Render PDF pages with poppler (pdftoppm) so local vision models can OCR multi-page documents; falls back to the first-page thumbnail when poppler is not installed'
                                         }) %>
                                         <div id="ocrPdfRenderOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? '' : 'hidden' %>">
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrPdfRenderMaxPages" class="zr-field__name">Max PDF Pages per Document</label>
                                                 <input type="number" id="ocrPdfRenderMaxPages" name="ocrPdfRenderMaxPages" min="1" max="50" step="1" value="<%= config.OCR_PDF_RENDER_MAX_PAGES || 10 %>" class="zr-input">
-                                                <p class="zr-field__hint">Each page is one vision model request; pages beyond the limit are skipped · Restart required</p>
+                                                <p class="zr-field__hint">Each page is one vision model request; pages beyond the limit are skipped</p>
                                             </div>
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrPdfRenderDpi" class="zr-field__name">PDF Render Resolution (DPI)</label>
                                                 <input type="number" id="ocrPdfRenderDpi" name="ocrPdfRenderDpi" min="72" max="300" step="1" value="<%= config.OCR_PDF_RENDER_DPI || 150 %>" class="zr-input">
-                                                <p class="zr-field__hint">Higher values improve OCR accuracy but increase image size (72–300) · Restart required</p>
+                                                <p class="zr-field__hint">Higher values improve OCR accuracy but increase image size (72–300)</p>
                                             </div>
                                         </div>
                                     </div>
@@ -770,24 +753,24 @@
                                             id: 'ocrAutoProcessEnabled',
                                             label: 'Process OCR Queue Automatically',
                                             checked: (config.OCR_AUTO_PROCESS_ENABLED || 'no') === 'yes',
-                                            hint: 'Work through queued documents on a schedule instead of pressing "Process All Pending" on the OCR page · Restart required'
+                                            hint: 'Work through queued documents on a schedule instead of pressing "Process All Pending" on the OCR page'
                                         }) %>
                                         <div id="ocrAutoProcessOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_AUTO_PROCESS_ENABLED || 'no') === 'yes' ? '' : 'hidden' %>">
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrAutoProcessInterval" class="zr-field__name">OCR Processing Interval (Cron)</label>
                                                 <input type="text" id="ocrAutoProcessInterval" name="ocrAutoProcessInterval" value="<%= config.OCR_AUTO_PROCESS_INTERVAL || '*/15 * * * *' %>" class="zr-input" placeholder="*/15 * * * *">
-                                                <p class="zr-field__hint">Default: every 15 minutes · Runs are skipped while a document scan is active · Restart required</p>
+                                                <p class="zr-field__hint">Default: every 15 minutes · Runs are skipped while a document scan is active</p>
                                             </div>
                                             <div class="zr-field zr-field--stacked">
                                                 <label for="ocrAutoProcessBatchSize" class="zr-field__name">Documents per Run</label>
                                                 <input type="number" id="ocrAutoProcessBatchSize" name="ocrAutoProcessBatchSize" min="1" max="100" step="1" value="<%= config.OCR_AUTO_PROCESS_BATCH_SIZE || 10 %>" class="zr-input">
-                                                <p class="zr-field__hint">Caps how many queued documents one run handles; the rest follow at the next interval (1-100) · Restart required</p>
+                                                <p class="zr-field__hint">Caps how many queued documents one run handles; the rest follow at the next interval (1-100)</p>
                                             </div>
                                             <%- include('partials/settings-switch', {
                                                 id: 'ocrAutoAnalyze',
                                                 label: 'AI Analysis After OCR',
                                                 checked: (config.OCR_AUTO_ANALYZE || 'yes') === 'yes',
-                                                hint: 'Analyse each document right after OCR. Keep this on: when Paperless-ngx rejects the content write-back the OCR text only exists locally, where a regular scan would never see it · Restart required'
+                                                hint: 'Analyse each document right after OCR. Keep this on: when Paperless-ngx rejects the content write-back the OCR text only exists locally, where a regular scan would never see it'
                                             }) %>
                                         </div>
                                     </div>
@@ -820,14 +803,13 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="scanInterval" class="zr-field__name">Scan Interval (Cron Format)</label>
                                         <input type="text" id="scanInterval" name="scanInterval" value="<%= config.SCAN_INTERVAL %>" class="zr-input" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
                                         <div class="zr-switchrow">
                                             <div class="zr-grow">
                                                 <label for="disableAutomaticProcessing" class="zr-field__name">Disable automatic processing</label>
-                                                <p class="zr-field__hint">If enabled, scans are not processed by AI automatically · Restart required</p>
+                                                <p class="zr-field__hint">If enabled, scans are not processed by AI automatically</p>
                                             </div>
                                             <input type="checkbox" class="zr-toggle" id="disableAutomaticProcessing" <%= config.DISABLE_AUTOMATIC_PROCESSING === 'yes' ? 'checked' : '' %>>
                                         </div>
@@ -836,8 +818,7 @@
                                     <%- include('partials/settings-switch', {
                                         id: 'useExistingData',
                                         label: 'Use existing correspondents and tags',
-                                        checked: config.USE_EXISTING_DATA === 'yes',
-                                        hint: 'Restart required'
+                                        checked: config.USE_EXISTING_DATA === 'yes'
                                     }) %>
                                     </div>
                                 </section>
@@ -850,8 +831,7 @@
                                     <%- include('partials/settings-switch', {
                                         id: 'showTags',
                                         label: 'Process only specific pre-tagged documents',
-                                        checked: config.PROCESS_PREDEFINED_DOCUMENTS === 'yes',
-                                        hint: 'Restart required'
+                                        checked: config.PROCESS_PREDEFINED_DOCUMENTS === 'yes'
                                     }) %>
     
                                     <div id="tagsInputSection" class="<%= config.PROCESS_PREDEFINED_DOCUMENTS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
@@ -896,7 +876,6 @@
                                             <% } %>
                                         </div>
                                         <input type="hidden" id="ignoreTags" name="ignoreTags" value="<%= Array.isArray(config.IGNORE_TAGS) ? config.IGNORE_TAGS.join(',') : '' %>">
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     </div>
                                 </section>
@@ -957,17 +936,14 @@
                                         <div class="zr-field zr-field--stacked">
                                             <label for="globalRateLimitWindowMs" class="zr-field__name">Global rate-limit window (ms)</label>
                                             <input type="number" id="globalRateLimitWindowMs" name="globalRateLimitWindowMs" value="<%= config.GLOBAL_RATE_LIMIT_WINDOW_MS || 900000 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="globalRateLimitMax" class="zr-field__name">Global rate-limit max requests</label>
                                             <input type="number" id="globalRateLimitMax" name="globalRateLimitMax" value="<%= config.GLOBAL_RATE_LIMIT_MAX || 1000 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="trustProxy" class="zr-field__name">Trust Proxy</label>
                                             <input type="text" id="trustProxy" name="trustProxy" value="<%= config.TRUST_PROXY %>" class="zr-input" placeholder="false | true | 1 | loopback">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="cookieSecureMode" class="zr-field__name">Cookie Secure Mode</label>
@@ -976,17 +952,14 @@
                                                 <option value="always" <%= String(config.COOKIE_SECURE_MODE || 'auto').toLowerCase() === 'always' ? 'selected' : '' %>>always</option>
                                                 <option value="never" <%= String(config.COOKIE_SECURE_MODE || 'auto').toLowerCase() === 'never' ? 'selected' : '' %>>never</option>
                                             </select>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="minContentLength" class="zr-field__name">Minimum content length</label>
                                             <input type="number" id="minContentLength" name="minContentLength" value="<%= config.MIN_CONTENT_LENGTH || 10 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="paperlessAiPort" class="zr-field__name">Zettelrobbe Port</label>
                                             <input type="number" id="paperlessAiPort" name="paperlessAiPort" value="<%= config.PAPERLESS_AI_PORT || 3000 %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="logLevel" class="zr-field__name">Log Level</label>
@@ -996,7 +969,6 @@
                                                 <option value="info" <%= String(config.LOG_LEVEL || 'info').toLowerCase() === 'info' ? 'selected' : '' %>>info (default)</option>
                                                 <option value="debug" <%= String(config.LOG_LEVEL || 'info').toLowerCase() === 'debug' ? 'selected' : '' %>>debug</option>
                                             </select>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                     </div>
                                     </div>
@@ -1135,17 +1107,17 @@
                                         id: 'oidcEnabled',
                                         label: 'Sign in through an OpenID Connect provider',
                                         checked: oidcSwitchOn(config.OIDC_ENABLED, 'no'),
-                                        hint: 'OIDC_ENABLED · Password sign-in keeps working next to it · Restart required'
+                                        hint: 'OIDC_ENABLED · Password sign-in keeps working next to it'
                                     }) %>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcIssuerUrl" class="zr-field__name">Issuer URL</label>
                                         <input type="text" inputmode="url" id="oidcIssuerUrl" name="oidcIssuerUrl" value="<%= config.OIDC_ISSUER_URL || '' %>" class="zr-input" placeholder="https://auth.example.com/application/o/zettelrobbe/" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_ISSUER_URL · The provider's issuer; the full discovery URL works too · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_ISSUER_URL · The provider's issuer; the full discovery URL works too</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcClientId" class="zr-field__name">Client ID</label>
                                         <input type="text" id="oidcClientId" name="oidcClientId" value="<%= config.OIDC_CLIENT_ID || '' %>" class="zr-input" placeholder="zettelrobbe" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_CLIENT_ID · Client ID of the application registered at the provider · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_CLIENT_ID · Client ID of the application registered at the provider</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcClientSecret" class="zr-field__name">Client secret</label>
@@ -1153,7 +1125,7 @@
                                             <input type="password" id="oidcClientSecret" name="oidcClientSecret" value="" class="zr-input" autocomplete="new-password" placeholder="<%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Configured' : 'Empty for a public client' %>">
                                             <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="oidcClientSecret" aria-label="Show client secret"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                         </div>
-                                        <p class="zr-field__hint">OIDC_CLIENT_SECRET · <%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Leave empty to keep the stored value' : 'Only for a confidential client' %> · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_CLIENT_SECRET · <%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Leave empty to keep the stored value' : 'Only for a confidential client' %></p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcRedirectUri" class="zr-field__name">Redirect URI</label>
@@ -1164,7 +1136,7 @@
                                                 <span>Copy</span>
                                             </button>
                                         </div>
-                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider · Empty uses the address shown, set it behind a reverse proxy · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider · Empty uses the address shown, set it behind a reverse proxy</p>
                                     </div>
                                     <div class="zr-col zr-col--tight zr-sso-test">
                                         <div class="zr-row zr-row--wrap">
@@ -1188,18 +1160,18 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcAdminEmail" class="zr-field__name">Administrator e-mail</label>
                                         <input type="text" inputmode="email" id="oidcAdminEmail" name="oidcAdminEmail" value="<%= config.OIDC_ADMIN_EMAIL || '' %>" class="zr-input" placeholder="you@example.com" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_ADMIN_EMAIL · Your address at the provider, compared without regard to case · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_ADMIN_EMAIL · Your address at the provider, compared without regard to case</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcEmailClaim" class="zr-field__name">E-mail claim</label>
                                         <input type="text" id="oidcEmailClaim" name="oidcEmailClaim" value="<%= config.OIDC_EMAIL_CLAIM || 'email' %>" class="zr-input" placeholder="email" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_EMAIL_CLAIM · The claim that carries the address · Default: email · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_EMAIL_CLAIM · The claim that carries the address · Default: email</p>
                                     </div>
                                     <%- include('partials/settings-switch', {
                                         id: 'oidcAllowUnverifiedEmail',
                                         label: 'Accept unverified e-mail addresses',
                                         checked: oidcSwitchOn(config.OIDC_ALLOW_UNVERIFIED_EMAIL, 'no'),
-                                        hint: 'OIDC_ALLOW_UNVERIFIED_EMAIL · Only for providers that never confirm addresses; restrict the application at the provider then · Default: off · Restart required'
+                                        hint: 'OIDC_ALLOW_UNVERIFIED_EMAIL · Only for providers that never confirm addresses; restrict the application at the provider then · Default: off'
                                     }) %>
                                     </div>
                                 </section>
@@ -1224,12 +1196,12 @@
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonText" class="zr-field__name">Text</label>
                                             <input type="text" id="oidcButtonText" name="oidcButtonText" value="<%= config.OIDC_BUTTON_TEXT || '' %>" class="zr-input" maxlength="60" placeholder="Sign in with SSO">
-                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT · Up to 60 characters · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT · Up to 60 characters</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonIcon" class="zr-field__name">Icon</label>
                                             <input type="text" id="oidcButtonIcon" name="oidcButtonIcon" value="<%= config.OIDC_BUTTON_ICON || '' %>" class="zr-input" placeholder="Key icon" autocomplete="off" spellcheck="false">
-                                            <p class="zr-field__hint">OIDC_BUTTON_ICON · An https:// image URL, a path on this server such as /favicon.png, or none · Empty shows the key icon · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_ICON · An https:// image URL, a path on this server such as /favicon.png, or none · Empty shows the key icon</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonColor" class="zr-field__name">Background</label>
@@ -1237,7 +1209,7 @@
                                                 <span class="zr-sso-swatch" data-swatch-for="oidcButtonColor" aria-hidden="true"></span>
                                                 <input type="text" id="oidcButtonColor" name="oidcButtonColor" value="<%= config.OIDC_BUTTON_COLOR || '' %>" class="zr-input" placeholder="Theme default" autocomplete="off" spellcheck="false">
                                             </div>
-                                            <p class="zr-field__hint">OIDC_BUTTON_COLOR · #rrggbb, #rgb, a colour name, rgb(…) or hsl(…) · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_COLOR · #rrggbb, #rgb, a colour name, rgb(…) or hsl(…)</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonTextColor" class="zr-field__name">Text colour</label>
@@ -1245,7 +1217,7 @@
                                                 <span class="zr-sso-swatch" data-swatch-for="oidcButtonTextColor" aria-hidden="true"></span>
                                                 <input type="text" id="oidcButtonTextColor" name="oidcButtonTextColor" value="<%= config.OIDC_BUTTON_TEXT_COLOR || '' %>" class="zr-input" placeholder="Theme default" autocomplete="off" spellcheck="false">
                                             </div>
-                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT_COLOR · Same formats as the background · Restart required</p>
+                                            <p class="zr-field__hint">OIDC_BUTTON_TEXT_COLOR · Same formats as the background</p>
                                         </div>
                                     </div>
                                     </div>
@@ -1261,7 +1233,7 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcScopes" class="zr-field__name">Scopes</label>
                                         <input type="text" id="oidcScopes" name="oidcScopes" value="<%= config.OIDC_SCOPES || 'openid profile email' %>" class="zr-input" placeholder="openid profile email" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_SCOPES · openid is always added; keep email, it carries the address · Default: openid profile email · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_SCOPES · openid is always added; keep email, it carries the address · Default: openid profile email</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcTokenAuthMethod" class="zr-field__name">Token authentication</label>
@@ -1272,7 +1244,7 @@
                                             <option value="client_secret_post" <%= oidcAuthMethod === 'client_secret_post' ? 'selected' : '' %>>client_secret_post</option>
                                             <option value="none" <%= oidcAuthMethod === 'none' ? 'selected' : '' %>>none (public client)</option>
                                         </select>
-                                        <p class="zr-field__hint">OIDC_TOKEN_AUTH_METHOD · Automatic uses none without a secret, otherwise client_secret_basic unless the provider only offers client_secret_post · Restart required</p>
+                                        <p class="zr-field__hint">OIDC_TOKEN_AUTH_METHOD · Automatic uses none without a secret, otherwise client_secret_basic unless the provider only offers client_secret_post</p>
                                     </div>
                                     </div>
                                 </details>
@@ -1312,7 +1284,6 @@
                                             </button>
                                         </label>
                                         <input type="number" id="tagCacheTTL" name="tagCacheTTL" min="60" max="3600" value="<%= config.TAG_CACHE_TTL_SECONDS || 300 %>" class="zr-input" required>
-                                        <p class="zr-field__hint">Restart required</p>
                                     </div>
                                     <button type="button" id="clearTagCacheBtn" class="zr-btn">
                                         <svg class="zr-icon zr-icon--sm" id="clearCacheIcon" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
@@ -1364,13 +1335,12 @@
                                         <%- include('partials/settings-switch', {
                                             id: 'reconciliationEnabled',
                                             label: 'Automatic Reconciliation',
-                                            checked: String(config.RECONCILIATION_ENABLED || 'yes').toLowerCase() === 'yes',
-                                            hint: 'Restart required'
+                                            checked: String(config.RECONCILIATION_ENABLED || 'yes').toLowerCase() === 'yes'
                                         }) %>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="reconciliationInterval" class="zr-field__name">Reconciliation Interval (Cron)</label>
                                             <input type="text" id="reconciliationInterval" name="reconciliationInterval" value="<%= config.RECONCILIATION_INTERVAL || '0 * * * *' %>" class="zr-input" placeholder="0 * * * *">
-                                            <p class="zr-field__hint">Default: every hour · Restart required</p>
+                                            <p class="zr-field__hint">Default: every hour</p>
                                         </div>
                                     </div>
                                     <div>
@@ -1379,22 +1349,6 @@
                                             <span>Force Reconciliation Now</span>
                                         </button>
                                         <div id="reconcileResult" class="hidden"></div>
-                                    </div>
-                                    </div>
-                                </section>
-
-                                <section class="zr-module" id="sec-local-overrides">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Local Overrides</h2>
-                                    </div>
-                                    <div class="zr-module__body zr-col zr-col--loose">
-                                    <div class="zr-field zr-field--stacked">
-                                        <p class="zr-sm zr-muted">Reset local runtime overrides to fall back to container-managed environment values after restart.</p>
-                                        <button type="button" id="resetLocalOverridesBtn" data-runtime-override-keys="<%- JSON.stringify(runtimeOverrideKeys || []).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" data-runtime-override-details="<%- JSON.stringify(runtimeOverrideDetails || {}).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" data-locked-env-keys="<%- JSON.stringify(lockedEnvKeys || []).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" data-locked-env-details="<%- JSON.stringify(lockedEnvDetails || {}).replace(/</g, '\\u003c').replace(/\"/g, '&quot;') %>" class="zr-btn zr-btn--danger">
-                                            <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-undo"/></svg>
-                                            <span>Reset Local Overrides (Password Required)</span>
-                                        </button>
-                                        <p class="zr-field__hint">Removes only local override data (`data/runtime-overrides.json`). Requires your current account password and an interactive user session. Restart to apply container-managed ENV values.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -1479,25 +1433,25 @@
                         <%- entryOpen('environment') %>
                                 <section class="zr-module" id="sec-env-file" data-module="env-file">
                                     <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Environment file</h2>
+                                        <h2 class="zr-module__title">Configuration as a .env file</h2>
                                     </div>
                                     <div class="zr-module__body zr-col">
                                         <p class="zr-sm zr-muted">
-                                            The running configuration as a <code>.env</code> file — the same variables the
-                                            fields on this page write, grouped by topic and limited to what is actually set.
-                                            Use it to move this instance or to pin its settings into a docker compose file.
+                                            The running configuration as a <code>.env</code> file, grouped by topic and
+                                            limited to what is set. Use it to move this instance or to carry its settings
+                                            into a docker compose file.
                                         </p>
-    
+
                                         <div class="zr-alert zr-alert--warn">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
                                             <div class="zr-alert__body">
                                                 <p class="zr-sm">
-                                                    This includes API tokens and keys in clear text. <code>JWT_SECRET</code>
-                                                    is left out on purpose — a fresh instance generates its own.
+                                                    It contains API tokens and keys in clear text. <code>JWT_SECRET</code>
+                                                    is left out; a fresh instance generates its own.
                                                 </p>
                                             </div>
                                         </div>
-    
+
                                         <div class="zr-row zr-row--wrap">
                                             <button type="button" id="envFileShowBtn" class="zr-btn zr-btn--primary">
                                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-code"/></svg>

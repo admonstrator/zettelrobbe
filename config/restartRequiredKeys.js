@@ -4,7 +4,7 @@
  * The environment keys whose new value only takes effect after the process
  * restarts, because something read them once at boot and keeps the result:
  * the listening port, the proxy and cookie flags the Express app was built
- * with, the rate limiter, the cron schedules, the OpenID client.
+ * with, the rate limiter, the cron schedules, the Paperless-ngx client.
  *
  * Every other key is read live — config getters and services look at
  * process.env when they need the value — so saving it applies at once and
@@ -18,30 +18,34 @@
  */
 const RESTART_REQUIRED_KEYS = Object.freeze(
   new Set([
-    // Express app construction
+    // Express app construction (server.js): app.listen(), app.set('trust
+    // proxy'), the CSRF cookie options and the global rate limiter.
     'PAPERLESS_AI_PORT',
     'TRUST_PROXY',
     'COOKIE_SECURE_MODE',
     'GLOBAL_RATE_LIMIT_WINDOW_MS',
     'GLOBAL_RATE_LIMIT_MAX',
-    'JWT_SECRET',
-    // Cron schedules registered at boot
+    // The API docs routes are mounted or not at boot (server.js).
+    'EXPOSE_API_DOCS',
+    // Cron schedules registered at boot by startScanning() in server.js, and
+    // the switches that decide whether each one is registered at all.
     'SCAN_INTERVAL',
+    'DISABLE_AUTOMATIC_PROCESSING',
     'RECONCILIATION_INTERVAL',
+    'RECONCILIATION_ENABLED',
     'OCR_AUTO_PROCESS_INTERVAL',
     'OCR_AUTO_PROCESS_ENABLED',
-    // OpenID Connect client, discovered once at boot
-    'OIDC_ENABLED',
-    'OIDC_ISSUER_URL',
-    'OIDC_CLIENT_ID',
-    'OIDC_CLIENT_SECRET',
-    'OIDC_ADMIN_EMAIL',
-    'OIDC_REDIRECT_URI',
-    'OIDC_SCOPES',
-    'OIDC_EMAIL_CLAIM',
-    'OIDC_ALLOW_UNVERIFIED_EMAIL',
-    'OIDC_TOKEN_AUTH_METHOD',
-    // Logging is configured when the logger module loads
+    'MISTRAL_OCR_ENABLED',
+    // The connectivity probe's setInterval is started once at boot.
+    'PAPERLESS_PROBE_INTERVAL_SECONDS',
+    // server.js keeps MIN_CONTENT_LENGTH in a module constant.
+    'MIN_CONTENT_LENGTH',
+    // paperlessService builds its HTTP client once from these and keeps the
+    // tag, correspondent and custom field ids it read from that instance.
+    'PAPERLESS_API_URL',
+    'PAPERLESS_API_TOKEN',
+    'PAPERLESS_REQUEST_TIMEOUT_SECONDS',
+    // Each logger takes its level when it is constructed.
     'LOG_LEVEL',
   ])
 );
