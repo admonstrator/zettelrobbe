@@ -6671,6 +6671,20 @@
                     "description": "Comma-separated list of tags to use for filtering",
                     "example": "Invoice,Receipt,Contract"
                   },
+                  "removeInboxTagsAfterProcessing": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Take every tag Paperless-ngx marks as inbox tag off a document once its analysis was written back (yes/no). Default no.",
+                    "example": "yes"
+                  },
+                  "removeTags": {
+                    "type": "string",
+                    "description": "Comma-separated tag names taken off a document after a successful analysis, matched case-insensitively, whatever the analysis proposed. Default empty.",
+                    "example": "todo,scan"
+                  },
                   "aiProcessedTag": {
                     "type": "boolean",
                     "description": "Whether to add a tag for AI-processed documents",

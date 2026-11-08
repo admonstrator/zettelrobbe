@@ -3645,6 +3645,8 @@ const ENV_EXPORT_GROUPS = [
       'PROCESS_PREDEFINED_DOCUMENTS',
       'TAGS',
       'IGNORE_TAGS',
+      'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
+      'REMOVE_TAGS_AFTER_PROCESSING',
       'ADD_AI_PROCESSED_TAG',
       'AI_PROCESSED_TAG_NAME',
       'MIN_CONTENT_LENGTH',
@@ -7342,6 +7344,11 @@ router.get('/settings', async (req, res) => {
     AI_TEMPERATURE_GENERATION: process.env.AI_TEMPERATURE_GENERATION || '0.7',
     TAGS: normalizeArray(process.env.TAGS),
     IGNORE_TAGS: normalizeArray(process.env.IGNORE_TAGS),
+    REMOVE_INBOX_TAGS_AFTER_PROCESSING:
+      process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
+    REMOVE_TAGS_AFTER_PROCESSING: normalizeArray(
+      process.env.REMOVE_TAGS_AFTER_PROCESSING
+    ),
     ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
     AI_PROCESSED_TAG_NAME: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
     USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
@@ -7484,6 +7491,9 @@ router.get('/settings', async (req, res) => {
 
       savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
       savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
+      savedConfig.REMOVE_TAGS_AFTER_PROCESSING = normalizeArray(
+        savedConfig.REMOVE_TAGS_AFTER_PROCESSING
+      );
       savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
       savedConfig.IGNORE_TITLE_PATTERNS = normalizeArray(
         savedConfig.IGNORE_TITLE_PATTERNS
@@ -8773,6 +8783,15 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: Comma-separated list of tags to use for filtering
  *                 example: "Invoice,Receipt,Contract"
+ *               removeInboxTagsAfterProcessing:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Take every tag Paperless-ngx marks as inbox tag off a document once its analysis was written back (yes/no). Default no.
+ *                 example: "yes"
+ *               removeTags:
+ *                 type: string
+ *                 description: Comma-separated tag names taken off a document after a successful analysis, matched case-insensitively, whatever the analysis proposed. Default empty.
+ *                 example: "todo,scan"
  *               aiProcessedTag:
  *                 type: boolean
  *                 description: Whether to add a tag for AI-processed documents
@@ -9096,6 +9115,8 @@ router.post('/settings', express.json(), async (req, res) => {
       aiTemperatureGeneration,
       tags,
       ignoreTags,
+      removeInboxTagsAfterProcessing,
+      removeTags,
       aiProcessedTag,
       aiTagName,
       usePromptTags,
@@ -9198,6 +9219,10 @@ router.post('/settings', express.json(), async (req, res) => {
       AI_TEMPERATURE_GENERATION: process.env.AI_TEMPERATURE_GENERATION || '0.7',
       TAGS: process.env.TAGS || '',
       IGNORE_TAGS: process.env.IGNORE_TAGS || '',
+      REMOVE_INBOX_TAGS_AFTER_PROCESSING:
+        process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
+      REMOVE_TAGS_AFTER_PROCESSING:
+        process.env.REMOVE_TAGS_AFTER_PROCESSING || '',
       ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
       AI_PROCESSED_TAG_NAME:
         process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
@@ -9834,6 +9859,18 @@ router.post('/settings', express.json(), async (req, res) => {
     if (tags !== undefined) updatedConfig.TAGS = normalizeArray(tags);
     if (ignoreTags !== undefined)
       updatedConfig.IGNORE_TAGS = normalizeArray(ignoreTags);
+    if (removeInboxTagsAfterProcessing !== undefined) {
+      updatedConfig.REMOVE_INBOX_TAGS_AFTER_PROCESSING = [
+        'yes',
+        'true',
+        '1',
+        'on',
+      ].includes(String(removeInboxTagsAfterProcessing).trim().toLowerCase())
+        ? 'yes'
+        : 'no';
+    }
+    if (removeTags !== undefined)
+      updatedConfig.REMOVE_TAGS_AFTER_PROCESSING = normalizeArray(removeTags);
     if (aiProcessedTag) updatedConfig.ADD_AI_PROCESSED_TAG = aiProcessedTag;
     if (aiTagName) updatedConfig.AI_PROCESSED_TAG_NAME = aiTagName;
     if (usePromptTags) updatedConfig.USE_PROMPT_TAGS = usePromptTags;

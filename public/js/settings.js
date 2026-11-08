@@ -522,6 +522,12 @@ function initializeCoreSettings() {
     'ignoreTagAddButton'
   );
   new TagsManager(
+    'removeTagInput',
+    'removeTagsContainer',
+    'removeTags',
+    'removeTagAddButton'
+  );
+  new TagsManager(
     'ignoreTitlePatternInput',
     'ignoreTitlePatternsContainer',
     'ignoreTitlePatterns',
@@ -2927,6 +2933,11 @@ function initializeRuntimeOverridePills() {
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },
     { selector: '#showTags', envKey: 'PROCESS_PREDEFINED_DOCUMENTS' },
     { selector: '#ignoreTagInput', envKey: 'IGNORE_TAGS' },
+    {
+      selector: '#removeInboxTagsAfterProcessing',
+      envKey: 'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
+    },
+    { selector: '#removeTagInput', envKey: 'REMOVE_TAGS_AFTER_PROCESSING' },
     {
       selector: '#disableAutomaticProcessing',
       envKey: 'DISABLE_AUTOMATIC_PROCESSING',
