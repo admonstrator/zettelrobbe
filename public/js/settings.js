@@ -2,6 +2,69 @@
 
 /* global Sortable, zrDialog */
 
+/**
+ * Shows the AI options whose data-providers list names `provider` and hides
+ * the others. The list comes from AI_OPTIONS in services/aiProviderRules.js
+ * through the view; this function holds no list of its own.
+ */
+function applyProviderOptions(provider) {
+  document
+    .querySelectorAll('[data-ai-option][data-providers]')
+    .forEach((row) => {
+      const providers = row.dataset.providers.split(',').filter(Boolean);
+      row.classList.toggle('hidden', !providers.includes(provider));
+    });
+  resetModelPickers(provider);
+}
+
+/* The model pickers (control type 'model' in settings.ejs, today only
+   "Model for Tidy up"). The select is the one element the form submits and
+   the env lock marks: its first option means "no model of its own", the
+   last one, "Other…", carries whatever is typed into the text field it
+   reveals, so the select's value is always the model id. */
+function syncModelPickerOther(select) {
+  const input = document.querySelector(
+    `[data-model-other-input="${select.id}"]`
+  );
+  if (!input) return;
+  const chosen = select.selectedOptions[0];
+  const isOther = Boolean(chosen && chosen.hasAttribute('data-model-other'));
+  input.classList.toggle('hidden', !isOther);
+}
+
+/* Lists `value` (when it is not listed yet), keeps "Other…" last and
+   selects `value`; an empty value selects the placeholder. */
+function settleModelPicker(select, value) {
+  const id = String(value || '').trim();
+  let other = select.querySelector('option[data-model-other]');
+  if (!other) {
+    other = document.createElement('option');
+    other.textContent = 'Other…';
+    other.dataset.modelOther = '';
+  }
+  other.value = '';
+  const listed = [...select.options].some(
+    (option) => option !== other && option.value === id
+  );
+  if (id && !listed) select.appendChild(new Option(id, id));
+  select.appendChild(other);
+  select.value = id;
+  syncModelPickerOther(select);
+}
+
+/* A provider switch makes a fetched list stale: back to the placeholder
+   and the stored value. Azure has no model discovery, so no Fetch button. */
+function resetModelPickers(provider) {
+  document.querySelectorAll('select[data-model-picker]').forEach((select) => {
+    select.innerHTML = '';
+    select.appendChild(new Option(select.dataset.placeholder || '', ''));
+    settleModelPicker(select, select.dataset.storedValue || '');
+    document
+      .querySelector(`[data-model-fetch="${select.id}"]`)
+      ?.classList.toggle('hidden', provider === 'azure');
+  });
+}
+
 class FormManager {
   constructor() {
     this.form = document.getElementById('setupForm');
@@ -144,11 +207,9 @@ class FormManager {
     azureSettings.classList.add('hidden');
     anthropicSettings?.classList.add('hidden');
 
-    // Claude models reject sampling parameters, so the temperature fields
-    // stay (they apply again after switching back) but say they are ignored.
-    document.querySelectorAll('[data-anthropic-hint]').forEach((hint) => {
-      hint.classList.toggle('hidden', provider !== 'anthropic');
-    });
+    // Options that do not apply to this provider leave with it. They stay
+    // in the form, so switching back finds them as they were.
+    applyProviderOptions(provider);
 
     // Reset all required fields
     openaiKey.required = false;
@@ -181,7 +242,8 @@ class FormManager {
         azureSettings.classList.remove('hidden');
         azureEndpoint.required = true;
         azureDeploymentName.required = true;
-        azureApiVersion.required = true;
+        // The API version has a default and sits under Advanced options, so
+        // it is not required.
         break;
       case 'anthropic':
         // Nothing is required here: an empty key keeps the stored one (the
@@ -351,8 +413,14 @@ class TagsManager {
     });
   }
 
+  // Set by the environment lock (lockChipField): the list is read-only.
+  isLocked() {
+    return this.tagsContainer?.dataset?.locked === 'true';
+  }
+
   initializeTagRemoval(button) {
     button.addEventListener('click', async () => {
+      if (this.isLocked()) return;
       const result = await zrDialog({
         title: `Remove ${this.noun}`,
         text: `Are you sure you want to remove this ${this.noun}?`,
@@ -378,7 +446,7 @@ class TagsManager {
   }
 
   async addTag() {
-    if (!this.tagInput) return;
+    if (!this.tagInput || this.tagInput.disabled || this.isLocked()) return;
 
     const tagText = this.tagInput.value.trim();
     const specialChars = /[,;:\n\r\\/]/;
@@ -417,6 +485,7 @@ class TagsManager {
     // Matches the server-rendered chips in settings.ejs; an added chip used to
     // get an unstyled remove button next to styled ones.
     removeButton.className = 'zr-link';
+    removeButton.disabled = this.isLocked();
     removeButton.innerHTML =
       '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>';
 
@@ -509,13 +578,24 @@ function initializeCoreSettings() {
     'ignoreTagAddButton'
   );
   new TagsManager(
+    'removeTagInput',
+    'removeTagsContainer',
+    'removeTags',
+    'removeTagAddButton'
+  );
+  new TagsManager(
     'ignoreTitlePatternInput',
     'ignoreTitlePatternsContainer',
     'ignoreTitlePatterns',
     'ignoreTitlePatternAddButton',
     'title pattern'
   );
-  new TagsManager('promptTagInput', 'promptTagsContainer', 'promptTags');
+  new TagsManager(
+    'promptTagInput',
+    'promptTagsContainer',
+    'promptTags',
+    'promptTagAddButton'
+  );
   new PromptManager();
 }
 
@@ -674,7 +754,41 @@ function initializeFormHandlers() {
     return {
       models: Array.isArray(result.models) ? result.models : [],
       resolvedApiUrl: String(result.resolvedApiUrl || '').trim(),
+      live: result.live,
+      message: String(result.message || '').trim(),
     };
+  };
+
+  /* The connection fields of one provider block, as the model discovery
+     route takes them: OpenAI needs no URL, Azure has no discovery. An empty
+     token means the stored key; the route resolves it. */
+  const getProviderConnection = (provider) => {
+    const read = (id) =>
+      String(document.getElementById(id)?.value || '').trim();
+    switch (provider) {
+      case 'openai':
+        return { discovery: true, apiUrl: '', token: read('openaiKey') };
+      case 'custom':
+        return {
+          discovery: true,
+          apiUrl: read('customBaseUrl'),
+          token: read('customApiKey'),
+        };
+      case 'ollama':
+        return {
+          discovery: true,
+          apiUrl: read('ollamaUrl'),
+          token: read('ollamaApiKey'),
+        };
+      case 'anthropic':
+        return {
+          discovery: true,
+          apiUrl: read('anthropicApiUrl'),
+          token: read('anthropicApiKey'),
+        };
+      default:
+        return { discovery: false, apiUrl: '', token: '' };
+    }
   };
 
   const getCurrentAiFormValues = () => {
@@ -1131,6 +1245,95 @@ function initializeFormHandlers() {
       }
     });
   }
+
+  /* Model pickers: "Other…" reveals the text field and the typed id becomes
+     the value of that option; Fetch models asks the provider selected above,
+     with the URL and key typed in its block (empty key = the stored one). */
+  document.querySelectorAll('select[data-model-picker]').forEach((select) => {
+    const otherInput = document.querySelector(
+      `[data-model-other-input="${select.id}"]`
+    );
+    const otherOption = () => select.querySelector('option[data-model-other]');
+    select.addEventListener('change', () => {
+      const other = otherOption();
+      if (other && other.selected && otherInput) {
+        other.value = otherInput.value.trim();
+        syncModelPickerOther(select);
+        otherInput.focus();
+        return;
+      }
+      syncModelPickerOther(select);
+    });
+    otherInput?.addEventListener('input', () => {
+      const other = otherOption();
+      if (other) other.value = otherInput.value.trim();
+    });
+
+    const button = document.querySelector(`[data-model-fetch="${select.id}"]`);
+    button?.addEventListener('click', async () => {
+      const provider = String(aiProviderSelect?.value || '')
+        .trim()
+        .toLowerCase();
+      const connection = getProviderConnection(provider);
+      if (!connection.discovery) {
+        await zrDialog({
+          icon: 'info',
+          title: 'No model list',
+          text: 'This provider cannot list its models. Choose "Other…" and type the model name.',
+        });
+        return;
+      }
+      if (['custom', 'ollama'].includes(provider) && !connection.apiUrl) {
+        await zrDialog({
+          icon: 'warning',
+          title: 'Missing URL',
+          text: 'Please enter the API URL under AI provider first.',
+        });
+        return;
+      }
+
+      const current = String(select.value || '').trim();
+      setButtonLoading(button, true);
+      try {
+        const result = await fetchModels('/api/settings/ai/models', {
+          aiProvider: provider,
+          apiUrl: connection.apiUrl,
+          token: connection.token,
+        });
+        populateModelSelect(
+          select,
+          result.models,
+          select.dataset.placeholder || 'Select model'
+        );
+        settleModelPicker(select, current);
+        await zrDialog({
+          icon: result.live === false ? 'warning' : 'success',
+          title:
+            result.live === false ? 'Suggested models shown' : 'Models loaded',
+          text:
+            result.message ||
+            (result.models.length > 0
+              ? `Found ${result.models.length} model(s).`
+              : 'No models found.'),
+        });
+      } catch (error) {
+        const errorDetails = getTimeoutAwareErrorDetails(
+          'AI model discovery',
+          error,
+          null
+        );
+        await zrDialog({
+          icon: 'error',
+          title: errorDetails.isTimeout
+            ? 'AI timeout reached'
+            : 'Loading failed',
+          text: errorDetails.message,
+        });
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+  });
 
   /* What Claude OCR falls back to when its own fields are empty: the
      Anthropic AI provider's key, URL and model — but only while that provider
@@ -2138,7 +2341,14 @@ function initializeFormHandlers() {
     }, 1200);
   }
 
-  async function isServerHealthy() {
+  // The id of the process that rendered this page. After a save the old
+  // process keeps answering /health for the seconds before it exits, so only
+  // a healthy answer with another id means the restarted server is up.
+  const renderedBootId = String(
+    document.getElementById('setupForm')?.dataset.bootId || ''
+  );
+
+  async function isRestartedServerHealthy() {
     const response = await fetch('/health', {
       method: 'GET',
       cache: 'no-store',
@@ -2152,7 +2362,11 @@ function initializeFormHandlers() {
     }
 
     const payload = await response.json().catch(() => null);
-    return !payload || payload.status === 'healthy';
+    if (!payload || payload.status !== 'healthy') {
+      return false;
+    }
+    const bootId = String(payload.bootId || '');
+    return Boolean(bootId) && bootId !== renderedBootId;
   }
 
   async function waitForServerRecovery() {
@@ -2164,7 +2378,7 @@ function initializeFormHandlers() {
     while (Date.now() - startedAt < timeoutMs) {
       await delay(1800);
       try {
-        const healthy = await isServerHealthy();
+        const healthy = await isRestartedServerHealthy();
         if (healthy) {
           stopRestartProgressInterval();
           setRestartProgress(100, 'Server is back. Reloading page…');
@@ -2173,7 +2387,7 @@ function initializeFormHandlers() {
           return;
         }
       } catch {
-        // Ignore network errors while server is restarting
+        // A network error means the server is still restarting.
       }
     }
 
@@ -2320,85 +2534,6 @@ function initializeFormHandlers() {
   }
 
   refreshThumbnailCacheStats();
-
-  const resetLocalOverridesBtn = document.getElementById(
-    'resetLocalOverridesBtn'
-  );
-  if (resetLocalOverridesBtn) {
-    resetLocalOverridesBtn.addEventListener('click', async () => {
-      const confirmResult = await zrDialog({
-        icon: 'warning',
-        title: 'Reset local runtime overrides?',
-        text: 'This removes local overrides. Container-managed environment values are applied after restart.',
-        input: 'password',
-        inputLabel: 'Confirm with your current password',
-        inputPlaceholder: 'Enter current password',
-        inputAttributes: {
-          autocapitalize: 'off',
-          autocorrect: 'off',
-          autocomplete: 'current-password',
-        },
-        inputValidator: (value) => {
-          if (!value || !String(value).trim()) {
-            return 'Current password is required.';
-          }
-          return null;
-        },
-        showCancelButton: true,
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6',
-        confirmButtonText: 'Yes, reset overrides',
-      });
-
-      if (!confirmResult.isConfirmed) {
-        return;
-      }
-
-      const currentPassword = String(confirmResult.value || '').trim();
-
-      const originalHtml = resetLocalOverridesBtn.innerHTML;
-      try {
-        resetLocalOverridesBtn.disabled = true;
-        resetLocalOverridesBtn.innerHTML =
-          '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Resetting...';
-
-        const response = await fetch('/api/settings/reset-local-overrides', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ currentPassword }),
-        });
-
-        const result = await response.json();
-        if (!response.ok || !result.success) {
-          throw new Error(
-            result.error || 'Failed to reset local runtime overrides'
-          );
-        }
-
-        await zrDialog({
-          icon: 'success',
-          title: 'Local overrides reset',
-          text:
-            result.message ||
-            'Local runtime overrides were removed. Restart the container to apply injected environment values.',
-        });
-
-        showRestartOverlay();
-        await waitForServerRecovery();
-      } catch (error) {
-        await zrDialog({
-          icon: 'error',
-          title: 'Reset failed',
-          text: error.message,
-        });
-      } finally {
-        resetLocalOverridesBtn.disabled = false;
-        resetLocalOverridesBtn.innerHTML = originalHtml;
-      }
-    });
-  }
 
   // Force Reconcile Button Handler
   const forceReconcileBtn = document.getElementById('forceReconcileBtn');
@@ -2688,19 +2823,16 @@ function initializeFormHandlers() {
         // The saved values are the new baseline for the unsaved-change count
         // and the leave warning (modules/settings-form.js).
         setupForm.dispatchEvent(new CustomEvent('zr:settings-saved'));
-        await zrDialog({
-          icon: 'success',
-          title: 'Success!',
-          text: result.message,
-          timer: 2000,
-          showConfirmButton: false,
-        });
 
         if (result.restart) {
           showRestartOverlay(
-            'Restarting service… waiting for health checks to pass.'
+            result.message ||
+              'Settings saved. Restarting… waiting for the server to come back.'
           );
           await waitForServerRecovery();
+        } else if (typeof window.__zrToast === 'function') {
+          // Applied at once: the page stays where it is.
+          window.__zrToast('Settings saved', { tone: 'ok' });
         }
       } else {
         throw new Error(result.error || 'An unknown error occurred');
@@ -2945,10 +3077,10 @@ function initializeTooltipAndValidation() {
 }
 
 /**
- * Names each field's environment variable in its hint ("SCAN_INTERVAL ·
- * Restart required") and on the field itself as data-env-key, unless the
- * markup already names it. A switch carries the key on its hidden yes/no input
- * and on the visible switch alike.
+ * Marks each field with the environment variable it writes (data-env-key).
+ * The hints do not name the variable: the page is for people who set values
+ * here, and the settings search and the lock sentence still know the key.
+ * A switch carries it on its hidden yes/no input and on the visible switch.
  */
 function annotateEnvKeys(fieldMappings) {
   fieldMappings.forEach(({ selector, envKey }) => {
@@ -2959,112 +3091,43 @@ function annotateEnvKeys(fieldMappings) {
       ? document.querySelector(`[data-switch-target="${field.id}"]`)
       : null;
     if (visibleSwitch) visibleSwitch.dataset.envKey = envKey;
-
-    // A tile is a single checkbox with its label; the key goes in its tooltip.
-    const tile = field.closest('.zr-checktile');
-    if (tile) {
-      tile.title = envKey;
-      return;
-    }
-    const container = field.closest('.zr-field, .zr-switchrow');
-    if (!container) return;
-    const hints = [...container.querySelectorAll('.zr-field__hint')].filter(
-      (hint) => !hint.hasAttribute('data-anthropic-hint')
-    );
-    const keyElement = () => {
-      const code = document.createElement('code');
-      code.className = 'zr-envkey';
-      code.textContent = envKey;
-      return code;
-    };
-
-    // A hint that names the key in its markup already gets it set like the
-    // added ones, instead of a second copy.
-    const naming = hints.filter((hint) => hint.textContent.includes(envKey));
-    if (naming.length) {
-      naming.forEach((hint) => {
-        if (hint.querySelector('.zr-envkey')) return;
-        const node = [...hint.childNodes].find(
-          (child) =>
-            child.nodeType === Node.TEXT_NODE &&
-            child.textContent.includes(envKey)
-        );
-        if (!node) return;
-        const at = node.textContent.indexOf(envKey);
-        const rest = node.splitText(at);
-        rest.textContent = rest.textContent.slice(envKey.length);
-        hint.insertBefore(keyElement(), rest);
-      });
-      return;
-    }
-    if (!hints.length) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      hint.append(keyElement());
-      container.append(hint);
-      return;
-    }
-    // Hints that swap with the provider (the OCR key) each name the key, so it
-    // does not vanish with the one that is shown first.
-    const targets = hints.some((hint) => hint.id)
-      ? hints.filter((hint) => hint.id)
-      : [hints[0]];
-    targets.forEach((hint) => hint.prepend(keyElement(), ' · '));
   });
 }
 
+/* A chip field is more than its text input: the Add button next to it and
+   the remove control on every chip edit the list as well. When the input is
+   locked, the whole field is — otherwise a pinned list could still be changed
+   on the page and the save would silently drop the change, because a
+   protected key is never written. The chip list carries data-locked, which
+   TagsManager and the chip styles honour. A field without a chip list is
+   left alone; its buttons (reveal, fetch models) do not write the value. */
+function lockChipField(fieldElement) {
+  const field = fieldElement.closest('.zr-field');
+  const chipLists = field ? [...field.querySelectorAll('.zr-chips')] : [];
+  if (chipLists.length === 0) return;
+  chipLists.forEach((chips) => {
+    chips.dataset.locked = 'true';
+  });
+  field.querySelectorAll('button').forEach((button) => {
+    button.disabled = true;
+    button.setAttribute('aria-disabled', 'true');
+  });
+}
+
+/* A field whose value the container pins is locked: disabled, its value
+   left visible, and its hint says where the value comes from. The keys come
+   from #setupForm (data-locked-env-keys, rendered by GET /settings). */
 function initializeRuntimeOverridePills() {
-  const resetLocalOverridesBtn = document.getElementById(
-    'resetLocalOverridesBtn'
-  );
-  let parsedOverrideKeys = [];
-  let parsedOverrideDetails = {};
+  const setupForm = document.getElementById('setupForm');
   let parsedLockedEnvKeys = [];
-  let parsedLockedEnvDetails = {};
-
-  if (resetLocalOverridesBtn?.dataset?.runtimeOverrideKeys) {
-    try {
-      parsedOverrideKeys = JSON.parse(
-        resetLocalOverridesBtn.dataset.runtimeOverrideKeys
-      );
-    } catch (error) {
-      console.warn('Failed to parse runtime override keys:', error);
-    }
+  try {
+    parsedLockedEnvKeys = JSON.parse(setupForm?.dataset.lockedEnvKeys || '[]');
+  } catch (error) {
+    console.warn('Failed to parse locked environment keys:', error);
   }
 
-  if (resetLocalOverridesBtn?.dataset?.runtimeOverrideDetails) {
-    try {
-      parsedOverrideDetails = JSON.parse(
-        resetLocalOverridesBtn.dataset.runtimeOverrideDetails
-      );
-    } catch (error) {
-      console.warn('Failed to parse runtime override details:', error);
-    }
-  }
-
-  if (resetLocalOverridesBtn?.dataset?.lockedEnvKeys) {
-    try {
-      parsedLockedEnvKeys = JSON.parse(
-        resetLocalOverridesBtn.dataset.lockedEnvKeys
-      );
-    } catch (error) {
-      console.warn('Failed to parse locked environment keys:', error);
-    }
-  }
-
-  if (resetLocalOverridesBtn?.dataset?.lockedEnvDetails) {
-    try {
-      parsedLockedEnvDetails = JSON.parse(
-        resetLocalOverridesBtn.dataset.lockedEnvDetails
-      );
-    } catch (error) {
-      console.warn('Failed to parse locked environment details:', error);
-    }
-  }
-
-  // Every field with the variable it writes. Besides the pills below, this
-  // names the variable in each hint and gives the settings search
-  // (modules/settings-nav.js) something to find a field by.
+  // Every field with the variable it writes. The locks below and the settings
+  // search (modules/settings-nav.js) find a field by it.
   const fieldMappings = [
     { selector: '#paperlessUrl', envKey: 'PAPERLESS_API_URL' },
     { selector: '#paperlessPublicUrl', envKey: 'PAPERLESS_PUBLIC_URL' },
@@ -3073,7 +3136,13 @@ function initializeRuntimeOverridePills() {
     { selector: '#scanInterval', envKey: 'SCAN_INTERVAL' },
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },
     { selector: '#showTags', envKey: 'PROCESS_PREDEFINED_DOCUMENTS' },
+    { selector: '#tagInput', envKey: 'TAGS' },
     { selector: '#ignoreTagInput', envKey: 'IGNORE_TAGS' },
+    {
+      selector: '#removeInboxTagsAfterProcessing',
+      envKey: 'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
+    },
+    { selector: '#removeTagInput', envKey: 'REMOVE_TAGS_AFTER_PROCESSING' },
     {
       selector: '#disableAutomaticProcessing',
       envKey: 'DISABLE_AUTOMATIC_PROCESSING',
@@ -3108,9 +3177,11 @@ function initializeRuntimeOverridePills() {
       selector: '#aiTemperatureGeneration',
       envKey: 'AI_TEMPERATURE_GENERATION',
     },
+    { selector: '#ollamaThink', envKey: 'OLLAMA_THINK' },
     { selector: '#aiProcessedTag', envKey: 'ADD_AI_PROCESSED_TAG' },
     { selector: '#aiTagName', envKey: 'AI_PROCESSED_TAG_NAME' },
     { selector: '#usePromptTags', envKey: 'USE_PROMPT_TAGS' },
+    { selector: '#promptTagInput', envKey: 'PROMPT_TAGS' },
     { selector: '#systemPrompt', envKey: 'SYSTEM_PROMPT' },
     {
       selector: '#restrictToExistingTags',
@@ -3275,128 +3346,68 @@ function initializeRuntimeOverridePills() {
 
   annotateEnvKeys(fieldMappings);
 
-  const overrideKeys = new Set(
-    Array.isArray(parsedOverrideKeys) ? parsedOverrideKeys : []
-  );
   const lockedEnvKeys = new Set(
     Array.isArray(parsedLockedEnvKeys) ? parsedLockedEnvKeys : []
   );
-  if (overrideKeys.size === 0 && lockedEnvKeys.size === 0) {
+  if (lockedEnvKeys.size === 0 || !setupForm) {
     return;
   }
 
-  // Kept local because classic scripts cannot import ES modules; keep in sync
-  // with modules/text-utils.js.
-  const escapeHtml = (value) =>
-    String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-
-  const pills = [];
-
-  fieldMappings.forEach(({ selector, envKey }) => {
-    const fieldElement = document.querySelector(selector);
-    if (!fieldElement) {
+  const notedContainers = new Set();
+  setupForm.querySelectorAll('[data-env-key]').forEach((fieldElement) => {
+    const envKey = fieldElement.dataset.envKey;
+    if (!lockedEnvKeys.has(envKey)) {
       return;
     }
 
-    // `.space-y-2` was a Tailwind ancestor that no longer exists, so this
-    // returned null for every field and the pills never rendered. Settings
-    // rows are either a plain field or a switch row.
+    // The :disabled styling in the framework carries the visual state. A
+    // switch carries the key on both halves (annotateEnvKeys), so the
+    // visible toggle is locked along with its hidden yes/no input.
+    fieldElement.disabled = true;
+    fieldElement.setAttribute('aria-disabled', 'true');
+    lockChipField(fieldElement);
+    // Controls that change the field's value (a model picker's Fetch button
+    // and its "Other…" text field) are locked along with it.
+    if (fieldElement.id) {
+      setupForm
+        .querySelectorAll(`[data-locked-by="${fieldElement.id}"]`)
+        .forEach((control) => {
+          control.disabled = true;
+          control.setAttribute('aria-disabled', 'true');
+        });
+    }
+
+    const note = `Set by the environment (${envKey}).`;
+    const tile = fieldElement.closest('.zr-checktile');
+    if (tile) {
+      tile.title = note;
+      return;
+    }
+
     const container = fieldElement.closest('.zr-field, .zr-switchrow');
-    if (!container) {
+    if (!container || notedContainers.has(container)) {
       return;
     }
+    notedContainers.add(container);
 
-    const targetLabel =
-      container.querySelector(`label[for="${fieldElement.id}"]`) ||
-      container.querySelector('label');
-    if (!targetLabel) {
-      return;
+    const hints = [...container.querySelectorAll('.zr-field__hint')];
+    // Hints that swap with the provider (the OCR key) each get the note.
+    const targets = hints.some((hint) => hint.id)
+      ? hints.filter((hint) => hint.id)
+      : hints.slice(-1);
+    if (targets.length === 0) {
+      const hint = document.createElement('p');
+      hint.className = 'zr-field__hint';
+      // A switch row keeps its text left of the toggle.
+      (container.querySelector('.zr-grow') || container).append(hint);
+      targets.push(hint);
     }
-
-    if (!targetLabel.classList.contains('flex')) {
-      targetLabel.classList.add('flex', 'items-center', 'gap-2', 'flex-wrap');
-    }
-
-    if (
-      overrideKeys.has(envKey) &&
-      !targetLabel.querySelector('.override-pill')
-    ) {
-      const pill = document.createElement('span');
-      pill.className = 'override-pill zr-badge zr-badge--warn';
-      pill.textContent = 'Overwritten';
-      const overrideDetails = parsedOverrideDetails[envKey] || {};
-      const injectedValue = overrideDetails.injected || '[unknown]';
-      const overrideValue = overrideDetails.override || '[unknown]';
-      pill.setAttribute(
-        'data-tooltip',
-        [
-          '<div style="font-size:12px;">',
-          `<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(envKey)}</div>`,
-          `<div><strong>.env:</strong> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;word-break:break-all;">${escapeHtml(injectedValue)}</span></div>`,
-          `<div><strong>Override:</strong> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;word-break:break-all;">${escapeHtml(overrideValue)}</span></div>`,
-          '</div>',
-        ].join('')
-      );
-      targetLabel.appendChild(pill);
-      pills.push(pill);
-    }
-
-    if (lockedEnvKeys.has(envKey)) {
-      // The :disabled styling in the framework carries the visual state.
-      fieldElement.disabled = true;
-      fieldElement.setAttribute('aria-disabled', 'true');
-      // A switch is clicked on its visible half; the hidden yes/no input alone
-      // being disabled left the switch movable with nothing to show for it.
-      const lockedSwitch = fieldElement.id
-        ? document.querySelector(`[data-switch-target="${fieldElement.id}"]`)
-        : null;
-      if (lockedSwitch) {
-        lockedSwitch.disabled = true;
-        lockedSwitch.setAttribute('aria-disabled', 'true');
-      }
-
-      if (!targetLabel.querySelector('.locked-pill')) {
-        const lockedPill = document.createElement('span');
-        lockedPill.className = 'locked-pill zr-badge';
-        lockedPill.textContent = 'Managed by ENV';
-        const lockedDetails = parsedLockedEnvDetails[envKey] || {};
-        const managedValue = lockedDetails.managed || '[unknown]';
-        lockedPill.setAttribute(
-          'data-tooltip',
-          [
-            '<div style="font-size:12px;">',
-            `<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(envKey)}</div>`,
-            `<div><strong>Managed value:</strong> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;word-break:break-all;">${escapeHtml(managedValue)}</span></div>`,
-            '<div style="margin-top:4px;">Change this value in your container environment and restart the service.</div>',
-            '</div>',
-          ].join('')
-        );
-        targetLabel.appendChild(lockedPill);
-        pills.push(lockedPill);
-      }
-
-      let lockedHelpText = container.querySelector('.locked-env-help');
-      if (!lockedHelpText) {
-        lockedHelpText = document.createElement('p');
-        lockedHelpText.className = 'locked-env-help zr-xs zr-faint';
-        lockedHelpText.textContent =
-          'Managed by container environment. Change it in Docker Compose or your container environment, then restart the service.';
-        container.appendChild(lockedHelpText);
-      }
-    }
-  });
-
-  // One line of explanation per pill. A native title needs no library, works on
-  // keyboard focus and reads correctly in both themes.
-  pills.forEach((pill) => {
-    pill.title =
-      pill.getAttribute('data-tooltip') ||
-      'Overwritten by local runtime settings.';
+    targets.forEach((hint) => {
+      const sentence = document.createElement('span');
+      sentence.className = 'zr-field__locked';
+      sentence.textContent = hint.textContent.trim() ? ` · ${note}` : note;
+      hint.append(sentence);
+    });
   });
 }
 

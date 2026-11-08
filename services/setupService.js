@@ -203,6 +203,29 @@ class SetupService {
     );
   }
 
+  /**
+   * The keys a save of `configValues` would actually change: those whose
+   * value differs from the one in effect. `current` is what is in effect —
+   * process.env by default; the settings route passes process.env with its
+   * defaults filled in, so writing down a default that was already in effect
+   * is not a change. Keys the container injects are left out, because a save
+   * never writes them. Call it before saveConfig(), which writes the values
+   * onto process.env.
+   *
+   * @param {Record<string, unknown>} configValues
+   * @param {Record<string, unknown>} [current]
+   * @returns {string[]}
+   */
+  changedConfigKeys(configValues, current = process.env) {
+    return Object.entries(this.filterProtectedInjectedConfig(configValues))
+      .filter(
+        ([key, value]) =>
+          this.normalizeEnvironmentValue(value) !==
+          this.normalizeEnvironmentValue(current[key])
+      )
+      .map(([key]) => key);
+  }
+
   async saveRuntimeOverrides(configValues) {
     try {
       const dataDir = path.dirname(this.runtimeOverridesPath);

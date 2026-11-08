@@ -15,7 +15,7 @@
  *
  * Covers:
  *  1. Neither the page nor an API route answers without authentication
- *  2. GET /simplify renders with the locals the page reads
+ *  2. GET /simplify redirects (301) to /tidy-up, the page that replaced it
  *  3. GET /api/simplify/vocabulary hands the stored vocabulary through
  *  4. PUT /api/simplify/vocabulary stores names, trims them, drops blanks
  *  5. PUT validates: not a list, too many names, a name that is too long,
@@ -217,66 +217,22 @@ async function main() {
       assert.strictEqual(withApiKey.status, 401);
     });
 
-    await test('GET /simplify renders with the locals the page reads', async () => {
-      const entityMatchAiService = require(
-        path.join(REPO_ROOT, 'services', 'entityMatchAiService')
-      );
+    await test('GET /simplify moves to Tidy up', async () => {
       const jwt = require(path.join(REPO_ROOT, 'node_modules', 'jsonwebtoken'));
       // protectApiRoute wants a session, so the case mints one rather than
-      // settling for the redirect.
+      // settling for the redirect to /login.
       const session = jwt.sign(
         { username: 'tester', typ: 'session' },
         process.env.JWT_SECRET,
         { expiresIn: '5m' }
       );
-      const openPage = () =>
-        fetch(harness.base + '/simplify', {
-          redirect: 'manual',
-          headers: { Cookie: `jwt=${session}` },
-        });
-
-      await withStubs(
-        entityMatchAiService,
-        { isEnabled: () => true },
-        async () => {
-          const response = await openPage();
-          assert.strictEqual(response.status, 200, 'the page must render');
-          const html = await response.text();
-          assert.ok(
-            html.includes(
-              'Split compound tags into a document type and topics.'
-            ),
-            'the head sentence of the page is missing'
-          );
-          assert.ok(
-            html.includes('id="simProposeVocabularyBtn"'),
-            'the model-backed proposal must be offered while the AI is on'
-          );
-          assert.ok(
-            html.includes('id="simVocabulary"') &&
-              html.includes('id="simProposals"'),
-            'both sections of the page must be rendered'
-          );
-        }
-      );
-
-      await withStubs(
-        entityMatchAiService,
-        { isEnabled: () => false },
-        async () => {
-          const response = await openPage();
-          assert.strictEqual(response.status, 200);
-          const html = await response.text();
-          assert.ok(
-            !html.includes('id="simProposeVocabularyBtn"'),
-            'without the AI the page must not offer a model proposal'
-          );
-          assert.ok(
-            html.includes('id="simProposeSplitsBtn"'),
-            'the rule pass works without a model and stays on the page'
-          );
-        }
-      );
+      // The page was replaced by /tidy-up; a bookmark lands there.
+      const response = await fetch(harness.base + '/simplify', {
+        redirect: 'manual',
+        headers: { Cookie: `jwt=${session}` },
+      });
+      assert.strictEqual(response.status, 301);
+      assert.strictEqual(response.headers.get('location'), '/tidy-up');
 
       const routes = harness.router.stack
         .filter((layer) => layer.route)
@@ -1766,8 +1722,8 @@ async function main() {
         );
       });
       assert.ok(
-        html.includes('id="sec-simplify"'),
-        'the Simplify tags section must be on the page'
+        html.includes('id="sec-tidy-up"'),
+        'the Tidy up section must be on the page'
       );
     });
 

@@ -393,6 +393,7 @@ async function main() {
         failedRequests: 0,
         retries: 0,
         batchSize: 3,
+        failures: [],
       });
       pairs.forEach((pair, index) => {
         assert.deepStrictEqual(
@@ -489,7 +490,7 @@ async function main() {
       );
       assert.deepStrictEqual(
         result.verdicts.get(pairs[2].key),
-        verdict('unsure', 'no answer from the model')
+        verdict('unsure', 'no answer from the model', { unanswered: true })
       );
       assert.strictEqual(
         result.usage.failedRequests,
@@ -508,17 +509,28 @@ async function main() {
       for (const pair of pairs) {
         const verdict = result.verdicts.get(pair.key);
         assert.strictEqual(verdict.verdict, 'unsure');
-        assert.match(verdict.reason, /no JSON array/);
+        // The person reads what happened; the parser message is for Details.
+        assert.strictEqual(
+          verdict.reason,
+          "The model's answer could not be read; decide this one yourself."
+        );
+        assert.strictEqual(verdict.failureKind, 'unreadable');
       }
+      assert.strictEqual(result.usage.failures.length, 1);
+      assert.strictEqual(result.usage.failures[0].kind, 'unreadable');
+      assert.strictEqual(result.usage.failures[0].pairsAffected, 2);
+      assert.match(result.usage.failures[0].message, /no JSON array/);
+      assert.strictEqual(result.usage.failures[0].request.index, null);
 
       useProvider(() => '');
       const empty = await service.reviewPairs(pairs, { kind: 'tags' });
       assert.strictEqual(empty.usage.failedRequests, 1);
-      assert.match(
-        empty.verdicts.get(pairs[0].key).reason,
-        /answered nothing/,
+      assert.strictEqual(
+        empty.verdicts.get(pairs[0].key).failureKind,
+        'unreadable',
         'an empty answer is a failed batch too'
       );
+      assert.match(empty.usage.failures[0].message, /answered nothing/);
     });
 
     await test('A network error fails its batch; the batches after it still run', async () => {
@@ -540,9 +552,17 @@ async function main() {
       for (const key of failedKeys) {
         assert.deepStrictEqual(
           result.verdicts.get(key),
-          verdict('unsure', 'socket hang up')
+          verdict(
+            'unsure',
+            'The model could not be reached; decide this one yourself.',
+            { unanswered: true, failureKind: 'unreachable' }
+          )
         );
       }
+      assert.deepStrictEqual(
+        result.usage.failures.map((f) => [f.kind, f.pairsAffected, f.message]),
+        [['unreachable', 25, 'socket hang up']]
+      );
       const okKeys = idsInPrompt(calls[0].prompt);
       assert.strictEqual(result.verdicts.get(okKeys[0]).verdict, 'same');
     });
@@ -598,9 +618,19 @@ async function main() {
       useProvider(() => truncationError());
 
       const result = await service.reviewPairs(pairs, { kind: 'tags' });
+      // Cut off with nothing written: the model spent the cap before it
+      // got to the verdict, which the person is told in those words.
       assert.deepStrictEqual(
         result.verdicts.get(pairs[0].key),
-        verdict('unsure', service.SINGLE_PAIR_TRUNCATION_REASON)
+        verdict(
+          'unsure',
+          'The model spent its answer on reasoning and gave no verdict; decide this one yourself.',
+          { unanswered: true, failureKind: 'thinking' }
+        )
+      );
+      assert.deepStrictEqual(
+        result.usage.failures.map((f) => [f.kind, f.pairsAffected, f.message]),
+        [['thinking', 1, service.SINGLE_PAIR_TRUNCATION_REASON]]
       );
       assert.strictEqual(
         result.usage.requests,
@@ -878,7 +908,11 @@ async function main() {
           stub.sent.openai.temperature,
           config.aiTemperatureGeneration
         );
-        assert.strictEqual(stub.sent.azure.temperature, 0.7);
+        // The configured value now, no longer a hard-coded 0.7.
+        assert.strictEqual(
+          stub.sent.azure.temperature,
+          config.aiTemperatureGeneration
+        );
         assert.strictEqual(
           stub.sent.azure.max_tokens,
           Number(config.responseTokens)
@@ -1070,6 +1104,7 @@ async function main() {
         judged: 2,
         candidates: 2,
         failedRequests: 0,
+        failures: [],
         retries: 0,
         batchSize: 2,
         targeted: false,

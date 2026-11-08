@@ -1,20 +1,17 @@
 'use strict';
 
 /**
- * The Duplicates settings section.
+ * The Tidy up settings section.
  *
- * Every DUPLICATES_* variable used to be reachable only by editing the
- * container environment, which is exactly the kind of setting the settings
- * page exists for. The section makes the fifteen of them editable, so this
- * test holds the whole path together: the rendered fields, the nav entry that
- * reaches them, the POST that stores them, the "Managed by ENV" marking that
- * greys them out, and the .env export that lists them.
- *
- * Round 10 added two of those fifteen — how many model requests may wait for
- * an answer at once, and how long a verdict about a pair of names is
- * remembered — and a section of its own after Duplicates for the two settings
- * of "Simplify tags". Every assertion about the Duplicates section therefore
- * slices the page between the two sections, not between Duplicates and OCR.
+ * The Duplicates and Simplify tags pages became one page, Tidy up, and their
+ * two settings sections became one: three options in view (ask the model at
+ * all, reuse an existing name, which model) and every other one behind a
+ * single Advanced options disclosure. This test holds the whole path
+ * together: the rendered fields and where they sit, the topic list entry and
+ * the old hashes that still reach it, the POST that stores the values, the
+ * "Managed by ENV" marking that greys them out, and the .env export that lists
+ * them. The export keeps its Duplicates and Simplify tags groups; only the
+ * page was merged.
  *
  * Two behaviours are deliberate and therefore pinned here. A number outside
  * its range is clamped rather than rejected — the ranges are guard rails, not
@@ -28,7 +25,7 @@
  * review) rather than an unset one. A clamp that treated them like the others
  * would quietly turn "no limit" into the smallest allowed limit.
  *
- * Two of the fields say how the judge talks to the model: whether it may
+ * Two of the fields say how the page talks to the model: whether it may
  * think before it answers, and how long one request should take. The seconds
  * are the only number of the section whose range does not start at or below
  * one, because a request nobody can measure is no measurement.
@@ -117,7 +114,8 @@ const START_ENV = {
 
 const ENV_KEYS = Object.keys(START_ENV);
 
-// The body keys the page sends, in the order the section shows them.
+// The body keys of the former Duplicates settings, in the order the .env
+// export lists them (the page orders them by AI_OPTIONS).
 const FIELDS = [
   { input: 'duplicatesAiReview', envKey: 'DUPLICATES_AI_REVIEW' },
   { input: 'duplicatesAiModel', envKey: 'DUPLICATES_AI_MODEL' },
@@ -154,9 +152,9 @@ const FIELDS = [
   { input: 'duplicatesAiSweepNames', envKey: 'DUPLICATES_AI_SWEEP_NAMES' },
 ];
 
-// The body keys of the section that follows the Duplicates one. They are a
-// list of their own because every assertion about the Duplicates section
-// slices the page between the two.
+// The body keys of the two Simplify tags settings, now the last two advanced
+// options of the Tidy up section. A list of their own because the .env export
+// still gives them a group of their own.
 const SIMPLIFY_FIELDS = [
   { input: 'simplifyTagsPerRequest', envKey: 'SIMPLIFY_TAGS_PER_REQUEST' },
   { input: 'simplifyVocabularySize', envKey: 'SIMPLIFY_VOCABULARY_SIZE' },
@@ -189,6 +187,16 @@ function finish() {
   console.log(`Results: ${passed} passed, ${failed} failed`);
   process.exit = realExit;
   realExit(failed > 0 ? 1 : 0);
+}
+
+// A browser is available in development containers, not in CI. The model
+// picker is client-side, so it is driven in a real page when one can be had.
+function loadPlaywright() {
+  try {
+    return require('playwright');
+  } catch {
+    return null;
+  }
 }
 
 function countOccurrences(haystack, needle) {
@@ -243,17 +251,25 @@ function sliceBetween(source, from, to) {
 
   try {
     // ── 1. The section is on the page, with a way to reach it ───────────────
-    await test('GET /settings renders the Duplicates section and its nav entry', async () => {
+    await test('GET /settings renders the Tidy up section as the one Tag tools entry', async () => {
       const html = await getSettingsPage();
 
       assert.ok(
-        html.includes('id="sec-duplicates"'),
+        html.includes('id="sec-tidy-up"'),
         'the section itself must be rendered'
       );
       assert.ok(
-        html.includes('id="entry-duplicates"'),
+        html.includes('id="entry-tidy-up"'),
         'the topic list needs an entry to open'
       );
+      ['duplicates', 'simplify'].forEach((id) => {
+        assert.ok(
+          !html.includes(`id="entry-${id}"`) &&
+            !html.includes(`data-entry-link="${id}"`) &&
+            !html.includes(`id="sec-${id}"`),
+          `the old ${id} entry is gone`
+        );
+      });
 
       const desktopNav = sliceBetween(
         html,
@@ -266,45 +282,203 @@ function sliceBetween(source, from, to) {
         '</select>'
       );
 
-      // The page shows one topic at a time; the topic list (a sidebar on
-      // desktop, a select on phones) is the only way to reach it, and it
-      // groups the topics in the order the page declares them.
       [
         ['desktop', desktopNav, (id) => `data-entry-link="${id}"`],
         ['mobile', mobilePicker, (id) => `value="${id}"`],
       ].forEach(([label, nav, needle]) => {
         assert.ok(
-          nav.includes(needle('duplicates')),
-          `the ${label} topic list must link the entry`
-        );
-        assert.ok(
-          nav.indexOf(needle('runtime')) < nav.indexOf(needle('duplicates')) &&
-            nav.indexOf(needle('duplicates')) < nav.indexOf(needle('simplify')),
-          `the ${label} topic list must list duplicates after runtime and before simplify`
+          nav.indexOf(needle('runtime')) < nav.indexOf(needle('tidy-up')) &&
+            nav.indexOf(needle('tidy-up')) < nav.indexOf(needle('account')),
+          `the ${label} topic list must list Tidy up after runtime and before account`
         );
       });
 
+      // Tag tools holds exactly one entry: everything between its heading
+      // and the next group's heading links one topic.
+      const tagTools = sliceBetween(
+        desktopNav,
+        'Tag tools',
+        'Sign-in and security'
+      );
+      assert.strictEqual(
+        countOccurrences(tagTools, 'data-entry-link="'),
+        1,
+        'Tag tools shows one entry'
+      );
       assert.ok(
-        desktopNav.includes('/icons.svg#i-tag') &&
-          desktopNav.indexOf('Tag tools') <
-            desktopNav.indexOf('data-entry-link="duplicates"'),
-        'Duplicates sits in the Tag tools group, which carries the i-tag icon'
+        tagTools.includes('data-entry-link="tidy-up"') &&
+          tagTools.includes('Tidy up'),
+        'and it is Tidy up'
+      );
+      assert.strictEqual(
+        countOccurrences(mobilePicker, '>Tag tools › '),
+        1,
+        'the phone picker shows the same one entry'
+      );
+      assert.ok(
+        mobilePicker.includes('>Tag tools › Tidy up<'),
+        'and names it the same way'
       );
       assert.ok(
         html.indexOf('id="entry-runtime"') <
-          html.indexOf('id="entry-duplicates"') &&
-          html.indexOf('id="entry-duplicates"') <
-            html.indexOf('id="entry-simplify"'),
-        'the entry itself sits after Runtime controls and before Simplify tags'
+          html.indexOf('id="entry-tidy-up"') &&
+          html.indexOf('id="entry-tidy-up"') <
+            html.indexOf('id="entry-account"'),
+        'the entry itself sits after Runtime controls and before Account'
       );
+    });
+
+    await test('the three basic options are in view, everything else is behind Advanced options', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="entry-tidy-up"',
+        'id="entry-account"'
+      );
+      assert.match(
+        section,
+        /These settings only govern what the model does on the Tidy up page when you ask it\.\s+Finding, merging and splitting work without them; nothing here runs on its own\./,
+        'the two-sentence intro says what the section is for'
+      );
+      assert.strictEqual(
+        countOccurrences(section, '<details'),
+        1,
+        'one disclosure, not one per old page'
+      );
+      const advancedStart = section.indexOf('id="sec-tidy-up-advanced"');
+      assert.ok(advancedStart !== -1, 'the disclosure is there');
+      const basic = [
+        'duplicatesAiReview',
+        'duplicatesGuardNewNames',
+        'duplicatesAiModel',
+      ];
+      basic.forEach((input) => {
+        const index = section.indexOf(`id="${input}"`);
+        assert.ok(
+          index !== -1 && index < advancedStart,
+          `${input} is in the basic view`
+        );
+      });
+      [...FIELDS, ...SIMPLIFY_FIELDS]
+        .filter(({ input }) => !basic.includes(input))
+        .forEach(({ input }) => {
+          assert.ok(
+            section.indexOf(`id="${input}"`) > advancedStart,
+            `${input} is under Advanced options`
+          );
+        });
+
+      // Budget and brakes first, then evidence, memory, thinking, the
+      // sweep size and the two numbers of the split proposals.
+      const order = [
+        'duplicatesAiTokenBudget',
+        'duplicatesAiIdleStopSeconds',
+        'duplicatesAiRequestSeconds',
+        'duplicatesAiConcurrency',
+        'duplicatesAiReviewBatchSize',
+        'duplicatesAiCandidateFloor',
+        'duplicatesAiExcerpts',
+        'duplicatesAiExcerptChars',
+        'duplicatesAiExcerptDocuments',
+        'duplicatesAiVerdictMemoryDays',
+        'duplicatesAiThinking',
+        'duplicatesAiSweepNames',
+        'simplifyTagsPerRequest',
+        'simplifyVocabularySize',
+      ];
+      const positions = order.map((input) =>
+        section.indexOf(`id="${input}"`, advancedStart)
+      );
+      positions.forEach((position, index) => {
+        assert.ok(position !== -1, `${order[index]} is rendered`);
+        if (index > 0) {
+          assert.ok(
+            positions[index - 1] < position,
+            `${order[index - 1]} comes before ${order[index]}`
+          );
+        }
+      });
+    });
+
+    await test('no help text in the section still names the old pages or unexplained jargon', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="entry-tidy-up"',
+        'id="entry-account"'
+      );
+      // The words a person reads, without the configured values: the test
+      // configuration names its model "judge-of-record".
+      // The model picker lists the configured model as an option of its own.
+      const words = section
+        .replace(/ [a-z-]*value="[^"]*"/g, '')
+        .replace(/>judge-of-record</g, '><');
+      ['Duplicates page', 'Simplify tags page'].forEach((old) => {
+        assert.ok(!words.includes(old), `"${old}" became "Tidy up page"`);
+      });
+      assert.ok(
+        !/\bjudge\b/i.test(words),
+        '"judge" is replaced by plain words'
+      );
+      assert.ok(
+        !/\bvocabulary\b/i.test(words),
+        '"vocabulary" is replaced by "document types and topics"'
+      );
+      assert.ok(
+        !/\bsweep\b/i.test(words),
+        'the sweep is described as looking for synonyms'
+      );
+    });
+
+    await test('the old hashes #duplicates and #simplify resolve to the new entry', async () => {
+      const nav = await import(
+        path.join(__dirname, '..', 'public', 'js', 'modules', 'settings-nav.js')
+      );
+      const html = await getSettingsPage();
+      const entryIds = new Set(
+        [...html.matchAll(/data-entry="([a-z0-9-]+)"/g)].map((m) => m[1])
+      );
+      const isEntry = (id) => entryIds.has(id);
+      assert.ok(isEntry('tidy-up'), 'the page has a tidy-up entry');
+      [
+        'duplicates',
+        'simplify',
+        'duplicates-tab',
+        'simplify-tab',
+        'sec-duplicates',
+        'sec-duplicates-advanced',
+        'sec-simplify',
+      ].forEach((hash) => {
+        assert.strictEqual(
+          nav.entryForHash(hash, isEntry),
+          'tidy-up',
+          `#${hash} lands on Tidy up`
+        );
+      });
+      assert.strictEqual(nav.entryForHash('tidy-up', isEntry), 'tidy-up');
+      assert.strictEqual(nav.entryForHash('ai-tab', isEntry), 'ai-provider');
+      assert.strictEqual(
+        nav.entryForHash('sec-provider', isEntry),
+        null,
+        'an element id inside an entry is left to the DOM lookup'
+      );
+      assert.strictEqual(nav.entryForHash('', isEntry), null);
+      assert.strictEqual(
+        nav.entryForHash('toString', isEntry),
+        null,
+        'only own keys of the alias map count'
+      );
+      Object.entries(nav.ENTRY_ALIASES).forEach(([alias, target]) => {
+        assert.ok(isEntry(target), `#${alias} points at an entry that exists`);
+      });
     });
 
     await test('every field is rendered with the value that is configured now', async () => {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
 
       FIELDS.forEach(({ input, envKey }) => {
@@ -339,8 +513,100 @@ function sliceBetween(source, from, to) {
 
       assert.strictEqual(
         countOccurrences(section, 'class="zr-field__hint"'),
-        15,
-        'each of the fifteen fields says what it does and what its default is'
+        17,
+        'each of the seventeen fields says what it does and what its default is'
+      );
+    });
+
+    await test('the model for Tidy up is a model picker with a Fetch models button', async () => {
+      const html = await getSettingsPage();
+      const section = sliceBetween(
+        html,
+        'id="entry-tidy-up"',
+        'id="entry-account"'
+      );
+      const field = sliceBetween(
+        section,
+        'for="duplicatesAiModel"',
+        'class="zr-field__hint"'
+      );
+      const select = sliceBetween(
+        field,
+        '<select id="duplicatesAiModel" name="duplicatesAiModel"',
+        '</select>'
+      );
+      const options = [
+        ...select.matchAll(/<option value="([^"]*)"([^>]*)>([^<]*)</g),
+      ].map(([, value, attrs, label]) => ({
+        value,
+        label,
+        selected: /\bselected\b/.test(attrs),
+        other: /data-model-other/.test(attrs),
+      }));
+      assert.deepStrictEqual(
+        options.map(({ value, label }) => [value, label]),
+        [
+          ['', 'Same as the analysis model'],
+          ['judge-of-record', 'judge-of-record'],
+          ['', 'Other…'],
+        ],
+        'placeholder first, the stored model, then the way to type one'
+      );
+      assert.deepStrictEqual(
+        options.filter((option) => option.selected).map((o) => o.value),
+        ['judge-of-record'],
+        'the stored model is the selected one'
+      );
+      assert.ok(options[2].other, 'the last option reveals the text field');
+      assert.ok(
+        /data-stored-value="judge-of-record"/.test(select),
+        'the stored model is kept for a provider switch'
+      );
+      assert.ok(
+        /<div class="zr-inputgroup"><select id="duplicatesAiModel"/.test(field),
+        'select and button share the row the provider model fields use'
+      );
+      const button = field.match(
+        /<button type="button" id="fetchTidyUpModelsBtn" class="([^"]*)"[^>]*>([\s\S]*?)<\/button>/
+      );
+      assert.ok(button, 'the Fetch models button is rendered');
+      assert.strictEqual(button[1], 'zr-btn', 'same class as Fetch Models');
+      assert.ok(
+        button[2].includes('/icons.svg#i-list') &&
+          button[2].includes('<span>Fetch models</span>'),
+        'same icon, labelled Fetch models'
+      );
+      assert.ok(
+        /data-locked-by="duplicatesAiModel"/.test(button[0]),
+        'the button is locked with the field'
+      );
+      const other = field.match(
+        /<input type="text" id="duplicatesAiModelOther"[^>]*>/
+      );
+      assert.ok(other, 'the text field for a typed model is rendered');
+      assert.ok(
+        !/\bname=/.test(other[0]),
+        'the text field is not submitted; the select carries the value'
+      );
+      assert.ok(
+        /class="zr-input hidden"/.test(other[0]),
+        'and it is hidden until Other… is chosen'
+      );
+
+      const settingsJs = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'js', 'settings.js'),
+        'utf8'
+      );
+      assert.strictEqual(
+        countOccurrences(settingsJs, "selector: '#duplicatesAiModel'"),
+        1,
+        'one element is mapped to DUPLICATES_AI_MODEL'
+      );
+      assert.ok(
+        settingsJs.includes(
+          "{ selector: '#duplicatesAiModel', envKey: 'DUPLICATES_AI_MODEL' }"
+        ),
+        'and it is the select'
       );
     });
 
@@ -348,8 +614,8 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
 
       const thinking = sliceBetween(
@@ -359,7 +625,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         thinking,
-        /Let the judge think/,
+        /Let the model think first/,
         'the switch says what it switches'
       );
       assert.ok(
@@ -392,14 +658,14 @@ function sliceBetween(source, from, to) {
         'its hint says what the number does and what the default is'
       );
 
-      // Everything above says what one review may cost, these two say how
-      // the judge talks to the model; only the archive settings follow them.
+      // The request length follows the two brakes; thinking comes after
+      // the evidence and the memory.
       assert.ok(
         section.indexOf('id="duplicatesAiIdleStopSeconds"') <
-          section.indexOf('id="duplicatesAiThinking"') &&
-          section.indexOf('id="duplicatesAiThinking"') <
-            section.indexOf('id="duplicatesAiRequestSeconds"'),
-        'thinking and the request length follow the brakes, in that order'
+          section.indexOf('id="duplicatesAiRequestSeconds"') &&
+          section.indexOf('id="duplicatesAiVerdictMemoryDays"') <
+            section.indexOf('id="duplicatesAiThinking"'),
+        'the request length follows the brakes, thinking follows the memory'
       );
     });
 
@@ -408,8 +674,8 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
 
       const guard = sliceBetween(
@@ -425,11 +691,13 @@ function sliceBetween(source, from, to) {
       // The hint has to name the tiers, or "the same word in another
       // spelling" is a promise nobody can check.
       assert.ok(
-        /case, umlauts, legal form, plural, word order/.test(guard),
+        /upper or lower case, umlauts, a legal form such as GmbH, singular or plural, or the same words in another order/.test(
+          guard
+        ),
         'the hint must name the spellings the guard treats as the same word'
       );
       assert.ok(
-        /A typo-like match is only logged/.test(guard),
+        /only looks like a typo of an existing one is logged/.test(guard),
         'the hint must say that a fuzzy match is not mapped, only recorded'
       );
       assert.ok(
@@ -454,8 +722,8 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
 
       const sweep = sliceBetween(
@@ -474,18 +742,19 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_SWEEP_NAMES'
       );
       assert.ok(
-        /looks at the whole list/.test(sweep) && /Default: 300/.test(sweep),
+        /the whole list of names/.test(sweep) && /Default: 300/.test(sweep),
         'its hint says what the number does and what the default is'
       );
 
-      // The two archive settings close the section, after everything that
-      // only governs one review.
+      // The guard is part of the basic view; the sweep size is a tuning
+      // knob and closes the advanced options.
+      const advancedStart = section.indexOf('id="sec-tidy-up-advanced"');
       assert.ok(
-        section.indexOf('id="duplicatesAiRequestSeconds"') <
-          section.indexOf('id="duplicatesGuardNewNames"') &&
-          section.indexOf('id="duplicatesGuardNewNames"') <
+        section.indexOf('id="duplicatesGuardNewNames"') < advancedStart &&
+          advancedStart < section.indexOf('id="duplicatesAiSweepNames"') &&
+          section.indexOf('id="duplicatesAiRequestSeconds"') <
             section.indexOf('id="duplicatesAiSweepNames"'),
-        'the guard and the sweep size close the section, in that order'
+        'the guard sits in the basic view, the sweep size closes the advanced options'
       );
     });
 
@@ -493,8 +762,8 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
 
       const budget = sliceBetween(
@@ -537,15 +806,16 @@ function sliceBetween(source, from, to) {
         'its hint says what zero means and what the default is'
       );
 
-      // The brakes belong to the section, and they close it — the AI review
-      // settings above them describe what one request looks like, these two
-      // describe when the whole run has to stop.
+      // The brakes open the advanced options: what a run may spend is the
+      // first thing someone opening them is looking for.
+      const advancedStart = section.indexOf('id="sec-tidy-up-advanced"');
       assert.ok(
-        section.indexOf('id="duplicatesAiExcerptDocuments"') <
-          section.indexOf('id="duplicatesAiTokenBudget"') &&
+        advancedStart < section.indexOf('id="duplicatesAiTokenBudget"') &&
           section.indexOf('id="duplicatesAiTokenBudget"') <
-            section.indexOf('id="duplicatesAiIdleStopSeconds"'),
-        'the budget and the idle stop close the section, in that order'
+            section.indexOf('id="duplicatesAiIdleStopSeconds"') &&
+          section.indexOf('id="duplicatesAiIdleStopSeconds"') <
+            section.indexOf('id="duplicatesAiReviewBatchSize"'),
+        'the budget and the idle stop open the advanced options, in that order'
       );
     });
 
@@ -710,8 +980,8 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
       assert.ok(
         section.includes('data-switch-target="duplicatesAiThinking" checked'),
@@ -868,8 +1138,8 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
       assert.ok(
         section.includes(
@@ -932,8 +1202,8 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-duplicates"',
-        'id="entry-simplify"'
+        'id="entry-tidy-up"',
+        'id="entry-account"'
       );
 
       const lanes = sliceBetween(
@@ -952,15 +1222,15 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_CONCURRENCY'
       );
       assert.ok(
-        /0 lets the judge choose/.test(lanes) && /Default: 0/.test(lanes),
+        /0 lets the page choose/.test(lanes) && /Default: 0/.test(lanes),
         'its hint must say what zero means and what the default is'
       );
       assert.ok(
-        /Wall time divides by it, tokens do not/.test(lanes),
+        /finishes sooner but costs the same tokens/.test(lanes),
         'the hint must say what more lanes do and do not save'
       );
       assert.ok(
-        section.includes('Model requests at once'),
+        section.includes('Requests at once'),
         'the field must be labelled'
       );
 
@@ -980,80 +1250,27 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_VERDICT_MEMORY_DAYS'
       );
       assert.ok(
-        /0 switches the memory off/.test(memory) && /Default: 90/.test(memory),
+        /0 switches this memory off/.test(memory) && /Default: 90/.test(memory),
         'its hint must say what zero means and what the default is'
       );
       assert.ok(
-        section.includes('Remember verdicts for (days)'),
+        section.includes('Remember answers for (days)'),
         'the field must be labelled'
       );
 
-      // Both describe one review, so they sit with the settings that do and
-      // before the two that belong to the archive.
+      // Both describe one review, so they sit with the settings that do,
+      // under the section's advanced options.
+      const advanced = sliceBetween(
+        section,
+        'id="sec-tidy-up-advanced"',
+        '</details>'
+      );
       assert.ok(
-        section.indexOf('id="duplicatesAiRequestSeconds"') <
-          section.indexOf('id="duplicatesAiConcurrency"') &&
-          section.indexOf('id="duplicatesAiConcurrency"') <
-            section.indexOf('id="duplicatesAiVerdictMemoryDays"') &&
-          section.indexOf('id="duplicatesAiVerdictMemoryDays"') <
-            section.indexOf('id="duplicatesGuardNewNames"'),
+        advanced.indexOf('id="duplicatesAiRequestSeconds"') <
+          advanced.indexOf('id="duplicatesAiConcurrency"') &&
+          advanced.indexOf('id="duplicatesAiConcurrency"') <
+            advanced.indexOf('id="duplicatesAiVerdictMemoryDays"'),
         'the lanes and the memory follow the request length, in that order'
-      );
-    });
-
-    // ── The section of its own that round 10 added ─────────────────────────
-    await test('GET /settings renders the Simplify tags section and its nav entry', async () => {
-      const html = await getSettingsPage();
-
-      assert.ok(
-        html.includes('id="sec-simplify"'),
-        'the section itself must be rendered'
-      );
-      assert.ok(
-        html.includes('id="entry-simplify"'),
-        'the topic list needs an entry to open'
-      );
-
-      const desktopNav = sliceBetween(
-        html,
-        '<nav class="zr-sectionnav zr-settings-nav"',
-        '</nav>'
-      );
-      const mobilePicker = sliceBetween(
-        html,
-        '<select id="settingsEntrySelect"',
-        '</select>'
-      );
-
-      // The page shows one topic at a time; the topic list (a sidebar on
-      // desktop, a select on phones) is the only way to reach it, and it
-      // groups the topics in the order the page declares them.
-      [
-        ['desktop', desktopNav, (id) => `data-entry-link="${id}"`],
-        ['mobile', mobilePicker, (id) => `value="${id}"`],
-      ].forEach(([label, nav, needle]) => {
-        assert.ok(
-          nav.includes(needle('simplify')),
-          `the ${label} topic list must link the entry`
-        );
-        assert.ok(
-          nav.indexOf(needle('duplicates')) < nav.indexOf(needle('simplify')) &&
-            nav.indexOf(needle('simplify')) < nav.indexOf(needle('account')),
-          `the ${label} topic list must list simplify after duplicates and before account`
-        );
-      });
-
-      assert.ok(
-        desktopNav.indexOf('Tag tools') <
-          desktopNav.indexOf('data-entry-link="simplify"'),
-        'Simplify tags sits in the Tag tools group'
-      );
-      assert.ok(
-        html.indexOf('id="entry-duplicates"') <
-          html.indexOf('id="entry-simplify"') &&
-          html.indexOf('id="entry-simplify"') <
-            html.indexOf('id="entry-account"'),
-        'the entry itself sits between Duplicates and Account and two-factor'
       );
     });
 
@@ -1061,7 +1278,7 @@ function sliceBetween(source, from, to) {
       const html = await getSettingsPage();
       const section = sliceBetween(
         html,
-        'id="entry-simplify"',
+        'id="entry-tidy-up"',
         'id="entry-account"'
       );
 
@@ -1108,16 +1325,10 @@ function sliceBetween(source, from, to) {
         'its hint must say what the default is'
       );
 
-      assert.strictEqual(
-        countOccurrences(section, 'class="zr-field__hint"'),
-        2,
-        'both fields say what they do and what their default is'
-      );
-      // The section says in one sentence that the model is optional here;
-      // the whole feature works on the rule alone.
-      assert.ok(
-        /needs no model/.test(section),
-        'the section must say that decomposing works without a model'
+      assert.match(
+        section,
+        /Finding, merging and splitting work without them/,
+        'the section must say that splitting works without a model'
       );
     });
 
@@ -1217,6 +1428,220 @@ function sliceBetween(source, from, to) {
         'the Simplify group follows the Duplicates group, as the page does'
       );
     });
+    // ── 4. The model picker, in a browser when there is one ─────────────────
+    const playwright = loadPlaywright();
+    if (!playwright) {
+      console.log(
+        'ℹ️  no browser available; the model picker was checked in markup only'
+      );
+    } else {
+      const express = require(
+        path.join(__dirname, '..', 'node_modules', 'express')
+      );
+      harness.app.use(express.static(path.join(__dirname, '..', 'public')));
+      // Every START_ENV key is pinned by the harness (it is in the startup
+      // snapshot), so the picker renders locked unless its key is released.
+      const snapshot = global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__;
+      const pinnedModel = snapshot.DUPLICATES_AI_MODEL;
+      const pinnedProvider = snapshot.AI_PROVIDER;
+
+      const openPage = async (browser, discovered) => {
+        const page = await browser.newPage({
+          extraHTTPHeaders: { 'x-api-key': API_KEY },
+        });
+        const discoveryRequests = [];
+        const saves = [];
+        await page.route('**/api/settings/ai/models', async (route) => {
+          discoveryRequests.push(route.request().postDataJSON());
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({
+              success: true,
+              models: discovered,
+              message: `Discovered ${discovered.length} model(s).`,
+            }),
+          });
+        });
+        await page.route('**/settings', async (route) => {
+          if (route.request().method() !== 'POST') return route.continue();
+          saves.push(route.request().postDataJSON());
+          return route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ success: true, restart: false }),
+          });
+        });
+        await page.goto(harness.base + '/settings#tidy-up');
+        await page.waitForSelector('#duplicatesAiModel', { state: 'attached' });
+        return { page, discoveryRequests, saves };
+      };
+      const closeDialog = async (page) => {
+        await page.waitForSelector('dialog.zr-dialog:not([id])[open]');
+        const title = await page.textContent(
+          'dialog.zr-dialog:not([id]) .zr-grow'
+        );
+        await page.click('dialog.zr-dialog:not([id]) button[value="ok"]');
+        await page.waitForSelector('dialog.zr-dialog:not([id])', {
+          state: 'detached',
+        });
+        return title;
+      };
+      const pickerState = (page) =>
+        page.evaluate(() => {
+          const select = document.getElementById('duplicatesAiModel');
+          return {
+            value: select.value,
+            disabled: select.disabled,
+            options: [...select.options].map((option) => option.textContent),
+            otherHidden: document
+              .getElementById('duplicatesAiModelOther')
+              .classList.contains('hidden'),
+            button: {
+              hidden: document
+                .getElementById('fetchTidyUpModelsBtn')
+                .classList.contains('hidden'),
+              disabled: document.getElementById('fetchTidyUpModelsBtn')
+                .disabled,
+            },
+          };
+        });
+      // The submit handler awaits more than the POST; wait for the request.
+      const submitAndWait = async (page, saves, count) => {
+        await page.click('#setupForm button[type="submit"]');
+        const deadline = Date.now() + 10000;
+        while (saves.length < count && Date.now() < deadline) {
+          await page.waitForTimeout(25);
+        }
+        assert.strictEqual(saves.length, count, `save ${count} was sent`);
+      };
+      const switchProvider = (page, provider) =>
+        page.evaluate((value) => {
+          const select = document.getElementById('aiProvider');
+          select.value = value;
+          select.dispatchEvent(new Event('change'));
+        }, provider);
+
+      process.env.DUPLICATES_AI_MODEL = 'proxy-pinned-model';
+      process.env.AI_PROVIDER = 'openai';
+      // The form is validated before it is sent; the harness has no user.
+      process.env.PAPERLESS_USERNAME = 'tidy-up-tester';
+      const browser = await playwright.chromium.launch();
+      try {
+        await test('in a browser, a locked model picker disables the select and the Fetch button', async () => {
+          const { page } = await openPage(browser, []);
+          await page.waitForFunction(
+            () => document.getElementById('duplicatesAiModel').disabled
+          );
+          const state = await pickerState(page);
+          assert.strictEqual(state.value, 'proxy-pinned-model');
+          assert.ok(state.disabled, 'the select is locked');
+          assert.ok(state.button.disabled, 'the Fetch button is locked too');
+          const hint = await page.textContent(
+            '[data-ai-option="DUPLICATES_AI_MODEL"] .zr-field__hint'
+          );
+          assert.match(hint, /Set by the environment \(DUPLICATES_AI_MODEL\)/);
+          await page.close();
+        });
+
+        delete snapshot.DUPLICATES_AI_MODEL;
+        delete snapshot.AI_PROVIDER;
+
+        await test('in a browser, Fetch models fills the picker and keeps the stored model selected', async () => {
+          const { page, discoveryRequests, saves } = await openPage(browser, [
+            'gpt-4.1',
+            'gpt-4.1-mini',
+          ]);
+          await page.waitForFunction(
+            () => !document.getElementById('duplicatesAiModel').disabled
+          );
+          await page.click('#fetchTidyUpModelsBtn');
+          assert.strictEqual(await closeDialog(page), 'Models loaded');
+
+          assert.deepStrictEqual(
+            discoveryRequests,
+            [{ aiProvider: 'openai', apiUrl: '', token: '' }],
+            'the configured provider is asked, with the stored key'
+          );
+          let state = await pickerState(page);
+          assert.deepStrictEqual(state.options, [
+            'Same as the analysis model',
+            'gpt-4.1',
+            'gpt-4.1-mini',
+            'proxy-pinned-model',
+            'Other…',
+          ]);
+          assert.strictEqual(
+            state.value,
+            'proxy-pinned-model',
+            'a model the discovery does not list stays selected'
+          );
+          assert.ok(!state.button.disabled, 'the button is usable again');
+
+          await page.selectOption('#duplicatesAiModel', 'gpt-4.1-mini');
+          await submitAndWait(page, saves, 1);
+          assert.strictEqual(saves[0].duplicatesAiModel, 'gpt-4.1-mini');
+
+          // A model id no list names: Other… reveals the text field and the
+          // select's value is what is typed there.
+          await page.selectOption('#duplicatesAiModel', { label: 'Other…' });
+          state = await pickerState(page);
+          assert.ok(!state.otherHidden, 'Other… reveals the text field');
+          await page.fill('#duplicatesAiModelOther', 'my-fine-tune:v2');
+          state = await pickerState(page);
+          assert.strictEqual(state.value, 'my-fine-tune:v2');
+          await submitAndWait(page, saves, 2);
+          assert.strictEqual(saves[1].duplicatesAiModel, 'my-fine-tune:v2');
+          assert.ok(
+            !Object.prototype.hasOwnProperty.call(
+              saves[1],
+              'duplicatesAiModelOther'
+            ),
+            'the text field itself is not part of the form'
+          );
+
+          // The save path behind the page stores what the page sent.
+          const response = await postSettings({
+            duplicatesAiModel: saves[1].duplicatesAiModel,
+          });
+          assert.strictEqual(response.status, 200);
+          assert.strictEqual(
+            lastSaved().DUPLICATES_AI_MODEL,
+            'my-fine-tune:v2'
+          );
+          process.env.DUPLICATES_AI_MODEL = 'proxy-pinned-model';
+          await page.close();
+        });
+
+        await test('in a browser, a provider switch drops the fetched list and Azure has no Fetch button', async () => {
+          const { page } = await openPage(browser, ['gpt-4.1', 'o4-mini']);
+          await page.waitForFunction(
+            () => !document.getElementById('duplicatesAiModel').disabled
+          );
+          await page.click('#fetchTidyUpModelsBtn');
+          await closeDialog(page);
+          await page.selectOption('#duplicatesAiModel', 'o4-mini');
+
+          await switchProvider(page, 'azure');
+          let state = await pickerState(page);
+          assert.deepStrictEqual(state.options, [
+            'Same as the analysis model',
+            'proxy-pinned-model',
+            'Other…',
+          ]);
+          assert.strictEqual(state.value, 'proxy-pinned-model');
+          assert.ok(state.button.hidden, 'no discovery for Azure');
+
+          await switchProvider(page, 'ollama');
+          state = await pickerState(page);
+          assert.ok(!state.button.hidden, 'the button returns with Ollama');
+          assert.strictEqual(state.value, 'proxy-pinned-model');
+          await page.close();
+        });
+      } finally {
+        await browser.close();
+        snapshot.DUPLICATES_AI_MODEL = pinnedModel;
+        snapshot.AI_PROVIDER = pinnedProvider;
+      }
+    }
   } finally {
     await harness.close();
   }

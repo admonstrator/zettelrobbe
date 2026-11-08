@@ -92,6 +92,7 @@ async function mountRouter(options = {}) {
   }
 
   const router = require(path.join(REPO_ROOT, 'routes', 'setup.js'));
+  const tidyUpRouter = require(path.join(REPO_ROOT, 'routes', 'tidyUp.js'));
 
   const app = express();
   app.set('query parser', 'extended'); // same as server.js
@@ -106,6 +107,7 @@ async function mountRouter(options = {}) {
       next();
     });
   }
+  app.use(tidyUpRouter);
   app.use(router);
   // Express recognises error middleware by its arity, so the fourth parameter must stay.
   // eslint-disable-next-line no-unused-vars

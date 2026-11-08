@@ -2668,6 +2668,47 @@ class PaperlessService {
     }
   }
 
+  /**
+   * The tags a successful analysis takes off a document, as id → name:
+   * every inbox tag when REMOVE_INBOX_TAGS_AFTER_PROCESSING is on, and the
+   * tags REMOVE_TAGS_AFTER_PROCESSING names (case-insensitive). Read from
+   * the tag cache. When the tag list cannot be read nothing is removed — the
+   * write-back must not fail over this — and that is said once until the
+   * list can be read again.
+   *
+   * @returns {Promise<Map<number, string>>}
+   */
+  async _tagsToRemoveAfterProcessing() {
+    const drop = new Map();
+    const removeInbox = config.removeInboxTagsAfterProcessing === 'yes';
+    const names = config.removeTagsAfterProcessing || [];
+    if (!removeInbox && names.length === 0) return drop;
+
+    try {
+      await this.ensureTagCache();
+    } catch (error) {
+      if (!this._removeTagsWarned) {
+        this._removeTagsWarned = true;
+        console.warn(
+          `[WARN] Could not read the tag list, so no tags are removed after processing: ${error.message}`
+        );
+      }
+      return drop;
+    }
+    this._removeTagsWarned = false;
+
+    if (removeInbox) {
+      for (const tag of this.tagCache.values()) {
+        if (tag?.is_inbox_tag) drop.set(Number(tag.id), tag.name);
+      }
+    }
+    for (const name of names) {
+      const tag = this.tagCache.get(String(name).toLowerCase());
+      if (tag) drop.set(Number(tag.id), tag.name);
+    }
+    return drop;
+  }
+
   async updateDocument(documentId, updates) {
     this.initialize();
     if (!this.client) return;
@@ -2684,9 +2725,22 @@ class PaperlessService {
         console.log(`[DEBUG] Current correspondent:`, currentDoc.correspondent);
         console.log(`[DEBUG] New correspondent:`, updates.correspondent);
 
-        const combinedTags = [
-          ...new Set([...currentDoc.tags, ...updates.tags]),
-        ];
+        let combinedTags = [...new Set([...currentDoc.tags, ...updates.tags])];
+        // A document the analysis filed is done: the tags configured for
+        // removal come off in the same write. The list wins over the
+        // analysis, so an inbox tag the model proposed comes off as well.
+        const drop = await this._tagsToRemoveAfterProcessing();
+        if (drop.size > 0) {
+          const removed = combinedTags.filter((id) => drop.has(Number(id)));
+          if (removed.length > 0) {
+            combinedTags = combinedTags.filter((id) => !drop.has(Number(id)));
+            console.log(
+              `[DEBUG] Removed tags after processing from document ${documentId}: ${removed
+                .map((id) => `${drop.get(Number(id))} (${id})`)
+                .join(', ')}`
+            );
+          }
+        }
         updates.tags = combinedTags;
 
         console.log(`[DEBUG] Combined tags:`, combinedTags);
@@ -3051,6 +3105,28 @@ class PaperlessService {
    * @returns {Promise<object[]>}
    * @throws on a network error, an HTTP error or an unreadable answer
    */
+  /**
+   * How many tags or correspondents the instance holds, from the `count` of
+   * a one-item page. The Tidy up start screen shows the number before any
+   * run; reading every page for it (listEntities) held the page render for
+   * as long as Paperless-ngx needed to count documents per object.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @returns {Promise<number>}
+   */
+  async countEntities(kind) {
+    this._assertEntityKind(kind);
+    const client = this._requireClient(`counting ${kind}`);
+    const response = await client.get(`/${kind}/`, {
+      params: { page: 1, page_size: 1 },
+    });
+    const count = Number(response?.data?.count);
+    if (!Number.isFinite(count)) {
+      throw new Error(`Unexpected answer while counting ${kind}`);
+    }
+    return count;
+  }
+
   async listEntities(kind) {
     this._assertEntityKind(kind);
     const client = this._requireClient(`listing ${kind}`);

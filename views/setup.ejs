@@ -278,6 +278,14 @@
                             <p class="zr-field__hint">This tag is automatically added to excluded tags during setup finalization.</p>
                         </div>
 
+                        <label class="zr-row">
+                            <input id="removeInboxTagsAfterProcessing" type="checkbox" class="zr-toggle" <%= config.REMOVE_INBOX_TAGS_AFTER_PROCESSING === 'yes' ? 'checked' : '' %>>
+                            <span>
+                                <strong>Remove the inbox tag when a document is done</strong>
+                                <span class="zr-field__hint">Paperless-ngx marks the tags it uses as inbox; every one of them is taken off a document once the analysis was written. Use it when you let the analysis file documents on its own.</span>
+                            </span>
+                        </label>
+
                         <div class="zr-formgrid">
                             <div class="zr-field zr-field--stacked">
                                 <label for="automaticScanEnabled" class="zr-field__name">Automatic scanning</label>

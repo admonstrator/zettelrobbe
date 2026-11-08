@@ -233,6 +233,15 @@ function chunkList(items, size) {
   return chunks;
 }
 
+// What a failed request is called (services/modelFailure.js); pure, and
+// required here so the failure handling stays next to the parsers.
+const modelFailure = require('./modelFailure');
+
+/** An error the parsers throw: the answer is there, but not in its form. */
+function unreadable(error) {
+  return modelFailure.tagFailure(error, modelFailure.FAILURE_KINDS.UNREADABLE);
+}
+
 /**
  * The JSON array in a model's answer. Strips one code fence, then takes
  * everything between the first `[` and the last `]` — the same reading the
@@ -241,12 +250,12 @@ function chunkList(items, size) {
  *
  * @param {string} text
  * @returns {object[]}
- * @throws when there is nothing to parse
+ * @throws when there is nothing to parse, tagged `unreadable`
  */
 function parseJsonArray(text) {
   let raw = String(text ?? '').trim();
   if (raw === '') {
-    throw new Error('the model answered nothing');
+    throw unreadable(new Error('the model answered nothing'));
   }
   raw = raw
     .replace(/^```[a-zA-Z0-9]*\s*/, '')
@@ -255,11 +264,16 @@ function parseJsonArray(text) {
   const start = raw.indexOf('[');
   const end = raw.lastIndexOf(']');
   if (start === -1 || end <= start) {
-    throw new Error('the answer contained no JSON array');
+    throw unreadable(new Error('the answer contained no JSON array'));
   }
-  const parsed = JSON.parse(raw.slice(start, end + 1));
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch (error) {
+    throw unreadable(error);
+  }
   if (!Array.isArray(parsed)) {
-    throw new Error('the answer was not a JSON array');
+    throw unreadable(new Error('the answer was not a JSON array'));
   }
   return parsed;
 }
@@ -270,12 +284,12 @@ function parseJsonArray(text) {
  *
  * @param {string} text
  * @returns {object}
- * @throws when there is nothing to parse
+ * @throws when there is nothing to parse, tagged `unreadable`
  */
 function parseJsonObject(text) {
   let raw = String(text ?? '').trim();
   if (raw === '') {
-    throw new Error('the model answered nothing');
+    throw unreadable(new Error('the model answered nothing'));
   }
   raw = raw
     .replace(/^```[a-zA-Z0-9]*\s*/, '')
@@ -284,11 +298,16 @@ function parseJsonObject(text) {
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start === -1 || end <= start) {
-    throw new Error('the answer contained no JSON object');
+    throw unreadable(new Error('the answer contained no JSON object'));
   }
-  const parsed = JSON.parse(raw.slice(start, end + 1));
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch (error) {
+    throw unreadable(error);
+  }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('the answer was not a JSON object');
+    throw unreadable(new Error('the answer was not a JSON object'));
   }
   return parsed;
 }
@@ -767,6 +786,41 @@ class TagSimplifyService {
   }
 
   /**
+   * One failed request in `usage.failures` (a RequestFailure of
+   * services/modelFailure.js), next to `usage.failedRequests`.
+   *
+   * @param {object} usage
+   * @param {unknown} error  the error as thrown, or the reason as a message
+   * @param {{kind?: string, index?: number, tagsAffected?: number, namesAffected?: number}} context
+   */
+  _noteFailure(usage, error, context) {
+    if (!Array.isArray(usage.failures)) usage.failures = [];
+    usage.failures.push(
+      modelFailure.requestFailure(error, {
+        ...context,
+        model: this._modelName() ?? null,
+      })
+    );
+  }
+
+  /**
+   * Why an answer with nothing usable in it was unusable: thinking when the
+   * request reports reasoning and left no answer, unreadable otherwise.
+   *
+   * @param {object} service
+   * @param {unknown} answer
+   * @param {boolean} truncated
+   * @returns {string}
+   */
+  _unusableKind(service, answer, truncated) {
+    return modelFailure.unusableAnswerKind(
+      answer,
+      service?.lastGenerateTextUsage,
+      { truncated }
+    );
+  }
+
+  /**
    * The cap a cut-off answer is asked again with: at least four times the
    * last one and never below RAISED_CAP_MIN, bounded by the ceiling; null
    * when the ceiling leaves no room.
@@ -843,11 +897,14 @@ class TagSimplifyService {
   /** Wraps a Paperless-ngx failure so the route answers 502, not 500. */
   _asPaperlessError(error, what) {
     if (error instanceof SimplifyError) return error;
-    return new SimplifyError(
-      `Paperless-ngx could not be reached while ${what}: ${
-        error?.message || 'unknown error'
-      }`,
-      502
+    return modelFailure.tagFailure(
+      new SimplifyError(
+        `Paperless-ngx could not be reached while ${what}: ${
+          error?.message || 'unknown error'
+        }`,
+        502
+      ),
+      modelFailure.FAILURE_KINDS.PAPERLESS
     );
   }
 
@@ -945,7 +1002,7 @@ class TagSimplifyService {
     }
 
     const chunks = chunkList(names, perRequest);
-    const usage = { requests: 0, tokens: 0, failedRequests: 0 };
+    const usage = { requests: 0, tokens: 0, failedRequests: 0, failures: [] };
     const votes = {
       types: new Map(),
       topics: new Map(),
@@ -1018,6 +1075,9 @@ class TagSimplifyService {
       tokens: usage.tokens,
       names: names.length,
       stopped: this._stopped(control),
+      // Requests that answered nothing usable, each with its kind.
+      failedRequests: usage.failedRequests,
+      failures: usage.failures,
     };
   }
 
@@ -1043,6 +1103,7 @@ class TagSimplifyService {
         ? Math.max(base + (await this._thinkingAllowance()), this._capFloor())
         : wanted;
     usage.requests += 1;
+    const requestIndex = usage.requests;
     const startedAt = Date.now();
     const head = () => `vocabulary: ${names.length} name(s), cap ${cap}`;
     /** One row of the run meter for this request; see _splitChunk. */
@@ -1084,6 +1145,10 @@ class TagSimplifyService {
             error?.message || 'the AI provider could not be reached'
           }.`
         );
+        this._noteFailure(usage, error, {
+          index: requestIndex,
+          namesAffected: names.length,
+        });
         meter('failed', 0);
         return { types: [], topics: [] };
       }
@@ -1125,14 +1190,18 @@ class TagSimplifyService {
         );
       }
       usage.failedRequests += 1;
+      const reason = truncated
+        ? 'the answer was cut off with nothing usable in it'
+        : error.message;
       console.warn(
-        `${LOG_PREFIX} ${head()} — failed: ${
-          truncated
-            ? 'the answer was cut off with nothing usable in it'
-            : error.message
-        }${this._answerDiagnosis(service)}. Raw answer: ` +
+        `${LOG_PREFIX} ${head()} — failed: ${reason}${this._answerDiagnosis(service)}. Raw answer: ` +
           `${String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'}`
       );
+      this._noteFailure(usage, reason, {
+        kind: this._unusableKind(service, answer, truncated),
+        index: requestIndex,
+        namesAffected: names.length,
+      });
       meter(truncated ? 'empty' : 'failed', 0);
       return { types: [], topics: [] };
     }
@@ -1328,7 +1397,7 @@ class TagSimplifyService {
       proposals.size -
       unsettled.filter((tag) => proposals.has(Number(tag.id))).length;
 
-    const usage = { requests: 0, tokens: 0, failedRequests: 0 };
+    const usage = { requests: 0, tokens: 0, failedRequests: 0, failures: [] };
     const withModel = this.hasProvider();
     const perRequest = Math.max(1, Number(config.simplifyTagsPerRequest) || 50);
     const chunks = withModel ? chunkList(unsettled, perRequest) : [];
@@ -1434,6 +1503,9 @@ class TagSimplifyService {
       withoutProposal: without,
       usedModel: withModel,
       stopped: this._stopped(control),
+      // Requests that answered nothing usable, each with its kind.
+      failedRequests: usage.failedRequests,
+      failures: usage.failures,
     };
   }
 
@@ -1531,6 +1603,7 @@ class TagSimplifyService {
         ? Math.max(base + (await this._thinkingAllowance()), this._capFloor())
         : wanted;
     usage.requests += 1;
+    const requestIndex = usage.requests;
     const startedAt = Date.now();
     const head = () => `${label}: ${tags.length} tag(s), cap ${cap}`;
     /**
@@ -1570,6 +1643,10 @@ class TagSimplifyService {
             error?.message || 'the AI provider could not be reached'
           }.`
         );
+        this._noteFailure(usage, error, {
+          index: requestIndex,
+          tagsAffected: tags.length,
+        });
         meter('failed', 0);
         return [];
       }
@@ -1620,15 +1697,19 @@ class TagSimplifyService {
       }
       if (salvaged.length === 0) {
         usage.failedRequests += 1;
+        const reason = truncated
+          ? 'the answer was cut off with nothing usable in it'
+          : parseError?.message || 'the answer could not be read';
         console.warn(
-          `${LOG_PREFIX} ${head()} — failed: ${
-            truncated
-              ? 'the answer was cut off with nothing usable in it'
-              : parseError?.message || 'the answer could not be read'
-          }${this._answerDiagnosis(service)}. Raw answer: ${
+          `${LOG_PREFIX} ${head()} — failed: ${reason}${this._answerDiagnosis(service)}. Raw answer: ${
             String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'
           }`
         );
+        this._noteFailure(usage, reason, {
+          kind: this._unusableKind(service, answer, truncated),
+          index: requestIndex,
+          tagsAffected: tags.length,
+        });
         // A cut-off answer spent its budget and said nothing; an unreadable
         // one is a request that went wrong. The page tells them apart.
         meter(truncated ? 'empty' : 'failed', 0);
@@ -2740,7 +2821,7 @@ class TagSimplifyService {
   async proposeOrder(options = {}, control = {}) {
     const config = this._config();
     const mode = options?.vocabulary === 'keep' ? 'keep' : 'propose';
-    const usage = { requests: 0, tokens: 0, failedRequests: 0 };
+    const usage = { requests: 0, tokens: 0, failedRequests: 0, failures: [] };
 
     const vocabulary = await this._orderVocabulary(
       mode,
@@ -2936,6 +3017,10 @@ class TagSimplifyService {
       tokens: usage.tokens,
       groups,
       stopped: this._stopped(control),
+      // Requests that answered nothing usable, vocabulary included, each
+      // with its kind.
+      failedRequests: usage.failedRequests,
+      failures: usage.failures,
     };
   }
 
@@ -2983,11 +3068,20 @@ class TagSimplifyService {
     const proposed = await this.proposeVocabulary({ concurrency }, control);
     usage.requests += Number(proposed.requests) || 0;
     usage.tokens += Number(proposed.tokens) || 0;
+    usage.failedRequests += Number(proposed.failedRequests) || 0;
+    if (!Array.isArray(usage.failures)) usage.failures = [];
+    usage.failures.push(...(proposed.failures || []));
     if (proposed.types.length === 0 && proposed.topics.length === 0) {
       if (isEmpty(saved)) {
-        throw new SimplifyError(
-          'The model proposed no vocabulary to order the tags by',
-          409
+        // Nothing proposed because every request failed is that failure,
+        // not a model with nothing to say.
+        const first = (proposed.failures || [])[0];
+        throw modelFailure.tagFailure(
+          new SimplifyError(
+            'The model proposed no vocabulary to order the tags by',
+            409
+          ),
+          first ? first.kind : modelFailure.FAILURE_KINDS.UNREADABLE
         );
       }
       this._log(

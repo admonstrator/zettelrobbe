@@ -469,6 +469,16 @@
             "description": "Result of the local database check",
             "example": "ok"
           },
+          "bootId": {
+            "type": "string",
+            "description": "Random id drawn when the process started. It changes with every\nrestart, so a client waiting for one polls until it differs.\n",
+            "example": "3f2c9a1e-7b4d-4e8a-9c61-2d5f0b8e4a17"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the process started"
+          },
           "message": {
             "type": "string",
             "description": "Additional status information (for non-healthy states). Authenticated callers only.",
@@ -1242,6 +1252,26 @@
             "type": "boolean",
             "nullable": true,
             "description": "true when the verdict came from the judge's memory of an earlier review instead of a request"
+          },
+          "unanswered": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "true when nobody judged the pair - the request failed or left it out; the page lets the spelling rule stand"
+          },
+          "failureKind": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unreadable",
+              "budget",
+              "unreachable",
+              "thinking",
+              "rejected",
+              "paperless",
+              "stopped",
+              "unknown"
+            ],
+            "description": "present only on an unsure verdict whose request failed; its reason then says so in plain words"
           }
         }
       },
@@ -1335,6 +1365,13 @@
                   "failedRequests": {
                     "type": "integer",
                     "description": "model requests that answered nothing usable; their pairs are marked unsure"
+                  },
+                  "failures": {
+                    "type": "array",
+                    "description": "one entry per failed request, with its kind (a single pair that did not fit the token limit is one too)",
+                    "items": {
+                      "$ref": "#/components/schemas/ModelFailure"
+                    }
                   },
                   "retries": {
                     "type": "integer",
@@ -1615,6 +1652,88 @@
           "hasResult": {
             "type": "boolean",
             "description": "true when the job carries a DuplicateAiReviewResult (done, or stopped with partial verdicts)"
+          },
+          "failure": {
+            "nullable": true,
+            "description": "why the job did not end as done; set for a failed job, a stop at the token budget (kind budget) and a stop because the page was closed (kind stopped), null otherwise",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelFailure"
+              }
+            ]
+          },
+          "partialFailures": {
+            "type": "array",
+            "description": "the requests that failed while the job went on, one entry per kind with the affected counts summed",
+            "items": {
+              "$ref": "#/components/schemas/ModelFailure"
+            }
+          }
+        }
+      },
+      "ModelFailure": {
+        "type": "object",
+        "description": "A model failure sorted into a kind a person can be told about (services/modelFailure.js)",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "unreadable",
+              "budget",
+              "unreachable",
+              "thinking",
+              "rejected",
+              "paperless",
+              "stopped",
+              "unknown"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "the raw message, for the Details disclosure only"
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "endpoint": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "nullable": true,
+            "description": "the HTTP status the provider answered with, when there was one"
+          },
+          "pairsAffected": {
+            "type": "integer",
+            "description": "pairs left \"needs a look\" by it (judge requests)"
+          },
+          "tagsAffected": {
+            "type": "integer",
+            "description": "tags left as they are by it (split and order requests)"
+          },
+          "namesAffected": {
+            "type": "integer",
+            "description": "names a vocabulary or sweep request did not read"
+          },
+          "request": {
+            "type": "object",
+            "description": "where the failed request sat in its run; on a single request only",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "nullable": true
+              },
+              "total": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          },
+          "requests": {
+            "type": "integer",
+            "description": "on a collapsed entry (partialFailures), how many failed requests it stands for"
           }
         }
       },
@@ -2494,6 +2613,523 @@
             "format": "date-time"
           }
         }
+      },
+      "TidyUpRunRequest": {
+        "type": "object",
+        "properties": {
+          "askModel": {
+            "type": "boolean",
+            "default": true,
+            "description": "ask the configured model about the pairs spelling cannot settle; ignored when no provider is configured"
+          },
+          "suggestSplits": {
+            "type": "boolean",
+            "default": false,
+            "description": "also ask the model which compound tags to split into a document type and topics (the Simplify order)"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents",
+              "all"
+            ],
+            "default": "all"
+          },
+          "action": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "retry",
+              "continue",
+              "retry-affected",
+              "retry-larger",
+              "test-connection"
+            ],
+            "description": "the key of the failure-notice action that started this run;\n`continue` and `retry-affected` ask the model only about the\ngroups the previous run left as \"needs a look\" and carry the\nrest over; `retry-larger` and `test-connection` answer 501\n"
+          },
+          "answerTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "a larger answer cap for retry-larger (not wired up yet)"
+          }
+        }
+      },
+      "TidyUpStep": {
+        "type": "object",
+        "description": "one line of the run's progress list; keys and labels come from tidyUpWording.RUN_STEPS",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "compare",
+              "evidence",
+              "judge",
+              "split",
+              "sort"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "now",
+              "next",
+              "skipped"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "description": "the numbers next to the step, e.g. 550 names · 9 sure matches · 23 pairs spelling cannot settle"
+          }
+        }
+      },
+      "TidyUpFailure": {
+        "type": "object",
+        "description": "present when the run failed or a part of it did; everything the notice needs",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "unreadable",
+              "budget",
+              "unreachable",
+              "thinking",
+              "rejected",
+              "paperless",
+              "stopped",
+              "unknown"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "retry | retry-affected | retry-larger | continue | decide-myself | test-connection"
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "settingsHint": {
+            "type": "string",
+            "nullable": true,
+            "description": "the label of a link to /settings#tidy-up, null for none"
+          },
+          "technical": {
+            "type": "string",
+            "description": "the raw message and request context, for the Details disclosure"
+          },
+          "pairsAffected": {
+            "type": "integer",
+            "description": "pairs that ended as \"needs a look\" because of this failure"
+          }
+        }
+      },
+      "TidyUpRun": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "stopping",
+              "done",
+              "stopped",
+              "failed"
+            ]
+          },
+          "headline": {
+            "type": "string",
+            "description": "tidyUpWording.runHeadline(status)"
+          },
+          "options": {
+            "$ref": "#/components/schemas/TidyUpRunRequest"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TidyUpStep"
+            }
+          },
+          "progress": {
+            "type": "object",
+            "properties": {
+              "percent": {
+                "type": "integer"
+              },
+              "etaText": {
+                "type": "string",
+                "nullable": true,
+                "description": "e.g. About a minute left"
+              },
+              "costText": {
+                "type": "string",
+                "nullable": true,
+                "description": "e.g. 38,400 tokens of your 200,000 budget"
+              },
+              "tokens": {
+                "type": "integer"
+              },
+              "tokenBudget": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          },
+          "model": {
+            "type": "string",
+            "nullable": true,
+            "description": "the model label shown in sentences, e.g. \"Claude Haiku\""
+          },
+          "failure": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TidyUpFailure"
+              }
+            ],
+            "nullable": true
+          },
+          "partialFailures": {
+            "type": "array",
+            "description": "failures of single requests the run survived (their pairs are \"needs a look\")",
+            "items": {
+              "$ref": "#/components/schemas/TidyUpFailure"
+            }
+          },
+          "summary": {
+            "$ref": "#/components/schemas/TidyUpSummary"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "TidyUpEntity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "documentCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "TidyUpEvidenceSide": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "documentCount": {
+            "type": "integer"
+          },
+          "titles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "up to three document titles"
+          },
+          "neighbours": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "the names usually filed with this one"
+          }
+        }
+      },
+      "TidyUpSuggestion": {
+        "type": "object",
+        "description": "one sentence a person accepts or declines; built by services/tidyUpSuggestions.js",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "split",
+              "delete"
+            ]
+          },
+          "entityKind": {
+            "type": "string",
+            "enum": [
+              "tags",
+              "correspondents"
+            ]
+          },
+          "certainty": {
+            "type": "string",
+            "enum": [
+              "sure",
+              "likely",
+              "unsure"
+            ]
+          },
+          "headline": {
+            "type": "string",
+            "description": "e.g. Merge Invoices into invoice, or for an unsure pair the question Are Kontoauszug and Kontoumzug the same thing?"
+          },
+          "reason": {
+            "type": "string",
+            "description": "why, in plain words, and what moves"
+          },
+          "from": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TidyUpEntity"
+            }
+          },
+          "to": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TidyUpEntity"
+              }
+            ],
+            "nullable": true
+          },
+          "typeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "topicNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "sides": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TidyUpEvidenceSide"
+                }
+              }
+            }
+          },
+          "details": {
+            "type": "object",
+            "description": "what the Details disclosure shows; never in the sentence",
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "number",
+                "nullable": true
+              },
+              "verdict": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AiVerdict"
+                  }
+                ],
+                "nullable": true
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "scan",
+                  "ai-candidate",
+                  "order",
+                  "unused"
+                ]
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "done",
+              "declined",
+              "later",
+              "failed"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "nullable": true,
+            "description": "after done or failed, one line, e.g. 12 documents moved"
+          },
+          "undoId": {
+            "type": "string",
+            "nullable": true,
+            "description": "the merge-log id that undoes it"
+          }
+        }
+      },
+      "TidyUpSummary": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "open": {
+            "type": "integer"
+          },
+          "sure": {
+            "type": "integer"
+          },
+          "likely": {
+            "type": "integer"
+          },
+          "unsure": {
+            "type": "integer"
+          },
+          "merge": {
+            "type": "integer"
+          },
+          "split": {
+            "type": "integer"
+          },
+          "delete": {
+            "type": "integer"
+          },
+          "done": {
+            "type": "integer"
+          },
+          "declined": {
+            "type": "integer"
+          },
+          "later": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          }
+        }
+      },
+      "TidyUpDecisionRequest": {
+        "type": "object",
+        "required": [
+          "ids",
+          "decision"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "decline",
+              "later"
+            ]
+          },
+          "edits": {
+            "type": "object",
+            "description": "per suggestion id, changes to apply before accepting",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "keepId": {
+                  "type": "integer",
+                  "description": "merge - the member that should survive instead of the proposed target"
+                },
+                "targetName": {
+                  "type": "string",
+                  "description": "merge - a new name for the survivor"
+                },
+                "typeName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "topicNames": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "memberIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  },
+                  "description": "delete - only these of the grouped unused names"
+                }
+              }
+            }
+          }
+        }
+      },
+      "TidyUpRecentChange": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "when": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sentence": {
+            "type": "string",
+            "description": "e.g. Merged Invoices into invoice · 12 documents moved"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "partial",
+              "failed",
+              "undone"
+            ]
+          },
+          "canUndo": {
+            "type": "boolean"
+          }
+        }
       }
     }
   },
@@ -2682,6 +3318,522 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tidy-up": {
+      "get": {
+        "summary": "The Tidy up page",
+        "tags": [
+          "Tidy up"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs": {
+      "post": {
+        "summary": "Start a Tidy up run",
+        "description": "Compares every name by spelling, optionally asks the model about the\npairs spelling cannot settle and about compound tags, and turns the\nresult into suggestions. One run at a time (409 while one runs).\n",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TidyUpRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The run, started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field of the request has the wrong type or value"
+          },
+          "409": {
+            "description": "A run is already going (`data` is that run), or another clean-up\njob of the old pages is running (`data` absent)\n"
+          },
+          "501": {
+            "description": "The `action` (retry-larger, test-connection) is not wired up yet; `error` says what to do instead"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/current": {
+      "get": {
+        "summary": "The running or most recent run",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No run yet"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/{id}": {
+      "get": {
+        "summary": "One run",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired run"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/{id}/events": {
+      "get": {
+        "summary": "Run snapshots as server-sent events",
+        "description": "Each event is `data: <TidyUpRun as JSON>`, at most four a second;\nthe stream ends after the event whose status is done, stopped or\nfailed. A run that is already over sends that one event at once.\nFollowing the stream counts as watching the run (the idle stop).\n",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream"
+          },
+          "404": {
+            "description": "Unknown or expired run"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/{id}/stop": {
+      "post": {
+        "summary": "Stop a run and keep what was found",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run, stopping or stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired run"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/suggestions": {
+      "get": {
+        "summary": "The suggestions of the current run",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suggestions and their summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "runId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/TidyUpSummary"
+                        },
+                        "suggestions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TidyUpSuggestion"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tidy-up/suggestions/decide": {
+      "post": {
+        "summary": "Accept, decline or postpone suggestions",
+        "description": "`accept` carries the change out at once (merge, split, delete) and\nreturns each suggestion as done or failed with its outcome; `decline`\nrecords a \"not the same\" so later runs leave the pair alone (for a\nsplit or delete: hides it for this run); `later` hides it for this\nrun. `edits` lets a split's type or topics, or a merge's surviving\nname, be changed before accepting.\n",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TidyUpDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The suggestions after the decision, and a batch id for undo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "batchId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/TidyUpSummary"
+                        },
+                        "suggestions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TidyUpSuggestion"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ids missing or empty, or an unknown decision"
+          },
+          "404": {
+            "description": "No run yet, or an id that is not a suggestion of it"
+          },
+          "409": {
+            "description": "Another change is being written to Paperless-ngx"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/suggestions/undo": {
+      "post": {
+        "summary": "Undo everything one decide call changed",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "batchId"
+                ],
+                "properties": {
+                  "batchId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was undone. `success` is false when an entry could not be\nundone completely; it is listed in `failed` and the batch stays.\nThe suggestions it covered are open again, with the ids of the\nre-created names.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "batchId": {
+                          "type": "string"
+                        },
+                        "undone": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "merge-log ids that were undone"
+                        },
+                        "failed": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "undoId": {
+                                "type": "string"
+                              },
+                              "error": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/TidyUpSummary"
+                        },
+                        "suggestions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TidyUpSuggestion"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batchId missing"
+          },
+          "404": {
+            "description": "Unknown batch, or one that was already undone"
+          },
+          "409": {
+            "description": "Another change is being written to Paperless-ngx"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/recent": {
+      "get": {
+        "summary": "Recent changes with their undo",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merge-log entries, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TidyUpRecentChange"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -5128,6 +6280,29 @@
         "tags": [
           "Setup"
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually.\n",
+                "properties": {
+                  "processedTag": {
+                    "type": "string",
+                    "description": "Tag added after a document was analysed; empty turns the tag off. It is also added to the excluded tags.\n"
+                  },
+                  "removeInboxTagsAfterProcessing": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Take every Paperless-ngx inbox tag off a document once its analysis was written. Saved as REMOVE_INBOX_TAGS_AFTER_PROCESSING; an absent value saves \"no\".\n"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Setup completed successfully"
@@ -6036,6 +7211,20 @@
                     "description": "Comma-separated list of tags to use for filtering",
                     "example": "Invoice,Receipt,Contract"
                   },
+                  "removeInboxTagsAfterProcessing": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Take every tag Paperless-ngx marks as inbox tag off a document once its analysis was written back (yes/no). Default no.",
+                    "example": "yes"
+                  },
+                  "removeTags": {
+                    "type": "string",
+                    "description": "Comma-separated tag names taken off a document after a successful analysis, matched case-insensitively, whatever the analysis proposed. Default empty.",
+                    "example": "todo,scan"
+                  },
                   "aiProcessedTag": {
                     "type": "boolean",
                     "description": "Whether to add a tag for AI-processed documents",
@@ -6353,22 +7542,32 @@
         },
         "responses": {
           "200": {
-            "description": "Settings updated successfully",
+            "description": "Settings saved. Most values apply at once. When a saved value is\none the process only reads at boot (the port, a cron schedule, the\nPaperless-ngx connection, ...), `restart` is true, `restartKeys`\nnames those keys and the process exits five seconds later so the\ncontainer restarts it. Poll `GET /health` until its `bootId`\nchanges to know the new process is up.\n",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "success"
-                      ],
-                      "example": "success"
+                    "success": {
+                      "type": "boolean",
+                      "example": true
                     },
                     "message": {
                       "type": "string",
-                      "example": "Settings updated successfully"
+                      "example": "Settings saved. The changes are in effect."
+                    },
+                    "restart": {
+                      "type": "boolean",
+                      "description": "Whether the server restarts to apply the save",
+                      "example": false
+                    },
+                    "restartKeys": {
+                      "type": "array",
+                      "description": "The changed keys that need the restart; empty when restart is false",
+                      "items": {
+                        "type": "string"
+                      },
+                      "example": []
                     }
                   }
                 }
@@ -6962,7 +8161,7 @@
     "/health": {
       "get": {
         "summary": "System health check endpoint",
-        "description": "Reports database connectivity **and** whether the document scanner is\nactually able to work. Used by the Docker healthcheck and monitoring.\n\n`status` is `healthy` when the database is reachable and the scanner is\noperational, `degraded` when automatic processing is enabled but the\nscan loop is not armed or has failed `failureThreshold` runs in a row\n(for example because Paperless-ngx is unreachable), and `database_error`\nwhen the local database cannot be queried.\n\nA `degraded` state answers with HTTP 503 unless `HEALTHCHECK_STRICT=no`\nis configured, in which case the details are reported with HTTP 200.\nWhen automatic processing is switched off via\n`DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and\nnever reported as degraded.\n\nWithout authentication the response carries only `status` and\n`database`, with the same HTTP status codes. `message`, `scanner` and\n`paperless` hold raw error messages with internal host names and\nports, so they are returned only with a session (cookie or bearer\ntoken) or the `x-api-key` header.\n",
+        "description": "Reports database connectivity **and** whether the document scanner is\nactually able to work. Used by the Docker healthcheck and monitoring.\n\n`status` is `healthy` when the database is reachable and the scanner is\noperational, `degraded` when automatic processing is enabled but the\nscan loop is not armed or has failed `failureThreshold` runs in a row\n(for example because Paperless-ngx is unreachable), and `database_error`\nwhen the local database cannot be queried.\n\nA `degraded` state answers with HTTP 503 unless `HEALTHCHECK_STRICT=no`\nis configured, in which case the details are reported with HTTP 200.\nWhen automatic processing is switched off via\n`DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and\nnever reported as degraded.\n\nWithout authentication the response carries only `status`,\n`database`, `bootId` and `startedAt`, with the same HTTP status codes.\n`message`, `scanner` and `paperless` hold raw error messages with\ninternal host names and ports, so they are returned only with a\nsession (cookie or bearer token) or the `x-api-key` header.\n\n`bootId` is a random id the process draws when it starts. A client\nthat waits for a restart polls until it sees an id other than the one\nit had before; the old process answers healthy until it exits.\n",
         "tags": [
           "System"
         ],
@@ -8057,8 +9256,8 @@
     },
     "/duplicates": {
       "get": {
-        "summary": "Duplicate tags and correspondents page",
-        "description": "Renders the Duplicates page. The page scans on request through\n`/api/duplicates/scan`; nothing runs automatically.\n",
+        "summary": "Former Duplicates page, now part of Tidy up",
+        "description": "The Duplicates page was replaced by Tidy up (`/tidy-up`); this path\nredirects there permanently so bookmarks keep working. The\n`/api/duplicates/*` routes are unchanged.\n",
         "tags": [
           "Navigation",
           "Duplicates"
@@ -8069,21 +9268,11 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Duplicates page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
+          "301": {
+            "description": "Moved permanently to /tidy-up"
           },
           "401": {
             "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
           }
         }
       }
@@ -9449,8 +10638,8 @@
     },
     "/simplify": {
       "get": {
-        "summary": "Simplify tags page",
-        "description": "Renders the page that turns compound tags such as \"Stromrechnung\" into\na document type (\"Rechnung\") and topic tags (\"Strom\"). The vocabulary\nand the proposals are read through `/api/simplify/*`; nothing runs\nautomatically and no split happens without a confirmation.\n",
+        "summary": "Former Simplify tags page, now part of Tidy up",
+        "description": "The Simplify tags page was replaced by Tidy up (`/tidy-up`), where\nsplitting compound tags is one option of a run; this path redirects\nthere permanently. The `/api/simplify/*` routes are unchanged.\n",
         "tags": [
           "Navigation",
           "Simplify"
@@ -9461,21 +10650,11 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Simplify tags page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
+          "301": {
+            "description": "Moved permanently to /tidy-up"
           },
           "401": {
             "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
           }
         }
       }
