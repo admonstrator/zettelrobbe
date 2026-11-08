@@ -964,19 +964,32 @@ async function mapWithConcurrency(items, limit, worker) {
   return results;
 }
 
+// What a failed request is called (services/modelFailure.js) and what its
+// pairs say instead of the parser's message (services/tidyUpWording.js).
+// Both are pure; required here rather than at the top of the file so the
+// failure handling stays in one region.
+const modelFailure = require('./modelFailure');
+const { unansweredReason } = require('./tidyUpWording');
+
 /**
  * The JSON array in a model's answer. Strips one code fence, then takes
  * everything between the first `[` and the last `]` — models like to explain
  * themselves before and after the thing they were asked for.
+ *
+ * Every error it throws is tagged `unreadable`; whether an empty answer was
+ * really a model that only thought is for the caller to say, which has the
+ * request's usage (see modelFailure.unusableAnswerKind()).
  *
  * @param {string} text
  * @returns {object[]}
  * @throws when there is nothing to parse
  */
 function parseVerdictArray(text) {
+  const unreadable = (error) =>
+    modelFailure.tagFailure(error, modelFailure.FAILURE_KINDS.UNREADABLE);
   let raw = String(text ?? '').trim();
   if (raw === '') {
-    throw new Error('the model answered nothing');
+    throw unreadable(new Error('the model answered nothing'));
   }
   raw = raw
     .replace(/^```[a-zA-Z0-9]*\s*/, '')
@@ -985,11 +998,16 @@ function parseVerdictArray(text) {
   const start = raw.indexOf('[');
   const end = raw.lastIndexOf(']');
   if (start === -1 || end <= start) {
-    throw new Error('the answer contained no JSON array');
+    throw unreadable(new Error('the answer contained no JSON array'));
   }
-  const parsed = JSON.parse(raw.slice(start, end + 1));
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch (error) {
+    throw unreadable(error);
+  }
   if (!Array.isArray(parsed)) {
-    throw new Error('the answer was not a JSON array');
+    throw unreadable(new Error('the answer was not a JSON array'));
   }
   return parsed;
 }
@@ -2132,28 +2150,69 @@ class EntityMatchAiService {
    * the beginning of what came back, one failed request, its pairs unsure.
    * The logger redacts credentials on the way to the file; an API key is never
    * part of an answer or of one of these messages to begin with.
+   *
+   * The pairs are told in words a person understands (unansweredReason());
+   * the message itself goes into `usage.failures` with its kind, for the
+   * Details disclosure and nowhere else.
+   *
+   * @param {{error?: unknown, kind?: string, index?: number, total?: number}} [failure]
+   *   the error as thrown (its own kind wins over its message), or the kind
+   *   the caller knows; and the request's place in the run
    */
-  _failRequest(head, message, answer, keys, verdicts, usage) {
+  _failRequest(head, message, answer, keys, verdicts, usage, failure = {}) {
     const raw = String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH);
     console.warn(
       `${LOG_PREFIX} ${head} — failed: ${message}. Raw answer: ${raw || '(none)'}`
     );
     usage.failedRequests += 1;
-    this._fillMissing(keys, verdicts, message);
+    this._noteFailure(usage, keys, verdicts, message, failure);
   }
 
-  /** Gives every pair of the batch still without a verdict the same reason. */
-  _fillMissing(keys, verdicts, reason) {
+  /**
+   * Records one failed request in `usage.failures` and gives its pairs
+   * still without a verdict the reason for that kind of failure. Also used
+   * for a pair that does not fit even on its own: not a failed request, but
+   * a pair the person has to decide.
+   *
+   * @returns {string} the failure kind
+   */
+  _noteFailure(usage, keys, verdicts, message, failure = {}) {
+    const record = modelFailure.requestFailure(failure.error || message, {
+      kind: failure.kind,
+      model: this.judgeModel() || this.modelName() || null,
+      index: failure.index,
+      total: failure.total,
+    });
+    record.message = String(message || record.message);
+    record.pairsAffected = this._fillMissing(
+      keys,
+      verdicts,
+      unansweredReason(record.kind),
+      record.kind
+    );
+    if (!Array.isArray(usage.failures)) usage.failures = [];
+    usage.failures.push(record);
+    return record.kind;
+  }
+
+  /**
+   * Gives every pair of the batch still without a verdict the same reason;
+   * `failureKind` marks the pairs of a failed request, so the page can tell
+   * "the model could not tell" from "the model never answered".
+   */
+  _fillMissing(keys, verdicts, reason, failureKind = null) {
     let filled = 0;
     for (const key of keys) {
       if (verdicts.has(key)) continue;
-      verdicts.set(key, {
+      const verdict = {
         verdict: AI_VERDICTS.UNSURE,
         reason: toReason(reason) || 'the request failed',
         basis: null,
         confidence: null,
         source: VERDICT_SOURCES.MODEL,
-      });
+      };
+      if (failureKind) verdict.failureKind = failureKind;
+      verdicts.set(key, verdict);
       filled += 1;
     }
     return filled;
@@ -2817,7 +2876,8 @@ class EntityMatchAiService {
           null,
           keys,
           verdicts,
-          usage
+          usage,
+          { error, index: meterIndex, total: tracker?.requestsPlanned }
         );
         if (tracker) tracker.failedRequests += 1;
         return report(0, 'failed', 0);
@@ -2913,7 +2973,17 @@ class EntityMatchAiService {
         answer,
         keys,
         verdicts,
-        usage
+        usage,
+        {
+          // Reasoning and no answer is the model thinking, whatever the
+          // parser said about the empty text it was left with.
+          kind: modelFailure.unusableAnswerKind(
+            answer,
+            service.lastGenerateTextUsage
+          ),
+          index: meterIndex,
+          total: tracker?.requestsPlanned,
+        }
       );
       if (tracker) tracker.failedRequests += 1;
       return report(0, 'failed', 0);
@@ -2973,11 +3043,27 @@ class EntityMatchAiService {
         ms: elapsedMs,
         outcome: 'failed',
       });
-      throw this._unavailable(WARMUP_IMPOSSIBLE_MESSAGE(batch.length));
+      throw modelFailure.tagFailure(
+        this._unavailable(WARMUP_IMPOSSIBLE_MESSAGE(batch.length)),
+        modelFailure.unusableAnswerKind(answer, service.lastGenerateTextUsage, {
+          truncated: true,
+        })
+      );
     }
 
     if (batch.length === 1) {
-      this._fillMissing(keys, verdicts, SINGLE_PAIR_TRUNCATION_REASON);
+      // Not a failed request (the cut-off is an answer, and the raised cap
+      // was tried), but a pair the person decides: recorded with the kind
+      // its answer shows, and worded like one.
+      this._noteFailure(usage, keys, verdicts, SINGLE_PAIR_TRUNCATION_REASON, {
+        kind: modelFailure.unusableAnswerKind(
+          answer,
+          service.lastGenerateTextUsage,
+          { truncated: true }
+        ),
+        index: meterIndex,
+        total: tracker?.requestsPlanned,
+      });
       this._log(
         `${head()} — the answer hit the token limit for a single pair, giving up on ${batch[0].key}.`
       );
@@ -3056,6 +3142,8 @@ class EntityMatchAiService {
       failedRequests: 0,
       retries: 0,
       batchSize: this.batchSize(),
+      // One RequestFailure (services/modelFailure.js) per failed request.
+      failures: [],
     };
     const model = this.modelName();
     if (list.length === 0) {
@@ -3465,6 +3553,10 @@ class EntityMatchAiService {
         console.warn(
           `${LOG_PREFIX} ${head()} — failed: ${error?.message || 'the AI provider could not be reached'}.`
         );
+        this._noteSweepFailure(usage, chunk, error, {
+          index: meterIndex,
+          total: tracker?.requestsPlanned,
+        });
         this._readSpend(service, spentHere);
         this._recordRequest(context, meter('failed', 0));
         this._afterSweepRequest(kind, context);
@@ -3509,11 +3601,22 @@ class EntityMatchAiService {
       }
       if (salvaged.length === 0) {
         usage.failedRequests += 1;
+        const reason = truncated
+          ? 'the answer was cut off with nothing usable in it'
+          : parseError?.message || 'the answer could not be read';
         console.warn(
-          `${LOG_PREFIX} ${head()} — failed: ` +
-            `${truncated ? 'the answer was cut off with nothing usable in it' : parseError?.message || 'the answer could not be read'}. ` +
+          `${LOG_PREFIX} ${head()} — failed: ${reason}. ` +
             `Raw answer: ${String(answer ?? '').slice(0, RAW_ANSWER_LOG_LENGTH) || '(none)'}`
         );
+        this._noteSweepFailure(usage, chunk, reason, {
+          kind: modelFailure.unusableAnswerKind(
+            answer,
+            service.lastGenerateTextUsage,
+            { truncated }
+          ),
+          index: meterIndex,
+          total: tracker?.requestsPlanned,
+        });
         this._recordRequest(context, meter(truncated ? 'empty' : 'failed', 0));
         this._afterSweepRequest(kind, context);
         return [];
@@ -3538,6 +3641,26 @@ class EntityMatchAiService {
     );
     this._afterSweepRequest(kind, context);
     return proposals;
+  }
+
+  /**
+   * One failed sweep request in `usage.failures`. A sweep only proposes
+   * pairs, so it leaves no pair unsure; it counts the names it was to read.
+   *
+   * @param {object} usage
+   * @param {object[]} chunk  the names of the request
+   * @param {unknown} error   the error, or the reason as a message
+   * @param {{kind?: string, index?: number, total?: number}} [failure]
+   */
+  _noteSweepFailure(usage, chunk, error, failure = {}) {
+    if (!Array.isArray(usage.failures)) usage.failures = [];
+    usage.failures.push(
+      modelFailure.requestFailure(error, {
+        ...failure,
+        model: this.judgeModel() || this.modelName() || null,
+        namesAffected: chunk.length,
+      })
+    );
   }
 
   /**
@@ -3599,7 +3722,12 @@ class EntityMatchAiService {
    */
   async _sweepKind(kind, entities, options) {
     const { known, dismissed, service, tracker, sizer } = options;
-    const usage = { requests: 0, tokens: null, failedRequests: 0 };
+    const usage = {
+      requests: 0,
+      tokens: null,
+      failedRequests: 0,
+      failures: [],
+    };
     /** @type {AiReviewPair[]} */
     const pairs = [];
     const result = { pairs, groups: 0, usage };
@@ -4330,6 +4458,8 @@ class EntityMatchAiService {
     let groupsSkipped = 0;
     let requests = 0;
     let failedRequests = 0;
+    /** Every failed request of the review, sweep included (RequestFailure). */
+    const failures = [];
     let retries = 0;
     let batchSize = null;
     let tokens = null;
@@ -4345,6 +4475,7 @@ class EntityMatchAiService {
     const foldUsage = (usage) => {
       requests += usage.requests;
       failedRequests += usage.failedRequests;
+      failures.push(...(usage.failures || []));
       retries += usage.retries;
       // Two kinds can end up with two sizes; the smaller one is what the
       // review actually had to work with.
@@ -4417,6 +4548,7 @@ class EntityMatchAiService {
         requests += swept.usage.requests;
         sweepRequests += swept.usage.requests;
         failedRequests += swept.usage.failedRequests;
+        failures.push(...(swept.usage.failures || []));
         if (swept.usage.tokens != null) {
           tokens = (tokens || 0) + swept.usage.tokens;
         }
@@ -4790,6 +4922,9 @@ class EntityMatchAiService {
         // one asked the rest in.
         verdictsReused,
         concurrency,
+        // Every failed request with its kind (RequestFailure); the job
+        // collapses them into its partialFailures.
+        failures,
       },
     };
   }

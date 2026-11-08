@@ -68,6 +68,11 @@ const {
   resolveRules,
   transportFor,
 } = require('./aiProviderRules');
+const {
+  FAILURE_KINDS,
+  tagFailure,
+  tagTransportFailure,
+} = require('./modelFailure');
 
 const responseLogPath = path.join(
   process.cwd(),
@@ -718,9 +723,15 @@ class OpenAICompatibleService {
         // empty choices array all end here and need telling apart.
         const finishReason = response?.choices?.[0]?.finish_reason ?? 'unknown';
         const head = JSON.stringify(response ?? null).slice(0, 200);
-        throw new Error(
+        const error = new Error(
           `Invalid API response structure: the answer carried no text (finish_reason ${finishReason}; the response begins ${head})`
         );
+        // Reasoning and no answer: the model spent the completion thinking.
+        throw message?.reasoning_content ||
+          message?.reasoning ||
+          /<think>/i.test(String(message?.content ?? ''))
+          ? tagFailure(error, FAILURE_KINDS.THINKING)
+          : error;
       }
 
       return generatedText;
@@ -733,7 +744,7 @@ class OpenAICompatibleService {
           : error;
       console.error(`Error generating text with ${label}: ${thrown.message}`);
       console.debug(thrown);
-      throw thrown;
+      throw tagTransportFailure(thrown);
     }
   }
 
