@@ -1735,6 +1735,19 @@
  *           type: string
  *           enum: [tags, correspondents, all]
  *           default: all
+ *         action:
+ *           type: string
+ *           nullable: true
+ *           enum: [retry, continue, retry-affected, retry-larger, test-connection]
+ *           description: |
+ *             the key of the failure-notice action that started this run;
+ *             `continue` and `retry-affected` ask the model only about the
+ *             groups the previous run left as "needs a look" and carry the
+ *             rest over; `retry-larger` and `test-connection` answer 501
+ *         answerTokens:
+ *           type: integer
+ *           nullable: true
+ *           description: a larger answer cap for retry-larger (not wired up yet)
  *     TidyUpStep:
  *       type: object
  *       description: one line of the run's progress list; keys and labels come from tidyUpWording.RUN_STEPS

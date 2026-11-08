@@ -375,6 +375,70 @@ function summarize(list) {
   return out;
 }
 
+/**
+ * One side of the evidence a person sees next to a pair they decide: the
+ * name, its document count, up to three document titles and the names it is
+ * usually filed with. Reads `titles`/`neighbours` off a DuplicateGroupMember
+ * (entityMatchAiService attaches them when it read them for the model).
+ *
+ * @param {{id:number, name:string, documentCount?:number, titles?:string[], neighbours?:string[]}} member
+ * @returns {{id:number, name:string, documentCount:number, titles:string[], neighbours:string[]}}
+ */
+function evidenceSide(member) {
+  const list = (value, max) =>
+    (Array.isArray(value) ? value : [])
+      .map((entry) => String(entry ?? '').trim())
+      .filter(Boolean)
+      .slice(0, max);
+  return {
+    ...entityOf(member || {}),
+    titles: list(member?.titles, 3),
+    neighbours: list(member?.neighbours, 5),
+  };
+}
+
+/**
+ * The evidence of a merge suggestion: one side per member, the proposed
+ * survivor first. Which side the rule or the model prefers is deliberately
+ * not marked; the person decides.
+ *
+ * @param {object[]} members  DuplicateGroupMembers
+ * @param {number} [targetId]
+ * @returns {SuggestionEvidence}
+ */
+function evidenceFromMembers(members, targetId) {
+  const list = Array.isArray(members) ? [...members] : [];
+  list.sort(
+    (a, b) =>
+      (Number(b.id) === Number(targetId)) - (Number(a.id) === Number(targetId))
+  );
+  return { sides: list.map(evidenceSide) };
+}
+
+const KIND_ORDER = Object.freeze(['merge', 'split', 'delete']);
+const CERTAINTY_ORDER = Object.freeze(['sure', 'likely', 'unsure']);
+
+/**
+ * The order the page lists suggestions in: merges, splits, deletes; inside a
+ * kind the sure ones first, then by the documents they touch.
+ *
+ * @param {Suggestion[]} list
+ * @returns {Suggestion[]} a new array
+ */
+function sortSuggestions(list) {
+  const weight = (s) =>
+    (s.from || []).reduce((n, e) => n + (e.documentCount || 0), 0) +
+    (s.to ? s.to.documentCount || 0 : 0);
+  return [...(Array.isArray(list) ? list : [])].sort(
+    (a, b) =>
+      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
+      CERTAINTY_ORDER.indexOf(a.certainty) -
+        CERTAINTY_ORDER.indexOf(b.certainty) ||
+      weight(b) - weight(a) ||
+      String(a.id).localeCompare(String(b.id))
+  );
+}
+
 module.exports = {
   SUGGESTION_KINDS,
   CERTAINTY,
@@ -386,4 +450,7 @@ module.exports = {
   fromUnusedEntity,
   fromOrderMember,
   summarize,
+  evidenceSide,
+  evidenceFromMembers,
+  sortSuggestions,
 };

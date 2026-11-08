@@ -12144,42 +12144,25 @@ async function readMergeLog({ limit, offset, kind, action }) {
  * @swagger
  * /duplicates:
  *   get:
- *     summary: Duplicate tags and correspondents page
+ *     summary: Former Duplicates page, now part of Tidy up
  *     description: |
- *       Renders the Duplicates page. The page scans on request through
- *       `/api/duplicates/scan`; nothing runs automatically.
+ *       The Duplicates page was replaced by Tidy up (`/tidy-up`); this path
+ *       redirects there permanently so bookmarks keep working. The
+ *       `/api/duplicates/*` routes are unchanged.
  *     tags:
  *       - Navigation
  *       - Duplicates
  *     security:
  *       - BearerAuth: []
  *     responses:
- *       200:
- *         description: Duplicates page rendered successfully
- *         content:
- *           text/html:
- *             schema:
- *               type: string
+ *       301:
+ *         description: Moved permanently to /tidy-up
  *       401:
  *         description: Not authenticated
- *       500:
- *         description: Server error
  */
-router.get('/duplicates', protectApiRoute, async (req, res) => {
-  try {
-    return res.render('duplicates', {
-      version: configFile.PAPERLESS_AI_VERSION || ' ',
-      sensitivity: entityNameMatcher.SENSITIVITY,
-      defaultThreshold: entityNameMatcher.DEFAULT_THRESHOLD,
-      // Decides whether the page asks the model at all; a review is only
-      // ever started by the user.
-      aiReviewEnabled: entityMatchAiService.isEnabled(),
-    });
-  } catch (error) {
-    console.error('[ERROR] GET /duplicates:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+router.get('/duplicates', protectApiRoute, (req, res) =>
+  res.redirect(301, '/tidy-up')
+);
 
 /**
  * @swagger
@@ -14265,42 +14248,25 @@ function startSimplifyJob(res, route, task, options, runner) {
  * @swagger
  * /simplify:
  *   get:
- *     summary: Simplify tags page
+ *     summary: Former Simplify tags page, now part of Tidy up
  *     description: |
- *       Renders the page that turns compound tags such as "Stromrechnung" into
- *       a document type ("Rechnung") and topic tags ("Strom"). The vocabulary
- *       and the proposals are read through `/api/simplify/*`; nothing runs
- *       automatically and no split happens without a confirmation.
+ *       The Simplify tags page was replaced by Tidy up (`/tidy-up`), where
+ *       splitting compound tags is one option of a run; this path redirects
+ *       there permanently. The `/api/simplify/*` routes are unchanged.
  *     tags:
  *       - Navigation
  *       - Simplify
  *     security:
  *       - BearerAuth: []
  *     responses:
- *       200:
- *         description: Simplify tags page rendered successfully
- *         content:
- *           text/html:
- *             schema:
- *               type: string
+ *       301:
+ *         description: Moved permanently to /tidy-up
  *       401:
  *         description: Not authenticated
- *       500:
- *         description: Server error
  */
-router.get('/simplify', protectApiRoute, async (req, res) => {
-  try {
-    return res.render('simplify', {
-      version: configFile.PAPERLESS_AI_VERSION || ' ',
-      // Decides whether the page offers the two model-backed proposals at
-      // all. The rule pass and every edit work without a model.
-      aiReviewEnabled: entityMatchAiService.isEnabled(),
-    });
-  } catch (error) {
-    console.error('[ERROR] GET /simplify:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+router.get('/simplify', protectApiRoute, (req, res) =>
+  res.redirect(301, '/tidy-up')
+);
 
 /**
  * @swagger

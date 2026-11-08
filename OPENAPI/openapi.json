@@ -2764,8 +2764,14 @@
               }
             }
           },
+          "400": {
+            "description": "A field of the request has the wrong type or value"
+          },
           "409": {
-            "description": "A run is already going"
+            "description": "A run is already going (`data` is that run), or another clean-up\njob of the old pages is running (`data` absent)\n"
+          },
+          "501": {
+            "description": "The `action` (retry-larger, test-connection) is not wired up yet; `error` says what to do instead"
           }
         }
       }
@@ -2863,7 +2869,7 @@
     "/api/tidy-up/runs/{id}/events": {
       "get": {
         "summary": "Run snapshots as server-sent events",
-        "description": "Each event is `data: <TidyUpRun as JSON>`; the stream ends after the\nevent whose status is done, stopped or failed.\n",
+        "description": "Each event is `data: <TidyUpRun as JSON>`, at most four a second;\nthe stream ends after the event whose status is done, stopped or\nfailed. A run that is already over sends that one event at once.\nFollowing the stream counts as watching the run (the idle stop).\n",
         "tags": [
           "Tidy up",
           "API"
@@ -2889,6 +2895,9 @@
         "responses": {
           "200": {
             "description": "text/event-stream"
+          },
+          "404": {
+            "description": "Unknown or expired run"
           }
         }
       }
@@ -2936,6 +2945,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Unknown or expired run"
           }
         }
       }
@@ -3051,6 +3063,15 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "ids missing or empty, or an unknown decision"
+          },
+          "404": {
+            "description": "No run yet, or an id that is not a suggestion of it"
+          },
+          "409": {
+            "description": "Another change is being written to Paperless-ngx"
           }
         }
       }
@@ -3090,7 +3111,66 @@
         },
         "responses": {
           "200": {
-            "description": "What was undone"
+            "description": "What was undone. `success` is false when an entry could not be\nundone completely; it is listed in `failed` and the batch stays.\nThe suggestions it covered are open again, with the ids of the\nre-created names.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "batchId": {
+                          "type": "string"
+                        },
+                        "undone": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "merge-log ids that were undone"
+                        },
+                        "failed": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "undoId": {
+                                "type": "string"
+                              },
+                              "error": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/TidyUpSummary"
+                        },
+                        "suggestions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TidyUpSuggestion"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "batchId missing"
+          },
+          "404": {
+            "description": "Unknown batch, or one that was already undone"
+          },
+          "409": {
+            "description": "Another change is being written to Paperless-ngx"
           }
         }
       }
@@ -8513,8 +8593,8 @@
     },
     "/duplicates": {
       "get": {
-        "summary": "Duplicate tags and correspondents page",
-        "description": "Renders the Duplicates page. The page scans on request through\n`/api/duplicates/scan`; nothing runs automatically.\n",
+        "summary": "Former Duplicates page, now part of Tidy up",
+        "description": "The Duplicates page was replaced by Tidy up (`/tidy-up`); this path\nredirects there permanently so bookmarks keep working. The\n`/api/duplicates/*` routes are unchanged.\n",
         "tags": [
           "Navigation",
           "Duplicates"
@@ -8525,21 +8605,11 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Duplicates page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
+          "301": {
+            "description": "Moved permanently to /tidy-up"
           },
           "401": {
             "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
           }
         }
       }
@@ -9905,8 +9975,8 @@
     },
     "/simplify": {
       "get": {
-        "summary": "Simplify tags page",
-        "description": "Renders the page that turns compound tags such as \"Stromrechnung\" into\na document type (\"Rechnung\") and topic tags (\"Strom\"). The vocabulary\nand the proposals are read through `/api/simplify/*`; nothing runs\nautomatically and no split happens without a confirmation.\n",
+        "summary": "Former Simplify tags page, now part of Tidy up",
+        "description": "The Simplify tags page was replaced by Tidy up (`/tidy-up`), where\nsplitting compound tags is one option of a run; this path redirects\nthere permanently. The `/api/simplify/*` routes are unchanged.\n",
         "tags": [
           "Navigation",
           "Simplify"
@@ -9917,21 +9987,11 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Simplify tags page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
+          "301": {
+            "description": "Moved permanently to /tidy-up"
           },
           "401": {
             "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
           }
         }
       }

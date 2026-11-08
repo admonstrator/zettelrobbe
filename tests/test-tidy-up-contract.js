@@ -251,6 +251,42 @@ async function run() {
   assert.strictEqual(summary.merge, 2);
   assert.strictEqual(summary.done, 1);
 
+  // --- evidence and order (added with the run service) ---------------
+  const evidence = suggestions.evidenceFromMembers(
+    [
+      { id: 4, name: 'Kontoumzug', documentCount: 1, titles: ['Moving'] },
+      {
+        id: 3,
+        name: 'Kontoauszug',
+        documentCount: 2,
+        titles: ['A', 'B', 'C', 'D'],
+        neighbours: ['Bank', '', 'Sparkasse'],
+      },
+    ],
+    3
+  );
+  assert.deepStrictEqual(
+    evidence.sides.map((side) => side.name),
+    ['Kontoauszug', 'Kontoumzug'],
+    'the proposed survivor comes first'
+  );
+  assert.deepStrictEqual(evidence.sides[0].titles, ['A', 'B', 'C']);
+  assert.deepStrictEqual(evidence.sides[0].neighbours, ['Bank', 'Sparkasse']);
+  assert.deepStrictEqual(evidence.sides[1].neighbours, []);
+  assert.deepStrictEqual(Object.keys(evidence.sides[1]).sort(), [
+    'documentCount',
+    'id',
+    'name',
+    'neighbours',
+    'titles',
+  ]);
+  const ordered = suggestions.sortSuggestions([del, split, unsurePair, merge]);
+  assert.deepStrictEqual(
+    ordered.map((s) => s.kind),
+    ['merge', 'merge', 'split', 'delete']
+  );
+  assert.strictEqual(ordered[0].certainty, 'sure', 'sure merges first');
+
   // --- wording -------------------------------------------------------
   assert.strictEqual(wording.certaintyLabel('unsure'), 'Needs a look');
   for (const key of Object.keys(wording.RULE_CLAUSES)) {

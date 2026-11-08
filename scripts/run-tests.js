@@ -164,6 +164,8 @@ const TESTS = {
   'ai-provider-rules': 'test-ai-provider-rules.js',
   'tidy-up-contract': 'test-tidy-up-contract.js',
   'tidy-up-ui': 'test-tidy-up-ui.js',
+  'tidy-up-run': 'test-tidy-up-run.js',
+  'tidy-up-endpoints': 'test-tidy-up-endpoints.js',
   'openai-compatible-service': 'test-openai-compatible-service.js',
   'ocr-provider-anthropic': 'test-ocr-provider-anthropic.js',
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
@@ -314,7 +316,7 @@ const AREAS = {
   ],
   'settings-ai': ['settings-ai-options'],
   'ai-rules': ['ai-provider-rules'],
-  'tidy-up': ['tidy-up-contract'],
+  'tidy-up': ['tidy-up-contract', 'tidy-up-run', 'tidy-up-endpoints'],
   'tidy-up-ui': ['tidy-up-ui'],
   providers: ['openai-compatible-service'],
   anthropic: [

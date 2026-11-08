@@ -11,14 +11,15 @@
  * router only runs them as one job and presents the result as suggestions
  * (services/tidyUpSuggestions.js, services/tidyUpWording.js).
  *
- * The contract below is complete; handlers marked NOT IMPLEMENTED answer
- * 501 until the run service lands. The page codes against the shapes in
- * schemas.js (TidyUpRun, TidyUpSuggestion, TidyUpFailure, TidyUpSummary).
+ * The run, its suggestions and the decisions live in
+ * services/tidyUpRunService.js; the handlers here read the request, call it
+ * and answer in the shapes of schemas.js (TidyUpRun, TidyUpSuggestion,
+ * TidyUpFailure, TidyUpSummary).
  *
  * API, all under isAuthenticated (session cookie or API key):
  *
  *   GET  /tidy-up                         the page
- *   GET  /duplicates, GET /simplify       301 → /tidy-up
+ *   GET  /duplicates, GET /simplify       301 → /tidy-up (in routes/setup.js)
  *   POST /api/tidy-up/runs                start a run {askModel, suggestSplits, kind}
  *   GET  /api/tidy-up/runs/current        the running or last run (TidyUpRun), 204 when none
  *   GET  /api/tidy-up/runs/:id            one run
@@ -34,11 +35,35 @@ const express = require('express');
 const router = express.Router();
 const { isAuthenticated } = require('./auth');
 const config = require('../config/config');
+const tidyUpRunService = require('../services/tidyUpRunService');
 
-const NOT_IMPLEMENTED = (res) =>
-  res
-    .status(501)
-    .json({ success: false, error: 'Tidy up is not wired up yet' });
+/** How often an open event stream writes a comment line to stay open. */
+const KEEP_ALIVE_MS = 15 * 1000;
+
+/** Answers a refusal of the run service with its status, anything else 500. */
+function respondError(res, route, error) {
+  const status = Number.isInteger(error?.status) ? error.status : 500;
+  // A 501 is a sentence for the person, not a fault of the server.
+  if (status >= 500 && status !== 501)
+    console.error(`[ERROR] ${route}:`, error?.message || error);
+  return res.status(status).json({
+    success: false,
+    error: error?.message || 'Unexpected error',
+    ...(error?.run ? { data: error.run } : {}),
+  });
+}
+
+/** The run of a path id, or the 404 answered; null when it was. */
+function findRun(res, id) {
+  const run = tidyUpRunService.get(id);
+  if (!run) {
+    res
+      .status(404)
+      .json({ success: false, error: 'This run is unknown or has expired' });
+    return null;
+  }
+  return run;
+}
 
 /**
  * @swagger
@@ -55,12 +80,14 @@ const NOT_IMPLEMENTED = (res) =>
  */
 router.get('/tidy-up', isAuthenticated, async (req, res) => {
   try {
+    // modelAvailable: whether the model paths are offered at all (a run
+    // never asks the model unless the person ticks it); modelLabel,
+    // splitsAvailable, counts {tags, correspondents} and lastRun
+    // {when, accepted}|null. Paperless-ngx being unreachable shows zeros.
+    const locals = await tidyUpRunService.pageLocals();
     return res.render('tidy-up', {
       version: config.PAPERLESS_AI_VERSION || ' ',
-      // Whether the model paths are offered at all; a run never asks the
-      // model unless the person ticks it.
-      modelAvailable: false,
-      modelLabel: '',
+      ...locals,
     });
   } catch (error) {
     console.error('[ERROR] GET /tidy-up:', error);
@@ -96,12 +123,25 @@ router.get('/tidy-up', isAuthenticated, async (req, res) => {
  *               properties:
  *                 success: { type: boolean }
  *                 data: { $ref: '#/components/schemas/TidyUpRun' }
+ *       400:
+ *         description: A field of the request has the wrong type or value
  *       409:
- *         description: A run is already going
+ *         description: |
+ *           A run is already going (`data` is that run), or another clean-up
+ *           job of the old pages is running (`data` absent)
+ *       501:
+ *         description: The `action` (retry-larger, test-connection) is not wired up yet; `error` says what to do instead
  */
-router.post('/api/tidy-up/runs', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
-);
+router.post('/api/tidy-up/runs', isAuthenticated, (req, res) => {
+  try {
+    const run = tidyUpRunService.start(req.body || {});
+    return res
+      .status(202)
+      .json({ success: true, data: tidyUpRunService.toJSON(run) });
+  } catch (error) {
+    return respondError(res, 'POST /api/tidy-up/runs', error);
+  }
+});
 
 /**
  * @swagger
@@ -125,9 +165,16 @@ router.post('/api/tidy-up/runs', isAuthenticated, (req, res) =>
  *       204:
  *         description: No run yet
  */
-router.get('/api/tidy-up/runs/current', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
-);
+router.get('/api/tidy-up/runs/current', isAuthenticated, (req, res) => {
+  try {
+    const run = tidyUpRunService.current();
+    if (!run) return res.status(204).end();
+    tidyUpRunService.touch(run);
+    return res.json({ success: true, data: tidyUpRunService.toJSON(run) });
+  } catch (error) {
+    return respondError(res, 'GET /api/tidy-up/runs/current', error);
+  }
+});
 
 /**
  * @swagger
@@ -156,9 +203,16 @@ router.get('/api/tidy-up/runs/current', isAuthenticated, (req, res) =>
  *       404:
  *         description: Unknown or expired run
  */
-router.get('/api/tidy-up/runs/:id', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
-);
+router.get('/api/tidy-up/runs/:id', isAuthenticated, (req, res) => {
+  try {
+    const run = findRun(res, req.params.id);
+    if (!run) return undefined;
+    tidyUpRunService.touch(run);
+    return res.json({ success: true, data: tidyUpRunService.toJSON(run) });
+  } catch (error) {
+    return respondError(res, 'GET /api/tidy-up/runs/:id', error);
+  }
+});
 
 /**
  * @swagger
@@ -166,8 +220,10 @@ router.get('/api/tidy-up/runs/:id', isAuthenticated, (req, res) =>
  *   get:
  *     summary: Run snapshots as server-sent events
  *     description: |
- *       Each event is `data: <TidyUpRun as JSON>`; the stream ends after the
- *       event whose status is done, stopped or failed.
+ *       Each event is `data: <TidyUpRun as JSON>`, at most four a second;
+ *       the stream ends after the event whose status is done, stopped or
+ *       failed. A run that is already over sends that one event at once.
+ *       Following the stream counts as watching the run (the idle stop).
  *     tags: [Tidy up, API]
  *     security:
  *       - BearerAuth: []
@@ -180,10 +236,53 @@ router.get('/api/tidy-up/runs/:id', isAuthenticated, (req, res) =>
  *     responses:
  *       200:
  *         description: text/event-stream
+ *       404:
+ *         description: Unknown or expired run
  */
-router.get('/api/tidy-up/runs/:id/events', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
-);
+router.get('/api/tidy-up/runs/:id/events', isAuthenticated, (req, res) => {
+  const run = findRun(res, req.params.id);
+  if (!run) return undefined;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no',
+    Connection: 'keep-alive',
+  });
+
+  let ended = false;
+  let heartbeat = null;
+  let unfollow = () => {};
+  const cleanup = () => {
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = null;
+    unfollow();
+  };
+  // At most four snapshots a second; the last one (done, stopped or failed)
+  // is sent at once and ends the stream.
+  unfollow = tidyUpRunService.follow(req.params.id, (snapshot, final) => {
+    if (ended) return;
+    res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+    if (res.flush) res.flush();
+    if (!final) return;
+    ended = true;
+    cleanup();
+    res.end();
+  });
+
+  heartbeat = setInterval(() => {
+    res.write(': keep-alive\n\n');
+    if (res.flush) res.flush();
+  }, KEEP_ALIVE_MS);
+  if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
+  req.on('close', () => {
+    if (ended) return;
+    ended = true;
+    cleanup();
+  });
+  return undefined;
+});
 
 /**
  * @swagger
@@ -209,10 +308,18 @@ router.get('/api/tidy-up/runs/:id/events', isAuthenticated, (req, res) =>
  *               properties:
  *                 success: { type: boolean }
  *                 data: { $ref: '#/components/schemas/TidyUpRun' }
+ *       404:
+ *         description: Unknown or expired run
  */
-router.post('/api/tidy-up/runs/:id/stop', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
-);
+router.post('/api/tidy-up/runs/:id/stop', isAuthenticated, (req, res) => {
+  try {
+    if (!findRun(res, req.params.id)) return undefined;
+    const run = tidyUpRunService.stop(req.params.id);
+    return res.json({ success: true, data: tidyUpRunService.toJSON(run) });
+  } catch (error) {
+    return respondError(res, 'POST /api/tidy-up/runs/:id/stop', error);
+  }
+});
 
 /**
  * @swagger
@@ -241,9 +348,13 @@ router.post('/api/tidy-up/runs/:id/stop', isAuthenticated, (req, res) =>
  *                       type: array
  *                       items: { $ref: '#/components/schemas/TidyUpSuggestion' }
  */
-router.get('/api/tidy-up/suggestions', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
-);
+router.get('/api/tidy-up/suggestions', isAuthenticated, (req, res) => {
+  try {
+    return res.json({ success: true, data: tidyUpRunService.suggestionsOf() });
+  } catch (error) {
+    return respondError(res, 'GET /api/tidy-up/suggestions', error);
+  }
+});
 
 /**
  * @swagger
@@ -284,9 +395,24 @@ router.get('/api/tidy-up/suggestions', isAuthenticated, (req, res) =>
  *                     suggestions:
  *                       type: array
  *                       items: { $ref: '#/components/schemas/TidyUpSuggestion' }
+ *       400:
+ *         description: ids missing or empty, or an unknown decision
+ *       404:
+ *         description: No run yet, or an id that is not a suggestion of it
+ *       409:
+ *         description: Another change is being written to Paperless-ngx
  */
-router.post('/api/tidy-up/suggestions/decide', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
+router.post(
+  '/api/tidy-up/suggestions/decide',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const data = await tidyUpRunService.decide(req.body || {}, req.user);
+      return res.json({ success: true, data });
+    } catch (error) {
+      return respondError(res, 'POST /api/tidy-up/suggestions/decide', error);
+    }
+  }
 );
 
 /**
@@ -309,10 +435,54 @@ router.post('/api/tidy-up/suggestions/decide', isAuthenticated, (req, res) =>
  *               batchId: { type: string }
  *     responses:
  *       200:
- *         description: What was undone
+ *         description: |
+ *           What was undone. `success` is false when an entry could not be
+ *           undone completely; it is listed in `failed` and the batch stays.
+ *           The suggestions it covered are open again, with the ids of the
+ *           re-created names.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     batchId: { type: string }
+ *                     undone:
+ *                       type: array
+ *                       items: { type: string }
+ *                       description: merge-log ids that were undone
+ *                     failed:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           undoId: { type: string }
+ *                           error: { type: string }
+ *                     summary: { $ref: '#/components/schemas/TidyUpSummary' }
+ *                     suggestions:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/TidyUpSuggestion' }
+ *       400:
+ *         description: batchId missing
+ *       404:
+ *         description: Unknown batch, or one that was already undone
+ *       409:
+ *         description: Another change is being written to Paperless-ngx
  */
-router.post('/api/tidy-up/suggestions/undo', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
+router.post(
+  '/api/tidy-up/suggestions/undo',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const data = await tidyUpRunService.undo(req.body || {}, req.user);
+      return res.json({ success: data.failed.length === 0, data });
+    } catch (error) {
+      return respondError(res, 'POST /api/tidy-up/suggestions/undo', error);
+    }
+  }
 );
 
 /**
@@ -337,8 +507,12 @@ router.post('/api/tidy-up/suggestions/undo', isAuthenticated, (req, res) =>
  *                   type: array
  *                   items: { $ref: '#/components/schemas/TidyUpRecentChange' }
  */
-router.get('/api/tidy-up/recent', isAuthenticated, (req, res) =>
-  NOT_IMPLEMENTED(res)
-);
+router.get('/api/tidy-up/recent', isAuthenticated, async (req, res) => {
+  try {
+    return res.json({ success: true, data: await tidyUpRunService.recent() });
+  } catch (error) {
+    return respondError(res, 'GET /api/tidy-up/recent', error);
+  }
+});
 
 module.exports = router;
