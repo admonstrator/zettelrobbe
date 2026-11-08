@@ -14,6 +14,55 @@ function applyProviderOptions(provider) {
       const providers = row.dataset.providers.split(',').filter(Boolean);
       row.classList.toggle('hidden', !providers.includes(provider));
     });
+  resetModelPickers(provider);
+}
+
+/* The model pickers (control type 'model' in settings.ejs, today only
+   "Model for Tidy up"). The select is the one element the form submits and
+   the env lock marks: its first option means "no model of its own", the
+   last one, "Other…", carries whatever is typed into the text field it
+   reveals, so the select's value is always the model id. */
+function syncModelPickerOther(select) {
+  const input = document.querySelector(
+    `[data-model-other-input="${select.id}"]`
+  );
+  if (!input) return;
+  const chosen = select.selectedOptions[0];
+  const isOther = Boolean(chosen && chosen.hasAttribute('data-model-other'));
+  input.classList.toggle('hidden', !isOther);
+}
+
+/* Lists `value` (when it is not listed yet), keeps "Other…" last and
+   selects `value`; an empty value selects the placeholder. */
+function settleModelPicker(select, value) {
+  const id = String(value || '').trim();
+  let other = select.querySelector('option[data-model-other]');
+  if (!other) {
+    other = document.createElement('option');
+    other.textContent = 'Other…';
+    other.dataset.modelOther = '';
+  }
+  other.value = '';
+  const listed = [...select.options].some(
+    (option) => option !== other && option.value === id
+  );
+  if (id && !listed) select.appendChild(new Option(id, id));
+  select.appendChild(other);
+  select.value = id;
+  syncModelPickerOther(select);
+}
+
+/* A provider switch makes a fetched list stale: back to the placeholder
+   and the stored value. Azure has no model discovery, so no Fetch button. */
+function resetModelPickers(provider) {
+  document.querySelectorAll('select[data-model-picker]').forEach((select) => {
+    select.innerHTML = '';
+    select.appendChild(new Option(select.dataset.placeholder || '', ''));
+    settleModelPicker(select, select.dataset.storedValue || '');
+    document
+      .querySelector(`[data-model-fetch="${select.id}"]`)
+      ?.classList.toggle('hidden', provider === 'azure');
+  });
 }
 
 class FormManager {
@@ -705,7 +754,41 @@ function initializeFormHandlers() {
     return {
       models: Array.isArray(result.models) ? result.models : [],
       resolvedApiUrl: String(result.resolvedApiUrl || '').trim(),
+      live: result.live,
+      message: String(result.message || '').trim(),
     };
+  };
+
+  /* The connection fields of one provider block, as the model discovery
+     route takes them: OpenAI needs no URL, Azure has no discovery. An empty
+     token means the stored key; the route resolves it. */
+  const getProviderConnection = (provider) => {
+    const read = (id) =>
+      String(document.getElementById(id)?.value || '').trim();
+    switch (provider) {
+      case 'openai':
+        return { discovery: true, apiUrl: '', token: read('openaiKey') };
+      case 'custom':
+        return {
+          discovery: true,
+          apiUrl: read('customBaseUrl'),
+          token: read('customApiKey'),
+        };
+      case 'ollama':
+        return {
+          discovery: true,
+          apiUrl: read('ollamaUrl'),
+          token: read('ollamaApiKey'),
+        };
+      case 'anthropic':
+        return {
+          discovery: true,
+          apiUrl: read('anthropicApiUrl'),
+          token: read('anthropicApiKey'),
+        };
+      default:
+        return { discovery: false, apiUrl: '', token: '' };
+    }
   };
 
   const getCurrentAiFormValues = () => {
@@ -1162,6 +1245,95 @@ function initializeFormHandlers() {
       }
     });
   }
+
+  /* Model pickers: "Other…" reveals the text field and the typed id becomes
+     the value of that option; Fetch models asks the provider selected above,
+     with the URL and key typed in its block (empty key = the stored one). */
+  document.querySelectorAll('select[data-model-picker]').forEach((select) => {
+    const otherInput = document.querySelector(
+      `[data-model-other-input="${select.id}"]`
+    );
+    const otherOption = () => select.querySelector('option[data-model-other]');
+    select.addEventListener('change', () => {
+      const other = otherOption();
+      if (other && other.selected && otherInput) {
+        other.value = otherInput.value.trim();
+        syncModelPickerOther(select);
+        otherInput.focus();
+        return;
+      }
+      syncModelPickerOther(select);
+    });
+    otherInput?.addEventListener('input', () => {
+      const other = otherOption();
+      if (other) other.value = otherInput.value.trim();
+    });
+
+    const button = document.querySelector(`[data-model-fetch="${select.id}"]`);
+    button?.addEventListener('click', async () => {
+      const provider = String(aiProviderSelect?.value || '')
+        .trim()
+        .toLowerCase();
+      const connection = getProviderConnection(provider);
+      if (!connection.discovery) {
+        await zrDialog({
+          icon: 'info',
+          title: 'No model list',
+          text: 'This provider cannot list its models. Choose "Other…" and type the model name.',
+        });
+        return;
+      }
+      if (['custom', 'ollama'].includes(provider) && !connection.apiUrl) {
+        await zrDialog({
+          icon: 'warning',
+          title: 'Missing URL',
+          text: 'Please enter the API URL under AI provider first.',
+        });
+        return;
+      }
+
+      const current = String(select.value || '').trim();
+      setButtonLoading(button, true);
+      try {
+        const result = await fetchModels('/api/settings/ai/models', {
+          aiProvider: provider,
+          apiUrl: connection.apiUrl,
+          token: connection.token,
+        });
+        populateModelSelect(
+          select,
+          result.models,
+          select.dataset.placeholder || 'Select model'
+        );
+        settleModelPicker(select, current);
+        await zrDialog({
+          icon: result.live === false ? 'warning' : 'success',
+          title:
+            result.live === false ? 'Suggested models shown' : 'Models loaded',
+          text:
+            result.message ||
+            (result.models.length > 0
+              ? `Found ${result.models.length} model(s).`
+              : 'No models found.'),
+        });
+      } catch (error) {
+        const errorDetails = getTimeoutAwareErrorDetails(
+          'AI model discovery',
+          error,
+          null
+        );
+        await zrDialog({
+          icon: 'error',
+          title: errorDetails.isTimeout
+            ? 'AI timeout reached'
+            : 'Loading failed',
+          text: errorDetails.message,
+        });
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+  });
 
   /* What Claude OCR falls back to when its own fields are empty: the
      Anthropic AI provider's key, URL and model — but only while that provider
@@ -3194,6 +3366,16 @@ function initializeRuntimeOverridePills() {
     fieldElement.disabled = true;
     fieldElement.setAttribute('aria-disabled', 'true');
     lockChipField(fieldElement);
+    // Controls that change the field's value (a model picker's Fetch button
+    // and its "Other…" text field) are locked along with it.
+    if (fieldElement.id) {
+      setupForm
+        .querySelectorAll(`[data-locked-by="${fieldElement.id}"]`)
+        .forEach((control) => {
+          control.disabled = true;
+          control.setAttribute('aria-disabled', 'true');
+        });
+    }
 
     const note = `Set by the environment (${envKey}).`;
     const tile = fieldElement.closest('.zr-checktile');
