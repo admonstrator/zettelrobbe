@@ -1829,7 +1829,7 @@
  *           enum: [done, now, next, skipped]
  *         detail:
  *           type: string
- *           description: the numbers next to the step, e.g. "550 names · 9 sure matches · 23 pairs spelling can't settle"
+ *           description: the numbers next to the step, e.g. 550 names · 9 sure matches · 23 pairs spelling cannot settle
  *     TidyUpFailure:
  *       type: object
  *       description: present when the run failed or a part of it did; everything the notice needs
@@ -1886,11 +1886,11 @@
  *             etaText:
  *               type: string
  *               nullable: true
- *               description: "About a minute left"
+ *               description: e.g. About a minute left
  *             costText:
  *               type: string
  *               nullable: true
- *               description: "38,400 tokens of your 200,000 budget"
+ *               description: e.g. 38,400 tokens of your 200,000 budget
  *             tokens:
  *               type: integer
  *             tokenBudget:
@@ -1963,7 +1963,7 @@
  *           enum: [sure, likely, unsure]
  *         headline:
  *           type: string
- *           description: "Merge Invoices into invoice" / "Are Kontoauszug and Kontoumzug the same thing?"
+ *           description: e.g. Merge Invoices into invoice, or for an unsure pair the question Are Kontoauszug and Kontoumzug the same thing?
  *         reason:
  *           type: string
  *           description: why, in plain words, and what moves
@@ -2018,7 +2018,7 @@
  *         outcome:
  *           type: string
  *           nullable: true
- *           description: after done or failed, one line ("12 documents moved")
+ *           description: after done or failed, one line, e.g. 12 documents moved
  *         undoId:
  *           type: string
  *           nullable: true
@@ -2083,7 +2083,7 @@
  *           format: date-time
  *         sentence:
  *           type: string
- *           description: "Merged Invoices into invoice · 12 documents moved"
+ *           description: e.g. Merged Invoices into invoice · 12 documents moved
  *         status:
  *           type: string
  *           enum: [done, partial, failed, undone]
