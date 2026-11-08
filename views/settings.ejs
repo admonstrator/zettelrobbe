@@ -46,8 +46,7 @@
             { id: 'runtime', title: 'Runtime controls' }
         ] },
         { label: 'Tag tools', icon: 'i-tag', entries: [
-            { id: 'duplicates', title: 'Duplicates' },
-            { id: 'simplify', title: 'Simplify tags' }
+            { id: 'tidy-up', title: 'Tidy up' }
         ] },
         { label: 'Sign-in and security', icon: 'i-shield', entries: [
             { id: 'account', title: 'Account and two-factor' },
@@ -1005,37 +1004,20 @@
                                 </section>
                         <%- entryClose() %>
 
-                        <%- entryOpen('duplicates') %>
-                                <section class="zr-module" id="sec-duplicates">
+                        <%- entryOpen('tidy-up') %>
+                                <section class="zr-module" id="sec-tidy-up">
                                     <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Duplicates</h2>
+                                        <h2 class="zr-module__title">Tidy up</h2>
                                     </div>
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <p class="zr-sm zr-muted">
-                                        The Duplicates page finds tags and correspondents that mean the same thing. Finding and merging
-                                        them is deterministic and needs none of these settings; they only govern the optional AI review
-                                        that judges the proposed groups when you ask for it. Nothing here starts a scan or a merge on its own.
+                                        These settings only govern what the model does on the Tidy up page when you ask it.
+                                        Finding, merging and splitting work without them; nothing here runs on its own.
                                     </p>
-                                    <%- aiOptionBlock(aiOptionsIn('duplicates', 'basic')) %>
+                                    <%- aiOptionBlock(aiOptionsIn('tidy-up', 'basic')) %>
                                     </div>
                                 </section>
-                                <%- aiAdvanced('sec-duplicates-advanced', 'How the review sizes, limits and remembers its requests.', aiOptionsIn('duplicates', 'advanced')) %>
-                        <%- entryClose() %>
-
-                        <%- entryOpen('simplify') %>
-                                <section class="zr-module" id="sec-simplify">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Simplify tags</h2>
-                                    </div>
-                                    <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">
-                                        The Simplify tags page turns a compound tag such as "Stromrechnung" into a document type
-                                        ("Rechnung") and topic tags ("Strom"). Decomposing against a saved vocabulary is a rule and
-                                        needs no model; these two settings only govern the optional proposals the model makes.
-                                    </p>
-                                    <%- aiOptionBlock(aiOptionsIn('simplify', 'basic')) %>
-                                    </div>
-                                </section>
+                                <%- aiAdvanced('sec-tidy-up-advanced', 'What a run may spend, what the model reads and how large its requests are.', aiOptionsIn('tidy-up', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('account') %>
