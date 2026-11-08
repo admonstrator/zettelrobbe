@@ -204,11 +204,10 @@ function pageRegion(html) {
       assert.match(read('public', 'icons.svg'), /<symbol id="i-wand"/);
     });
 
-    await test('tidy-up.css is linked after simplify.css and sits in one pages layer', () => {
+    await test('tidy-up.css is linked in the shell and sits in one pages layer', () => {
       const head = read('views', 'partials', 'shell', 'head-start.ejs');
-      const a = head.indexOf('/css/pages/simplify.css');
-      const b = head.indexOf('/css/pages/tidy-up.css');
-      assert.ok(a > 0 && b > a);
+      assert.ok(head.indexOf('/css/pages/tidy-up.css') > 0);
+      assert.strictEqual(head.indexOf('/css/pages/duplicates.css'), -1);
       const css = read('public', 'css', 'pages', 'tidy-up.css');
       const body = css.replace(/\/\*[\s\S]*?\*\//g, '').trim();
       assert.strictEqual((body.match(/@layer /g) || []).length, 1);
