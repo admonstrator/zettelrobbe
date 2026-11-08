@@ -8,13 +8,16 @@
  * together through the real router: the rendered fields with the configured
  * values, the POST that stores them, the lock an injected value puts on them,
  * the .env export group, the wiring in public/js/settings.js, and that
- * neither key asks for a restart.
+ * neither key asks for a restart. It also holds the lock of a chip field:
+ * with IGNORE_TAGS (and REMOVE_TAGS_AFTER_PROCESSING) injected, the input,
+ * its Add button and the remove control of every chip are disabled, while a
+ * chip field the environment does not pin stays editable.
  */
 
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { mountRouter } = require('./helpers/mount-router');
+const { mountRouter, REPO_ROOT } = require('./helpers/mount-router');
 
 const API_KEY = 'test-api-key';
 
@@ -63,6 +66,16 @@ const SHELL_LOCALS = {
 let passed = 0;
 let failed = 0;
 
+// A browser is available in development containers, not in CI. The chip lock
+// is a client-side step, so it is looked at in a real page when one can be had.
+function loadPlaywright() {
+  try {
+    return require('playwright');
+  } catch {
+    return null;
+  }
+}
+
 // A successful POST /settings may schedule process.exit().
 const realExit = process.exit.bind(process);
 const exitCalls = [];
@@ -96,6 +109,7 @@ function sliceBetween(source, from, to) {
     env: {
       REMOVE_INBOX_TAGS_AFTER_PROCESSING: 'yes',
       REMOVE_TAGS_AFTER_PROCESSING: 'todo,Scan',
+      IGNORE_TAGS: 'pinned-one,pinned-two',
     },
     stub: ({ setupService }) => {
       setupService.saveConfig = async (config) => {
@@ -240,6 +254,7 @@ function sliceBetween(source, from, to) {
       [
         'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
         'REMOVE_TAGS_AFTER_PROCESSING',
+        'IGNORE_TAGS',
       ].forEach((key) =>
         assert.ok(
           locked.includes(key),
@@ -283,6 +298,199 @@ function sliceBetween(source, from, to) {
         /selector: '#removeTagInput', envKey: 'REMOVE_TAGS_AFTER_PROCESSING'/
       );
     });
+
+    await test('the lock covers a chip field as a whole, not only its input', async () => {
+      const source = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'js', 'settings.js'),
+        'utf8'
+      );
+      const lock = sliceBetween(
+        source,
+        'function lockChipField(fieldElement)',
+        '\n}\n'
+      );
+      assert.match(lock, /closest\('\.zr-field'\)/, 'walks to the field');
+      assert.match(lock, /querySelectorAll\('button'\)/, 'every button in it');
+      assert.match(lock, /\.disabled = true/);
+      assert.match(lock, /dataset\.locked = 'true'/, 'marks the chip list');
+      assert.ok(
+        !/ignoreTag|removeTag|promptTag|tagAddButton/.test(lock),
+        'no field ids are special-cased'
+      );
+      const pills = sliceBetween(
+        source,
+        'function initializeRuntimeOverridePills()',
+        '\n}\n'
+      );
+      assert.match(pills, /lockChipField\(fieldElement\)/);
+
+      const manager = sliceBetween(source, 'class TagsManager', '\n}\n');
+      assert.match(manager, /dataset\?\.locked === 'true'/);
+      assert.match(
+        manager,
+        /async addTag\(\) \{\s*if \(!this\.tagInput \|\| this\.tagInput\.disabled \|\| this\.isLocked\(\)\) return;/,
+        'Enter in a locked input adds nothing'
+      );
+      assert.match(manager, /removeButton\.disabled = this\.isLocked\(\);/);
+
+      const css = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'css', 'badges.css'),
+        'utf8'
+      );
+      assert.match(
+        css,
+        /\.zr-chips\[data-locked\] \.zr-chip button \{\s*display: none;/
+      );
+
+      // Each chip field's Add button is addressable, and the managers use it.
+      const html = await getSettingsPage();
+      [
+        ['tagInput', 'tagAddButton'],
+        ['ignoreTagInput', 'ignoreTagAddButton'],
+        ['removeTagInput', 'removeTagAddButton'],
+        ['ignoreTitlePatternInput', 'ignoreTitlePatternAddButton'],
+        ['promptTagInput', 'promptTagAddButton'],
+      ].forEach(([input, button]) => {
+        assert.ok(html.includes(`id="${button}"`), `${button} is rendered`);
+        assert.match(
+          source,
+          new RegExp(`new TagsManager\\(\\s*'${input}',[^)]*'${button}'`),
+          `${input} is wired to ${button}`
+        );
+      });
+      [
+        ["'#tagInput'", "'TAGS'"],
+        ["'#ignoreTagInput'", "'IGNORE_TAGS'"],
+        ["'#promptTagInput'", "'PROMPT_TAGS'"],
+      ].forEach(([selector, key]) =>
+        assert.ok(
+          source.includes(`{ selector: ${selector}, envKey: ${key} }`),
+          `${selector} maps to ${key}`
+        )
+      );
+    });
+
+    const playwright = loadPlaywright();
+    if (!playwright) {
+      console.log(
+        'ℹ️  no browser available; the chip lock was checked in source only'
+      );
+    } else {
+      await test('in a browser, a pinned chip field is read-only and an unpinned one is not', async () => {
+        const express = require(
+          path.join(REPO_ROOT, 'node_modules', 'express')
+        );
+        harness.app.use(express.static(path.join(REPO_ROOT, 'public')));
+        const browser = await playwright.chromium.launch();
+        try {
+          const page = await browser.newPage({
+            extraHTTPHeaders: { 'x-api-key': API_KEY },
+          });
+          await page.goto(harness.base + '/settings#tag-filters');
+          await page.waitForFunction(
+            () => document.getElementById('ignoreTagInput')?.disabled === true,
+            null,
+            { timeout: 10000 }
+          );
+
+          const fieldState = (inputId) =>
+            page.evaluate((id) => {
+              const input = document.getElementById(id);
+              const field = input.closest('.zr-field');
+              const chips = field.querySelector('.zr-chips');
+              const add = field.querySelector('.zr-inputgroup button');
+              const removes = [...chips.querySelectorAll('.zr-chip button')];
+              return {
+                inputDisabled: input.disabled,
+                addDisabled: add.disabled,
+                locked: chips.dataset.locked || null,
+                chips: chips.querySelectorAll('.zr-chip').length,
+                removes: removes.map((button) => ({
+                  disabled: button.disabled,
+                  display: getComputedStyle(button).display,
+                })),
+                hint: [...field.querySelectorAll('.zr-field__hint')]
+                  .map((hint) => hint.textContent)
+                  .join(' | '),
+              };
+            }, inputId);
+
+          const pinned = await fieldState('ignoreTagInput');
+          assert.strictEqual(pinned.inputDisabled, true);
+          assert.strictEqual(pinned.addDisabled, true, 'Add is disabled');
+          assert.strictEqual(pinned.locked, 'true');
+          assert.strictEqual(pinned.chips, 2, 'the pinned tags stay visible');
+          assert.ok(
+            pinned.removes.every(
+              (button) => button.disabled && button.display === 'none'
+            ),
+            `no usable remove control: ${JSON.stringify(pinned.removes)}`
+          );
+          assert.match(pinned.hint, /Set by the environment \(IGNORE_TAGS\)\./);
+
+          // Enter in the locked input, and the remove controls, change nothing.
+          await page.evaluate(() => {
+            const input = document.getElementById('ignoreTagInput');
+            input.value = 'sneaked-in';
+            input.dispatchEvent(
+              new KeyboardEvent('keypress', { key: 'Enter', bubbles: true })
+            );
+            document.getElementById('ignoreTagAddButton').click();
+            document
+              .querySelectorAll('#ignoreTagsContainer .zr-chip button')
+              .forEach((button) => button.click());
+          });
+          await page.waitForTimeout(200);
+          const after = await page.evaluate(() => ({
+            chips: document.querySelectorAll('#ignoreTagsContainer .zr-chip')
+              .length,
+            hidden: document.getElementById('ignoreTags').value,
+            dialog: Boolean(document.querySelector('dialog[open]')),
+          }));
+          assert.deepStrictEqual(after, {
+            chips: 2,
+            hidden: 'pinned-one,pinned-two',
+            dialog: false,
+          });
+
+          // The other injected list is locked the same way, by the same code.
+          const removeList = await fieldState('removeTagInput');
+          assert.strictEqual(removeList.addDisabled, true);
+          assert.strictEqual(removeList.locked, 'true');
+
+          // A chip field nobody pinned keeps its input, Add and removes.
+          // It sits in another section of the page, so it is driven directly.
+          await page.evaluate(() => {
+            document.getElementById('ignoreTitlePatternInput').value = 'Scan_';
+            document.getElementById('ignoreTitlePatternAddButton').click();
+          });
+          const free = await fieldState('ignoreTitlePatternInput');
+          assert.strictEqual(free.inputDisabled, false);
+          assert.strictEqual(free.addDisabled, false);
+          assert.strictEqual(free.locked, null);
+          assert.ok(free.chips >= 1, 'Add added a chip');
+          assert.ok(
+            free.removes.length > 0 &&
+              free.removes.every(
+                (button) => !button.disabled && button.display !== 'none'
+              ),
+            `remove controls stay usable: ${JSON.stringify(free.removes)}`
+          );
+
+          if (process.env.CHIP_LOCK_SCREENSHOT) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await page
+              .locator('#ignoreTagInput')
+              .evaluate((el) =>
+                el.closest('.zr-card, section').scrollIntoView()
+              );
+            await page.screenshot({ path: process.env.CHIP_LOCK_SCREENSHOT });
+          }
+        } finally {
+          await browser.close();
+        }
+      });
+    }
   } finally {
     await harness.close();
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
