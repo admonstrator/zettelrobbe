@@ -2138,7 +2138,14 @@ function initializeFormHandlers() {
     }, 1200);
   }
 
-  async function isServerHealthy() {
+  // The id of the process that rendered this page. After a save the old
+  // process keeps answering /health for the seconds before it exits, so only
+  // a healthy answer with another id means the restarted server is up.
+  const renderedBootId = String(
+    document.getElementById('setupForm')?.dataset.bootId || ''
+  );
+
+  async function isRestartedServerHealthy() {
     const response = await fetch('/health', {
       method: 'GET',
       cache: 'no-store',
@@ -2152,7 +2159,11 @@ function initializeFormHandlers() {
     }
 
     const payload = await response.json().catch(() => null);
-    return !payload || payload.status === 'healthy';
+    if (!payload || payload.status !== 'healthy') {
+      return false;
+    }
+    const bootId = String(payload.bootId || '');
+    return Boolean(bootId) && bootId !== renderedBootId;
   }
 
   async function waitForServerRecovery() {
@@ -2164,7 +2175,7 @@ function initializeFormHandlers() {
     while (Date.now() - startedAt < timeoutMs) {
       await delay(1800);
       try {
-        const healthy = await isServerHealthy();
+        const healthy = await isRestartedServerHealthy();
         if (healthy) {
           stopRestartProgressInterval();
           setRestartProgress(100, 'Server is back. Reloading page…');
@@ -2173,7 +2184,7 @@ function initializeFormHandlers() {
           return;
         }
       } catch {
-        // Ignore network errors while server is restarting
+        // A network error means the server is still restarting.
       }
     }
 
@@ -2320,85 +2331,6 @@ function initializeFormHandlers() {
   }
 
   refreshThumbnailCacheStats();
-
-  const resetLocalOverridesBtn = document.getElementById(
-    'resetLocalOverridesBtn'
-  );
-  if (resetLocalOverridesBtn) {
-    resetLocalOverridesBtn.addEventListener('click', async () => {
-      const confirmResult = await zrDialog({
-        icon: 'warning',
-        title: 'Reset local runtime overrides?',
-        text: 'This removes local overrides. Container-managed environment values are applied after restart.',
-        input: 'password',
-        inputLabel: 'Confirm with your current password',
-        inputPlaceholder: 'Enter current password',
-        inputAttributes: {
-          autocapitalize: 'off',
-          autocorrect: 'off',
-          autocomplete: 'current-password',
-        },
-        inputValidator: (value) => {
-          if (!value || !String(value).trim()) {
-            return 'Current password is required.';
-          }
-          return null;
-        },
-        showCancelButton: true,
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6',
-        confirmButtonText: 'Yes, reset overrides',
-      });
-
-      if (!confirmResult.isConfirmed) {
-        return;
-      }
-
-      const currentPassword = String(confirmResult.value || '').trim();
-
-      const originalHtml = resetLocalOverridesBtn.innerHTML;
-      try {
-        resetLocalOverridesBtn.disabled = true;
-        resetLocalOverridesBtn.innerHTML =
-          '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Resetting...';
-
-        const response = await fetch('/api/settings/reset-local-overrides', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ currentPassword }),
-        });
-
-        const result = await response.json();
-        if (!response.ok || !result.success) {
-          throw new Error(
-            result.error || 'Failed to reset local runtime overrides'
-          );
-        }
-
-        await zrDialog({
-          icon: 'success',
-          title: 'Local overrides reset',
-          text:
-            result.message ||
-            'Local runtime overrides were removed. Restart the container to apply injected environment values.',
-        });
-
-        showRestartOverlay();
-        await waitForServerRecovery();
-      } catch (error) {
-        await zrDialog({
-          icon: 'error',
-          title: 'Reset failed',
-          text: error.message,
-        });
-      } finally {
-        resetLocalOverridesBtn.disabled = false;
-        resetLocalOverridesBtn.innerHTML = originalHtml;
-      }
-    });
-  }
 
   // Force Reconcile Button Handler
   const forceReconcileBtn = document.getElementById('forceReconcileBtn');
@@ -2688,19 +2620,16 @@ function initializeFormHandlers() {
         // The saved values are the new baseline for the unsaved-change count
         // and the leave warning (modules/settings-form.js).
         setupForm.dispatchEvent(new CustomEvent('zr:settings-saved'));
-        await zrDialog({
-          icon: 'success',
-          title: 'Success!',
-          text: result.message,
-          timer: 2000,
-          showConfirmButton: false,
-        });
 
         if (result.restart) {
           showRestartOverlay(
-            'Restarting service… waiting for health checks to pass.'
+            result.message ||
+              'Settings saved. Restarting… waiting for the server to come back.'
           );
           await waitForServerRecovery();
+        } else if (typeof window.__zrToast === 'function') {
+          // Applied at once: the page stays where it is.
+          window.__zrToast('Settings saved', { tone: 'ok' });
         }
       } else {
         throw new Error(result.error || 'An unknown error occurred');
@@ -2968,9 +2897,7 @@ function annotateEnvKeys(fieldMappings) {
     }
     const container = field.closest('.zr-field, .zr-switchrow');
     if (!container) return;
-    const hints = [...container.querySelectorAll('.zr-field__hint')].filter(
-      (hint) => !hint.hasAttribute('data-anthropic-hint')
-    );
+    const hints = [...container.querySelectorAll('.zr-field__hint')];
     const keyElement = () => {
       const code = document.createElement('code');
       code.className = 'zr-envkey';
@@ -3013,53 +2940,16 @@ function annotateEnvKeys(fieldMappings) {
   });
 }
 
+/* A field whose value the container pins is locked: disabled, its value
+   left visible, and its hint says where the value comes from. The keys come
+   from #setupForm (data-locked-env-keys, rendered by GET /settings). */
 function initializeRuntimeOverridePills() {
-  const resetLocalOverridesBtn = document.getElementById(
-    'resetLocalOverridesBtn'
-  );
-  let parsedOverrideKeys = [];
-  let parsedOverrideDetails = {};
+  const setupForm = document.getElementById('setupForm');
   let parsedLockedEnvKeys = [];
-  let parsedLockedEnvDetails = {};
-
-  if (resetLocalOverridesBtn?.dataset?.runtimeOverrideKeys) {
-    try {
-      parsedOverrideKeys = JSON.parse(
-        resetLocalOverridesBtn.dataset.runtimeOverrideKeys
-      );
-    } catch (error) {
-      console.warn('Failed to parse runtime override keys:', error);
-    }
-  }
-
-  if (resetLocalOverridesBtn?.dataset?.runtimeOverrideDetails) {
-    try {
-      parsedOverrideDetails = JSON.parse(
-        resetLocalOverridesBtn.dataset.runtimeOverrideDetails
-      );
-    } catch (error) {
-      console.warn('Failed to parse runtime override details:', error);
-    }
-  }
-
-  if (resetLocalOverridesBtn?.dataset?.lockedEnvKeys) {
-    try {
-      parsedLockedEnvKeys = JSON.parse(
-        resetLocalOverridesBtn.dataset.lockedEnvKeys
-      );
-    } catch (error) {
-      console.warn('Failed to parse locked environment keys:', error);
-    }
-  }
-
-  if (resetLocalOverridesBtn?.dataset?.lockedEnvDetails) {
-    try {
-      parsedLockedEnvDetails = JSON.parse(
-        resetLocalOverridesBtn.dataset.lockedEnvDetails
-      );
-    } catch (error) {
-      console.warn('Failed to parse locked environment details:', error);
-    }
+  try {
+    parsedLockedEnvKeys = JSON.parse(setupForm?.dataset.lockedEnvKeys || '[]');
+  } catch (error) {
+    console.warn('Failed to parse locked environment keys:', error);
   }
 
   // Every field with the variable it writes. Besides the pills below, this
@@ -3275,128 +3165,57 @@ function initializeRuntimeOverridePills() {
 
   annotateEnvKeys(fieldMappings);
 
-  const overrideKeys = new Set(
-    Array.isArray(parsedOverrideKeys) ? parsedOverrideKeys : []
-  );
   const lockedEnvKeys = new Set(
     Array.isArray(parsedLockedEnvKeys) ? parsedLockedEnvKeys : []
   );
-  if (overrideKeys.size === 0 && lockedEnvKeys.size === 0) {
+  if (lockedEnvKeys.size === 0 || !setupForm) {
     return;
   }
 
-  // Kept local because classic scripts cannot import ES modules; keep in sync
-  // with modules/text-utils.js.
-  const escapeHtml = (value) =>
-    String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-
-  const pills = [];
-
-  fieldMappings.forEach(({ selector, envKey }) => {
-    const fieldElement = document.querySelector(selector);
-    if (!fieldElement) {
+  const notedContainers = new Set();
+  setupForm.querySelectorAll('[data-env-key]').forEach((fieldElement) => {
+    const envKey = fieldElement.dataset.envKey;
+    if (!lockedEnvKeys.has(envKey)) {
       return;
     }
 
-    // `.space-y-2` was a Tailwind ancestor that no longer exists, so this
-    // returned null for every field and the pills never rendered. Settings
-    // rows are either a plain field or a switch row.
+    // The :disabled styling in the framework carries the visual state. A
+    // switch carries the key on both halves (annotateEnvKeys), so the
+    // visible toggle is locked along with its hidden yes/no input.
+    fieldElement.disabled = true;
+    fieldElement.setAttribute('aria-disabled', 'true');
+
+    const note = `Set by the environment (${envKey}).`;
+    const tile = fieldElement.closest('.zr-checktile');
+    if (tile) {
+      tile.title = note;
+      return;
+    }
+
     const container = fieldElement.closest('.zr-field, .zr-switchrow');
-    if (!container) {
+    if (!container || notedContainers.has(container)) {
       return;
     }
+    notedContainers.add(container);
 
-    const targetLabel =
-      container.querySelector(`label[for="${fieldElement.id}"]`) ||
-      container.querySelector('label');
-    if (!targetLabel) {
-      return;
+    const hints = [...container.querySelectorAll('.zr-field__hint')];
+    // Hints that swap with the provider (the OCR key) each get the note.
+    const targets = hints.some((hint) => hint.id)
+      ? hints.filter((hint) => hint.id)
+      : hints.slice(-1);
+    if (targets.length === 0) {
+      const hint = document.createElement('p');
+      hint.className = 'zr-field__hint';
+      // A switch row keeps its text left of the toggle.
+      (container.querySelector('.zr-grow') || container).append(hint);
+      targets.push(hint);
     }
-
-    if (!targetLabel.classList.contains('flex')) {
-      targetLabel.classList.add('flex', 'items-center', 'gap-2', 'flex-wrap');
-    }
-
-    if (
-      overrideKeys.has(envKey) &&
-      !targetLabel.querySelector('.override-pill')
-    ) {
-      const pill = document.createElement('span');
-      pill.className = 'override-pill zr-badge zr-badge--warn';
-      pill.textContent = 'Overwritten';
-      const overrideDetails = parsedOverrideDetails[envKey] || {};
-      const injectedValue = overrideDetails.injected || '[unknown]';
-      const overrideValue = overrideDetails.override || '[unknown]';
-      pill.setAttribute(
-        'data-tooltip',
-        [
-          '<div style="font-size:12px;">',
-          `<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(envKey)}</div>`,
-          `<div><strong>.env:</strong> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;word-break:break-all;">${escapeHtml(injectedValue)}</span></div>`,
-          `<div><strong>Override:</strong> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;word-break:break-all;">${escapeHtml(overrideValue)}</span></div>`,
-          '</div>',
-        ].join('')
-      );
-      targetLabel.appendChild(pill);
-      pills.push(pill);
-    }
-
-    if (lockedEnvKeys.has(envKey)) {
-      // The :disabled styling in the framework carries the visual state.
-      fieldElement.disabled = true;
-      fieldElement.setAttribute('aria-disabled', 'true');
-      // A switch is clicked on its visible half; the hidden yes/no input alone
-      // being disabled left the switch movable with nothing to show for it.
-      const lockedSwitch = fieldElement.id
-        ? document.querySelector(`[data-switch-target="${fieldElement.id}"]`)
-        : null;
-      if (lockedSwitch) {
-        lockedSwitch.disabled = true;
-        lockedSwitch.setAttribute('aria-disabled', 'true');
-      }
-
-      if (!targetLabel.querySelector('.locked-pill')) {
-        const lockedPill = document.createElement('span');
-        lockedPill.className = 'locked-pill zr-badge';
-        lockedPill.textContent = 'Managed by ENV';
-        const lockedDetails = parsedLockedEnvDetails[envKey] || {};
-        const managedValue = lockedDetails.managed || '[unknown]';
-        lockedPill.setAttribute(
-          'data-tooltip',
-          [
-            '<div style="font-size:12px;">',
-            `<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(envKey)}</div>`,
-            `<div><strong>Managed value:</strong> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;word-break:break-all;">${escapeHtml(managedValue)}</span></div>`,
-            '<div style="margin-top:4px;">Change this value in your container environment and restart the service.</div>',
-            '</div>',
-          ].join('')
-        );
-        targetLabel.appendChild(lockedPill);
-        pills.push(lockedPill);
-      }
-
-      let lockedHelpText = container.querySelector('.locked-env-help');
-      if (!lockedHelpText) {
-        lockedHelpText = document.createElement('p');
-        lockedHelpText.className = 'locked-env-help zr-xs zr-faint';
-        lockedHelpText.textContent =
-          'Managed by container environment. Change it in Docker Compose or your container environment, then restart the service.';
-        container.appendChild(lockedHelpText);
-      }
-    }
-  });
-
-  // One line of explanation per pill. A native title needs no library, works on
-  // keyboard focus and reads correctly in both themes.
-  pills.forEach((pill) => {
-    pill.title =
-      pill.getAttribute('data-tooltip') ||
-      'Overwritten by local runtime settings.';
+    targets.forEach((hint) => {
+      const sentence = document.createElement('span');
+      sentence.className = 'zr-field__locked';
+      sentence.textContent = hint.textContent.trim() ? ` · ${note}` : note;
+      hint.append(sentence);
+    });
   });
 }
 

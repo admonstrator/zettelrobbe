@@ -170,6 +170,7 @@ const TESTS = {
   'ai-provider-rules': 'test-ai-provider-rules.js',
   'ocr-provider-anthropic': 'test-ocr-provider-anthropic.js',
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
+  'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
 };
 
@@ -290,6 +291,7 @@ const AREAS = {
     'url-base-validation',
     'session-token-type',
     'health-disclosure',
+    'settings-save-restart',
     'totp-replay',
     'login-username-timing',
     'oidc-sso',

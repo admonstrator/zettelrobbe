@@ -7,8 +7,9 @@
  * it. It used to return the whole scanner and Paperless-ngx snapshot to
  * anyone, including raw error messages such as
  * "connect ECONNREFUSED 172.18.0.2:8000" that name internal hosts and ports.
- * An unauthenticated caller now gets only `status` and `database`; a session
- * or the API key still gets the full payload.
+ * An unauthenticated caller now gets only `status` and `database`, plus the
+ * random boot id and start time a restart is recognised by; a session or the
+ * API key still gets the full payload.
  */
 
 const assert = require('assert');
@@ -43,6 +44,10 @@ async function test(name, fn) {
     { expiresIn: '5m' }
   );
 
+  // The boot identity is public on purpose: the settings page waits for it
+  // to change across a restart. It is a random id and a start time.
+  const PUBLIC_KEYS = ['bootId', 'database', 'startedAt', 'status'];
+
   const health = (headers = {}) =>
     fetch(harness.base + '/health', { headers }).then(async (res) => ({
       status: res.status,
@@ -50,20 +55,20 @@ async function test(name, fn) {
     }));
 
   try {
-    await test('an anonymous caller gets only status and database', async () => {
+    await test('an anonymous caller gets only status, database and the boot identity', async () => {
       const { status, body } = await health();
       assert.ok(status === 200 || status === 503, `got HTTP ${status}`);
-      assert.deepStrictEqual(Object.keys(body).sort(), ['database', 'status']);
+      assert.deepStrictEqual(Object.keys(body).sort(), PUBLIC_KEYS);
     });
 
     await test('a wrong API key is treated as anonymous', async () => {
       const { body } = await health({ 'x-api-key': 'wrong-key' });
-      assert.deepStrictEqual(Object.keys(body).sort(), ['database', 'status']);
+      assert.deepStrictEqual(Object.keys(body).sort(), PUBLIC_KEYS);
     });
 
     await test('an MFA challenge token is treated as anonymous', async () => {
       const { body } = await health({ Cookie: `jwt=${challengeToken}` });
-      assert.deepStrictEqual(Object.keys(body).sort(), ['database', 'status']);
+      assert.deepStrictEqual(Object.keys(body).sort(), PUBLIC_KEYS);
     });
 
     await test('a session gets the scanner and Paperless-ngx details', async () => {
@@ -76,6 +81,21 @@ async function test(name, fn) {
       const { body } = await health({ 'x-api-key': process.env.API_KEY });
       assert.ok(body.scanner, 'scanner details expected');
       assert.ok(body.paperless, 'paperless details expected');
+    });
+
+    await test('the boot identity is stable across calls and the same for everyone', async () => {
+      const first = await health();
+      const second = await health({ 'x-api-key': process.env.API_KEY });
+      assert.match(
+        first.body.bootId,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      );
+      assert.strictEqual(second.body.bootId, first.body.bootId);
+      assert.strictEqual(second.body.startedAt, first.body.startedAt);
+      assert.ok(
+        !Number.isNaN(Date.parse(first.body.startedAt)),
+        'startedAt is an ISO time'
+      );
     });
 
     await test('anonymous and authenticated callers see the same status', async () => {
