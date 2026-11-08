@@ -187,6 +187,7 @@ const RELEASES = [
       'New: A run is shown as a few sentences with the numbers that matter, not as phases; you can start deciding while the model still works, and leave the page',
       'New: When a model fails, the page says what happened, what it means for your suggestions and what to do next - an unreadable answer, a stopped budget, an unreachable provider, a model that spent its answer on thinking - with the technical line one click away',
       'Improvement: A pair the model did not answer keeps its spelling rule instead of becoming a question',
+      'New: Once an analysis is written back, the inbox tag and any tags you name can be taken off the document (Settings → Tag Filters: "Remove the inbox tag when a document is done", "Also remove these tags"; REMOVE_INBOX_TAGS_AFTER_PROCESSING, REMOVE_TAGS_AFTER_PROCESSING). Off by default; applies live',
       'Removed: The Duplicates and Simplify tags pages; /duplicates and /simplify redirect to /tidy-up. Their settings sections keep their names for now',
     ],
   },
