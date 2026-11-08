@@ -23,6 +23,8 @@
  *     batch undoes it all and the suggestions are open again
  *  7. declining a merge keeps the pair out of the next run; later hides it
  *  8. a second writer is refused with 409
+ *  9. a decide and an undo say what they are doing while they write
+ *     (activity), and a second decide meanwhile is refused with it
  */
 
 const assert = require('assert');
@@ -451,11 +453,103 @@ async function main() {
             ids: [pairId('tags', TAGS.invoice, TAGS.invoices)],
             decision: 'accept',
           }),
-          (error) => error.status === 409 && /Try again/.test(error.message)
+          (error) =>
+            error.status === 409 &&
+            /another request/.test(error.message) &&
+            /Try again/.test(error.message) &&
+            error.data &&
+            error.data.activity === null
         );
       } finally {
         merges.writesInFlight -= 1;
       }
+    });
+
+    await test('A batch says what it is doing while it writes, and so does its undo', async () => {
+      await archive.reset();
+      await simplify.saveVocabulary({ types: ['Rechnung'], topics: ['Strom'] });
+      await runToEnd({ askModel: false, suggestSplits: true });
+      const invoiceId = pairId('tags', TAGS.invoice, TAGS.invoices);
+      const splitId = `split:tags:${TAGS.stromrechnung}`;
+      const deleteId = `delete:tags:${TAGS.oldStuff}`;
+      assert.strictEqual(runs.suggestionsOf().activity, null, 'idle');
+      assert.strictEqual(runs.toJSON(runs.run).activity, null);
+
+      /** Samples the activity every few ms until the call settles. */
+      const watch = async (pending) => {
+        const seen = [];
+        let settled = false;
+        const done = pending.finally(() => {
+          settled = true;
+        });
+        while (!settled) {
+          const activity = runs.suggestionsOf().activity;
+          if (activity) seen.push(activity);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        return { seen, answer: await done };
+      };
+
+      archive.store.writeDelayMs = 40;
+      const pending = runs.decide(
+        { ids: [invoiceId, splitId, deleteId], decision: 'accept' },
+        { username: 'tester' }
+      );
+      // A second decide meanwhile is refused with what is going on.
+      await assert.rejects(
+        runs.decide({ ids: [invoiceId], decision: 'decline' }),
+        (error) =>
+          error.status === 409 &&
+          error.data.activity.kind === 'accept' &&
+          error.data.activity.total === 3
+      );
+      const { seen, answer } = await watch(pending);
+      assert.ok(seen.length > 0, 'the activity was seen');
+      for (const activity of seen) {
+        assert.deepStrictEqual(Object.keys(activity).sort(), [
+          'batchId',
+          'current',
+          'done',
+          'kind',
+          'sentence',
+          'startedAt',
+          'total',
+        ]);
+        assert.strictEqual(activity.kind, 'accept');
+        assert.strictEqual(activity.total, 3);
+        assert.strictEqual(activity.batchId, answer.batchId);
+        assert.ok(!Number.isNaN(Date.parse(activity.startedAt)));
+      }
+      const first = seen.find((a) => a.current && a.current.id === invoiceId);
+      assert.ok(first, 'the merge was named while it ran');
+      assert.strictEqual(first.done, 0);
+      assert.strictEqual(first.current.headline, 'Merge Invoices into invoice');
+      assert.deepStrictEqual(first.current.ids, [invoiceId]);
+      assert.strictEqual(
+        first.sentence,
+        'Merging Invoices into invoice… 1 of 3'
+      );
+      const later = seen.find((a) => a.current && a.current.id === deleteId);
+      assert.ok(later, 'the delete was named while it ran');
+      assert.strictEqual(later.done, 2);
+      assert.strictEqual(later.sentence, 'Deleting the tag Old stuff… 3 of 3');
+      const dones = seen.map((a) => a.done);
+      for (let i = 1; i < dones.length; i += 1) {
+        assert.ok(dones[i] >= dones[i - 1], `done went back: ${dones}`);
+      }
+      assert.strictEqual(answer.summary.done, 3);
+      assert.strictEqual(runs.suggestionsOf().activity, null, 'idle again');
+
+      const undoing = await watch(runs.undo({ batchId: answer.batchId }));
+      assert.ok(undoing.seen.length > 0, 'the undo was seen');
+      for (const activity of undoing.seen) {
+        assert.strictEqual(activity.kind, 'undo');
+        assert.strictEqual(activity.batchId, answer.batchId);
+        assert.strictEqual(activity.total, 3);
+        assert.match(activity.sentence, /^Undoing 3 changes… [123] of 3$/);
+      }
+      assert.strictEqual(undoing.answer.failed.length, 0);
+      assert.strictEqual(runs.suggestionsOf().activity, null);
     });
   } finally {
     await archive.close();

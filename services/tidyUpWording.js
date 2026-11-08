@@ -717,6 +717,79 @@ function recentChangeSentence(entry) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* What a decide or undo call is doing right now                       */
+/* ------------------------------------------------------------------ */
+
+/** A headline's leading verb, in the form that says it is happening now. */
+const PROGRESSIVE_VERBS = Object.freeze({
+  Merge: 'Merging',
+  Split: 'Splitting',
+  Delete: 'Deleting',
+  Turn: 'Turning',
+  Replace: 'Replacing',
+});
+
+/** The verb alone, when a headline cannot be turned. */
+const KIND_VERBS = Object.freeze({
+  merge: 'Merging',
+  split: 'Splitting',
+  delete: 'Deleting',
+});
+
+/**
+ * "Merge Invoices into invoice" → "Merging Invoices into invoice"; the
+ * question of an unsure pair ("Are A and B the same thing?") becomes
+ * "Merging A into B", since accepting it merges A into B.
+ */
+function progressiveHeadline(headline, kind) {
+  const text = String(headline ?? '').trim();
+  const question = /^Are (.+) and (.+) the same thing\?$/.exec(text);
+  if (question) return `Merging ${question[1]} into ${question[2]}`;
+  const match = /^(\S+)\s+(.+)$/.exec(text);
+  if (match && PROGRESSIVE_VERBS[match[1]]) {
+    return `${PROGRESSIVE_VERBS[match[1]]} ${match[2]}`;
+  }
+  return KIND_VERBS[kind] || 'Carrying out the change';
+}
+
+/**
+ * The status line while a decide or undo call writes to Paperless-ngx:
+ * "Merging Invoices into invoice… 2 of 9", "Undoing 9 changes… 4 of 9",
+ * "Declining…". A single suggestion gets no counter. The position counts
+ * the one in flight: with 1 done and one current it says "2 of 9".
+ *
+ * @param {{kind: string, total?: number, done?: number, current?: {headline?: string, kind?: string}|null}|null} activity
+ * @returns {string} '' without an activity
+ */
+function activitySentence(activity) {
+  if (!activity || typeof activity !== 'object') return '';
+  const total = count(activity.total);
+  const done = Math.min(count(activity.done), total);
+  const current = activity.current || null;
+  const position = Math.max(1, Math.min(total, done + (current ? 1 : 0)));
+  const counter = total > 1 ? ` ${number(position)} of ${number(total)}` : '';
+  switch (activity.kind) {
+    case 'accept':
+      if (current) {
+        return `${progressiveHeadline(current.headline, current.kind)}…${counter}`;
+      }
+      return total > 1
+        ? `Carrying out ${number(total)} changes…${counter}`
+        : 'Carrying out the change…';
+    case 'decline':
+      return total > 1
+        ? `Declining ${number(total)} suggestions…${counter}`
+        : 'Declining…';
+    case 'undo':
+      return total > 1
+        ? `Undoing ${number(total)} changes…${counter}`
+        : 'Undoing the change…';
+    default:
+      return 'Writing to Paperless-ngx…';
+  }
+}
+
 module.exports = {
   CERTAINTY_LABELS,
   RULE_CLAUSES,
@@ -738,4 +811,6 @@ module.exports = {
   failureNotice,
   unansweredReason,
   recentChangeSentence,
+  progressiveHeadline,
+  activitySentence,
 };

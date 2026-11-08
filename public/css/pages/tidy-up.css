@@ -426,6 +426,68 @@
     align-items: center;
   }
 
+  /* --- what a decide or undo is writing right now ------------------------
+     The strip above the list stays in view under the top bar while the
+     person scrolls; its copy in the run card sits below the meter. */
+  .tidy-activity {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    min-width: 0;
+    padding: var(--zr-2) var(--zr-3);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-sunken);
+    color: var(--zr-text);
+    font-size: var(--zr-fs-sm);
+  }
+
+  .tidy-results > .tidy-activity {
+    position: sticky;
+    top: calc(var(--zr-topbar-h) + var(--zr-2));
+    z-index: 5;
+    box-shadow: var(--zr-shadow-sm);
+  }
+
+  .tidy-activity--run {
+    margin-top: var(--zr-3);
+  }
+
+  .tidy-activity__text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Every button that writes waits while something is written. */
+  .tidy-page[data-busy] [aria-disabled='true'] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .tidy-page[data-busy] .tidy-list .tidy-actions {
+    opacity: 0.75;
+  }
+
+  /* The card (or line) in flight: a spinner in place of its buttons. */
+  .tidy-card.tidy-inflight {
+    border-color: var(--zr-brand);
+  }
+
+  .tidy-page[data-busy] .tidy-list .tidy-inflight .tidy-actions {
+    opacity: 1;
+  }
+
+  .tidy-inflight .tidy-actions > :not(.tidy-inflight__mark),
+  .tidy-line.tidy-inflight > button {
+    display: none;
+  }
+
+  .tidy-inflight__mark {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+  }
+
   .tidy-filters {
     display: flex;
     flex-wrap: wrap;
