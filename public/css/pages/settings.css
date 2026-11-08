@@ -332,6 +332,22 @@
     transform: rotate(180deg);
   }
 
+  /* "Advanced options" of the AI sections: a closed module under the basic
+     one, opened and closed together by public/js/modules/settings-advanced.js. */
+  .zr-settings-advanced > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .zr-settings-advanced > summary::-webkit-details-marker {
+    display: none;
+  }
+  .zr-settings-advanced:not([open]) > summary {
+    border-bottom: 0;
+  }
+  .zr-settings-advanced[open] > summary > .zr-icon {
+    transform: rotate(180deg);
+  }
+
   @media (max-width: 860px) {
     .zr-settings {
       grid-template-columns: minmax(0, 1fr);
