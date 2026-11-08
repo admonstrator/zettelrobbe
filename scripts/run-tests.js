@@ -168,6 +168,7 @@ const TESTS = {
   'anthropic-provider': 'test-anthropic-provider.js',
   'anthropic-settings': 'test-anthropic-settings.js',
   'ai-provider-rules': 'test-ai-provider-rules.js',
+  'openai-compatible-service': 'test-openai-compatible-service.js',
   'ocr-provider-anthropic': 'test-ocr-provider-anthropic.js',
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'session-guard': 'test-session-guard.js',
@@ -319,6 +320,7 @@ const AREAS = {
   ],
   review: ['review-sheet', 'review-assist', 'review-voice'],
   'ai-rules': ['ai-provider-rules'],
+  providers: ['openai-compatible-service'],
   anthropic: [
     'anthropic-support',
     'anthropic-provider',

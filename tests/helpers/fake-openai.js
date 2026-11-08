@@ -18,7 +18,8 @@
  * The same script answers a non-streaming request as one whole completion, so
  * "the streamed answer is the answer" can be asserted against one fixture.
  *
- * Every request is recorded with its body, so a test can say what `stream`,
+ * Every request is recorded with its path, query, headers and body, so a test
+ * can say where it went, with which key, and what `stream`,
  * `stream_options`, `chat_template_kwargs`, `max_tokens` and the messages
  * were, and every record knows whether the client hung up before the answer
  * was finished.
@@ -115,12 +116,16 @@ async function createFakeOpenAI(script = {}) {
   };
 
   const server = http.createServer(async (request, response) => {
-    const path = String(request.url || '').split('?')[0];
+    const [path, search = ''] = String(request.url || '').split('?');
     const body = await readBody(request);
 
     const record = {
       method: request.method,
       path,
+      /** The query string as an object (Azure's api-version travels here). */
+      query: Object.fromEntries(new URLSearchParams(search)),
+      /** The request headers, lower-cased by Node. */
+      headers: request.headers,
       body,
       /** The client hung up before the answer was finished. */
       aborted: false,
@@ -141,6 +146,19 @@ async function createFakeOpenAI(script = {}) {
         JSON.stringify({
           object: 'list',
           data: [{ id: DEFAULT_MODEL, object: 'model' }],
+        })
+      );
+      return;
+    }
+
+    // Azure's deployment metadata, which its status check reads.
+    const deployment = /^\/openai\/deployments\/([^/]+)$/.exec(path);
+    if (request.method === 'GET' && deployment) {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          id: decodeURIComponent(deployment[1]),
+          status: 'succeeded',
         })
       );
       return;
