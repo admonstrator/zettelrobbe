@@ -142,7 +142,7 @@ scripts (`public/js/*.js`) cannot import ES modules — they reach the kernel th
 `window.__zrToast` / `window.zrDialog` (see `failed.js` for the six-line adapter) and must never
 build their own toast host.
 
-**Settings page:** the AI, Duplicates and Simplify sections render their fields from `AI_OPTIONS`
+**Settings page:** the AI provider and Tidy up sections render their fields from `AI_OPTIONS`
 (`aiOptions` local); each section has one closed "Advanced options" disclosure
 (`public/js/modules/settings-advanced.js` remembers the choice per browser), and options carry
 `data-providers` so they follow the provider switch. A new AI setting is a catalogue entry plus a
