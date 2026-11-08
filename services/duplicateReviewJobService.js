@@ -89,11 +89,13 @@ const JOB_TASKS = Object.freeze({
   SPLITS: 'splits',
   ORDER: 'order',
   APPLY: 'apply',
+  // The Tidy up page: comparison, judge and order as one run.
+  TIDY_UP: 'tidy-up',
 });
 
 /**
- * The tasks whose cost is written to `ai_run_stats` when they end. All four
- * ask a model; `apply` is left out because it writes to Paperless-ngx and
+ * The tasks whose cost is written to `ai_run_stats` when they end. All of
+ * them ask a model (a Tidy up run may, when the person ticked it); `apply` is left out because it writes to Paperless-ngx and
  * never asks anything, so a row for it would measure nothing.
  */
 const RECORDED_TASKS = Object.freeze([
@@ -101,6 +103,7 @@ const RECORDED_TASKS = Object.freeze([
   'review',
   'vocabulary',
   'splits',
+  'tidy-up',
 ]);
 
 /** How long a finished job stays reachable through current() and get(). */

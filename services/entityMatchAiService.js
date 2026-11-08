@@ -4729,7 +4729,10 @@ class EntityMatchAiService {
         y.confidence - x.confidence || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)
     );
 
-    const groups = [...scanGroups, ...candidateGroups];
+    const groups = this._withEvidence(
+      [...scanGroups, ...candidateGroups],
+      plans
+    );
     const confirmed = groups.filter(
       (group) => group.aiVerdict?.verdict === AI_VERDICTS.SAME
     ).length;
@@ -4819,6 +4822,47 @@ class EntityMatchAiService {
         memberVerdicts.length > 0 ? aggregateVerdict(memberVerdicts) : null,
       members,
     };
+  }
+
+  /**
+   * Puts the evidence the review read for the model on the members of the
+   * groups it returns: `titles` (a few recent document titles) and
+   * `neighbours` (the names usually filed with it). The Tidy up page shows
+   * the same evidence next to a pair it asks a person to decide, so it does
+   * not have to read Paperless-ngx a second time. A member nobody read
+   * evidence for is returned unchanged.
+   *
+   * @param {object[]} groups
+   * @param {Array<{kind: string, asked: AiReviewPair[]}>} plans
+   * @returns {object[]}
+   */
+  _withEvidence(groups, plans) {
+    const evidence = new Map();
+    const note = (kind, entity) => {
+      if (!entity || entity.id == null) return;
+      const titles = Array.isArray(entity.sampleTitles)
+        ? entity.sampleTitles.map(String)
+        : [];
+      const neighbours = Array.isArray(entity.neighbourNames)
+        ? entity.neighbourNames.map(String)
+        : [];
+      if (titles.length === 0 && neighbours.length === 0) return;
+      evidence.set(`${kind}:${Number(entity.id)}`, { titles, neighbours });
+    };
+    for (const plan of plans) {
+      for (const pair of plan.asked || []) {
+        note(plan.kind, pair.a);
+        note(plan.kind, pair.b);
+      }
+    }
+    if (evidence.size === 0) return groups;
+    return groups.map((group) => ({
+      ...group,
+      members: (group.members || []).map((member) => {
+        const found = evidence.get(`${group.kind}:${Number(member.id)}`);
+        return found ? { ...member, ...found } : member;
+      }),
+    }));
   }
 }
 
