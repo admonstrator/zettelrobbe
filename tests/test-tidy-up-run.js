@@ -335,7 +335,7 @@ async function main() {
         again,
         pairId('tags', TAGS.steuerberater, TAGS.steuerberatr)
       );
-      assert.match(tax.reason, /the titles do not settle it/);
+      assert.match(tax.reason, /the titles do not settle it/i);
       assert.strictEqual(
         byId(again, pairId('tags', TAGS.invoice, TAGS.invoices)).certainty,
         'sure',

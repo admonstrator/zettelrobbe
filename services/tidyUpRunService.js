@@ -1624,24 +1624,34 @@ class TidyUpRunService {
       limit: RECENT_LIMIT,
       offset: 0,
     });
-    const sentenceOf =
-      typeof wording.recentChangeSentence === 'function'
-        ? wording.recentChangeSentence
-        : recentChangeSentence;
-    return rows.map((entry) => ({
-      id: String(entry.id),
-      when: isoFromSqlite(entry.createdAt),
-      sentence: sentenceOf(entry),
-      status:
-        entry.status === 'undone'
+    return rows.map((entry) => {
+      // The wording module says the sentence, marks the names in it and
+      // judges status and undo; the fallback below only builds the sentence.
+      const worded =
+        typeof wording.recentChangeSentence === 'function'
+          ? wording.recentChangeSentence(entry)
+          : { sentence: recentChangeSentence(entry) };
+      const status =
+        worded.status ||
+        (entry.status === 'undone'
           ? 'undone'
           : entry.status === 'partial'
             ? 'partial'
             : entry.status === 'undo_failed'
               ? 'failed'
-              : 'done',
-      canUndo: entry.status !== 'undone',
-    }));
+              : 'done');
+      return {
+        id: String(entry.id),
+        when: isoFromSqlite(entry.createdAt),
+        sentence: worded.sentence,
+        segments: Array.isArray(worded.segments) ? worded.segments : null,
+        status,
+        canUndo:
+          typeof worded.canUndo === 'boolean'
+            ? worded.canUndo
+            : entry.status !== 'undone',
+      };
+    });
   }
 
   /** Forgets the run; tests use it between cases. */
