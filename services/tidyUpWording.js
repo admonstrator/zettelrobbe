@@ -157,6 +157,9 @@ function verdictClause(verdict) {
   if (verdict.failureKind) {
     return sentence(verdict.reason) || unansweredReason(verdict.failureKind);
   }
+  if (verdict.unanswered) {
+    return 'The model gave no verdict on this pair, so the spelling rule stands on its own.';
+  }
   const why = sentence(verdict.reason);
   const tail = why ? ` ${why}` : '';
   switch (verdict.verdict) {

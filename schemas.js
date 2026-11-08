@@ -905,6 +905,10 @@
  *           type: boolean
  *           nullable: true
  *           description: true when the verdict came from the judge's memory of an earlier review instead of a request
+ *         unanswered:
+ *           type: boolean
+ *           nullable: true
+ *           description: true when nobody judged the pair - the request failed or left it out; the page lets the spelling rule stand
  *         failureKind:
  *           type: string
  *           nullable: true

@@ -490,7 +490,7 @@ async function main() {
       );
       assert.deepStrictEqual(
         result.verdicts.get(pairs[2].key),
-        verdict('unsure', 'no answer from the model')
+        verdict('unsure', 'no answer from the model', { unanswered: true })
       );
       assert.strictEqual(
         result.usage.failedRequests,
@@ -555,7 +555,7 @@ async function main() {
           verdict(
             'unsure',
             'The model could not be reached; decide this one yourself.',
-            { failureKind: 'unreachable' }
+            { unanswered: true, failureKind: 'unreachable' }
           )
         );
       }
@@ -625,7 +625,7 @@ async function main() {
         verdict(
           'unsure',
           'The model spent its answer on reasoning and gave no verdict; decide this one yourself.',
-          { failureKind: 'thinking' }
+          { unanswered: true, failureKind: 'thinking' }
         )
       );
       assert.deepStrictEqual(

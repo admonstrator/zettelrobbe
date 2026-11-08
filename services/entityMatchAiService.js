@@ -2210,6 +2210,10 @@ class EntityMatchAiService {
         basis: null,
         confidence: null,
         source: VERDICT_SOURCES.MODEL,
+        // Nobody judged this pair: the request failed or left it out. The
+        // page tells it apart from a pair the model looked at and found
+        // unclear, and lets the spelling rule stand.
+        unanswered: true,
       };
       if (failureKind) verdict.failureKind = failureKind;
       verdicts.set(key, verdict);

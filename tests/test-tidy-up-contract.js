@@ -141,6 +141,42 @@ async function run() {
     suggestions.certaintyFor(group({ warnings: ['no-permission'] })),
     'unsure'
   );
+  // Nobody judged the pair: the spelling rule stands, capped at likely.
+  assert.strictEqual(
+    suggestions.certaintyFor(
+      group({
+        reasons: ['plural'],
+        aiVerdict: {
+          verdict: 'unsure',
+          reason: 'No answer from the model',
+          source: 'model',
+          unanswered: true,
+        },
+      })
+    ),
+    'likely'
+  );
+  assert.strictEqual(
+    suggestions.certaintyFor(
+      group({
+        reasons: ['fuzzy'],
+        aiVerdict: {
+          verdict: 'unsure',
+          source: 'model',
+          failureKind: 'unreadable',
+        },
+      })
+    ),
+    'unsure'
+  );
+  assert.match(
+    wording.verdictClause({
+      verdict: 'unsure',
+      source: 'model',
+      unanswered: true,
+    }),
+    /gave no verdict on this pair/
+  );
 
   // --- merge suggestion ---------------------------------------------
   const merge = suggestions.fromDuplicateGroup(group());

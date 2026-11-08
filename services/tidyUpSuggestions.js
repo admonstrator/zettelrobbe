@@ -125,11 +125,22 @@ function certaintyFor(group) {
   );
   if (blocked) return CERTAINTY.UNSURE;
   if (verdict && verdict.verdict === 'different') return CERTAINTY.UNSURE;
-  if (verdict && verdict.verdict === 'unsure') return CERTAINTY.UNSURE;
+  // A pair nobody judged (the request failed or left it out) is not a pair
+  // the model found unclear: the spelling rule still counts, but no further
+  // than "likely" — the model was meant to confirm it and did not.
+  const unanswered = Boolean(
+    verdict &&
+    verdict.verdict === 'unsure' &&
+    (verdict.unanswered || verdict.failureKind)
+  );
+  if (verdict && verdict.verdict === 'unsure' && !unanswered) {
+    return CERTAINTY.UNSURE;
+  }
   if (verdict && verdict.verdict === 'same') {
     return verdict.confidence === 'high' ? CERTAINTY.SURE : CERTAINTY.LIKELY;
   }
   if (reasons.some((r) => HARD_REASONS.includes(r))) {
+    if (unanswered) return CERTAINTY.LIKELY;
     // token-order alone is the weakest hard tier; sure only with a stronger one
     return reasons.every((r) => r === 'token-order')
       ? CERTAINTY.LIKELY
