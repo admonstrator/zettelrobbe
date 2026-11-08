@@ -1716,5 +1716,300 @@
  *           format: date-time
  */
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     TidyUpRunRequest:
+ *       type: object
+ *       properties:
+ *         askModel:
+ *           type: boolean
+ *           default: true
+ *           description: ask the configured model about the pairs spelling cannot settle; ignored when no provider is configured
+ *         suggestSplits:
+ *           type: boolean
+ *           default: false
+ *           description: also ask the model which compound tags to split into a document type and topics (the Simplify order)
+ *         kind:
+ *           type: string
+ *           enum: [tags, correspondents, all]
+ *           default: all
+ *     TidyUpStep:
+ *       type: object
+ *       description: one line of the run's progress list; keys and labels come from tidyUpWording.RUN_STEPS
+ *       properties:
+ *         key:
+ *           type: string
+ *           enum: [compare, evidence, judge, split, sort]
+ *         label:
+ *           type: string
+ *         state:
+ *           type: string
+ *           enum: [done, now, next, skipped]
+ *         detail:
+ *           type: string
+ *           description: the numbers next to the step, e.g. "550 names · 9 sure matches · 23 pairs spelling can't settle"
+ *     TidyUpFailure:
+ *       type: object
+ *       description: present when the run failed or a part of it did; everything the notice needs
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [unreadable, budget, unreachable, thinking, rejected, paperless, stopped, unknown]
+ *         title:
+ *           type: string
+ *         body:
+ *           type: string
+ *         actions:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               key:
+ *                 type: string
+ *                 description: retry | retry-affected | retry-larger | continue | decide-myself | test-connection
+ *               label:
+ *                 type: string
+ *         settingsHint:
+ *           type: string
+ *           nullable: true
+ *           description: the label of a link to /settings#tidy-up, null for none
+ *         technical:
+ *           type: string
+ *           description: the raw message and request context, for the Details disclosure
+ *         pairsAffected:
+ *           type: integer
+ *           description: pairs that ended as "needs a look" because of this failure
+ *     TidyUpRun:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *         status:
+ *           type: string
+ *           enum: [running, stopping, done, stopped, failed]
+ *         headline:
+ *           type: string
+ *           description: tidyUpWording.runHeadline(status)
+ *         options:
+ *           $ref: '#/components/schemas/TidyUpRunRequest'
+ *         steps:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TidyUpStep'
+ *         progress:
+ *           type: object
+ *           properties:
+ *             percent:
+ *               type: integer
+ *             etaText:
+ *               type: string
+ *               nullable: true
+ *               description: "About a minute left"
+ *             costText:
+ *               type: string
+ *               nullable: true
+ *               description: "38,400 tokens of your 200,000 budget"
+ *             tokens:
+ *               type: integer
+ *             tokenBudget:
+ *               type: integer
+ *               nullable: true
+ *         model:
+ *           type: string
+ *           nullable: true
+ *           description: the model label shown in sentences, e.g. "Claude Haiku"
+ *         failure:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TidyUpFailure'
+ *           nullable: true
+ *         partialFailures:
+ *           type: array
+ *           description: failures of single requests the run survived (their pairs are "needs a look")
+ *           items:
+ *             $ref: '#/components/schemas/TidyUpFailure'
+ *         summary:
+ *           $ref: '#/components/schemas/TidyUpSummary'
+ *         startedAt:
+ *           type: string
+ *           format: date-time
+ *         finishedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *     TidyUpEntity:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         documentCount:
+ *           type: integer
+ *     TidyUpEvidenceSide:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         documentCount:
+ *           type: integer
+ *         titles:
+ *           type: array
+ *           items:
+ *             type: string
+ *           description: up to three document titles
+ *         neighbours:
+ *           type: array
+ *           items:
+ *             type: string
+ *           description: the names usually filed with this one
+ *     TidyUpSuggestion:
+ *       type: object
+ *       description: one sentence a person accepts or declines; built by services/tidyUpSuggestions.js
+ *       properties:
+ *         id:
+ *           type: string
+ *         kind:
+ *           type: string
+ *           enum: [merge, split, delete]
+ *         entityKind:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *         certainty:
+ *           type: string
+ *           enum: [sure, likely, unsure]
+ *         headline:
+ *           type: string
+ *           description: "Merge Invoices into invoice" / "Are Kontoauszug and Kontoumzug the same thing?"
+ *         reason:
+ *           type: string
+ *           description: why, in plain words, and what moves
+ *         from:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TidyUpEntity'
+ *         to:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TidyUpEntity'
+ *           nullable: true
+ *         typeName:
+ *           type: string
+ *           nullable: true
+ *         topicNames:
+ *           type: array
+ *           items:
+ *             type: string
+ *         evidence:
+ *           type: object
+ *           nullable: true
+ *           properties:
+ *             sides:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/TidyUpEvidenceSide'
+ *         details:
+ *           type: object
+ *           description: what the Details disclosure shows; never in the sentence
+ *           properties:
+ *             rules:
+ *               type: array
+ *               items:
+ *                 type: string
+ *             confidence:
+ *               type: number
+ *               nullable: true
+ *             verdict:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/AiVerdict'
+ *               nullable: true
+ *             source:
+ *               type: string
+ *               enum: [scan, ai-candidate, order, unused]
+ *             warnings:
+ *               type: array
+ *               items:
+ *                 type: string
+ *         status:
+ *           type: string
+ *           enum: [open, done, declined, later, failed]
+ *         outcome:
+ *           type: string
+ *           nullable: true
+ *           description: after done or failed, one line ("12 documents moved")
+ *         undoId:
+ *           type: string
+ *           nullable: true
+ *           description: the merge-log id that undoes it
+ *     TidyUpSummary:
+ *       type: object
+ *       properties:
+ *         total: { type: integer }
+ *         open: { type: integer }
+ *         sure: { type: integer }
+ *         likely: { type: integer }
+ *         unsure: { type: integer }
+ *         merge: { type: integer }
+ *         split: { type: integer }
+ *         delete: { type: integer }
+ *         done: { type: integer }
+ *         declined: { type: integer }
+ *         later: { type: integer }
+ *         failed: { type: integer }
+ *     TidyUpDecisionRequest:
+ *       type: object
+ *       required: [ids, decision]
+ *       properties:
+ *         ids:
+ *           type: array
+ *           items:
+ *             type: string
+ *         decision:
+ *           type: string
+ *           enum: [accept, decline, later]
+ *         edits:
+ *           type: object
+ *           description: per suggestion id, changes to apply before accepting
+ *           additionalProperties:
+ *             type: object
+ *             properties:
+ *               keepId:
+ *                 type: integer
+ *                 description: merge - the member that should survive instead of the proposed target
+ *               targetName:
+ *                 type: string
+ *                 description: merge - a new name for the survivor
+ *               typeName:
+ *                 type: string
+ *                 nullable: true
+ *               topicNames:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               memberIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                 description: delete - only these of the grouped unused names
+ *     TidyUpRecentChange:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *         when:
+ *           type: string
+ *           format: date-time
+ *         sentence:
+ *           type: string
+ *           description: "Merged Invoices into invoice · 12 documents moved"
+ *         status:
+ *           type: string
+ *           enum: [done, partial, failed, undone]
+ *         canUndo:
+ *           type: boolean
+ */
+
 // This file only contains JSDoc comments for Swagger schema definitions
 // No actual code is needed

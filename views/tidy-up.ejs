@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="<%= theme || 'light' %>">
+<%- include('partials/shell/head-start', { pageTitle: 'Tidy up - Zettelrobbe' }) %>
+<%- include('partials/shell/head-end') %>
+<%- include('partials/shell/body-open', {
+    pageTitle: 'Tidy up',
+    version: typeof version !== 'undefined' ? version : ''
+}) %>
+<%
+/* Placeholder shell: the page is built in its own change. The locals the
+   route provides are modelAvailable (boolean) and modelLabel (string). */
+const tidyModelAvailable = typeof modelAvailable !== 'undefined' && modelAvailable === true;
+-%>
+            <div class="tidy-page" data-tidy-page data-model-available="<%= tidyModelAvailable ? 'yes' : 'no' %>" data-model-label="<%= typeof modelLabel !== 'undefined' ? modelLabel : '' %>">
+                <section class="zr-module">
+                    <div class="zr-module__head"><h1 class="zr-module__title">Tidy up tags and correspondents</h1></div>
+                    <div class="zr-module__body"><p class="zr-muted">This page is being built.</p></div>
+                </section>
+            </div>
+    <%- include('partials/shell/body-close') %>

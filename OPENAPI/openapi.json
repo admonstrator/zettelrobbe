@@ -2699,6 +2699,442 @@
         }
       }
     },
+    "/tidy-up": {
+      "get": {
+        "summary": "The Tidy up page",
+        "tags": [
+          "Tidy up"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs": {
+      "post": {
+        "summary": "Start a Tidy up run",
+        "description": "Compares every name by spelling, optionally asks the model about the\npairs spelling cannot settle and about compound tags, and turns the\nresult into suggestions. One run at a time (409 while one runs).\n",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TidyUpRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The run, started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A run is already going"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/current": {
+      "get": {
+        "summary": "The running or most recent run",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No run yet"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/{id}": {
+      "get": {
+        "summary": "One run",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or expired run"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/{id}/events": {
+      "get": {
+        "summary": "Run snapshots as server-sent events",
+        "description": "Each event is `data: <TidyUpRun as JSON>`; the stream ends after the\nevent whose status is done, stopped or failed.\n",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/runs/{id}/stop": {
+      "post": {
+        "summary": "Stop a run and keep what was found",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run, stopping or stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TidyUpRun"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tidy-up/suggestions": {
+      "get": {
+        "summary": "The suggestions of the current run",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suggestions and their summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "runId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/TidyUpSummary"
+                        },
+                        "suggestions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TidyUpSuggestion"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tidy-up/suggestions/decide": {
+      "post": {
+        "summary": "Accept, decline or postpone suggestions",
+        "description": "`accept` carries the change out at once (merge, split, delete) and\nreturns each suggestion as done or failed with its outcome; `decline`\nrecords a \"not the same\" so later runs leave the pair alone (for a\nsplit or delete: hides it for this run); `later` hides it for this\nrun. `edits` lets a split's type or topics, or a merge's surviving\nname, be changed before accepting.\n",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TidyUpDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The suggestions after the decision, and a batch id for undo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "batchId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/TidyUpSummary"
+                        },
+                        "suggestions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TidyUpSuggestion"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tidy-up/suggestions/undo": {
+      "post": {
+        "summary": "Undo everything one decide call changed",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "batchId"
+                ],
+                "properties": {
+                  "batchId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was undone"
+          }
+        }
+      }
+    },
+    "/api/tidy-up/recent": {
+      "get": {
+        "summary": "Recent changes with their undo",
+        "tags": [
+          "Tidy up",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merge-log entries, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TidyUpRecentChange"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/login": {
       "get": {
         "summary": "Render login page or redirect to setup if no users exist",
