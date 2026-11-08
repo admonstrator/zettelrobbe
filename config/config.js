@@ -627,7 +627,7 @@ const MUST_HAVE_PROMPT = `  Return the result EXCLUSIVELY as a JSON object. The 
   }`;
 
 module.exports = {
-  PAPERLESS_AI_VERSION: 'v2026.11.01',
+  PAPERLESS_AI_VERSION: 'v2026.11.02',
   CONFIGURED: false,
   configSourceMode: CONFIG_SOURCE_MODE,
   getApiKey,

@@ -179,6 +179,17 @@ const RELEASES = [
       'Removed: The Local Overrides section on the settings page (the API route stays)',
     ],
   },
+  {
+    version: 'v2026.11.02',
+    entries: [
+      'New: Tidy up replaces the Duplicates and Simplify tags pages. One page shows suggestions in plain sentences - merge two names that mean the same thing, split a compound tag into a document type and topics, delete names nobody uses - each with its reason and the evidence, and you accept or decline. Nothing changes until you accept; every change can be undone, a whole batch with one click',
+      'New: Sure, Likely and Needs a look instead of percentages and rule names; those moved into a Details disclosure on each card',
+      'New: A run is shown as a few sentences with the numbers that matter, not as phases; you can start deciding while the model still works, and leave the page',
+      'New: When a model fails, the page says what happened, what it means for your suggestions and what to do next - an unreadable answer, a stopped budget, an unreachable provider, a model that spent its answer on thinking - with the technical line one click away',
+      'Improvement: A pair the model did not answer keeps its spelling rule instead of becoming a question',
+      'Removed: The Duplicates and Simplify tags pages; /duplicates and /simplify redirect to /tidy-up. Their settings sections keep their names for now',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];

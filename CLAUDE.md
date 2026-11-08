@@ -100,6 +100,24 @@ Schema migrations run at startup via `services/startupMigrations.js`.
 **Reconciliation:** `services/reconciliationService.js` — cron job (`RECONCILIATION_INTERVAL`) that
 cleans up records for documents deleted in Paperless-ngx.
 
+**Tidy up (tags and correspondents):** one page, `/tidy-up` (`routes/tidyUp.js`, mounted before
+`routes/setup.js`; `/duplicates` and `/simplify` redirect to it), shows _suggestions_ a person accepts or
+declines: merge two names, split a compound tag into a document type and topics, delete unused names.
+`services/tidyUpRunService.js` runs one job (task `tidy-up` in `duplicateReviewJobService`) over the
+existing machinery — `entityNameMatcher` (spelling tiers), `entityMatchAiService.reviewScan()` (the
+model judges pairs spelling cannot settle, with document titles as evidence), `tagSimplifyService`
+(the split proposals), `duplicateMergeService` (merge, delete, dismiss, undo, the merge log) — and
+builds the list with `services/tidyUpSuggestions.js` (the one shape; certainty sure/likely/unsure:
+a `different` verdict beats any spelling rule, an unanswered pair keeps its rule capped at likely).
+Every sentence the page says lives in `services/tidyUpWording.js`; model failures get a kind in
+`services/modelFailure.js` (unreadable, budget, unreachable, thinking, rejected, paperless) at the
+place they happen, and the page tells what happened, what it means and what to do. Percentages and
+rule names appear only inside a card's Details. The page (`views/tidy-up.ejs`,
+`public/js/modules/tidy-up*.js`) talks to `/api/tidy-up/*` only; the `/api/duplicates/*` and
+`/api/simplify/*` routes remain for the API and the Advanced links. Decisions are carried out at once
+(Accept = merge/split/delete now, one Undo per batch); a run's suggestions live in memory until the
+next run.
+
 **Routes:** `routes/auth.js` (JWT-in-cookie + `x-api-key` auth, `isAuthenticated` middleware) and
 `routes/setup.js` (setup wizard + history/api endpoints). `schemas.js` holds shared swagger schemas.
 
