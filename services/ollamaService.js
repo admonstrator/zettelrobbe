@@ -12,6 +12,11 @@ const {
   stripReasoningText,
 } = require('./aiGenerateOptions');
 const { resolveRules } = require('./aiProviderRules');
+const {
+  FAILURE_KINDS,
+  tagFailure,
+  tagTransportFailure,
+} = require('./modelFailure');
 const axios = require('axios');
 const config = require('../config/config');
 const fs = require('fs').promises;
@@ -967,7 +972,12 @@ class OllamaService {
       );
 
       if (!response.data || !response.data.response) {
-        throw new Error('Invalid response from Ollama API');
+        // An empty answer next to a `thinking` field is a model that
+        // thought and never answered, not a broken response.
+        const error = new Error('Invalid response from Ollama API');
+        throw response.data?.thinking
+          ? tagFailure(error, FAILURE_KINDS.THINKING)
+          : error;
       }
 
       // Ollama reports its token counts on the answer itself; the callers
@@ -996,6 +1006,18 @@ class OllamaService {
         typeof response.data.response === 'string'
           ? stripReasoningText(response.data.response).trim()
           : response.data.response;
+      // The reasoning that was taken away, in characters, so a caller left
+      // with an empty answer can tell a model that only thought.
+      const thought =
+        typeof generatedText === 'string'
+          ? response.data.response.trim().length -
+            generatedText.length +
+            String(response.data.thinking ?? '').length
+          : 0;
+      if (thought > 0) {
+        measuredUsage = { ...(measuredUsage || {}), reasoningChars: thought };
+        this.lastGenerateTextUsage = measuredUsage;
+      }
 
       // The cut-off check the analysis path has always run, now on this path
       // too, and carrying the prefix the caller can still use.
@@ -1016,7 +1038,7 @@ class OllamaService {
           : error;
       console.error(`Error generating text with Ollama: ${thrown.message}`);
       console.debug(thrown);
-      throw thrown;
+      throw tagTransportFailure(thrown);
     }
   }
 
@@ -1118,6 +1140,10 @@ class OllamaService {
             totalTokens:
               (Number.isFinite(promptTokens) ? promptTokens : 0) +
               (Number.isFinite(completionTokens) ? completionTokens : 0),
+            // What arrived, by the characters: a caller with an empty answer
+            // can tell a model that only thought from one that said nothing.
+            answerChars: collector.text().trim().length,
+            reasoningChars: collector.reasoning().length,
           }
         : collector.usageSummary();
     if (typeof onUsage === 'function') onUsage(measured);

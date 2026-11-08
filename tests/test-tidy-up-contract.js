@@ -305,6 +305,59 @@ async function run() {
     /qwen3:8b answered, but not in a form/
   );
 
+  // --- additions: rejected/stopped notices, pair reasons, recent changes --
+  assert.strictEqual(
+    wording.failureNotice('rejected', { provider: 'OpenAI', status: 401 })
+      .settingsHint,
+    'AI provider settings'
+  );
+  assert.match(
+    wording.failureNotice('stopped', { stopReason: 'idle' }).title,
+    /page was closed/
+  );
+  for (const kind of Object.values(failure.FAILURE_KINDS)) {
+    assert.match(wording.unansweredReason(kind), /yourself\.$/, kind);
+  }
+  const change = wording.recentChangeSentence({
+    kind: 'tags',
+    action: 'merge',
+    targetName: 'invoice',
+    sources: [{ name: 'Invoices' }],
+    documentsMoved: 12,
+    status: 'done',
+    undoneAt: null,
+  });
+  assert.deepStrictEqual(Object.keys(change).sort(), [
+    'canUndo',
+    'segments',
+    'sentence',
+    'status',
+  ]);
+  assert.strictEqual(
+    change.sentence,
+    'Merged Invoices into invoice · 12 documents moved'
+  );
+  assert.strictEqual(change.canUndo, true);
+  for (const name of [
+    'tagTransportFailure',
+    'transportKind',
+    'unusableAnswerKind',
+    'requestFailure',
+    'collapseFailures',
+  ]) {
+    assert.strictEqual(typeof failure[name], 'function', name);
+  }
+  const jobs = require('../services/duplicateReviewJobService');
+  const jobShape = jobs.toJSON({
+    id: 'x',
+    status: 'done',
+    progress: {},
+    result: null,
+    startedMs: Date.now(),
+  });
+  assert.strictEqual(jobShape.failure, null);
+  assert.deepStrictEqual(jobShape.partialFailures, []);
+
   // --- failure classification ---------------------------------------
   const c = failure.classifyFailure;
   assert.strictEqual(

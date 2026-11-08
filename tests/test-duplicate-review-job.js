@@ -23,6 +23,8 @@
  * 10. the control tells the judge why it is stopping, so the judge can write
  *     the one log line that says so
  * 11. the estimate divides the time left by the lanes the review asks in
+ * 12. the job carries its ending as a classified `failure` and the failed
+ *     requests of its result as `partialFailures`, one entry per kind
  */
 
 const assert = require('assert');
@@ -117,16 +119,20 @@ function gate() {
     const shape = jobs.toJSON(job);
     assert.deepStrictEqual(Object.keys(shape).sort(), [
       'error',
+      'failure',
       'finishedAt',
       'hasResult',
       'id',
       'options',
+      'partialFailures',
       'progress',
       'startedAt',
       'status',
       'stopReason',
       'task',
     ]);
+    assert.strictEqual(shape.failure, null);
+    assert.deepStrictEqual(shape.partialFailures, []);
     assert.deepStrictEqual(shape.options, { kind: 'tags', threshold: 0.9 });
     assert.strictEqual(shape.progress.phase, 'starting');
     assert.strictEqual(shape.progress.tokenBudget, 5000);
@@ -232,6 +238,11 @@ function gate() {
     assert.strictEqual(final.data.aiReview.stopped, true);
     assert.strictEqual(final.data.aiReview.stopReason, 'user');
     assert.strictEqual(final.data.aiReview.pairsNotJudged, 20);
+    assert.strictEqual(
+      final.job.failure,
+      null,
+      'a stop the person asked for is no failure'
+    );
     assert.ok(
       events.some(
         (event) =>
@@ -261,6 +272,8 @@ function gate() {
     assert.strictEqual(final.job.stopReason, 'token-budget');
     assert.strictEqual(final.data.aiReview.stopped, true);
     assert.strictEqual(final.data.aiReview.stopReason, 'token-budget');
+    assert.strictEqual(final.job.failure.kind, 'budget');
+    assert.match(final.job.failure.message, /token budget of 5000 tokens/);
   });
 
   await test('a judge that throws after the abort ends as stopped, without a result', async () => {
@@ -281,6 +294,9 @@ function gate() {
     assert.strictEqual(final.job.hasResult, false);
     assert.strictEqual(final.data, null);
     assert.strictEqual(final.job.error, null);
+    assert.strictEqual(final.job.failure.kind, 'stopped');
+    assert.match(final.job.failure.message, /page was closed/);
+    assert.deepStrictEqual(final.job.partialFailures, []);
   });
 
   await test('a judge that fails on its own ends the job as failed', async () => {
@@ -297,6 +313,116 @@ function gate() {
     assert.strictEqual(job.errorStatus, 409);
     assert.strictEqual(final.job.hasResult, false);
     assert.strictEqual(jobs.isRunning(), false);
+    assert.strictEqual(final.job.failure.kind, 'unknown');
+    assert.strictEqual(
+      final.job.failure.message,
+      'The AI review is switched off'
+    );
+    assert.strictEqual(final.job.failure.status, 409);
+  });
+
+  await test('a failed job is classified by the error it threw', async () => {
+    const cases = [
+      [
+        Object.assign(new Error('connect ECONNREFUSED 10.0.0.2:11434'), {
+          code: 'ECONNREFUSED',
+        }),
+        'unreachable',
+      ],
+      [
+        Object.assign(new Error('401 Incorrect API key'), { status: 401 }),
+        'rejected',
+      ],
+      [
+        Object.assign(new Error('anything at all'), {
+          failureKind: 'thinking',
+        }),
+        'thinking',
+      ],
+      [
+        Object.assign(
+          new Error(
+            'Paperless-ngx could not be reached while reading the tags'
+          ),
+          { status: 502 }
+        ),
+        'paperless',
+      ],
+    ];
+    for (const [error, kind] of cases) {
+      jobs.reset();
+      judge.reviewScan = async () => {
+        throw error;
+      };
+      const job = jobs.start({ kind: 'tags' });
+      const final = await jobs.wait(job.id);
+      assert.strictEqual(final.job.status, 'failed');
+      assert.strictEqual(final.job.failure.kind, kind, error.message);
+      assert.strictEqual(final.job.failure.message, error.message);
+    }
+  });
+
+  await test('the failed requests of a result become partialFailures, one per kind', async () => {
+    const failures = [
+      {
+        kind: 'unreadable',
+        message: 'the answer contained no JSON array',
+        pairsAffected: 3,
+      },
+      { kind: 'unreachable', message: 'socket hang up', pairsAffected: 4 },
+      {
+        kind: 'unreadable',
+        message: 'the model answered nothing',
+        pairsAffected: 2,
+      },
+    ];
+    judge.reviewScan = async (options, control) => {
+      control.noteRun({ model: 'qwen3:8b' });
+      return result({ failedRequests: 3, failures });
+    };
+    const job = jobs.start({ kind: 'tags' });
+    const final = await jobs.wait(job.id);
+    assert.strictEqual(final.job.status, 'done');
+    assert.strictEqual(final.job.failure, null);
+    assert.deepStrictEqual(
+      final.job.partialFailures.map((f) => [
+        f.kind,
+        f.pairsAffected,
+        f.requests,
+        f.message,
+      ]),
+      [
+        ['unreadable', 5, 2, 'the answer contained no JSON array'],
+        ['unreachable', 4, 1, 'socket hang up'],
+      ]
+    );
+
+    // A runner (the Simplify proposals) returns its own `failures`; the same
+    // entry under two names is counted once.
+    jobs.reset();
+    const shared = [
+      {
+        kind: 'thinking',
+        message: 'the model answered nothing',
+        tagsAffected: 50,
+      },
+    ];
+    const other = jobs.start({ task: 'order' }, async () => ({
+      usage: { failures: shared },
+      failures: shared,
+    }));
+    const done = await jobs.wait(other.id);
+    assert.deepStrictEqual(done.job.partialFailures, [
+      {
+        kind: 'thinking',
+        message: 'the model answered nothing',
+        model: null,
+        endpoint: null,
+        status: null,
+        requests: 1,
+        tagsAffected: 50,
+      },
+    ]);
   });
 
   await test('the idle watch stops an unwatched job and spares a watched one', async () => {

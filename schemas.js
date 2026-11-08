@@ -905,6 +905,11 @@
  *           type: boolean
  *           nullable: true
  *           description: true when the verdict came from the judge's memory of an earlier review instead of a request
+ *         failureKind:
+ *           type: string
+ *           nullable: true
+ *           enum: [unreadable, budget, unreachable, thinking, rejected, paperless, stopped, unknown]
+ *           description: present only on an unsure verdict whose request failed; its reason then says so in plain words
  *
  *     DuplicateAiReviewRequest:
  *       type: object
@@ -972,6 +977,11 @@
  *                 failedRequests:
  *                   type: integer
  *                   description: model requests that answered nothing usable; their pairs are marked unsure
+ *                 failures:
+ *                   type: array
+ *                   description: one entry per failed request, with its kind (a single pair that did not fit the token limit is one too)
+ *                   items:
+ *                     $ref: '#/components/schemas/ModelFailure'
  *                 retries:
  *                   type: integer
  *                   description: extra requests made because an answer was cut off at the token limit and the batch was re-asked in smaller pieces
@@ -1157,6 +1167,59 @@
  *         hasResult:
  *           type: boolean
  *           description: true when the job carries a DuplicateAiReviewResult (done, or stopped with partial verdicts)
+ *         failure:
+ *           nullable: true
+ *           description: why the job did not end as done; set for a failed job, a stop at the token budget (kind budget) and a stop because the page was closed (kind stopped), null otherwise
+ *           allOf:
+ *             - $ref: '#/components/schemas/ModelFailure'
+ *         partialFailures:
+ *           type: array
+ *           description: the requests that failed while the job went on, one entry per kind with the affected counts summed
+ *           items:
+ *             $ref: '#/components/schemas/ModelFailure'
+ *
+ *     ModelFailure:
+ *       type: object
+ *       description: A model failure sorted into a kind a person can be told about (services/modelFailure.js)
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [unreadable, budget, unreachable, thinking, rejected, paperless, stopped, unknown]
+ *         message:
+ *           type: string
+ *           description: the raw message, for the Details disclosure only
+ *         model:
+ *           type: string
+ *           nullable: true
+ *         endpoint:
+ *           type: string
+ *           nullable: true
+ *         status:
+ *           type: integer
+ *           nullable: true
+ *           description: the HTTP status the provider answered with, when there was one
+ *         pairsAffected:
+ *           type: integer
+ *           description: pairs left "needs a look" by it (judge requests)
+ *         tagsAffected:
+ *           type: integer
+ *           description: tags left as they are by it (split and order requests)
+ *         namesAffected:
+ *           type: integer
+ *           description: names a vocabulary or sweep request did not read
+ *         request:
+ *           type: object
+ *           description: where the failed request sat in its run; on a single request only
+ *           properties:
+ *             index:
+ *               type: integer
+ *               nullable: true
+ *             total:
+ *               type: integer
+ *               nullable: true
+ *         requests:
+ *           type: integer
+ *           description: on a collapsed entry (partialFailures), how many failed requests it stands for
  *
  *     AiReviewJobEvent:
  *       type: object

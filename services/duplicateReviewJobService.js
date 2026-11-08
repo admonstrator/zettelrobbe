@@ -379,6 +379,9 @@ class DuplicateReviewJobService {
       runStats: freshRunStats(),
       result: null,
       error: null,
+      // Set where the job ends (_settleFailures); see toJSON().
+      failure: null,
+      partialFailures: [],
       controller: new AbortController(),
       listeners: new Set(),
       watchedMs: Date.now(),
@@ -513,6 +516,13 @@ class DuplicateReviewJobService {
       progress: { ...job.progress, elapsedMs: this._elapsed(job) },
       error: job.error,
       hasResult: job.result !== null,
+      // Why the job did not end as done, classified (ClassifiedFailure of
+      // services/modelFailure.js): a failure, the budget stop, or a stop
+      // because nobody watched. Null for a done job and for a stop the person
+      // asked for.
+      failure: job.failure ?? null,
+      // The requests that failed while the run went on, one entry per kind.
+      partialFailures: job.partialFailures || [],
     };
   }
 
@@ -605,8 +615,10 @@ class DuplicateReviewJobService {
         job.status = JOB_STATUS.FAILED;
         job.error = error?.message || 'The AI review failed';
         job.errorStatus = Number.isInteger(error?.status) ? error.status : 500;
+        job.thrown = error;
       }
     }
+    this._settleFailures(job);
     job.finishedAt = new Date().toISOString();
     job.progress.elapsedMs = this._elapsed(job);
     job.progress.etaMs = null;
@@ -632,6 +644,62 @@ class DuplicateReviewJobService {
     job.listeners.clear();
     job._resolveFinished(event);
     this._scheduleRetention(job);
+  }
+
+  /**
+   * What the job says about how it ended, in kinds the page turns into a
+   * notice: `failure` for a failed job, a budget stop or a stop because
+   * nobody watched; `partialFailures` for the requests that failed on the
+   * way, collapsed per kind, from the result's `usage.failures` (or the
+   * judge's `aiReview.failures`, or a runner's own `failures`).
+   *
+   * @param {object} job
+   */
+  _settleFailures(job) {
+    const { classifyFailure, collapseFailures } = require('./modelFailure');
+    const model = job.runStats?.model || null;
+    job.failure = null;
+    if (job.status === JOB_STATUS.FAILED) {
+      job.failure = classifyFailure(job.thrown || job.error, { model });
+      // A classified message is always the one the job reports.
+      job.failure.message = job.error;
+    } else if (
+      job.status === JOB_STATUS.STOPPED &&
+      job.stopReason === STOP_REASONS.TOKEN_BUDGET
+    ) {
+      const budget = Number(job.progress.tokenBudget) || 0;
+      job.failure = classifyFailure(
+        budget > 0
+          ? `The run stopped at its token budget of ${budget} tokens.`
+          : 'The run stopped at its token budget.',
+        { stopReason: job.stopReason, model }
+      );
+    } else if (
+      job.status === JOB_STATUS.STOPPED &&
+      job.stopReason === STOP_REASONS.IDLE
+    ) {
+      job.failure = classifyFailure(
+        'The page was closed, so the run stopped after the current request.',
+        { stopReason: job.stopReason, model }
+      );
+    }
+    delete job.thrown;
+
+    const data = job.result;
+    const seen = new Set();
+    const all = [];
+    for (const list of [
+      data?.usage?.failures,
+      data?.aiReview?.failures,
+      data?.failures,
+    ]) {
+      for (const entry of Array.isArray(list) ? list : []) {
+        if (seen.has(entry)) continue;
+        seen.add(entry);
+        all.push(entry);
+      }
+    }
+    job.partialFailures = collapseFailures(all);
   }
 
   /**

@@ -604,7 +604,7 @@ class AnthropicService {
           : error;
       console.error(`Error generating text with Anthropic: ${thrown.message}`);
       console.debug(thrown);
-      throw thrown;
+      throw require('./modelFailure').tagTransportFailure(thrown);
     }
   }
 
