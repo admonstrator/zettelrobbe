@@ -2825,6 +2825,77 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "activity": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TidyUpActivity"
+              }
+            ],
+            "nullable": true,
+            "description": "what a decide or undo call is writing right now; null when idle"
+          }
+        }
+      },
+      "TidyUpActivity": {
+        "type": "object",
+        "description": "A decide or undo call while it writes to Paperless-ngx, one\nsuggestion (or undo entry) after the other. GET /api/tidy-up/suggestions\nand the run's event stream carry it; a 409 of decide or undo names it.\n",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "decline",
+              "undo"
+            ]
+          },
+          "batchId": {
+            "type": "string",
+            "nullable": true,
+            "description": "the batch an accept creates, or the batch an undo takes back; null for a decline"
+          },
+          "total": {
+            "type": "integer",
+            "description": "suggestions to carry out or decline, or undo entries to take back"
+          },
+          "done": {
+            "type": "integer",
+            "description": "how many of them are finished"
+          },
+          "current": {
+            "type": "object",
+            "nullable": true,
+            "description": "the suggestion in flight; several when unused names are deleted in one call",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "merge",
+                  "split",
+                  "delete"
+                ]
+              },
+              "headline": {
+                "type": "string"
+              }
+            }
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sentence": {
+            "type": "string",
+            "description": "tidyUpWording.activitySentence, e.g. Merging Invoices into invoice… 2 of 9"
           }
         }
       },
@@ -3495,7 +3566,7 @@
     "/api/tidy-up/runs/{id}/events": {
       "get": {
         "summary": "Run snapshots as server-sent events",
-        "description": "Each event is `data: <TidyUpRun as JSON>`, at most four a second;\nthe stream ends after the event whose status is done, stopped or\nfailed. A run that is already over sends that one event at once.\nFollowing the stream counts as watching the run (the idle stop).\n",
+        "description": "Each event is `data: <TidyUpRun as JSON>`, at most four a second;\nthe stream ends after the event whose status is done, stopped or\nfailed. A run that is already over sends that one event at once.\nFollowing the stream counts as watching the run (the idle stop).\nWhile the run is going, a decide or undo call also sends a snapshot\nwhenever its `activity` changes (same event, the `activity` field).\n",
         "tags": [
           "Tidy up",
           "API"
@@ -3619,6 +3690,15 @@
                           "items": {
                             "$ref": "#/components/schemas/TidyUpSuggestion"
                           }
+                        },
+                        "activity": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/TidyUpActivity"
+                            }
+                          ],
+                          "nullable": true,
+                          "description": "what a decide or undo call is writing right now; null when idle"
                         }
                       }
                     }
@@ -3697,7 +3777,35 @@
             "description": "No run yet, or an id that is not a suggestion of it"
           },
           "409": {
-            "description": "Another change is being written to Paperless-ngx"
+            "description": "Something is already being written. `data.activity` is what this\npage's decide or undo call is doing (TidyUpActivity); it is null\nwhen another request (a merge from the API or an older page)\nholds Paperless-ngx, and `error` says so.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "activity": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/TidyUpActivity"
+                            }
+                          ],
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -3796,7 +3904,35 @@
             "description": "Unknown batch, or one that was already undone"
           },
           "409": {
-            "description": "Another change is being written to Paperless-ngx"
+            "description": "Something is already being written. `data.activity` is what this\npage's decide or undo call is doing (TidyUpActivity); it is null\nwhen another request (a merge from the API or an older page)\nholds Paperless-ngx, and `error` says so.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "activity": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/TidyUpActivity"
+                            }
+                          ],
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

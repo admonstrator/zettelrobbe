@@ -49,7 +49,11 @@ function respondError(res, route, error) {
   return res.status(status).json({
     success: false,
     error: error?.message || 'Unexpected error',
-    ...(error?.run ? { data: error.run } : {}),
+    ...(error?.data !== undefined
+      ? { data: error.data }
+      : error?.run
+        ? { data: error.run }
+        : {}),
   });
 }
 
@@ -224,6 +228,8 @@ router.get('/api/tidy-up/runs/:id', isAuthenticated, (req, res) => {
  *       the stream ends after the event whose status is done, stopped or
  *       failed. A run that is already over sends that one event at once.
  *       Following the stream counts as watching the run (the idle stop).
+ *       While the run is going, a decide or undo call also sends a snapshot
+ *       whenever its `activity` changes (same event, the `activity` field).
  *     tags: [Tidy up, API]
  *     security:
  *       - BearerAuth: []
@@ -347,6 +353,11 @@ router.post('/api/tidy-up/runs/:id/stop', isAuthenticated, (req, res) => {
  *                     suggestions:
  *                       type: array
  *                       items: { $ref: '#/components/schemas/TidyUpSuggestion' }
+ *                     activity:
+ *                       allOf:
+ *                         - $ref: '#/components/schemas/TidyUpActivity'
+ *                       nullable: true
+ *                       description: what a decide or undo call is writing right now; null when idle
  */
 router.get('/api/tidy-up/suggestions', isAuthenticated, (req, res) => {
   try {
@@ -400,7 +411,25 @@ router.get('/api/tidy-up/suggestions', isAuthenticated, (req, res) => {
  *       404:
  *         description: No run yet, or an id that is not a suggestion of it
  *       409:
- *         description: Another change is being written to Paperless-ngx
+ *         description: |
+ *           Something is already being written. `data.activity` is what this
+ *           page's decide or undo call is doing (TidyUpActivity); it is null
+ *           when another request (a merge from the API or an older page)
+ *           holds Paperless-ngx, and `error` says so.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 error: { type: string }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     activity:
+ *                       allOf:
+ *                         - $ref: '#/components/schemas/TidyUpActivity'
+ *                       nullable: true
  */
 router.post(
   '/api/tidy-up/suggestions/decide',
@@ -470,7 +499,25 @@ router.post(
  *       404:
  *         description: Unknown batch, or one that was already undone
  *       409:
- *         description: Another change is being written to Paperless-ngx
+ *         description: |
+ *           Something is already being written. `data.activity` is what this
+ *           page's decide or undo call is doing (TidyUpActivity); it is null
+ *           when another request (a merge from the API or an older page)
+ *           holds Paperless-ngx, and `error` says so.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 error: { type: string }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     activity:
+ *                       allOf:
+ *                         - $ref: '#/components/schemas/TidyUpActivity'
+ *                       nullable: true
  */
 router.post(
   '/api/tidy-up/suggestions/undo',

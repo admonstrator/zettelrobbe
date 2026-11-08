@@ -24,6 +24,12 @@
  *   POST /__fixture {scenario}   switch, and push the new snapshot to open streams
  *   GET  /__fixture              { scenario, requests } — every API call, newest last
  *   GET  /tidy-up?model=no&splits=no&counts=no&lastRun=no   the view's locals
+ *   state.decideDelayMs          a decide answers after this long; meanwhile
+ *                                GET /suggestions carries its activity, one
+ *                                suggestion after the other (default 0)
+ *   state.activity               a TidyUpActivity someone else is writing:
+ *                                GET /suggestions carries it, decide and undo
+ *                                answer 409 with it; activityFixture() builds one
  *
  * Usage:
  *   const fake = await startFakeTidyUpApi({ scenario: 'start' });
@@ -95,6 +101,27 @@ const SCENARIOS = Object.freeze([
 ]);
 
 const MODEL = 'qwen3:8b';
+
+/**
+ * A TidyUpActivity as the real service reports it: `list` are the
+ * suggestions being carried out, `done` of them finished, the next in flight.
+ */
+function activityFixture({ kind = 'accept', batchId = null, list, done = 0 }) {
+  const total = list.length;
+  const s = done < total ? list[done] : null;
+  const activity = {
+    kind,
+    batchId,
+    total,
+    done,
+    current: s
+      ? { id: s.id, ids: [s.id], kind: s.kind, headline: s.headline }
+      : null,
+    startedAt: new Date().toISOString(),
+  };
+  activity.sentence = wording.activitySentence(activity);
+  return activity;
+}
 
 /* ------------------------------------------------------------------ */
 /* Fixtures                                                            */
@@ -642,6 +669,8 @@ async function startFakeTidyUpApi(options = {}) {
       })),
     },
     requests: [],
+    decideDelayMs: 0,
+    activity: null,
   };
 
   const visible = () => {
@@ -772,7 +801,19 @@ async function startFakeTidyUpApi(options = {}) {
     runId: state.scenario === 'start' ? null : 'run-1',
     summary: builders.summarize(visible()),
     suggestions: visible(),
+    activity: state.activity,
   });
+  /** The 409 of the real routes while something is written. */
+  const refuseWhileWriting = (res) => {
+    if (!state.activity) return false;
+    res.status(409).json({
+      success: false,
+      error:
+        'Another change is being written to Paperless-ngx. Try again in a moment.',
+      data: { activity: state.activity },
+    });
+    return true;
+  };
   app.get('/api/tidy-up/suggestions', (_req, res) => {
     res.json({ success: true, data: suggestionsPayload() });
   });
@@ -788,7 +829,50 @@ async function startFakeTidyUpApi(options = {}) {
         .status(400)
         .json({ success: false, error: 'ids and decision are required' });
     }
+    if (refuseWhileWriting(res)) return undefined;
     const batchId = decision === 'accept' ? `batch-${++batchCounter}` : null;
+    const answer = () => {
+      carryOut(ids, decision, batchId);
+      return res.json({
+        success: true,
+        data: { batchId, ...suggestionsPayload() },
+      });
+    };
+    if (!(state.decideDelayMs > 0) || decision === 'later') return answer();
+    // Slow: the activity walks through the ids, as the real loop does.
+    const chosen = ids
+      .map((id) => state.suggestions.find((x) => x.id === id))
+      .filter(Boolean);
+    const total = chosen.length;
+    const step = state.decideDelayMs / Math.max(1, total);
+    state.activity = activityFixture({
+      kind: decision,
+      batchId,
+      list: chosen,
+      done: 0,
+    });
+    const timers = [];
+    for (let i = 1; i < total; i += 1) {
+      timers.push(
+        setTimeout(() => {
+          state.activity = activityFixture({
+            kind: decision,
+            batchId,
+            list: chosen,
+            done: i,
+          });
+        }, step * i)
+      );
+    }
+    setTimeout(() => {
+      timers.forEach(clearTimeout);
+      state.activity = null;
+      answer();
+    }, state.decideDelayMs);
+    return undefined;
+  });
+
+  function carryOut(ids, decision, batchId) {
     const before = [];
     for (const id of ids) {
       const s = state.suggestions.find((x) => x.id === id);
@@ -815,12 +899,9 @@ async function startFakeTidyUpApi(options = {}) {
       }
     }
     if (batchId) state.batches.set(batchId, before);
-    return res.json({
-      success: true,
-      data: { batchId, ...suggestionsPayload() },
-    });
-  });
+  }
   app.post('/api/tidy-up/suggestions/undo', (req, res) => {
+    if (refuseWhileWriting(res)) return undefined;
     const before = state.batches.get(req.body?.batchId);
     if (!before)
       return res.status(404).json({ success: false, error: 'Unknown batch' });
@@ -945,6 +1026,7 @@ async function startFakeTidyUpApi(options = {}) {
 
 module.exports = {
   startFakeTidyUpApi,
+  activityFixture,
   buildSuggestions,
   SCENARIOS,
   SHELL_LOCALS,

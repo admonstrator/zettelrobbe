@@ -12,6 +12,13 @@
  * the run, the suggestions and what the person typed into a card in `state`
  * and redraws the list from it; a decision re-renders from the list the API
  * returns.
+ *
+ * While a decide or undo writes to Paperless-ngx (started here, in another
+ * tab, or seen in a 409) a status strip says what is being done (the
+ * `activity` of GET /api/tidy-up/suggestions, its sentence from the API),
+ * every button that would write is aria-disabled, and the card in flight
+ * shows a spinner in place of its buttons. The page polls the suggestions
+ * once a second until the activity is over, then redraws the list.
  */
 
 import { escapeHtml as esc } from './text-utils.js';
@@ -31,6 +38,32 @@ import {
   paintMeter,
   runCardHtml,
 } from './tidy-up-run.js';
+
+/** How often the page asks what is being written while something is. */
+const ACTIVITY_POLL_MS = 1000;
+/** How long a refusal by another request holds the buttons. */
+const EXTERNAL_HOLD_MS = 3000;
+/**
+ * Said between a click and the server's first word about it. The sentences
+ * after that come from the API (tidyUpWording.activitySentence).
+ */
+const WRITING_PLACEHOLDER = 'Writing to Paperless-ngx…';
+/** Buttons that write (or start something) and wait while anything writes. */
+const WRITING_ACTS = new Set([
+  'accept',
+  'decline',
+  'later',
+  'retry',
+  'undo',
+  'swap',
+  'delete-all',
+  'pick',
+  'delete-ticked',
+  'accept-sure',
+  'undo-batch',
+  'run-again',
+  'recent-undo',
+]);
 
 const STATUS_WORDS = {
   done: 'Done',
@@ -62,6 +95,7 @@ async function requestJson(url, options = {}) {
       payload.error || payload.message || 'Request failed'
     );
     error.status = response.status;
+    error.data = payload.data ?? null;
     throw error;
   }
   payload.status = response.status;
@@ -132,6 +166,7 @@ export default function tidyUp(root, ctx = {}) {
     forget: root.querySelector('[data-tidy-forget]'),
     hiddenToggle: root.querySelector('[data-tidy-hidden-toggle]'),
     hidden: root.querySelector('[data-tidy-hidden]'),
+    activity: root.querySelector('[data-tidy-activity]'),
   };
   const modelAvailable = root.dataset.modelAvailable === 'yes';
 
@@ -158,6 +193,12 @@ export default function tidyUp(root, ctx = {}) {
     lastOptions: null,
     stopFollowing: null,
     busy: false,
+    /** TidyUpActivity from the server while a decide or undo writes */
+    activity: null,
+    /** this page's own decide or undo request in flight: { ids } */
+    writing: null,
+    /** a refusal because another request writes: { sentence } */
+    external: null,
   };
 
   /* --- options ----------------------------------------------------------- */
@@ -267,6 +308,11 @@ export default function tidyUp(root, ctx = {}) {
   }
 
   function renderResults() {
+    drawResults();
+    renderActivity();
+  }
+
+  function drawResults() {
     const run = state.run;
     const live = run && LIVE_STATES.includes(run.status);
     const list = state.suggestions;
@@ -382,8 +428,209 @@ export default function tidyUp(root, ctx = {}) {
         ? data.suggestions
         : [];
       state.summary = data.summary || null;
+      // Another tab (or the API) is writing: show it and wait for its end.
+      if (data.activity && !state.writing) {
+        state.activity = data.activity;
+        startPolling();
+      }
     } catch (error) {
       toast(error.message, { tone: 'danger' });
+    }
+  }
+
+  /* --- what is being written right now ------------------------------------ */
+
+  function busy() {
+    return Boolean(state.activity || state.writing || state.external);
+  }
+
+  function activitySentence() {
+    if (state.activity && state.activity.sentence)
+      return state.activity.sentence;
+    if (state.writing) return WRITING_PLACEHOLDER;
+    if (state.external) return state.external.sentence;
+    return '';
+  }
+
+  /** The suggestions in flight: what the server names, else what was sent. */
+  function inFlightIds() {
+    const current = state.activity && state.activity.current;
+    if (current && Array.isArray(current.ids) && current.ids.length)
+      return current.ids;
+    if (current && current.id) return [current.id];
+    if (state.writing) return state.writing.ids;
+    return [];
+  }
+
+  const stripHtml = (sentence) =>
+    `<span class="zr-spinner" aria-hidden="true"></span><span class="tidy-activity__text">${esc(sentence)}</span>`;
+
+  /** The strip, the run card's copy of it, and every button that writes. */
+  function renderActivity() {
+    const on = busy();
+    const sentence = on ? activitySentence() : '';
+    root.toggleAttribute('data-busy', on);
+    if (el.activity) {
+      // Rewritten only when the sentence changes, so a screen reader hears
+      // each step once.
+      if (el.activity.dataset.sentence !== sentence) {
+        el.activity.dataset.sentence = sentence;
+        el.activity.innerHTML = on ? stripHtml(sentence) : '';
+      }
+      show(el.activity, on);
+    }
+    if (el.run) {
+      const body = el.run.querySelector('.tidy-run__body');
+      let copy = el.run.querySelector('[data-tidy-run-activity]');
+      if (on && body) {
+        if (!copy) {
+          copy = document.createElement('div');
+          copy.className = 'tidy-activity tidy-activity--run';
+          copy.dataset.tidyRunActivity = '';
+          // The strip above the list is the one that is announced.
+          copy.setAttribute('aria-hidden', 'true');
+          body.appendChild(copy);
+        }
+        if (copy.dataset.sentence !== sentence) {
+          copy.dataset.sentence = sentence;
+          copy.innerHTML = stripHtml(sentence);
+        }
+      } else if (copy) {
+        copy.remove();
+      }
+    }
+    applyBusy(on);
+  }
+
+  function applyBusy(on = busy()) {
+    root.querySelectorAll('button[data-act]').forEach((button) => {
+      if (!WRITING_ACTS.has(button.dataset.act)) return;
+      if (on) button.setAttribute('aria-disabled', 'true');
+      else button.removeAttribute('aria-disabled');
+    });
+    if (el.find) {
+      if (on) el.find.setAttribute('aria-disabled', 'true');
+      else el.find.removeAttribute('aria-disabled');
+    }
+    const flying = new Set(on ? inFlightIds() : []);
+    root
+      .querySelectorAll('.tidy-list .tidy-card, .tidy-list .tidy-line')
+      .forEach((node) => {
+        const own = node.dataset.ids
+          ? node.dataset.ids.split(' ')
+          : [node.dataset.id];
+        const inFlight = own.some((id) => flying.has(id));
+        node.classList.toggle('tidy-inflight', inFlight);
+        const mark = node.querySelector('.tidy-inflight__mark');
+        if (inFlight && !mark) {
+          const holder =
+            [...node.querySelectorAll('.tidy-actions')].pop() || node;
+          holder.insertAdjacentHTML(
+            'beforeend',
+            '<span class="tidy-inflight__mark" aria-hidden="true"><span class="zr-spinner"></span></span>'
+          );
+        } else if (!inFlight && mark) {
+          mark.remove();
+        }
+      });
+  }
+
+  let pollTimer = null;
+  let pollGeneration = 0;
+  let polling = false;
+
+  function startPolling({ soon = false } = {}) {
+    if (!pollTimer) {
+      pollTimer = window.setInterval(pollActivity, ACTIVITY_POLL_MS);
+    }
+    if (soon) window.setTimeout(pollActivity, 250);
+  }
+
+  function stopPolling() {
+    if (pollTimer) window.clearInterval(pollTimer);
+    pollTimer = null;
+    pollGeneration += 1;
+  }
+
+  /** One look at the server: the activity, or its end and the list after it. */
+  async function pollActivity() {
+    if (polling || !pollTimer) return;
+    polling = true;
+    const generation = pollGeneration;
+    try {
+      const payload = await getJson('/api/tidy-up/suggestions');
+      if (generation !== pollGeneration) return;
+      const data = payload.data || {};
+      if (data.activity) {
+        state.activity = data.activity;
+        renderActivity();
+        return;
+      }
+      // This page's own request answers with the list itself.
+      if (state.writing) return;
+      stopPolling();
+      state.activity = null;
+      takeList(data);
+      renderResults();
+      loadRecent();
+    } catch {
+      // The next tick asks again.
+    } finally {
+      polling = false;
+    }
+  }
+
+  /** An activity from the server outside a request of this page (SSE). */
+  function seeActivity(activity) {
+    if (activity) {
+      state.activity = activity;
+      if (!state.writing) startPolling();
+    } else if (state.activity && !state.writing) {
+      startPolling({ soon: true });
+    }
+  }
+
+  /** A 409: show what is going on instead of a toast. */
+  function refused(error) {
+    const activity = error.data && error.data.activity;
+    if (activity) {
+      state.activity = activity;
+      startPolling();
+    } else {
+      state.external = { sentence: error.message };
+      window.setTimeout(() => {
+        state.external = null;
+        renderActivity();
+      }, EXTERNAL_HOLD_MS);
+    }
+    renderActivity();
+  }
+
+  /**
+   * Runs one writing request with the strip up and the buttons held. A 409
+   * becomes the strip of what holds the server; `{ ok: false }` then.
+   */
+  async function withWriting(ids, work, { strip = true } = {}) {
+    if (strip) {
+      state.writing = { ids: [...ids] };
+      startPolling({ soon: true });
+      renderActivity();
+    }
+    let refusal = null;
+    try {
+      return { ok: true, value: await work() };
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      refusal = error;
+      return { ok: false };
+    } finally {
+      if (strip) {
+        state.writing = null;
+        state.activity = null;
+        stopPolling();
+        renderActivity();
+      }
+      if (refusal) refused(refusal);
     }
   }
 
@@ -418,6 +665,7 @@ export default function tidyUp(root, ctx = {}) {
       getJson,
       onSnapshot(next) {
         state.run = next;
+        if (next && 'activity' in next) seeActivity(next.activity);
         renderRun();
         refreshWhileRunning(next);
       },
@@ -462,7 +710,7 @@ export default function tidyUp(root, ctx = {}) {
   /* --- starting and stopping ---------------------------------------------- */
 
   async function startRun(options) {
-    if (state.busy) return;
+    if (state.busy || busy()) return;
     state.busy = true;
     if (el.find) el.find.disabled = true;
     try {
@@ -518,16 +766,19 @@ export default function tidyUp(root, ctx = {}) {
   }
 
   async function decide(ids, decision, { batchBanner = false } = {}) {
-    if (!ids.length) return;
+    if (!ids.length || busy()) return;
     try {
       const body = { ids, decision };
       const edits = decision === 'accept' ? editsFor(ids) : undefined;
       if (edits) body.edits = edits;
-      const payload = await sendJson(
-        'POST',
-        '/api/tidy-up/suggestions/decide',
-        body
+      // "Later" writes nothing: no strip, but a 409 still shows what holds.
+      const result = await withWriting(
+        ids,
+        () => sendJson('POST', '/api/tidy-up/suggestions/decide', body),
+        { strip: decision !== 'later' }
       );
+      if (!result.ok) return;
+      const payload = result.value;
       const data = payload.data || {};
       takeList(data);
       ids.forEach((id) => state.decidedHere.add(id));
@@ -560,10 +811,16 @@ export default function tidyUp(root, ctx = {}) {
     }
   }
 
+  /** Undoes one batch; false when the server was busy (the strip says so). */
   async function undoBatch(batchId) {
-    const payload = await sendJson('POST', '/api/tidy-up/suggestions/undo', {
-      batchId,
-    });
+    const ids = [...state.batchOf]
+      .filter(([, b]) => b === batchId)
+      .map(([id]) => id);
+    const result = await withWriting(ids, () =>
+      sendJson('POST', '/api/tidy-up/suggestions/undo', { batchId })
+    );
+    if (!result.ok) return false;
+    const payload = result.value;
     if (payload.data && Array.isArray(payload.data.suggestions)) {
       takeList(payload.data);
     } else {
@@ -573,6 +830,7 @@ export default function tidyUp(root, ctx = {}) {
       if (b === batchId) state.batchOf.delete(id);
     state.batchSizes.delete(batchId);
     if (state.banner && state.banner.batchId === batchId) state.banner = null;
+    return true;
   }
 
   /** One done line's Undo: its own batch when it was alone in it, else its log entry. */
@@ -581,12 +839,15 @@ export default function tidyUp(root, ctx = {}) {
     const alone = batchId && state.batchSizes.get(batchId) === 1;
     try {
       if (batchId && (alone || !s.undoId)) {
-        await undoBatch(batchId);
+        if (!(await undoBatch(batchId))) return;
       } else if (s.undoId) {
-        await sendJson(
-          'POST',
-          `/api/duplicates/log/${encodeURIComponent(s.undoId)}/undo`
+        const result = await withWriting([s.id], () =>
+          sendJson(
+            'POST',
+            `/api/duplicates/log/${encodeURIComponent(s.undoId)}/undo`
+          )
         );
+        if (!result.ok) return;
         await loadSuggestions();
       }
       state.decidedHere.delete(s.id);
@@ -701,6 +962,7 @@ export default function tidyUp(root, ctx = {}) {
           </li>`
         )
         .join('')}</ul>`;
+      applyBusy();
     } catch {
       el.recent.innerHTML =
         '<p class="zr-sm zr-faint tidy-recent__empty">Recent changes could not be loaded.</p>';
@@ -708,12 +970,16 @@ export default function tidyUp(root, ctx = {}) {
   }
 
   async function undoRecent(id, button) {
+    if (busy()) return;
     button.disabled = true;
     try {
-      await sendJson(
-        'POST',
-        `/api/duplicates/log/${encodeURIComponent(id)}/undo`
+      const result = await withWriting([], () =>
+        sendJson('POST', `/api/duplicates/log/${encodeURIComponent(id)}/undo`)
       );
+      if (!result.ok) {
+        button.disabled = false;
+        return;
+      }
       toast('Undone', { tone: 'ok' });
       await loadRecent();
       if (state.run) {
@@ -830,7 +1096,12 @@ export default function tidyUp(root, ctx = {}) {
       return;
     }
     const button = event.target.closest('[data-act]');
-    if (!button || button.disabled) return;
+    if (
+      !button ||
+      button.disabled ||
+      button.getAttribute('aria-disabled') === 'true'
+    )
+      return;
     const act = button.dataset.act;
     const s = suggestionOf(button);
     switch (act) {
@@ -900,7 +1171,11 @@ export default function tidyUp(root, ctx = {}) {
           button.disabled = true;
           const { batchId, count } = state.banner;
           undoBatch(batchId)
-            .then(() => {
+            .then((ok) => {
+              if (!ok) {
+                button.disabled = false;
+                return;
+              }
               state.decidedHere.forEach((id) => {
                 const x = state.suggestions.find((y) => y.id === id);
                 if (x && x.status === 'open') state.decidedHere.delete(id);
@@ -1007,6 +1282,7 @@ export default function tidyUp(root, ctx = {}) {
   return {
     destroy() {
       if (state.stopFollowing) state.stopFollowing();
+      stopPolling();
     },
   };
 }
