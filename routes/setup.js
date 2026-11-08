@@ -10,6 +10,8 @@ const azureService = require('../services/azureService.js');
 const documentModel = require('../models/document.js');
 const AIServiceFactory = require('../services/aiServiceFactory');
 const configFile = require('../config/config.js');
+const aiProviderRules = require('../services/aiProviderRules');
+const { RESTART_REQUIRED_KEYS } = require('../config/restartRequiredKeys');
 const changelog = require('../config/changelog.js');
 const dashboardWidgets = require('../config/dashboardWidgets.js');
 const documentsService = require('../services/documentsService.js');
@@ -7593,6 +7595,13 @@ router.get('/settings', async (req, res) => {
     lockedEnvDetails,
     aiProviderPresets,
     anthropicOptions: getAnthropicFormOptions(),
+    // The AI option catalogue (labels, plain-language help, basic/advanced
+    // level, which providers show each) and the keys whose change ends in a
+    // restart. Both come from their single source so the view holds no list
+    // of its own.
+    aiOptions: aiProviderRules.AI_OPTIONS,
+    aiProviders: aiProviderRules.PROVIDERS,
+    restartRequiredKeys: Array.from(RESTART_REQUIRED_KEYS),
     mfaSettings,
     // Single sign-on: the callback URL as this request sees it (what to
     // register at the provider when OIDC_REDIRECT_URI is empty), and what the
