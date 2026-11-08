@@ -2,6 +2,20 @@
 
 /* global Sortable, zrDialog */
 
+/**
+ * Shows the AI options whose data-providers list names `provider` and hides
+ * the others. The list comes from AI_OPTIONS in services/aiProviderRules.js
+ * through the view; this function holds no list of its own.
+ */
+function applyProviderOptions(provider) {
+  document
+    .querySelectorAll('[data-ai-option][data-providers]')
+    .forEach((row) => {
+      const providers = row.dataset.providers.split(',').filter(Boolean);
+      row.classList.toggle('hidden', !providers.includes(provider));
+    });
+}
+
 class FormManager {
   constructor() {
     this.form = document.getElementById('setupForm');
@@ -144,11 +158,9 @@ class FormManager {
     azureSettings.classList.add('hidden');
     anthropicSettings?.classList.add('hidden');
 
-    // Claude models reject sampling parameters, so the temperature fields
-    // stay (they apply again after switching back) but say they are ignored.
-    document.querySelectorAll('[data-anthropic-hint]').forEach((hint) => {
-      hint.classList.toggle('hidden', provider !== 'anthropic');
-    });
+    // Options that do not apply to this provider leave with it. They stay
+    // in the form, so switching back finds them as they were.
+    applyProviderOptions(provider);
 
     // Reset all required fields
     openaiKey.required = false;
@@ -181,7 +193,8 @@ class FormManager {
         azureSettings.classList.remove('hidden');
         azureEndpoint.required = true;
         azureDeploymentName.required = true;
-        azureApiVersion.required = true;
+        // The API version has a default and sits under Advanced options, so
+        // it is not required.
         break;
       case 'anthropic':
         // Nothing is required here: an empty key keeps the stored one (the
@@ -3108,6 +3121,7 @@ function initializeRuntimeOverridePills() {
       selector: '#aiTemperatureGeneration',
       envKey: 'AI_TEMPERATURE_GENERATION',
     },
+    { selector: '#ollamaThink', envKey: 'OLLAMA_THINK' },
     { selector: '#aiProcessedTag', envKey: 'ADD_AI_PROCESSED_TAG' },
     { selector: '#aiTagName', envKey: 'AI_PROCESSED_TAG_NAME' },
     { selector: '#usePromptTags', envKey: 'USE_PROMPT_TAGS' },

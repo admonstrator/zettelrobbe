@@ -9673,6 +9673,18 @@ router.post('/settings', express.json(), async (req, res) => {
         if (hasOllamaApiKeyInput)
           updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
+        // The switch arrives as the settings-switch partial's yes/no;
+        // config.ollama.think only counts the literal 'true'.
+        if (req.body.ollamaThink !== undefined) {
+          const ollamaThinkValue = String(req.body.ollamaThink ?? '')
+            .trim()
+            .toLowerCase();
+          updatedConfig.OLLAMA_THINK = ['yes', 'on', 'true', '1'].includes(
+            ollamaThinkValue
+          )
+            ? 'true'
+            : 'false';
+        }
       } else if (selectedAiProvider === 'custom') {
         const effectiveCustomBaseUrl =
           customBaseUrl || currentConfig.CUSTOM_BASE_URL;

@@ -71,6 +71,7 @@ const TESTS = {
   'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
   'settings-quickstart-persistence': 'test-settings-quickstart-persistence.js',
   'settings-duplicates-section': 'test-settings-duplicates-section.js',
+  'settings-ai-options': 'test-settings-ai-options.js',
   'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
   'scan-stop-flow': 'test-scan-stop-flow.js',
@@ -319,6 +320,7 @@ const AREAS = {
     'simplify-assistant-ui',
   ],
   review: ['review-sheet', 'review-assist', 'review-voice'],
+  'settings-ai': ['settings-ai-options'],
   'ai-rules': ['ai-provider-rules'],
   providers: ['openai-compatible-service'],
   anthropic: [

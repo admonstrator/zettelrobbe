@@ -677,18 +677,29 @@ function startFakeAnthropic() {
         /<option value="anthropic" selected>Claude \(Anthropic\)<\/option>/
       );
 
+      // The basic view holds what makes Claude work: the key and the model.
+      // Everything else sits under the section's advanced options.
       const block = sliceBetween(
         html,
         'id="anthropicSettings"',
-        '<h4 class="zr-label">Model Parameters</h4>'
+        'id="sec-provider-advanced"'
+      );
+      const advanced = sliceBetween(
+        html,
+        'id="sec-provider-advanced"',
+        '</details>'
       );
       assert.ok(
         !block.slice(0, 80).includes('hidden'),
         'shown while anthropic is selected'
       );
+      ['anthropicApiKey', 'anthropicModel'].forEach((name) => {
+        assert.ok(
+          block.includes(`name="${name}"`),
+          `${name} is part of the basic view`
+        );
+      });
       [
-        'anthropicApiKey',
-        'anthropicModel',
         'anthropicEffort',
         'anthropicMaxTokens',
         'anthropicStructuredOutput',
@@ -696,8 +707,9 @@ function startFakeAnthropic() {
         'anthropicApiUrl',
       ].forEach((name) => {
         assert.ok(
-          block.includes(`name="${name}"`),
-          `${name} is part of the form`
+          !block.includes(`name="${name}"`) &&
+            advanced.includes(`name="${name}"`),
+          `${name} is an advanced option`
         );
       });
       assert.match(block, /id="anthropicApiKey"[^>]*placeholder="Configured"/);
@@ -711,36 +723,44 @@ function startFakeAnthropic() {
         );
       });
       assert.ok(block.includes('id="fetchAnthropicModelsBtn"'));
-      assert.match(block, /<option value="" >Model default<\/option>/);
+      assert.match(advanced, /<option value="" >Model default<\/option>/);
       ANTHROPIC_EFFORT_LEVELS.forEach((level) => {
         assert.ok(
-          block.includes(`<option value="${level}"`),
+          advanced.includes(`<option value="${level}"`),
           `effort ${level} is offered`
         );
       });
-      assert.match(block, /<option value="high" selected>/);
-      assert.match(block, /name="anthropicMaxTokens" value="24000"/);
+      assert.match(advanced, /<option value="high" selected>/);
+      assert.match(advanced, /name="anthropicMaxTokens"[^>]*value="24000"/);
       assert.match(
-        block,
+        advanced,
         /id="anthropicStructuredOutput" name="anthropicStructuredOutput" value="no"/
       );
       assert.match(
-        block,
+        advanced,
         /id="anthropicPromptCaching" name="anthropicPromptCaching" value="yes"/
       );
       assert.ok(
-        block.includes('Only for a proxy; leave empty for api.anthropic.com')
+        advanced.includes('Only for a proxy in front of the Anthropic API')
       );
 
-      const hints =
-        html.match(/<p class="zr-field__hint[^"]*" data-anthropic-hint>/g) ||
-        [];
-      assert.strictEqual(
-        hints.length,
-        2,
-        'both temperature fields say Claude ignores them'
-      );
-      hints.forEach((hint) => assert.ok(!hint.includes('hidden')));
+      // Claude takes no temperature and no separate answer length, so those
+      // options leave the page with the provider instead of saying so.
+      [
+        'AI_TEMPERATURE_ANALYSIS',
+        'AI_TEMPERATURE_GENERATION',
+        'RESPONSE_TOKENS',
+      ].forEach((key) => {
+        const row = html.match(
+          new RegExp(
+            `<div class="zr-settings-option([^"]*)" data-ai-option="${key}"[^>]*data-providers="([^"]*)"`
+          )
+        );
+        assert.ok(row, `${key} is rendered`);
+        assert.ok(row[1].includes('hidden'), `${key} is hidden for Claude`);
+        assert.ok(!row[2].split(',').includes('anthropic'));
+      });
+      assert.ok(!html.includes('data-anthropic-hint'));
 
       assert.match(
         html,

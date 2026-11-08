@@ -302,6 +302,9 @@ function resolveRules(provider, model = '') {
  * @property {ReadonlyArray<ProviderId>|null} providers  which providers show
  *   the option; null means all of them
  * @property {string} [defaultValue]  what applies when the field is empty
+ * @property {'provider'|'duplicates'|'simplify'} [section]  which settings
+ *   section shows the option: the AI provider, the Duplicates page or the
+ *   Simplify tags page; absent means the AI provider
  */
 
 /**
@@ -322,6 +325,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '1000',
+    section: 'provider',
   },
   {
     key: 'TOKEN_LIMIT',
@@ -330,6 +334,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: null,
     defaultValue: '128000',
+    section: 'provider',
   },
   {
     key: 'AI_TEMPERATURE_ANALYSIS',
@@ -338,6 +343,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.3',
+    section: 'provider',
   },
   {
     key: 'AI_TEMPERATURE_GENERATION',
@@ -346,6 +352,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.7',
+    section: 'provider',
   },
   {
     key: 'ANTHROPIC_EFFORT',
@@ -354,6 +361,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '',
+    section: 'provider',
   },
   {
     key: 'ANTHROPIC_MAX_TOKENS',
@@ -362,6 +370,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '16000',
+    section: 'provider',
   },
   {
     key: 'ANTHROPIC_STRUCTURED_OUTPUT',
@@ -370,6 +379,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: 'yes',
+    section: 'provider',
   },
   {
     key: 'ANTHROPIC_PROMPT_CACHING',
@@ -378,6 +388,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: 'yes',
+    section: 'provider',
   },
   {
     key: 'ANTHROPIC_API_URL',
@@ -386,6 +397,7 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '',
+    section: 'provider',
   },
   {
     key: 'OLLAMA_THINK',
@@ -394,22 +406,210 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: 'false',
+    section: 'provider',
+  },
+  {
+    key: 'OLLAMA_API_KEY',
+    label: 'API key',
+    help: 'Only needed when the Ollama server sits behind a proxy that asks for a token. A plain Ollama install has no key; leave it empty.',
+    level: 'advanced',
+    providers: ['ollama'],
+    defaultValue: '',
+    section: 'provider',
+  },
+  {
+    key: 'AZURE_API_VERSION',
+    label: 'API version',
+    help: 'The Azure OpenAI API version every request names. The default works for chat models; change it only when Azure asks for a newer one, for example for a recent model.',
+    level: 'advanced',
+    providers: ['azure'],
+    defaultValue: '2023-05-15',
+    section: 'provider',
+  },
+
+  // Duplicates page. Finding and merging duplicates is deterministic; these
+  // options govern the optional review in which the model judges the
+  // proposed groups, and the guard that keeps analysis from creating new
+  // near-duplicates. They apply to every provider.
+  {
+    key: 'DUPLICATES_AI_REVIEW',
+    label: 'Let the model judge duplicates',
+    help: 'Offers a review on the Duplicates page in which the model reads the proposed groups and says which really mean the same thing. Off, the page finds and merges by spelling rules only. Nothing runs until you start it there.',
+    level: 'basic',
+    providers: null,
+    defaultValue: 'yes',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_GUARD_NEW_NAMES',
+    label: 'Reuse an existing name instead of creating a near-duplicate',
+    help: 'When document analysis proposes a tag or correspondent that is an existing one in another spelling (case, umlauts, legal form, plural, word order), the existing one is used and the mapping is listed on the Duplicates page. A typo-like match is only logged; the new name is still created.',
+    level: 'basic',
+    providers: null,
+    defaultValue: 'yes',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_MODEL',
+    label: 'Model for the review',
+    help: 'A stronger model of the same provider, used only to judge duplicates. Empty uses the model set under AI provider.',
+    level: 'basic',
+    providers: null,
+    defaultValue: '',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_REVIEW_BATCH_SIZE',
+    label: 'Pairs per request',
+    help: 'How many name pairs one model request asks about. Fewer pairs mean more, shorter requests; more pairs need a model with a larger context.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '25',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_CANDIDATE_FLOOR',
+    label: 'Lowest similarity shown to the model',
+    help: 'Pairs the spelling matcher rates below your sensitivity but above this score are judged by the model too. A lower value asks about more pairs.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '0.6',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_EXCERPTS',
+    label: 'Read document excerpts for spelling-only pairs',
+    help: 'When two names were linked by spelling alone, the model also reads a short excerpt of a few of their documents. That tells apart names that look like a typo of each other but mean different things.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: 'yes',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_EXCERPT_CHARS',
+    label: 'Excerpt length in characters',
+    help: 'How much of each document the model reads for such a pair. Longer excerpts cost more tokens.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '300',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
+    label: 'Documents per name for excerpts',
+    help: 'How many documents of each tag or correspondent are sampled for those excerpts.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '2',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_TOKEN_BUDGET',
+    label: 'Token budget per review',
+    help: 'The most one review may spend across all its requests. When it is reached the review stops and keeps the verdicts it has; 0 means no limit.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '200000',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
+    label: 'Stop an unwatched review after (seconds)',
+    help: 'A review nobody has watched for this long stops itself, so a closed tab cannot leave the model running; 0 means never.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '60',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_THINKING',
+    label: 'Let the judge think',
+    help: 'Reasoning models write their thoughts before the answer and spend the whole answer budget on them. Off, the judge gets the evidence instead and answers in a fraction of the time and cost. Switch it on only if your model judges badly without it.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: 'no',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_REQUEST_SECONDS',
+    label: 'Seconds per request',
+    help: 'The judge measures your model on a small first request, then puts as many pairs into each request as fit into this many seconds. Shorter means smaller requests and more frequent progress.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '30',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_CONCURRENCY',
+    label: 'Requests at once',
+    help: 'How many model requests run in parallel. 0 lets the judge choose: one for Ollama, three for a hosted provider. More at once finishes sooner but costs the same tokens.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '0',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
+    label: 'Remember verdicts for (days)',
+    help: 'A pair the model has judged is not asked about again while both names stay unchanged. 0 switches this memory off.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '90',
+    section: 'duplicates',
+  },
+  {
+    key: 'DUPLICATES_AI_SWEEP_NAMES',
+    label: 'Names per request for the semantic sweep',
+    help: 'The semantic sweep shows the model the whole list of names, to find synonyms and translations the spelling rules cannot see. This is how many names go into one request.',
+    level: 'advanced',
+    providers: null,
+    defaultValue: '300',
+    section: 'duplicates',
+  },
+
+  // Simplify tags page: decomposing against a saved vocabulary needs no
+  // model; these two size the optional proposals the model makes.
+  {
+    key: 'SIMPLIFY_TAGS_PER_REQUEST',
+    label: 'Tags per request',
+    help: 'How many tag names the model splits up in one request. Fewer names mean more requests; more names need a model with a larger context.',
+    level: 'basic',
+    providers: null,
+    defaultValue: '50',
+    section: 'simplify',
+  },
+  {
+    key: 'SIMPLIFY_VOCABULARY_SIZE',
+    label: 'Vocabulary size',
+    help: 'How many entries the proposed vocabulary aims at, document types and topics together. Smaller means fewer, broader topics.',
+    level: 'basic',
+    providers: null,
+    defaultValue: '25',
+    section: 'simplify',
   },
 ]);
 
+/** @param {AiOption} option */
+function sectionOf(option) {
+  return option.section || 'provider';
+}
+
 /**
- * The options a provider shows, optionally limited to one level.
+ * The options a provider shows, optionally limited to one level and to one
+ * settings section.
  *
  * @param {unknown} provider
  * @param {'basic'|'advanced'} [level]
+ * @param {'provider'|'duplicates'|'simplify'} [section]
  * @returns {AiOption[]}
  */
-function optionsFor(provider, level) {
+function optionsFor(provider, level, section) {
   const id = normalizeProvider(provider);
   return AI_OPTIONS.filter(
     (option) =>
       (option.providers === null || option.providers.includes(id)) &&
-      (!level || option.level === level)
+      (!level || option.level === level) &&
+      (!section || sectionOf(option) === section)
   );
 }
 
@@ -424,4 +624,5 @@ module.exports = {
   transportFor,
   resolveRules,
   optionsFor,
+  sectionOf,
 };

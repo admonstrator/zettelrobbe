@@ -240,6 +240,105 @@
                                 </section>
                         <%- entryClose() %>
 
+                        <%
+                            // The AI options (labels, help, basic or advanced, which
+                            // providers show them, defaults) come from AI_OPTIONS in
+                            // services/aiProviderRules.js. The table below only says which
+                            // control each key drives, so the existing ids and names stay.
+                            const aiOptionList = Array.isArray(typeof aiOptions !== 'undefined' ? aiOptions : null) ? aiOptions : [];
+                            const aiProviderIds = (Array.isArray(typeof aiProviders !== 'undefined' ? aiProviders : null) ? aiProviders : []).map((provider) => provider.id);
+                            // The selected provider's connection block is shown from the
+                            // first paint; settings.js takes over on a switch.
+                            const aiSelectedProvider = String(config.AI_PROVIDER || 'openai').trim().toLowerCase();
+                            const aiBlockHidden = (id) => (id === aiSelectedProvider ? '' : 'hidden');
+                            const aiSwitchOn = (value, fallback) => ['yes', 'true', '1', 'on'].includes(String(value == null || value === '' ? fallback : value).trim().toLowerCase());
+                            const aiOptionControls = {
+                                RESPONSE_TOKENS: { id: 'responseTokens', type: 'number', attrs: 'min="1" step="1"' },
+                                TOKEN_LIMIT: { id: 'tokenLimit', type: 'number', attrs: 'min="1" step="1"' },
+                                AI_TEMPERATURE_ANALYSIS: { id: 'aiTemperatureAnalysis', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
+                                AI_TEMPERATURE_GENERATION: { id: 'aiTemperatureGeneration', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
+                                ANTHROPIC_EFFORT: { id: 'anthropicEffort', type: 'select', choices: [{ value: '', label: 'Model default' }].concat(anthropicEffortLevels.map((level) => ({ value: level, label: anthropicEffortLabels[level] || level }))) },
+                                ANTHROPIC_MAX_TOKENS: { id: 'anthropicMaxTokens', type: 'number', attrs: 'min="1" step="1"' },
+                                ANTHROPIC_STRUCTURED_OUTPUT: { id: 'anthropicStructuredOutput', type: 'switch' },
+                                ANTHROPIC_PROMPT_CACHING: { id: 'anthropicPromptCaching', type: 'switch' },
+                                ANTHROPIC_API_URL: { id: 'anthropicApiUrl', type: 'text', placeholder: 'https://api.anthropic.com', attrs: 'autocomplete="off" spellcheck="false"' },
+                                OLLAMA_THINK: { id: 'ollamaThink', type: 'switch' },
+                                OLLAMA_API_KEY: { id: 'ollamaApiKey', type: 'secret', placeholder: 'Optional' },
+                                AZURE_API_VERSION: { id: 'azureApiVersion', type: 'text', attrs: 'autocomplete="off" spellcheck="false"' },
+                                DUPLICATES_AI_REVIEW: { id: 'duplicatesAiReview', type: 'switch' },
+                                DUPLICATES_GUARD_NEW_NAMES: { id: 'duplicatesGuardNewNames', type: 'switch' },
+                                DUPLICATES_AI_MODEL: { id: 'duplicatesAiModel', type: 'text', placeholder: 'Same as the analysis model' },
+                                DUPLICATES_AI_REVIEW_BATCH_SIZE: { id: 'duplicatesAiReviewBatchSize', type: 'number', attrs: 'min="1" max="100" step="1"' },
+                                DUPLICATES_AI_CANDIDATE_FLOOR: { id: 'duplicatesAiCandidateFloor', type: 'number', attrs: 'min="0.5" max="0.95" step="0.01"' },
+                                DUPLICATES_AI_EXCERPTS: { id: 'duplicatesAiExcerpts', type: 'switch' },
+                                DUPLICATES_AI_EXCERPT_CHARS: { id: 'duplicatesAiExcerptChars', type: 'number', attrs: 'min="50" max="500" step="1"' },
+                                DUPLICATES_AI_EXCERPT_DOCUMENTS: { id: 'duplicatesAiExcerptDocuments', type: 'number', attrs: 'min="1" max="5" step="1"' },
+                                DUPLICATES_AI_TOKEN_BUDGET: { id: 'duplicatesAiTokenBudget', type: 'number', attrs: 'min="0" max="10000000" step="1000"' },
+                                DUPLICATES_AI_IDLE_STOP_SECONDS: { id: 'duplicatesAiIdleStopSeconds', type: 'number', attrs: 'min="0" max="3600" step="1"' },
+                                DUPLICATES_AI_THINKING: { id: 'duplicatesAiThinking', type: 'switch' },
+                                DUPLICATES_AI_REQUEST_SECONDS: { id: 'duplicatesAiRequestSeconds', type: 'number', attrs: 'min="5" max="300" step="5"' },
+                                DUPLICATES_AI_CONCURRENCY: { id: 'duplicatesAiConcurrency', type: 'number', attrs: 'min="0" max="8" step="1"' },
+                                DUPLICATES_AI_VERDICT_MEMORY_DAYS: { id: 'duplicatesAiVerdictMemoryDays', type: 'number', attrs: 'min="0" max="365" step="1"' },
+                                DUPLICATES_AI_SWEEP_NAMES: { id: 'duplicatesAiSweepNames', type: 'number', attrs: 'min="50" max="1000" step="50"' },
+                                SIMPLIFY_TAGS_PER_REQUEST: { id: 'simplifyTagsPerRequest', type: 'number', attrs: 'min="10" max="200" step="10"' },
+                                SIMPLIFY_VOCABULARY_SIZE: { id: 'simplifyVocabularySize', type: 'number', attrs: 'min="5" max="100" step="5"' }
+                            };
+                            const aiOptionsIn = (section, level) => aiOptionList.filter((option) => (option.section || 'provider') === section && option.level === level && aiOptionControls[option.key]);
+                            const aiOptionField = (option) => {
+                                const control = aiOptionControls[option.key];
+                                const fallback = option.defaultValue == null ? '' : String(option.defaultValue);
+                                const current = config[option.key] == null ? '' : String(config[option.key]);
+                                const providers = option.providers === null ? aiProviderIds : option.providers;
+                                let hint = option.help;
+                                if (fallback) hint += ` Default: ${control.type === 'switch' ? (aiSwitchOn(fallback, 'no') ? 'on' : 'off') : fallback}.`;
+                                if (control.type === 'secret' && configuredSecrets[option.key]) hint += ' Leave empty to keep the stored value.';
+                                let field;
+                                if (control.type === 'switch') {
+                                    field = include('partials/settings-switch', { id: control.id, label: option.label, checked: aiSwitchOn(current, fallback || 'no'), hint });
+                                } else {
+                                    let input;
+                                    if (control.type === 'select') {
+                                        input = `<select id="${control.id}" name="${control.id}" class="zr-input">`
+                                            + control.choices.map((choice) => `<option value="${settingsEsc(choice.value)}" ${choice.value === current ? 'selected' : ''}>${settingsEsc(choice.label)}</option>`).join('')
+                                            + '</select>';
+                                    } else if (control.type === 'secret') {
+                                        input = `<div class="zr-inputgroup"><input type="password" id="${control.id}" name="${control.id}" value="" class="zr-input" autocomplete="off" placeholder="${configuredSecrets[option.key] ? 'Configured' : settingsEsc(control.placeholder || fallback)}">`
+                                            + `<button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="${control.id}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button></div>`;
+                                    } else {
+                                        input = `<input type="${control.type}" id="${control.id}" name="${control.id}" ${control.attrs ? control.attrs + ' ' : ''}value="${settingsEsc(current)}" class="zr-input" placeholder="${settingsEsc(control.placeholder || fallback)}">`;
+                                    }
+                                    field = `<div class="zr-field zr-field--stacked"><label for="${control.id}" class="zr-field__name">${settingsEsc(option.label)}</label>${input}<p class="zr-field__hint">${settingsEsc(hint)}</p></div>`;
+                                }
+                                const shown = providers.includes(aiSelectedProvider);
+                                return `<div class="zr-settings-option${shown ? '' : ' hidden'}" data-ai-option="${settingsEsc(option.key)}" data-level="${settingsEsc(option.level)}" data-providers="${settingsEsc(providers.join(','))}">${field}</div>`;
+                            };
+                            // Short controls (numbers, selects) share the two-column grid;
+                            // switches and text fields take the full width, as elsewhere.
+                            const aiOptionBlock = (list) => {
+                                let html = '';
+                                let run = [];
+                                const flush = () => {
+                                    if (run.length) html += `<div class="zr-formgrid">${run.map(aiOptionField).join('')}</div>`;
+                                    run = [];
+                                };
+                                list.forEach((option) => {
+                                    if (['number', 'select'].includes(aiOptionControls[option.key].type)) run.push(option);
+                                    else { flush(); html += aiOptionField(option); }
+                                });
+                                flush();
+                                return html;
+                            };
+                            // One closed disclosure per section; settings-advanced opens or
+                            // closes all of them together and remembers the choice.
+                            const aiAdvanced = (id, summary, list) => list.length ? `<details class="zr-module zr-settings-advanced" id="${id}" data-advanced data-module="settings-advanced">
+                                    <summary class="zr-module__head">
+                                        <h2 class="zr-module__title">Advanced options</h2>
+                                        <span class="zr-field__hint zr-grow">${settingsEsc(summary)}</span>
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </summary>
+                                    <div class="zr-module__body zr-col zr-col--loose">${aiOptionBlock(list)}</div>
+                                </details>` : '';
+                        %>
                         <%- entryOpen('ai-provider') %>
                                 <section class="zr-module" id="sec-provider">
                                     <div class="zr-module__head">
@@ -260,17 +359,17 @@
                                             <option value="azure" <%= config.AI_PROVIDER === 'azure' ? 'selected' : '' %>>Azure</option>
                                             <option value="anthropic" <%= anthropicSelected ? 'selected' : '' %>>Anthropic (Claude)</option>
                                         </select>
-                                        <p class="zr-field__hint">Restart required</p>
+                                        <p class="zr-field__hint">The service that reads your documents. Each one asks for its own key and model below.</p>
                                     </div>
-    
-                                    <div id="openaiSettings" class="zr-col zr-col--loose">
+
+                                    <div id="openaiSettings" class="zr-col zr-col--loose <%= aiBlockHidden('openai') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="openaiKey" class="zr-field__name">OpenAI API Key</label>
                                             <div class="zr-inputgroup">
                                                 <input type="password" id="openaiKey" name="openaiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.OPENAI_API_KEY ? 'Configured' : 'Enter OpenAI API key' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="openaiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.OPENAI_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <% if (configuredSecrets.OPENAI_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="openaiModel" class="zr-field__name">OpenAI Model</label>
@@ -280,23 +379,13 @@
                                                 <option value="o3-mini" <%= config.OPENAI_MODEL === 'o3-mini' ? 'selected' : '' %>>o3-mini</option>
                                                 <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>>GPT-4o-mini</option>
                                             </select>
-                                            <p class="zr-field__hint">Restart required</p>
                                         </div>
                                     </div>
-    
-                                    <div id="ollamaSettings" class="zr-col zr-col--loose hidden">
+
+                                    <div id="ollamaSettings" class="zr-col zr-col--loose <%= aiBlockHidden('ollama') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="ollamaUrl" class="zr-field__name">Ollama API URL</label>
-                                            <input type="text" id="ollamaUrl" name="ollamaUrl" value="<%= config.OLLAMA_API_URL %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="ollamaApiKey" class="zr-field__name">Ollama API Key (optional)</label>
-                                            <div class="zr-inputgroup">
-                                                <input type="password" id="ollamaApiKey" name="ollamaApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.OLLAMA_API_KEY ? 'Configured' : 'Optional' %>">
-                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="ollamaApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
-                                            </div>
-                                            <p class="zr-field__hint">Restart required · Only needed if your endpoint requires a token<%= configuredSecrets.OLLAMA_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <input type="text" id="ollamaUrl" name="ollamaUrl" value="<%= config.OLLAMA_API_URL %>" class="zr-input" placeholder="http://localhost:11434">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="ollamaModel" class="zr-field__name">Ollama Model</label>
@@ -309,15 +398,15 @@
                                                     <span>Fetch Models</span>
                                                 </button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <p class="zr-field__hint">Fetch Models lists the models installed on the server.</p>
                                         </div>
                                     </div>
-    
-                                    <div id="customSettings" class="zr-col zr-col--loose hidden">
+
+                                    <div id="customSettings" class="zr-col zr-col--loose <%= aiBlockHidden('custom') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="customBaseUrl" class="zr-field__name">Custom Base URL</label>
-                                            <input type="text" id="customBaseUrl" name="customBaseUrl" value="<%= config.CUSTOM_BASE_URL %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <input type="text" id="customBaseUrl" name="customBaseUrl" value="<%= config.CUSTOM_BASE_URL %>" class="zr-input" placeholder="http://localhost:8080/v1">
+                                            <p class="zr-field__hint">The address of the OpenAI-compatible API, usually ending in /v1.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="customApiKey" class="zr-field__name">Custom API Key</label>
@@ -325,7 +414,7 @@
                                                 <input type="password" id="customApiKey" name="customApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.CUSTOM_API_KEY ? 'Configured' : 'Enter Custom API key' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="customApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.CUSTOM_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <p class="zr-field__hint"><%= configuredSecrets.CUSTOM_API_KEY ? 'Leave empty to keep the stored key.' : 'Leave empty if the endpoint needs no key.' %></p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="customModel" class="zr-field__name">Custom Model</label>
@@ -338,15 +427,14 @@
                                                     <span>Fetch Models</span>
                                                 </button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <p class="zr-field__hint">Fetch Models lists the models the endpoint offers.</p>
                                         </div>
                                     </div>
-    
-                                    <div id="azureSettings" class="zr-col zr-col--loose hidden">
+
+                                    <div id="azureSettings" class="zr-col zr-col--loose <%= aiBlockHidden('azure') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureEndpoint" class="zr-field__name">Azure Endpoint</label>
-                                            <input type="text" id="azureEndpoint" name="azureEndpoint" value="<%= config.AZURE_ENDPOINT %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <input type="text" id="azureEndpoint" name="azureEndpoint" value="<%= config.AZURE_ENDPOINT %>" class="zr-input" placeholder="https://your-resource.openai.azure.com">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureApiKey" class="zr-field__name">Azure API Key</label>
@@ -354,20 +442,15 @@
                                                 <input type="password" id="azureApiKey" name="azureApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.AZURE_API_KEY ? 'Configured' : 'Enter Azure API key' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="azureApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.AZURE_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <% if (configuredSecrets.AZURE_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureDeploymentName" class="zr-field__name">Deployment</label>
                                             <input type="text" id="azureDeploymentName" name="azureDeploymentName" value="<%= config.AZURE_DEPLOYMENT_NAME %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="azureApiVersion" class="zr-field__name">API Version</label>
-                                            <input type="text" id="azureApiVersion" name="azureApiVersion" value="<%= config.AZURE_API_VERSION %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
+                                            <p class="zr-field__hint">The name you gave the model deployment in Azure.</p>
                                         </div>
                                     </div>
-    
+
                                     <div id="anthropicSettings" class="zr-col zr-col--loose <%= anthropicSelected ? '' : 'hidden' %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="anthropicApiKey" class="zr-field__name">Anthropic API Key</label>
@@ -375,7 +458,7 @@
                                                 <input type="password" id="anthropicApiKey" name="anthropicApiKey" value="" class="zr-input" autocomplete="off" placeholder="<%= configuredSecrets.ANTHROPIC_API_KEY ? 'Configured' : 'sk-ant-...' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="anthropicApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required<%= configuredSecrets.ANTHROPIC_API_KEY ? ' · Leave empty to keep the stored value' : '' %></p>
+                                            <% if (configuredSecrets.ANTHROPIC_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="anthropicModel" class="zr-field__name">Claude Model</label>
@@ -395,71 +478,13 @@
                                                     <span>Fetch Models</span>
                                                 </button>
                                             </div>
-                                            <p class="zr-field__hint">Restart required · Fetch Models lists every model the API key can use</p>
-                                        </div>
-                                        <div class="zr-formgrid">
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="anthropicEffort" class="zr-field__name">Effort</label>
-                                                <select id="anthropicEffort" name="anthropicEffort" class="zr-input">
-                                                    <option value="" <%= config.ANTHROPIC_EFFORT ? '' : 'selected' %>>Model default</option>
-                                                    <% anthropicEffortLevels.forEach((level) => { %>
-                                                    <option value="<%= level %>" <%= config.ANTHROPIC_EFFORT === level ? 'selected' : '' %>><%= anthropicEffortLabels[level] || level %></option>
-                                                    <% }) %>
-                                                </select>
-                                                <p class="zr-field__hint">Higher levels think longer and spend more tokens · Restart required</p>
-                                            </div>
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="anthropicMaxTokens" class="zr-field__name">Max Tokens</label>
-                                                <input type="number" id="anthropicMaxTokens" name="anthropicMaxTokens" value="<%= config.ANTHROPIC_MAX_TOKENS || anthropic.defaultMaxTokens || '' %>" min="1" step="1" class="zr-input">
-                                                <p class="zr-field__hint">Cap per request; thinking counts toward it · Restart required</p>
-                                            </div>
-                                        </div>
-                                        <%- include('partials/settings-switch', {
-                                            id: 'anthropicStructuredOutput',
-                                            label: 'Structured output',
-                                            checked: anthropicSwitchOn(config.ANTHROPIC_STRUCTURED_OUTPUT),
-                                            hint: 'Constrain the analysis answer to a JSON schema · Restart required'
-                                        }) %>
-                                        <%- include('partials/settings-switch', {
-                                            id: 'anthropicPromptCaching',
-                                            label: 'Prompt caching',
-                                            checked: anthropicSwitchOn(config.ANTHROPIC_PROMPT_CACHING),
-                                            hint: 'Cache the system prompt, which repeats for every document of a scan · Restart required'
-                                        }) %>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="anthropicApiUrl" class="zr-field__name">API URL (optional)</label>
-                                            <input type="text" id="anthropicApiUrl" name="anthropicApiUrl" value="<%= config.ANTHROPIC_API_URL || '' %>" class="zr-input" placeholder="https://api.anthropic.com" autocomplete="off" spellcheck="false">
-                                            <p class="zr-field__hint">Only for a proxy; leave empty for api.anthropic.com · Restart required</p>
+                                            <p class="zr-field__hint">Fetch Models lists every model the API key can use.</p>
                                         </div>
                                     </div>
-    
-                                    <h4 class="zr-label">Model Parameters</h4>
-                                    <div class="zr-formgrid">
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="tokenLimit" class="zr-field__name">Token Limit</label>
-                                            <input type="number" id="tokenLimit" name="tokenLimit" value="<%= config.TOKEN_LIMIT %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="responseTokens" class="zr-field__name">Response Tokens</label>
-                                            <input type="number" id="responseTokens" name="responseTokens" value="<%= config.RESPONSE_TOKENS %>" class="zr-input">
-                                            <p class="zr-field__hint">Restart required</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="aiTemperatureAnalysis" class="zr-field__name">Analysis Temperature</label>
-                                            <input type="number" id="aiTemperatureAnalysis" name="aiTemperatureAnalysis" value="<%= config.AI_TEMPERATURE_ANALYSIS || '0.3' %>" min="0" max="2" step="0.1" class="zr-input">
-                                            <p class="zr-field__hint">Range: 0.0-2.0 · Restart required</p>
-                                            <p class="zr-field__hint <%= anthropicSelected ? '' : 'hidden' %>" data-anthropic-hint>Claude models ignore the temperature</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="aiTemperatureGeneration" class="zr-field__name">Generation Temperature</label>
-                                            <input type="number" id="aiTemperatureGeneration" name="aiTemperatureGeneration" value="<%= config.AI_TEMPERATURE_GENERATION || '0.7' %>" min="0" max="2" step="0.1" class="zr-input">
-                                            <p class="zr-field__hint">Range: 0.0-2.0 · Restart required</p>
-                                            <p class="zr-field__hint <%= anthropicSelected ? '' : 'hidden' %>" data-anthropic-hint>Claude models ignore the temperature</p>
-                                        </div>
-                                    </div>
+                                    <%- aiOptionBlock(aiOptionsIn('provider', 'basic')) %>
                                     </div>
                                 </section>
+                                <%- aiAdvanced('sec-provider-advanced', 'Limits, creativity and provider extras. The defaults suit most archives.', aiOptionsIn('provider', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('ai-behavior') %>
@@ -472,19 +497,18 @@
                                         id: 'aiProcessedTag',
                                         label: 'Add AI-processed tag to documents',
                                         checked: config.ADD_AI_PROCESSED_TAG === 'yes',
-                                        hint: 'Restart required'
+                                        hint: 'Tags every document the AI has handled, so you can find or filter them in Paperless-ngx.'
                                     }) %>
                                     <div id="aiTagNameSection" class="<%= config.ADD_AI_PROCESSED_TAG === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
                                         <label for="aiTagName" class="zr-field__name">AI-processed Tag Name</label>
-                                        <input type="text" id="aiTagName" name="aiTagName" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>" class="zr-input">
-                                        <p class="zr-field__hint">Restart required</p>
+                                        <input type="text" id="aiTagName" name="aiTagName" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>" class="zr-input" placeholder="ai-processed">
                                     </div>
     
                                     <%- include('partials/settings-switch', {
                                         id: 'usePromptTags',
                                         label: 'Use specific tags in prompt',
                                         checked: config.USE_PROMPT_TAGS === 'yes',
-                                        hint: 'Restart required'
+                                        hint: 'The model only matches documents against the tags listed here. The prompt description below is not used while this is on.'
                                     }) %>
     
                                     <div id="promptTagsSection" class="<%= config.USE_PROMPT_TAGS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
@@ -516,7 +540,7 @@
                                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-bulb"/></svg>
                                             Example
                                         </button>
-                                        <p class="zr-field__hint">Restart required</p>
+                                        <p class="zr-field__hint">Tells the model what to look for and how to name things. Example inserts a starting point.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -990,87 +1014,10 @@
                                         them is deterministic and needs none of these settings; they only govern the optional AI review
                                         that judges the proposed groups when you ask for it. Nothing here starts a scan or a merge on its own.
                                     </p>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesAiReview',
-                                        label: 'Offer the AI review on the Duplicates page',
-                                        checked: (config.DUPLICATES_AI_REVIEW || 'yes') === 'yes',
-                                        hint: 'Default: on · Off keeps the model off the page: Find duplicates and Scan apply the spelling rules only · Restart required'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiModel" class="zr-field__name">Model for the judge</label>
-                                        <input type="text" id="duplicatesAiModel" name="duplicatesAiModel" value="<%= config.DUPLICATES_AI_MODEL || '' %>" class="zr-input" placeholder="Leave empty to use the configured model">
-                                        <p class="zr-field__hint">A stronger model of the same provider, used only for judging duplicates · Default: empty, which means the provider's configured model · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiReviewBatchSize" class="zr-field__name">Pairs per model request</label>
-                                        <input type="number" id="duplicatesAiReviewBatchSize" name="duplicatesAiReviewBatchSize" min="1" max="100" step="1" value="<%= config.DUPLICATES_AI_REVIEW_BATCH_SIZE || 25 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many name pairs one request asks about; fewer pairs mean more requests, more pairs need a larger context (1-100) · Default: 25 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiCandidateFloor" class="zr-field__name">Lowest matcher score shown to the model</label>
-                                        <input type="number" id="duplicatesAiCandidateFloor" name="duplicatesAiCandidateFloor" min="0.5" max="0.95" step="0.01" value="<%= config.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6' %>" class="zr-input">
-                                        <p class="zr-field__hint">Near-misses below your sensitivity but above this score are judged too; a lower value asks about more pairs (0.50-0.95) · Default: 0.6 · Restart required</p>
-                                    </div>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesAiExcerpts',
-                                        label: 'Read document excerpts for spelling-only pairs',
-                                        checked: (config.DUPLICATES_AI_EXCERPTS || 'yes') === 'yes',
-                                        hint: 'Default: on · Sends a short excerpt of a couple of documents when the matcher linked a pair by spelling alone, so a typo-like pair that means two different things can be told apart · Restart required'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiExcerptChars" class="zr-field__name">Excerpt length in characters</label>
-                                        <input type="number" id="duplicatesAiExcerptChars" name="duplicatesAiExcerptChars" min="50" max="500" step="1" value="<%= config.DUPLICATES_AI_EXCERPT_CHARS || 300 %>" class="zr-input">
-                                        <p class="zr-field__hint">How much of each document the judge gets to read; longer excerpts cost tokens (50-500) · Default: 300 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiExcerptDocuments" class="zr-field__name">Documents per entry for excerpts</label>
-                                        <input type="number" id="duplicatesAiExcerptDocuments" name="duplicatesAiExcerptDocuments" min="1" max="5" step="1" value="<%= config.DUPLICATES_AI_EXCERPT_DOCUMENTS || 2 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many documents of each tag or correspondent are sampled for those excerpts (1-5) · Default: 2 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiTokenBudget" class="zr-field__name">Token budget per review</label>
-                                        <input type="number" id="duplicatesAiTokenBudget" name="duplicatesAiTokenBudget" min="0" max="10000000" step="1000" value="<%= config.DUPLICATES_AI_TOKEN_BUDGET || 200000 %>" class="zr-input">
-                                        <p class="zr-field__hint">The most one review may spend across all its requests; when it is reached the review stops and keeps the verdicts it has, and 0 means no limit (0-10000000) · Default: 200000 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiIdleStopSeconds" class="zr-field__name">Stop an unwatched review after (seconds)</label>
-                                        <input type="number" id="duplicatesAiIdleStopSeconds" name="duplicatesAiIdleStopSeconds" min="0" max="3600" step="1" value="<%= config.DUPLICATES_AI_IDLE_STOP_SECONDS || 60 %>" class="zr-input">
-                                        <p class="zr-field__hint">A review nobody has been watching for this long stops itself, so a closed tab cannot leave the model running, and 0 means never (0-3600) · Default: 60 · Restart required</p>
-                                    </div>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesAiThinking',
-                                        label: 'Let the judge think',
-                                        checked: (config.DUPLICATES_AI_THINKING || 'no') === 'yes',
-                                        hint: 'Reasoning models write their thoughts before the answer and spend the whole answer budget on them. Off, the judge gets its evidence instead and answers in a fraction of the time and cost. On only if your model answers badly without it. Default: off · Restart required.'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiRequestSeconds" class="zr-field__name">Seconds per model request</label>
-                                        <input type="number" id="duplicatesAiRequestSeconds" name="duplicatesAiRequestSeconds" min="5" max="300" step="5" value="<%= config.DUPLICATES_AI_REQUEST_SECONDS || 30 %>" class="zr-input">
-                                        <p class="zr-field__hint">The judge measures your model on a small first request and then asks about as many pairs per request as fit into this many seconds. Shorter means more, smaller requests and more frequent progress. Default: 30 · Restart required.</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiConcurrency" class="zr-field__name">Model requests at once</label>
-                                        <input type="number" id="duplicatesAiConcurrency" name="duplicatesAiConcurrency" min="0" max="8" step="1" value="<%= config.DUPLICATES_AI_CONCURRENCY || 0 %>" class="zr-input">
-                                        <p class="zr-field__hint">0 lets the judge choose: one for Ollama, three for a hosted endpoint. Wall time divides by it, tokens do not. Default: 0 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiVerdictMemoryDays" class="zr-field__name">Remember verdicts for (days)</label>
-                                        <input type="number" id="duplicatesAiVerdictMemoryDays" name="duplicatesAiVerdictMemoryDays" min="0" max="365" step="1" value="<%= config.DUPLICATES_AI_VERDICT_MEMORY_DAYS || 90 %>" class="zr-input">
-                                        <p class="zr-field__hint">A pair the model judged is not asked again while both names are unchanged; 0 switches the memory off. Default: 90 · Restart required</p>
-                                    </div>
-                                    <%- include('partials/settings-switch', {
-                                        id: 'duplicatesGuardNewNames',
-                                        label: 'Reuse an existing name instead of creating a near-duplicate',
-                                        checked: (config.DUPLICATES_GUARD_NEW_NAMES || 'yes') === 'yes',
-                                        hint: 'When document analysis proposes a tag or correspondent that is the same word in another spelling (case, umlauts, legal form, plural, word order), the existing one is used and the mapping is listed on the Duplicates page. A typo-like match is only logged. Default: on · Restart required.'
-                                    }) %>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="duplicatesAiSweepNames" class="zr-field__name">Names per request for the semantic sweep</label>
-                                        <input type="number" id="duplicatesAiSweepNames" name="duplicatesAiSweepNames" min="50" max="1000" step="50" value="<%= config.DUPLICATES_AI_SWEEP_NAMES || 300 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many names the model sees per request when it looks at the whole list. Default: 300 · Restart required.</p>
-                                    </div>
+                                    <%- aiOptionBlock(aiOptionsIn('duplicates', 'basic')) %>
                                     </div>
                                 </section>
+                                <%- aiAdvanced('sec-duplicates-advanced', 'How the review sizes, limits and remembers its requests.', aiOptionsIn('duplicates', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('simplify') %>
@@ -1084,16 +1031,7 @@
                                         ("Rechnung") and topic tags ("Strom"). Decomposing against a saved vocabulary is a rule and
                                         needs no model; these two settings only govern the optional proposals the model makes.
                                     </p>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="simplifyTagsPerRequest" class="zr-field__name">Tags per model request</label>
-                                        <input type="number" id="simplifyTagsPerRequest" name="simplifyTagsPerRequest" min="10" max="200" step="10" value="<%= config.SIMPLIFY_TAGS_PER_REQUEST || 50 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many tag names one request asks the model to decompose; fewer names mean more requests (10-200) · Default: 50 · Restart required</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="simplifyVocabularySize" class="zr-field__name">Vocabulary size</label>
-                                        <input type="number" id="simplifyVocabularySize" name="simplifyVocabularySize" min="5" max="100" step="5" value="<%= config.SIMPLIFY_VOCABULARY_SIZE || 25 %>" class="zr-input">
-                                        <p class="zr-field__hint">How many entries the proposed vocabulary should aim at, document types and topics together (5-100) · Default: 25 · Restart required</p>
-                                    </div>
+                                    <%- aiOptionBlock(aiOptionsIn('simplify', 'basic')) %>
                                     </div>
                                 </section>
                         <%- entryClose() %>
