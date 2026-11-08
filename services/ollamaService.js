@@ -11,6 +11,7 @@ const {
   reasoningEnabled,
   stripReasoningText,
 } = require('./aiGenerateOptions');
+const { resolveRules } = require('./aiProviderRules');
 const axios = require('axios');
 const config = require('../config/config');
 const fs = require('fs').promises;
@@ -30,8 +31,10 @@ class OllamaService {
    * Initialize the Ollama service
    */
   constructor() {
-    this.apiUrl = config.ollama.apiUrl;
-    this.model = config.ollama.model;
+    // apiUrl and model follow the configuration per request (see the getters
+    // below); an assigned value pins them, which is what the tests do.
+    this._apiUrlOverride = null;
+    this._modelOverride = null;
     this.client = axios.create({
       timeout: 1800000, // 30 minutes timeout
     });
@@ -63,6 +66,52 @@ class OllamaService {
         'language',
       ],
     };
+  }
+
+  /** OLLAMA_API_URL as configured now, unless one was assigned. */
+  get apiUrl() {
+    return this._apiUrlOverride ?? config.ollama.apiUrl;
+  }
+
+  set apiUrl(value) {
+    this._apiUrlOverride = value ?? null;
+  }
+
+  /** OLLAMA_MODEL as configured now, unless one was assigned. */
+  get model() {
+    return this._modelOverride ?? config.ollama.model;
+  }
+
+  set model(value) {
+    this._modelOverride = value ?? null;
+  }
+
+  /**
+   * Kept for the callers that invoke it on every provider; the HTTP client
+   * needs no setup and every request reads the configuration afresh.
+   */
+  initialize() {}
+
+  /** The request rules for a model (services/aiProviderRules.js). */
+  _rules(model) {
+    return resolveRules('ollama', model);
+  }
+
+  /**
+   * The `think` field for a request, or undefined to send none: the caller's
+   * wish when it has one, else OLLAMA_THINK — off unless it is switched on.
+   * Only where the rules know Ollama's switch for the model.
+   *
+   * @param {object} rules - from _rules()
+   * @param {boolean|null} reasoning - from reasoningEnabled()
+   * @returns {boolean|undefined}
+   */
+  _thinkField(rules, reasoning) {
+    if (rules.thinkingSwitch !== 'ollama') return undefined;
+    if (reasoning !== null) return reasoning;
+    // Disable thinking for reasoning models (e.g. Qwen3, DeepSeek-R1)
+    // unless explicitly enabled via OLLAMA_THINK=true
+    return config.ollama.think ? undefined : false;
   }
 
   /**
@@ -577,27 +626,30 @@ class OllamaService {
     // be a hardcoded 256 while the reservation followed the setting, so the
     // context held space for an answer the model was then forbidden to write.
     const numPredict = Number(config.responseTokens);
+    const model = this.model;
+    const rules = this._rules(model);
+    const requestOptions = {};
+    if (rules.temperature) {
+      requestOptions.temperature = config.aiTemperatureAnalysis;
+    }
+    Object.assign(requestOptions, {
+      top_p: 0.9,
+      repeat_penalty: 1.1,
+      top_k: 7,
+      [rules.maxTokensParam]: numPredict,
+      num_ctx: numCtx,
+    });
     const requestBody = {
-      model: this.model,
+      model,
       prompt: prompt,
       system: systemPrompt,
       stream: false,
       format: schema,
-      options: {
-        temperature: config.aiTemperatureAnalysis,
-        top_p: 0.9,
-        repeat_penalty: 1.1,
-        top_k: 7,
-        num_predict: numPredict,
-        num_ctx: numCtx,
-      },
+      options: requestOptions,
     };
 
-    // Disable thinking for reasoning models (e.g. Qwen3, DeepSeek-R1)
-    // unless explicitly enabled via OLLAMA_THINK=true
-    if (!config.ollama.think) {
-      requestBody.think = false;
-    }
+    const think = this._thinkField(rules, null);
+    if (think !== undefined) requestBody.think = think;
 
     const response = await this.client.post(
       `${this.apiUrl}/api/generate`,
@@ -863,35 +915,33 @@ class OllamaService {
         ? options.systemPrompt
         : `You are a helpful assistant. Generate a clear, concise, and informative response to the user's question or request.`;
 
+      const model = modelOverride(options) || this.model;
+      const rules = this._rules(model);
+      const generateOptions = {};
+      if (rules.temperature) {
+        generateOptions.temperature = hasNumber(options.temperature)
+          ? options.temperature
+          : config.aiTemperatureGeneration;
+      }
+      generateOptions.top_p = 0.9;
+      // The line above reserves the same number in the context; a constant
+      // here would have the same quarrel with it that the analysis path had.
+      generateOptions[rules.maxTokensParam] = responseTokens;
+      generateOptions.num_ctx = numCtx;
+
       // Call Ollama API without enforcing a specific response format
       const generateTextBody = {
-        model: modelOverride(options) || this.model,
+        model,
         prompt: prompt,
         system: systemPrompt,
         stream: false,
-        options: {
-          temperature: hasNumber(options.temperature)
-            ? options.temperature
-            : config.aiTemperatureGeneration,
-          top_p: 0.9,
-          // The line above reserves the same number in the context; a
-          // constant here would have the same quarrel with it that the
-          // analysis path had.
-          num_predict: responseTokens,
-          num_ctx: numCtx,
-        },
+        options: generateOptions,
       };
 
       // A caller that says what it wants overrules the setting; without one
       // OLLAMA_THINK decides, which is what it did before.
-      const reasoning = reasoningEnabled(options);
-      if (reasoning !== null) {
-        generateTextBody.think = reasoning;
-      } else if (!config.ollama.think) {
-        // Disable thinking for reasoning models (e.g. Qwen3, DeepSeek-R1)
-        // unless explicitly enabled via OLLAMA_THINK=true
-        generateTextBody.think = false;
-      }
+      const think = this._thinkField(rules, reasoningEnabled(options));
+      if (think !== undefined) generateTextBody.think = think;
 
       // axios takes the signal in the request config; without one the config
       // is the headers it always was.

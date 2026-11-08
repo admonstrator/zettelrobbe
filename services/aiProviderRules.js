@@ -118,6 +118,16 @@ function transportFor(provider) {
  * @property {boolean} promptCaching      the provider caches a marked prompt
  * @property {'max_tokens'|'max_completion_tokens'|'num_predict'} maxTokensParam
  * @property {boolean} streaming          the transport streams completions
+ * @property {'minimal'|'low'|null} reasoningOffEffort
+ *   the reasoning_effort value that asks this model for (almost) no thinking,
+ *   sent when a caller switches thinking off; null when there is none to send
+ * @property {string|null} thinkingPromptSwitch
+ *   a line appended to the user message that switches thinking off for model
+ *   families that read it from the prompt itself (Qwen's `/no_think`), for a
+ *   gateway that drops `chat_template_kwargs`; null for none
+ * @property {boolean} defaultCompletionCap
+ *   a generateText() call without a maxTokens option still sends
+ *   RESPONSE_TOKENS as its cap; false leaves the cap to the provider
  */
 
 const GPT_5_MODEL_PATTERN = /gpt-?5/i;
@@ -127,11 +137,20 @@ const QWEN_MODEL_PATTERN = /qwen/i;
 
 /**
  * Model families whose rules differ from the transport default. Patterns are
- * tried in order; the first match wins and only overrides what it names.
+ * tried in order; the first match wins and only overrides what it names. An
+ * entry with `providers` applies to those providers only.
  * Anthropic models are not listed: their per-model traits stay in
  * services/anthropicSupport.js, which this module defers to for them.
  *
- * @type {ReadonlyArray<{transport: Transport, pattern: RegExp, rules: Partial<RequestRules>}>}
+ * - gpt-5 and the o-series reject a temperature other than the default and
+ *   reject `max_tokens` (they want `max_completion_tokens`); both take
+ *   `reasoning_effort`, gpt-5 down to 'minimal', the o-series down to 'low'.
+ * - gpt-oss takes `reasoning_effort` 'low' where an OpenAI-compatible server
+ *   serves it; OpenAI and Azure have never been sent the field for it.
+ * - Qwen reads the `/no_think` soft switch out of the prompt as well as the
+ *   chat template switch, so a gateway that drops one still passes the other.
+ *
+ * @type {ReadonlyArray<{transport: Transport, pattern: RegExp, providers?: ReadonlyArray<ProviderId>, rules: Partial<RequestRules>}>}
  */
 const MODEL_FAMILIES = Object.freeze([
   {
@@ -140,6 +159,7 @@ const MODEL_FAMILIES = Object.freeze([
     rules: {
       temperature: false,
       reasoningEffort: 'openai',
+      reasoningOffEffort: 'minimal',
       maxTokensParam: 'max_completion_tokens',
     },
   },
@@ -149,20 +169,43 @@ const MODEL_FAMILIES = Object.freeze([
     rules: {
       temperature: false,
       reasoningEffort: 'openai',
+      reasoningOffEffort: 'low',
       maxTokensParam: 'max_completion_tokens',
     },
   },
   {
     transport: 'openai-compatible',
     pattern: GPT_OSS_MODEL_PATTERN,
-    rules: { reasoningEffort: 'compatible' },
+    providers: ['custom'],
+    rules: { reasoningEffort: 'compatible', reasoningOffEffort: 'low' },
   },
   {
     transport: 'openai-compatible',
     pattern: QWEN_MODEL_PATTERN,
-    rules: { thinkingSwitch: 'chat_template' },
+    providers: ['custom'],
+    rules: {
+      thinkingSwitch: 'chat_template',
+      thinkingPromptSwitch: '/no_think',
+    },
   },
 ]);
+
+/**
+ * What a provider changes about its transport's defaults, before any model
+ * family is applied.
+ *
+ * - openai: a generateText() call without a cap of its own has always gone
+ *   out without one, so the model answers with whatever it allows.
+ * - custom: every server that applies a chat template understands
+ *   `chat_template_kwargs`, and one that does not passes it through, so the
+ *   thinking switch is sent for every model there.
+ *
+ * @type {Readonly<Partial<Record<ProviderId, Partial<RequestRules>>>>}
+ */
+const PROVIDER_DEFAULTS = Object.freeze({
+  openai: Object.freeze({ defaultCompletionCap: false }),
+  custom: Object.freeze({ thinkingSwitch: 'chat_template' }),
+});
 
 /** @type {Readonly<Record<Transport, RequestRules>>} */
 const TRANSPORT_DEFAULTS = Object.freeze({
@@ -175,6 +218,9 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     promptCaching: false,
     maxTokensParam: 'max_tokens',
     streaming: true,
+    reasoningOffEffort: null,
+    thinkingPromptSwitch: null,
+    defaultCompletionCap: true,
   }),
   ollama: Object.freeze({
     transport: 'ollama',
@@ -185,6 +231,9 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     promptCaching: false,
     maxTokensParam: 'num_predict',
     streaming: true,
+    reasoningOffEffort: null,
+    thinkingPromptSwitch: null,
+    defaultCompletionCap: true,
   }),
   anthropic: Object.freeze({
     transport: 'anthropic',
@@ -195,6 +244,9 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     promptCaching: true,
     maxTokensParam: 'max_tokens',
     streaming: true,
+    reasoningOffEffort: null,
+    thinkingPromptSwitch: null,
+    defaultCompletionCap: true,
   }),
 });
 
@@ -206,22 +258,32 @@ const TRANSPORT_DEFAULTS = Object.freeze({
  * @returns {RequestRules}
  */
 function resolveRules(provider, model = '') {
-  const transport = transportFor(provider);
+  const id = normalizeProvider(provider);
+  const transport = transportFor(id);
   const name = String(model ?? '').trim();
-  const base = TRANSPORT_DEFAULTS[transport];
-  if (name === '') return { ...base };
+  const base = { ...TRANSPORT_DEFAULTS[transport], ...PROVIDER_DEFAULTS[id] };
+  if (name === '') return base;
 
-  // The custom provider serves hosted and self-hosted models alike; the
-  // compatible dialect of reasoning_effort is what both understand.
   const family = MODEL_FAMILIES.find(
-    (entry) => entry.transport === transport && entry.pattern.test(name)
+    (entry) =>
+      entry.transport === transport &&
+      (!entry.providers || entry.providers.includes(id)) &&
+      entry.pattern.test(name)
   );
   const rules = { ...base, ...(family ? family.rules : {}) };
-  if (
-    normalizeProvider(provider) === 'custom' &&
-    rules.reasoningEffort === 'openai'
-  ) {
-    rules.reasoningEffort = 'compatible';
+
+  // The custom provider serves hosted and self-hosted models alike, behind
+  // gateways that each read the OpenAI dialect a little differently. The
+  // compatible dialect is what all of them understand: reasoning_effort
+  // 'low' rather than 'minimal', and the cap as max_tokens.
+  if (id === 'custom') {
+    if (rules.reasoningEffort === 'openai') {
+      rules.reasoningEffort = 'compatible';
+    }
+    if (rules.reasoningOffEffort === 'minimal') {
+      rules.reasoningOffEffort = 'low';
+    }
+    rules.maxTokensParam = 'max_tokens';
   }
   return rules;
 }
@@ -357,6 +419,7 @@ module.exports = {
   AI_OPTIONS,
   MODEL_FAMILIES,
   TRANSPORT_DEFAULTS,
+  PROVIDER_DEFAULTS,
   normalizeProvider,
   transportFor,
   resolveRules,

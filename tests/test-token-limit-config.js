@@ -241,6 +241,11 @@ async function testServiceGuards() {
         delete require.cache[
           require.resolve('../services/thumbnailCachePaths')
         ];
+        // The three provider modules are thin; the analysis path and its
+        // config live in the shared service, which has to reload with them.
+        delete require.cache[
+          require.resolve('../services/openaiCompatibleService')
+        ];
         delete require.cache[resolved];
 
         // Reloading config reprints its startup banner; the service is
