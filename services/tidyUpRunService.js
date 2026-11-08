@@ -370,7 +370,13 @@ class TidyUpRunService {
     const previous = this.run;
     // A run that is asked to continue, or to ask again about the pairs that
     // failed, asks the model only about the groups still marked "needs a
-    // look"; everything else is carried over from the previous run.
+    // look" and the ones nobody answered (a spelling rule kept those at
+    // "likely"); everything else is carried over from the previous run.
+    const unanswered = (s) =>
+      Boolean(
+        s.details?.verdict &&
+        (s.details.verdict.unanswered || s.details.verdict.failureKind)
+      );
     const narrowed =
       (requested.action === 'continue' ||
         requested.action === 'retry-affected') &&
@@ -380,7 +386,7 @@ class TidyUpRunService {
               (s) =>
                 s.kind === SUGGESTION_KINDS.MERGE &&
                 s.status === SUGGESTION_STATUS.OPEN &&
-                s.certainty === CERTAINTY.UNSURE &&
+                (s.certainty === CERTAINTY.UNSURE || unanswered(s)) &&
                 previous.groupIdOf.has(s.id)
             )
             .map((s) => previous.groupIdOf.get(s.id))

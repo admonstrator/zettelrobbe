@@ -783,6 +783,14 @@ function aggregateVerdict(verdicts) {
       // Only when the member that decided it came from the memory; a group
       // that was really asked about says nothing about remembering.
       ...(deciding[0]?.remembered ? { remembered: true } : {}),
+      // An unsure that nobody judged stays recognisable as such: every
+      // deciding member must be unanswered for the group to count as it.
+      ...(verdict === AI_VERDICTS.UNSURE && deciding.every((v) => v.unanswered)
+        ? { unanswered: true }
+        : {}),
+      ...(verdict === AI_VERDICTS.UNSURE && deciding[0]?.failureKind
+        ? { failureKind: deciding[0].failureKind }
+        : {}),
     };
   };
   if (list.some((v) => v.verdict === AI_VERDICTS.DIFFERENT)) {
