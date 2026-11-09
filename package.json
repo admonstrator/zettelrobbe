@@ -72,7 +72,7 @@
     "express-rate-limit": "^8.7.2",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
-    "openai": "^7.49.0",
+    "openai": "^7.52.0",
     "openid-client": "^6.8.8",
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.3.0",
