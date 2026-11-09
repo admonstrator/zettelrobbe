@@ -742,6 +742,11 @@
                                         </div>
                                         <p id="ocrModelVisionHint" class="zr-field__hint <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">Vision support is detected from the model name, so the list is grouped rather than filtered &middot; models outside the recommended group may still work</p>
                                     </div>
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="ocrPrompt" class="zr-field__name">OCR Instruction</label>
+                                        <textarea id="ocrPrompt" name="ocrPrompt" rows="6" class="zr-input" placeholder="Leave empty for the built-in instruction" spellcheck="false"><%= config.OCR_PROMPT || '' %></textarea>
+                                        <p class="zr-field__hint">The instruction sent with every OCR request &middot; shape the answer instead of accepting the built-in one: keep tables, describe images in brackets, mark unreadable stretches &middot; applies to the custom, Ollama, LM Studio and Claude OCR providers and takes effect on the next document without a restart</p>
+                                    </div>
                                     <div id="ocrPdfRenderContainer" class="zr-col zr-col--loose">
                                         <%- include('partials/settings-switch', {
                                             id: 'ocrPdfRenderEnabled',

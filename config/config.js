@@ -554,6 +554,11 @@ const mistralOcr = liveBlock({
     (process.env.OCR_API_URL || process.env.MISTRAL_OCR_API_URL || '').trim(),
   apiKey: () => process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '',
   model: () => env('MISTRAL_OCR_MODEL', 'mistral-ocr-latest'),
+  // The instruction every OCR request carries. OCR_PROMPT replaces it; an
+  // empty value means 'use the service default', so clearing the settings
+  // field restores the built-in wording. Read when the request is built, so
+  // a save applies to the next document without a restart.
+  prompt: () => String(process.env.OCR_PROMPT ?? '').trim(),
   // PDF page rendering for local vision OCR (poppler pdftoppm); the Mistral
   // provider handles PDFs natively and ignores these settings.
   pdfRenderEnabled: () => envBool('OCR_PDF_RENDER_ENABLED', 'yes'),
