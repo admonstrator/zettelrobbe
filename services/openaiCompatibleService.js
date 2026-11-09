@@ -219,6 +219,27 @@ const PROFILES = Object.freeze({
   },
 });
 
+/**
+ * Hosts whose API validates the request body and answers 422 for a field it
+ * does not know — `chat_template_kwargs` included, which every other server
+ * passes through.
+ */
+const STRICT_BODY_HOST_PATTERN = /(?:^|\.)mistral\.ai$/i;
+
+/**
+ * Whether the endpoint behind this base URL can be sent chat_template_kwargs.
+ *
+ * @param {unknown} baseURL
+ * @returns {boolean}
+ */
+function takesChatTemplateKwargs(baseURL) {
+  try {
+    return !STRICT_BODY_HOST_PATTERN.test(new URL(String(baseURL)).hostname);
+  } catch {
+    return true;
+  }
+}
+
 /** Words a model answers with when it declines a document instead of JSON. */
 const REFUSAL_MARKERS = ["i'm sorry", 'i cannot', 'insufficient'];
 
@@ -260,6 +281,19 @@ class OpenAICompatibleService {
 
   set client(value) {
     this._assignedClient = value || null;
+  }
+
+  /**
+   * The reasoning_effort the operator set for every request
+   * (CUSTOM_REASONING_EFFORT), or '' when none is set or this is not the
+   * custom provider.
+   *
+   * @returns {string}
+   */
+  operatorEffort() {
+    return this.providerId === 'custom'
+      ? String(config.custom.reasoningEffort || '')
+      : '';
   }
 
   /**
@@ -428,6 +462,8 @@ class OpenAICompatibleService {
       if (rules.temperature) {
         request.temperature = config.aiTemperatureAnalysis;
       }
+      const operatorEffort = this.operatorEffort();
+      if (operatorEffort) request.reasoning_effort = operatorEffort;
 
       const response = await client.chat.completions.create(request);
 
@@ -623,19 +659,29 @@ class OpenAICompatibleService {
 
     // The key every server that applies a chat template understands; one
     // that does not passes it through and the model decides for itself.
-    if (rules.thinkingSwitch === 'chat_template' && reasoning !== null) {
+    // A strict host rejects the whole request for it instead.
+    if (
+      rules.thinkingSwitch === 'chat_template' &&
+      reasoning !== null &&
+      takesChatTemplateKwargs(this.client?.baseURL)
+    ) {
       request.chat_template_kwargs = { enable_thinking: reasoning };
     }
     // A hosted reasoning model reads neither of the above and thinks anyway;
     // the families that take reasoning_effort are told in their dialect.
     // Only when the caller asked for no thinking, and only for those names —
     // another model answers 400 for the field.
-    if (
-      reasoning === false &&
-      rules.reasoningEffort &&
-      rules.reasoningOffEffort
-    ) {
-      request.reasoning_effort = rules.reasoningOffEffort;
+    // An operator who set CUSTOM_REASONING_EFFORT has said the endpoint knows
+    // the field: their value goes out, and 'low' when the caller wants no
+    // thinking.
+    const operatorEffort = this.operatorEffort();
+    if (reasoning === false) {
+      const effort =
+        (rules.reasoningEffort && rules.reasoningOffEffort) ||
+        (operatorEffort ? 'low' : null);
+      if (effort) request.reasoning_effort = effort;
+    } else if (operatorEffort) {
+      request.reasoning_effort = operatorEffort;
     }
     return request;
   }

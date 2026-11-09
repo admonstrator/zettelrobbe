@@ -509,6 +509,10 @@ const custom = liveBlock({
   apiUrl: () => env('CUSTOM_BASE_URL'),
   apiKey: () => env('CUSTOM_API_KEY'),
   model: () => env('CUSTOM_MODEL'),
+  // reasoning_effort for every request, as the endpoint spells it (Mistral
+  // takes low|high|max for GLM). Empty sends nothing; a model that does not
+  // know the field answers 400, so it is strictly opt-in.
+  reasoningEffort: () => env('CUSTOM_REASONING_EFFORT').trim().toLowerCase(),
 });
 
 const azure = liveBlock({
