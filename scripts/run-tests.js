@@ -176,6 +176,7 @@ const TESTS = {
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
+  'mistral-content-chunks': 'test-mistral-content-chunks.js',
 };
 
 const AREAS = {
@@ -259,6 +260,7 @@ const AREAS = {
     'reconciliation-service',
     'settings-paperless-url-fallback',
     'rescan-fetch-before-delete',
+    'mistral-content-chunks',
   ],
   prompts: [
     'restriction-service',
