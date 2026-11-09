@@ -7477,6 +7477,7 @@ router.get('/settings', async (req, res) => {
     OCR_AUTO_PROCESS_BATCH_SIZE:
       process.env.OCR_AUTO_PROCESS_BATCH_SIZE || '10',
     OCR_AUTO_ANALYZE: process.env.OCR_AUTO_ANALYZE || 'yes',
+    OCR_PROMPT: process.env.OCR_PROMPT || '',
     SETUP_OCR_VALIDATION_TIMEOUT_MS:
       process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
       process.env.SETUP_VALIDATION_TIMEOUT_MS ||
@@ -8997,6 +8998,16 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: Run AI analysis directly after automatic OCR (yes/no)
  *                 example: "yes"
+ *               ocrPrompt:
+ *                 type: string
+ *                 maxLength: 8000
+ *                 description: |
+ *                   Instruction sent with every OCR request (OCR_PROMPT). It replaces the
+ *                   built-in text on the custom, ollama, LM Studio and Claude OCR providers;
+ *                   an empty value restores the built-in instruction. It is read while each
+ *                   request is built, so saving it applies to the next document without a
+ *                   restart. The Mistral OCR API transcribes on its own and ignores it.
+ *                 example: "Extract every visible text exactly as written. Keep tables. Mark unreadable stretches with [unleserlich]."
  *               dateFormat:
  *                 type: string
  *                 description: How every date in the web interface is rendered
@@ -9212,6 +9223,7 @@ router.post('/settings', express.json(), async (req, res) => {
       ocrAutoProcessInterval,
       ocrAutoProcessBatchSize,
       ocrAutoAnalyze,
+      ocrPrompt,
       globalRateLimitWindowMs,
       globalRateLimitMax,
       trustProxy,
@@ -9354,6 +9366,7 @@ router.post('/settings', express.json(), async (req, res) => {
       OCR_AUTO_PROCESS_BATCH_SIZE:
         process.env.OCR_AUTO_PROCESS_BATCH_SIZE || '10',
       OCR_AUTO_ANALYZE: process.env.OCR_AUTO_ANALYZE || 'yes',
+      OCR_PROMPT: process.env.OCR_PROMPT || '',
       GLOBAL_RATE_LIMIT_WINDOW_MS:
         process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
       GLOBAL_RATE_LIMIT_MAX: process.env.GLOBAL_RATE_LIMIT_MAX || '1000',
@@ -10148,6 +10161,20 @@ router.post('/settings', express.json(), async (req, res) => {
       }
     } else if (mistralOcrModel) {
       updatedConfig.MISTRAL_OCR_MODEL = mistralOcrModel;
+    }
+    if (typeof ocrPrompt === 'string') {
+      // Sent to the model verbatim, so only the surrounding blanks are
+      // removed and the operator's own wording survives. Empty clears the
+      // override and the built-in instruction applies again; the cap keeps
+      // a pasted wall of text from crowding the image out of the request.
+      const normalizedOcrPrompt = ocrPrompt.trim();
+      if (normalizedOcrPrompt.length > 8000) {
+        return res.status(400).json({
+          success: false,
+          error: 'OCR instruction is too long (max 8000 characters).',
+        });
+      }
+      updatedConfig.OCR_PROMPT = normalizedOcrPrompt;
     }
     if (typeof ocrPdfRenderEnabled === 'string') {
       const normalizedPdfRenderEnabled = ocrPdfRenderEnabled

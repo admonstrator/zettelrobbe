@@ -32,6 +32,12 @@ const {
   assertAnthropicCompleted,
 } = require('./anthropicSupport');
 
+// The instruction the vision OCR requests carry. OCR_PROMPT (container env
+// or the settings page) replaces it; an empty value keeps this text, so an
+// instance that never set it keeps sending exactly what it sent before.
+const DEFAULT_OCR_TEXT_INSTRUCTION =
+  'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.';
+
 // ── Claude OCR limits ──────────────────────────────────────────────────────
 //
 // The Messages API rejects a request body over 32 MB and an image over 10 MB
@@ -233,6 +239,20 @@ class MistralOcrService {
       '120000';
     const parsed = Number.parseInt(String(raw).trim(), 10);
     return Number.isFinite(parsed) && parsed >= 1000 ? parsed : 120000;
+  }
+
+  /**
+   * The configured OCR_PROMPT, or '' when the operator left the field empty.
+   * '' means 'use the provider's own instruction', which keeps every
+   * provider's built-in wording intact and lets each request site pick its
+   * own fallback instead of one shared text overriding all of them.
+   */
+  get ocrPromptOverride() {
+    return String(config.mistralOcr?.prompt ?? '').trim();
+  }
+
+  get ocrTextInstruction() {
+    return this.ocrPromptOverride || DEFAULT_OCR_TEXT_INSTRUCTION;
   }
 
   get pdfRenderEnabled() {
@@ -437,6 +457,7 @@ class MistralOcrService {
       model: this.model,
       timeoutMs: this.ocrTimeoutMs,
       maxTokens: this.anthropicOcrMaxTokens,
+      instruction: this.ocrPromptOverride,
     };
 
     if (
@@ -521,6 +542,8 @@ class MistralOcrService {
    * @param {number} [params.timeoutMs] - how long the request may go without
    *   progress: until the answer starts, and between two streamed events
    * @param {number} [params.maxTokens] - completion cap; default 64000
+   * @param {string} [params.instruction] - OCR_PROMPT when configured; empty
+   *   keeps the built-in Claude transcription instruction
    * @returns {Promise<string>} the transcribed text; empty for a document
    *   without readable text
    */
@@ -532,6 +555,7 @@ class MistralOcrService {
     mimeType,
     timeoutMs,
     maxTokens,
+    instruction = '',
   } = {}) {
     const key = String(apiKey || '').trim();
     if (!key) {
@@ -558,7 +582,7 @@ class MistralOcrService {
                 data: source.data,
               },
             },
-            { type: 'text', text: CLAUDE_OCR_INSTRUCTION },
+            { type: 'text', text: instruction || CLAUDE_OCR_INSTRUCTION },
           ],
         },
       ],
@@ -905,7 +929,7 @@ class MistralOcrService {
               content: [
                 {
                   type: 'text',
-                  text: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+                  text: this.ocrTextInstruction,
                 },
                 {
                   type: 'image_url',
@@ -972,8 +996,7 @@ class MistralOcrService {
           messages: [
             {
               role: 'user',
-              content:
-                'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+              content: this.ocrTextInstruction,
               images: [imageBase64],
             },
           ],

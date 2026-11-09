@@ -7577,6 +7577,12 @@
                     "description": "Run AI analysis directly after automatic OCR (yes/no)",
                     "example": "yes"
                   },
+                  "ocrPrompt": {
+                    "type": "string",
+                    "maxLength": 8000,
+                    "description": "Instruction sent with every OCR request (OCR_PROMPT). It replaces the\nbuilt-in text on the custom, ollama, LM Studio and Claude OCR providers;\nan empty value restores the built-in instruction. It is read while each\nrequest is built, so saving it applies to the next document without a\nrestart. The Mistral OCR API transcribes on its own and ignores it.\n",
+                    "example": "Extract every visible text exactly as written. Keep tables. Mark unreadable stretches with [unleserlich]."
+                  },
                   "dateFormat": {
                     "type": "string",
                     "description": "How every date in the web interface is rendered",

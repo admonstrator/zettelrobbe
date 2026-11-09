@@ -3269,6 +3269,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
     { selector: '#mistralApiKey', envKey: 'MISTRAL_API_KEY' },
     { selector: '#mistralOcrModel', envKey: 'MISTRAL_OCR_MODEL' },
+    { selector: '#ocrPrompt', envKey: 'OCR_PROMPT' },
     { selector: '#ocrPdfRenderEnabled', envKey: 'OCR_PDF_RENDER_ENABLED' },
     { selector: '#ocrPdfRenderMaxPages', envKey: 'OCR_PDF_RENDER_MAX_PAGES' },
     { selector: '#ocrPdfRenderDpi', envKey: 'OCR_PDF_RENDER_DPI' },
