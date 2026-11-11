@@ -1057,13 +1057,15 @@ function isTimeoutError(errorOrMessage) {
     return true;
   }
 
+  // A dropped connection ("socket hang up", ECONNRESET) is not a timeout:
+  // replacing it with "check your timeout settings" sent operators the wrong
+  // way and lost the original message.
   const timeoutMarkers = [
     'timed out',
     'timeout',
     'request aborted',
     'aborted',
     'deadline exceeded',
-    'socket hang up',
   ];
 
   return timeoutMarkers.some((marker) => normalizedMessage.includes(marker));

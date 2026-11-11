@@ -3,6 +3,8 @@ const {
   toNameList,
   isRefusalAnswer,
   insufficientContentResult,
+  isTimeoutError,
+  buildTimeoutErrorMessage,
 } = require('./serviceUtils');
 const {
   abortSignal,
@@ -304,12 +306,24 @@ class OllamaService {
         truncated: contentWasTruncated,
       };
     } catch (error) {
-      console.error(`Error analyzing document with Ollama: ${error.message}`);
+      // Reported like the OpenAI-compatible providers report it.
+      const timedOut = isTimeoutError(error);
+      const normalizedMessage = timedOut
+        ? buildTimeoutErrorMessage('AI')
+        : error.message;
+      if (timedOut) {
+        console.error(
+          `[TIMEOUT][AI] Ollama request timed out: ${error.message}`
+        );
+      }
+      console.error(
+        `Error analyzing document with Ollama: ${normalizedMessage}`
+      );
       console.debug(error);
       return {
         document: { tags: [], correspondent: null },
         metrics: null,
-        error: error.message,
+        error: normalizedMessage,
         // Undefined for everything that is not one of ours; the scan loop
         // falls back to its generic reason then.
         errorCode: error.code,
@@ -815,7 +829,10 @@ class OllamaService {
    * @returns {Error}
    */
   _wrapOllamaRequestError(axiosError, attempt) {
-    const upstream = this._extractUpstreamErrorMessage(axiosError);
+    // The backend's own error when it sent one, the transport's otherwise
+    // (a dropped connection has no body, only "socket hang up").
+    const upstream =
+      this._extractUpstreamErrorMessage(axiosError) || axiosError?.message;
     const status = axiosError?.response?.status;
     const detail = upstream ? `: ${upstream}` : '';
     const wrapped = new Error(
