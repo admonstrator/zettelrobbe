@@ -29,6 +29,10 @@ const config = require('../config/config');
 const os = require('os');
 const { cacheThumbnail } = require('./thumbnailCache');
 const RestrictionPromptService = require('./restrictionPromptService');
+const {
+  buildCustomFieldsBlock,
+  parseAnalysisAnswer,
+} = require('./analysisPrompt');
 
 /**
  * Service for document analysis using Ollama
@@ -177,39 +181,7 @@ class OllamaService {
           options
         );
       } else {
-        // Parse CUSTOM_FIELDS for custom prompt
-        let customFieldsObj;
-        try {
-          customFieldsObj = JSON.parse(process.env.CUSTOM_FIELDS);
-        } catch (error) {
-          console.error(`Failed to parse CUSTOM_FIELDS: ${error.message}`);
-          console.debug(error);
-          customFieldsObj = { custom_fields: [] };
-        }
-
-        const customFieldsTemplate = {};
-        customFieldsObj.custom_fields.forEach((field, index) => {
-          let valueHint;
-          if (field.data_type === 'date') {
-            valueHint =
-              'Fill in the date in ISO 8601 format (YYYY-MM-DD) based on your analysis';
-          } else if (field.data_type === 'boolean') {
-            valueHint = "Fill in 'true' or 'false' based on your analysis";
-          } else {
-            valueHint = 'Fill in the value based on your analysis';
-          }
-          customFieldsTemplate[index] = {
-            field_name: field.value,
-            value: valueHint,
-          };
-        });
-
-        const customFieldsStr =
-          '"custom_fields": ' +
-          JSON.stringify(customFieldsTemplate, null, 2)
-            .split('\n')
-            .map((line) => '    ' + line)
-            .join('\n');
+        const customFieldsStr = this._generateCustomFieldsTemplate();
 
         promptPrefix =
           customPrompt +
@@ -425,42 +397,7 @@ class OllamaService {
       ? existingCorrespondent
       : [];
 
-    // Parse CUSTOM_FIELDS from environment variable
-    let customFieldsObj;
-    try {
-      customFieldsObj = JSON.parse(process.env.CUSTOM_FIELDS);
-    } catch (error) {
-      console.error(`Failed to parse CUSTOM_FIELDS: ${error.message}`);
-      console.debug(error);
-      customFieldsObj = { custom_fields: [] };
-    }
-
-    // Generate custom fields template for the prompt
-    const customFieldsTemplate = {};
-
-    customFieldsObj.custom_fields.forEach((field, index) => {
-      let valueHint;
-      if (field.data_type === 'date') {
-        valueHint =
-          'Fill in the date in ISO 8601 format (YYYY-MM-DD) based on your analysis';
-      } else if (field.data_type === 'boolean') {
-        valueHint = "Fill in 'true' or 'false' based on your analysis";
-      } else {
-        valueHint = 'Fill in the value based on your analysis';
-      }
-      customFieldsTemplate[index] = {
-        field_name: field.value,
-        value: valueHint,
-      };
-    });
-
-    // Convert template to string for replacement and wrap in custom_fields
-    const customFieldsStr =
-      '"custom_fields": ' +
-      JSON.stringify(customFieldsTemplate, null, 2)
-        .split('\n')
-        .map((line) => '    ' + line) // Add proper indentation
-        .join('\n');
+    const customFieldsStr = this._generateCustomFieldsTemplate();
 
     // Get system prompt based on configuration
     if (
@@ -568,46 +505,20 @@ class OllamaService {
   }
 
   /**
-   * Generate custom fields template for prompts
+   * The custom fields block of the prompt (%CUSTOMFIELDS%), built by the
+   * same code as the other providers' (analysisPrompt.buildCustomFieldsBlock).
+   * An unreadable CUSTOM_FIELDS is logged and yields an empty block.
    * @returns {string} Custom fields template as a string
    */
   _generateCustomFieldsTemplate() {
-    let customFieldsObj;
-    try {
-      customFieldsObj = JSON.parse(process.env.CUSTOM_FIELDS);
-    } catch (error) {
+    const { customFieldsStr, error } = buildCustomFieldsBlock(
+      process.env.CUSTOM_FIELDS
+    );
+    if (error) {
       console.error(`Failed to parse CUSTOM_FIELDS: ${error.message}`);
       console.debug(error);
-      customFieldsObj = { custom_fields: [] };
     }
-
-    // Generate custom fields template for the prompt
-    const customFieldsTemplate = {};
-
-    customFieldsObj.custom_fields.forEach((field, index) => {
-      let valueHint;
-      if (field.data_type === 'date') {
-        valueHint =
-          'Fill in the date in ISO 8601 format (YYYY-MM-DD) based on your analysis';
-      } else if (field.data_type === 'boolean') {
-        valueHint = "Fill in 'true' or 'false' based on your analysis";
-      } else {
-        valueHint = 'Fill in the value based on your analysis';
-      }
-      customFieldsTemplate[index] = {
-        field_name: field.value,
-        value: valueHint,
-      };
-    });
-
-    // Convert template to string for replacement and wrap in custom_fields
-    return (
-      '"custom_fields": ' +
-      JSON.stringify(customFieldsTemplate, null, 2)
-        .split('\n')
-        .map((line) => '    ' + line) // Add proper indentation
-        .join('\n')
-    );
+    return customFieldsStr;
   }
 
   /**
@@ -990,6 +901,19 @@ class OllamaService {
      looked at again. openaiService has thrown at the same point all along. */
   _parseResponse(response) {
     try {
+      // Read the way the other providers read it first: <think> blocks and
+      // code fences stripped, the first balanced JSON value taken, so braces
+      // in prose around the answer no longer break it.
+      let shared = null;
+      try {
+        shared = parseAnalysisAnswer(response).parsed;
+      } catch {
+        // Not readable that way; Ollama's own extraction and repair follow.
+      }
+      if (shared && typeof shared === 'object' && !Array.isArray(shared)) {
+        return this._toAnalysisDocument(shared);
+      }
+
       // Find JSON in response using regex
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {

@@ -14,6 +14,9 @@
  *    answer that found nothing is still a success, as on the other providers
  * 3. An empty payload fails with a message the OCR fallback recognises (7l)
  * 4. The sanitize path keeps every document field
+ * 5. The answer is read like the other providers read it (7d): a <think>
+ *    block or prose with braces around the JSON no longer breaks it, and
+ *    Ollama's repair of unquoted keys stays as the fallback
  *
  * The plan: docs/llm-service-refactoring.md, Finding 7.
  */
@@ -179,6 +182,33 @@ function assertQueuedForOcr(analysis, reason) {
       const analysis = await analyze();
       assertQueuedForOcr(analysis, 'ai_invalid_api_response_structure');
     });
+
+    /* --- 7d: read like the other providers, repaired like before -------- */
+
+    for (const [label, response] of [
+      [
+        'a <think> block with braces before the JSON',
+        '<think>The total {5 EUR} looks right.</think>' +
+          '{"tags": ["a"], "correspondent": "X"}',
+      ],
+      [
+        'prose with braces after the JSON',
+        '{"tags": ["a"], "correspondent": "X"}\nNote: the {amount} is net.',
+      ],
+      ['a code fence', '```json\n{"tags": ["a"], "correspondent": "X"}\n```'],
+      [
+        'unquoted keys (the repair fallback)',
+        '{tags: ["a"], correspondent: "X"}',
+      ],
+    ]) {
+      await test(`An answer with ${label} is read`, async () => {
+        answering(generation(response));
+        const analysis = await analyze();
+        assert.strictEqual(analysis.error, undefined);
+        assert.deepStrictEqual(analysis.document.tags, ['a']);
+        assert.strictEqual(analysis.document.correspondent, 'X');
+      });
+    }
 
     /* --- the sanitize path keeps every field ---------------------------- */
 
