@@ -1,4 +1,11 @@
-const { writePromptToFile, toNameList } = require('./serviceUtils');
+const {
+  writePromptToFile,
+  toNameList,
+  isRefusalAnswer,
+  insufficientContentResult,
+  isTimeoutError,
+  buildTimeoutErrorMessage,
+} = require('./serviceUtils');
 const {
   abortSignal,
   abortedGenerationError,
@@ -19,14 +26,13 @@ const {
 } = require('./modelFailure');
 const axios = require('axios');
 const config = require('../config/config');
-const fs = require('fs').promises;
-const paperlessService = require('./paperlessService');
 const os = require('os');
-const {
-  THUMBNAIL_CACHE_DIR,
-  getThumbnailCachePath,
-} = require('./thumbnailCachePaths');
+const { cacheThumbnail } = require('./thumbnailCache');
 const RestrictionPromptService = require('./restrictionPromptService');
+const {
+  buildCustomFieldsBlock,
+  parseAnalysisAnswer,
+} = require('./analysisPrompt');
 
 /**
  * Service for document analysis using Ollama
@@ -162,8 +168,33 @@ class OllamaService {
         }
       }
 
-      // Build prompt
+      // Build the prompt without the document first, so the content can be
+      // fitted into what is left of the context window.
       let prompt;
+      let promptPrefix;
+      if (!customPrompt) {
+        promptPrefix = this._buildPrompt(
+          '',
+          existingTags,
+          existingCorrespondentList,
+          existingDocumentTypesList,
+          options
+        );
+      } else {
+        const customFieldsStr = this._generateCustomFieldsTemplate();
+
+        promptPrefix =
+          customPrompt +
+          '\n\n' +
+          config.mustHavePrompt.replace('%CUSTOMFIELDS%', customFieldsStr) +
+          '\n\n';
+        console.log('[DEBUG] Ollama Service started with custom prompt');
+      }
+
+      // Fit the document into what is left of the context window
+      const originalContentLength = String(content).length;
+      content = this._fitContentToContext(content, promptPrefix.length);
+
       if (!customPrompt) {
         prompt = this._buildPrompt(
           content,
@@ -173,48 +204,10 @@ class OllamaService {
           options
         );
       } else {
-        // Parse CUSTOM_FIELDS for custom prompt
-        let customFieldsObj;
-        try {
-          customFieldsObj = JSON.parse(process.env.CUSTOM_FIELDS);
-        } catch (error) {
-          console.error(`Failed to parse CUSTOM_FIELDS: ${error.message}`);
-          console.debug(error);
-          customFieldsObj = { custom_fields: [] };
-        }
-
-        const customFieldsTemplate = {};
-        customFieldsObj.custom_fields.forEach((field, index) => {
-          let valueHint;
-          if (field.data_type === 'date') {
-            valueHint =
-              'Fill in the date in ISO 8601 format (YYYY-MM-DD) based on your analysis';
-          } else if (field.data_type === 'boolean') {
-            valueHint = "Fill in 'true' or 'false' based on your analysis";
-          } else {
-            valueHint = 'Fill in the value based on your analysis';
-          }
-          customFieldsTemplate[index] = {
-            field_name: field.value,
-            value: valueHint,
-          };
-        });
-
-        const customFieldsStr =
-          '"custom_fields": ' +
-          JSON.stringify(customFieldsTemplate, null, 2)
-            .split('\n')
-            .map((line) => '    ' + line)
-            .join('\n');
-
-        prompt =
-          customPrompt +
-          '\n\n' +
-          config.mustHavePrompt.replace('%CUSTOMFIELDS%', customFieldsStr) +
-          '\n\n' +
-          JSON.stringify(content);
-        console.log('[DEBUG] Ollama Service started with custom prompt');
+        prompt = promptPrefix + JSON.stringify(content);
       }
+      const contentWasTruncated =
+        String(content).length < originalContentLength;
 
       // Generate custom fields for the prompt
       const customFieldsStr = this._generateCustomFieldsTemplate();
@@ -245,7 +238,24 @@ class OllamaService {
       );
 
       // Process response
-      const parsedResponse = this._processOllamaResponse(response);
+      let parsedResponse;
+      try {
+        parsedResponse = this._processOllamaResponse(response);
+      } catch (error) {
+        // A model that declines the document instead of answering, as the
+        // OpenAI-compatible providers detect it.
+        if (
+          typeof response?.response === 'string' &&
+          isRefusalAnswer(response.response)
+        ) {
+          console.warn(`Document ${id} has insufficient content for analysis`);
+          return insufficientContentResult(
+            id,
+            this._extractOllamaMetrics(response)
+          );
+        }
+        throw error;
+      }
       const metrics = this._extractOllamaMetrics(response);
 
       // Check for missing data
@@ -265,15 +275,27 @@ class OllamaService {
       return {
         document: parsedResponse,
         metrics,
-        truncated: false,
+        truncated: contentWasTruncated,
       };
     } catch (error) {
-      console.error(`Error analyzing document with Ollama: ${error.message}`);
+      // Reported like the OpenAI-compatible providers report it.
+      const timedOut = isTimeoutError(error);
+      const normalizedMessage = timedOut
+        ? buildTimeoutErrorMessage('AI')
+        : error.message;
+      if (timedOut) {
+        console.error(
+          `[TIMEOUT][AI] Ollama request timed out: ${error.message}`
+        );
+      }
+      console.error(
+        `Error analyzing document with Ollama: ${normalizedMessage}`
+      );
       console.debug(error);
       return {
         document: { tags: [], correspondent: null },
         metrics: null,
-        error: error.message,
+        error: normalizedMessage,
         // Undefined for everything that is not one of ours; the scan loop
         // falls back to its generic reason then.
         errorCode: error.code,
@@ -303,6 +325,57 @@ class OllamaService {
   }
 
   /**
+   * Fit the document content into what is left of the context window once
+   * the fixed prompt parts and the reserved answer have taken their share.
+   *
+   * Without this an oversized prompt silently changed the meaning of the
+   * request: Ollama clamps num_ctx to the model's real limit, the long
+   * document filled the window, and the answer was cut off mid-JSON —
+   * reported as ai_response_truncated on exactly the long documents. With
+   * the content fitted, prompt + reserved answer always fit the configured
+   * TOKEN_LIMIT, so setting that to the model's true context removes the
+   * silent clamp entirely.
+   *
+   * Uses the same conservative 2-chars-per-token estimate as
+   * _calculatePromptTokenCount(), so the numbers agree by construction.
+   *
+   * @param {string} content - Document content
+   * @param {number} prefixChars - Length of the fully built prompt without the content tail
+   * @returns {string} Content shortened to the remaining budget when needed
+   */
+  _fitContentToContext(content, prefixChars) {
+    const maxWindow = Number(config.tokenLimit);
+    const responseTokens = Number(config.responseTokens);
+    if (!Number.isFinite(maxWindow) || !Number.isFinite(responseTokens)) {
+      return content;
+    }
+
+    const text =
+      typeof content === 'string' ? content : JSON.stringify(content);
+    const overheadTokens = Math.ceil(prefixChars / 2);
+    const availableTokens = maxWindow - responseTokens - overheadTokens;
+
+    if (availableTokens <= 0) {
+      throw new Error(
+        'Token limit exceeded: the prompt alone does not fit the configured ' +
+          'TOKEN_LIMIT. Raise TOKEN_LIMIT or shorten the system prompt.'
+      );
+    }
+
+    const maxChars = availableTokens * 2;
+    if (text.length <= maxChars) {
+      return content;
+    }
+
+    console.log(
+      `[DEBUG] Document content (${text.length} chars) exceeds the context ` +
+        `budget (${maxChars} chars for a ${maxWindow}-token window minus prompt` +
+        ` and ${responseTokens} reserved answer tokens); truncating`
+    );
+    return text.substring(0, maxChars);
+  }
+
+  /**
    * Build prompt from content and existing data
    * @param {string} content - Document content
    * @param {Array} existingTags - List of existing tags
@@ -324,42 +397,7 @@ class OllamaService {
       ? existingCorrespondent
       : [];
 
-    // Parse CUSTOM_FIELDS from environment variable
-    let customFieldsObj;
-    try {
-      customFieldsObj = JSON.parse(process.env.CUSTOM_FIELDS);
-    } catch (error) {
-      console.error(`Failed to parse CUSTOM_FIELDS: ${error.message}`);
-      console.debug(error);
-      customFieldsObj = { custom_fields: [] };
-    }
-
-    // Generate custom fields template for the prompt
-    const customFieldsTemplate = {};
-
-    customFieldsObj.custom_fields.forEach((field, index) => {
-      let valueHint;
-      if (field.data_type === 'date') {
-        valueHint =
-          'Fill in the date in ISO 8601 format (YYYY-MM-DD) based on your analysis';
-      } else if (field.data_type === 'boolean') {
-        valueHint = "Fill in 'true' or 'false' based on your analysis";
-      } else {
-        valueHint = 'Fill in the value based on your analysis';
-      }
-      customFieldsTemplate[index] = {
-        field_name: field.value,
-        value: valueHint,
-      };
-    });
-
-    // Convert template to string for replacement and wrap in custom_fields
-    const customFieldsStr =
-      '"custom_fields": ' +
-      JSON.stringify(customFieldsTemplate, null, 2)
-        .split('\n')
-        .map((line) => '    ' + line) // Add proper indentation
-        .join('\n');
+    const customFieldsStr = this._generateCustomFieldsTemplate();
 
     // Get system prompt based on configuration
     if (
@@ -467,46 +505,20 @@ class OllamaService {
   }
 
   /**
-   * Generate custom fields template for prompts
+   * The custom fields block of the prompt (%CUSTOMFIELDS%), built by the
+   * same code as the other providers' (analysisPrompt.buildCustomFieldsBlock).
+   * An unreadable CUSTOM_FIELDS is logged and yields an empty block.
    * @returns {string} Custom fields template as a string
    */
   _generateCustomFieldsTemplate() {
-    let customFieldsObj;
-    try {
-      customFieldsObj = JSON.parse(process.env.CUSTOM_FIELDS);
-    } catch (error) {
+    const { customFieldsStr, error } = buildCustomFieldsBlock(
+      process.env.CUSTOM_FIELDS
+    );
+    if (error) {
       console.error(`Failed to parse CUSTOM_FIELDS: ${error.message}`);
       console.debug(error);
-      customFieldsObj = { custom_fields: [] };
     }
-
-    // Generate custom fields template for the prompt
-    const customFieldsTemplate = {};
-
-    customFieldsObj.custom_fields.forEach((field, index) => {
-      let valueHint;
-      if (field.data_type === 'date') {
-        valueHint =
-          'Fill in the date in ISO 8601 format (YYYY-MM-DD) based on your analysis';
-      } else if (field.data_type === 'boolean') {
-        valueHint = "Fill in 'true' or 'false' based on your analysis";
-      } else {
-        valueHint = 'Fill in the value based on your analysis';
-      }
-      customFieldsTemplate[index] = {
-        field_name: field.value,
-        value: valueHint,
-      };
-    });
-
-    // Convert template to string for replacement and wrap in custom_fields
-    return (
-      '"custom_fields": ' +
-      JSON.stringify(customFieldsTemplate, null, 2)
-        .split('\n')
-        .map((line) => '    ' + line) // Add proper indentation
-        .join('\n')
-    );
+    return customFieldsStr;
   }
 
   /**
@@ -581,26 +593,12 @@ class OllamaService {
   }
 
   /**
-   * Handle thumbnail caching for documents
+   * Cache the document's thumbnail for the UI. Best effort: it never decides
+   * whether the document is analysed (see services/thumbnailCache.js).
    * @param {string} id - Document ID
    */
   async _handleThumbnailCaching(id) {
-    if (!id) return;
-
-    const cachePath = getThumbnailCachePath(id);
-    try {
-      await fs.access(cachePath);
-      console.log('[DEBUG] Thumbnail already cached');
-    } catch {
-      console.log('Thumbnail not cached, fetching from Paperless');
-      const thumbnailData = await paperlessService.getThumbnailImage(id);
-      if (!thumbnailData) {
-        console.warn('Thumbnail not found');
-        return;
-      }
-      await fs.mkdir(THUMBNAIL_CACHE_DIR, { recursive: true });
-      await fs.writeFile(cachePath, thumbnailData);
-    }
+    return cacheThumbnail(id);
   }
 
   /**
@@ -656,21 +654,109 @@ class OllamaService {
     const think = this._thinkField(rules, null);
     if (think !== undefined) requestBody.think = think;
 
-    const response = await this.client.post(
-      `${this.apiUrl}/api/generate`,
-      requestBody,
-      {
-        headers: this._buildRequestHeaders(),
+    // One bounded retry for transient failures (backend EOF, 5xx). The
+    // field report behind this: an MLX runner closed its connection once
+    // under memory pressure; the immediate second attempt succeeded.
+    const MAX_ATTEMPTS = 2;
+    let response;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+      try {
+        response = await this.client.post(
+          `${this.apiUrl}/api/generate`,
+          requestBody,
+          {
+            headers: this._buildRequestHeaders(),
+          }
+        );
+        break;
+      } catch (error) {
+        const wrapped = this._wrapOllamaRequestError(error, attempt);
+        console.error(`[ERROR] ${wrapped.message}`);
+        if (attempt >= MAX_ATTEMPTS || !this._isTransientOllamaFailure(error)) {
+          throw wrapped;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-    );
+    }
 
-    if (!response.data) {
-      throw new Error('Invalid response from Ollama API');
+    if (!response?.data) {
+      // Carries the marker the OCR fallback recognises, as the
+      // OpenAI-compatible providers' empty answers do.
+      throw new Error(
+        'Invalid API response structure: Ollama sent an empty response'
+      );
     }
 
     this._assertNotTruncated(response.data, numPredict, numCtx);
 
     return response.data;
+  }
+
+  /**
+   * Extract the cause an Ollama (or its inference backend) reported in a
+   * non-2xx response body. Ollama wraps backend failures — its runner closing
+   * the connection on an oversized prompt, for example — into
+   * `{ error: 'Post "http://…/v1/completions": EOF' }`; without this the
+   * operator only ever sees "Request failed with status code 500" and cannot
+   * tell an Ollama problem from a model-backend problem.
+   *
+   * @param {Object} axiosError
+   * @returns {string|null}
+   */
+  _extractUpstreamErrorMessage(axiosError) {
+    const data = axiosError?.response?.data;
+    if (!data) return null;
+    if (typeof data === 'string') {
+      const trimmed = data.trim();
+      try {
+        return JSON.parse(trimmed)?.error || trimmed || null;
+      } catch {
+        return trimmed || null;
+      }
+    }
+    return data.error || data.message || null;
+  }
+
+  /**
+   * True for failures worth one more attempt: the connection dropped or the
+   * server answered 5xx. A 4xx is a request problem and will fail again.
+   *
+   * @param {Object} axiosError
+   * @returns {boolean}
+   */
+  _isTransientOllamaFailure(axiosError) {
+    if (!axiosError?.response) {
+      // No response at all: connection refused/reset/timeout.
+      return true;
+    }
+    return axiosError.response.status >= 500;
+  }
+
+  /**
+   * Wrap an axios failure with the upstream detail attached.
+   *
+   * @param {Object} axiosError - The axios error being wrapped
+   * @param {number} attempt - Which attempt failed (1-based)
+   * @returns {Error}
+   */
+  _wrapOllamaRequestError(axiosError, attempt) {
+    // The backend's own error when it sent one, the transport's otherwise
+    // (a dropped connection has no body, only "socket hang up").
+    const upstream =
+      this._extractUpstreamErrorMessage(axiosError) || axiosError?.message;
+    const status = axiosError?.response?.status;
+    const detail = upstream ? `: ${upstream}` : '';
+    const wrapped = new Error(
+      `Ollama request failed (HTTP ${status || 'no response'}, attempt ${attempt})${detail}`,
+      { cause: axiosError }
+    );
+    // Keep the axios code so the scan-loop classification (OCR fallback,
+    // failure reasons) keeps working unchanged, and the failure kind the
+    // transport error carries.
+    wrapped.code = axiosError?.code;
+    const kind = tagTransportFailure(axiosError)?.failureKind;
+    if (kind) wrapped.failureKind = kind;
+    return wrapped;
   }
 
   /**
@@ -743,24 +829,47 @@ class OllamaService {
     if (responseData.response && typeof responseData.response === 'object') {
       // We got a structured response directly
       console.log('Using structured output response');
-      return {
-        tags: Array.isArray(responseData.response.tags)
-          ? responseData.response.tags
-          : [],
-        correspondent: responseData.response.correspondent || null,
-        title: responseData.response.title || null,
-        document_date: responseData.response.document_date || null,
-        document_type: responseData.response.document_type || null,
-        language: responseData.response.language || null,
-        custom_fields: responseData.response.custom_fields || null,
-      };
+      return this._toAnalysisDocument(responseData.response);
     } else if (responseData.response) {
       // Fall back to parsing from text response
       console.log('Falling back to text response parsing');
       return this._parseResponse(responseData.response);
     } else {
-      throw new Error('No response data from Ollama API');
+      throw new Error('Invalid API response structure: Ollama sent no answer');
     }
+  }
+
+  /**
+   * The parsed answer as the document the scan loop writes back. An answer
+   * without a tag list or with a correspondent that is neither a name nor
+   * null fails, with the message the OCR fallback recognises — the check the
+   * OpenAI-compatible providers and Anthropic run. Without it the defaults
+   * below papered over a broken answer and it counted as a success. An
+   * answer that found nothing (no tags, no correspondent) is still one.
+   *
+   * @param {Object} parsed - The answer object, structured or parsed
+   * @returns {Object} Every document field, null where the answer had none
+   */
+  _toAnalysisDocument(parsed) {
+    if (
+      !parsed ||
+      !Array.isArray(parsed.tags) ||
+      (typeof parsed.correspondent !== 'string' &&
+        parsed.correspondent !== null)
+    ) {
+      throw new Error(
+        'AI could not determine assignable metadata: no tags or correspondent found'
+      );
+    }
+    return {
+      tags: parsed.tags,
+      correspondent: parsed.correspondent || null,
+      title: parsed.title || null,
+      document_date: parsed.document_date || null,
+      document_type: parsed.document_type || null,
+      language: parsed.language || null,
+      custom_fields: parsed.custom_fields || null,
+    };
   }
 
   /**
@@ -792,6 +901,19 @@ class OllamaService {
      looked at again. openaiService has thrown at the same point all along. */
   _parseResponse(response) {
     try {
+      // Read the way the other providers read it first: <think> blocks and
+      // code fences stripped, the first balanced JSON value taken, so braces
+      // in prose around the answer no longer break it.
+      let shared = null;
+      try {
+        shared = parseAnalysisAnswer(response).parsed;
+      } catch {
+        // Not readable that way; Ollama's own extraction and repair follow.
+      }
+      if (shared && typeof shared === 'object' && !Array.isArray(shared)) {
+        return this._toAnalysisDocument(shared);
+      }
+
       // Find JSON in response using regex
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
@@ -807,20 +929,11 @@ class OllamaService {
       let jsonStr = jsonMatch[0];
       console.log('Extracted JSON String:', jsonStr);
 
+      // Parsed first, checked after: a broken answer must not be mistaken
+      // for broken JSON and sent through the sanitizer.
+      let result;
       try {
-        // Attempt to parse the JSON
-        const result = JSON.parse(jsonStr);
-
-        // Validate and return the result
-        return {
-          tags: Array.isArray(result.tags) ? result.tags : [],
-          correspondent: result.correspondent || null,
-          title: result.title || null,
-          document_date: result.document_date || null,
-          document_type: result.document_type || null,
-          language: result.language || null,
-          custom_fields: result.custom_fields || null,
-        };
+        result = JSON.parse(jsonStr);
       } catch (jsonError) {
         console.warn('Error parsing JSON from response:', jsonError.message);
         console.warn('Attempting to sanitize the JSON...');
@@ -829,16 +942,7 @@ class OllamaService {
         jsonStr = this._sanitizeJsonString(jsonStr);
 
         try {
-          const sanitizedResult = JSON.parse(jsonStr);
-          return {
-            tags: Array.isArray(sanitizedResult.tags)
-              ? sanitizedResult.tags
-              : [],
-            correspondent: sanitizedResult.correspondent || null,
-            title: sanitizedResult.title || null,
-            document_date: sanitizedResult.document_date || null,
-            language: sanitizedResult.language || null,
-          };
+          result = JSON.parse(jsonStr);
         } catch {
           console.error(
             'Final JSON parsing failed after sanitization. This happens when the JSON structure is too complex or invalid. That indicates an issue with the generated JSON string by Ollama. Switch to OpenAI for better results or fine tune your prompt.'
@@ -848,6 +952,8 @@ class OllamaService {
           );
         }
       }
+
+      return this._toAnalysisDocument(result);
     } catch (error) {
       console.error('Error parsing Ollama response:', error.message);
       throw error;

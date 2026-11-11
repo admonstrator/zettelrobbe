@@ -271,7 +271,7 @@ async function main() {
       await documentModel.addToHistory(1002, [48, 12], 'Doc B', 'Someone');
       await documentModel.saveOriginalData(1001, [48, 9], 5, 'Doc A');
 
-      paperlessService.tagCache.set('invoices', { id: 48 });
+      paperlessService.tags.add({ id: 48, name: 'invoices' });
       paperlessService.correspondentNameCache.set(5, 'Someone');
       paperlessService.lastCorrespondentRefresh = Date.now();
 
@@ -328,7 +328,11 @@ async function main() {
         'originals rewritten in place'
       );
 
-      assert.strictEqual(paperlessService.tagCache.size, 0, 'tag cache empty');
+      assert.strictEqual(
+        paperlessService.tags.element_list.length,
+        0,
+        'tag cache empty'
+      );
       assert.strictEqual(
         paperlessService.correspondentNameCache.size,
         0,
@@ -848,7 +852,10 @@ async function main() {
       duplicateMergeService.dashboardRefreshDebounceMs = 40;
       try {
         for (const sourceId of [111, 112, 113]) {
-          paperlessService.tagCache.set(`source-${sourceId}`, { id: sourceId });
+          paperlessService.tags.add({
+            id: sourceId,
+            name: `source-${sourceId}`,
+          });
           const result = await duplicateMergeService.merge({
             kind: 'tags',
             targetId: 110,
@@ -856,7 +863,7 @@ async function main() {
           });
           assert.strictEqual(result.status, 'done');
           assert.strictEqual(
-            paperlessService.tagCache.size,
+            paperlessService.tags.element_list.length,
             0,
             'the caches are dropped immediately, not on the timer'
           );

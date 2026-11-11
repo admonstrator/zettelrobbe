@@ -193,6 +193,10 @@
  *
  *     AnalysisResult:
  *       type: object
+ *       description: |
+ *         What analyzeDocument() returns on every AI provider. A failed analysis is
+ *         returned, not thrown: `document` is then `{ tags: [], correspondent: null }`,
+ *         `metrics` is null and `error` says why.
  *       properties:
  *         document:
  *           type: object
@@ -209,6 +213,7 @@
  *               example: ["invoice", "utilities", "2023"]
  *             correspondent:
  *               type: string
+ *               nullable: true
  *               description: Suggested correspondent name
  *               example: ABC Corporation
  *             document_type:
@@ -239,6 +244,8 @@
  *                     example: "123.45"
  *         metrics:
  *           type: object
+ *           nullable: true
+ *           description: Token usage of the analysis; null when it failed
  *           properties:
  *             promptTokens:
  *               type: integer
@@ -252,9 +259,17 @@
  *               type: integer
  *               description: Total tokens used
  *               example: 570
+ *         truncated:
+ *           type: boolean
+ *           description: Whether the document content was cut to fit the token limit
+ *           example: false
  *         error:
  *           type: string
  *           description: Error message if analysis failed
+ *           example: null
+ *         errorCode:
+ *           type: string
+ *           description: Machine-readable reason of a failed analysis, when the provider gave one
  *           example: null
  *
  *     Tag:

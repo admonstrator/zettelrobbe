@@ -554,6 +554,11 @@ const mistralOcr = liveBlock({
     (process.env.OCR_API_URL || process.env.MISTRAL_OCR_API_URL || '').trim(),
   apiKey: () => process.env.OCR_API_KEY || process.env.MISTRAL_API_KEY || '',
   model: () => env('MISTRAL_OCR_MODEL', 'mistral-ocr-latest'),
+  // Completion cap of one OpenAI-compatible OCR request (one page). Without
+  // it the server's default decides, and mlx_vlm's 2048 cuts off a dense A4
+  // page. Strict, because "8k" would otherwise parse as 8.
+  maxTokens: () =>
+    parseStrictTokenCount(process.env.OCR_MAX_TOKENS, 4096, 'OCR_MAX_TOKENS'),
   // PDF page rendering for local vision OCR (poppler pdftoppm); the Mistral
   // provider handles PDFs natively and ignores these settings.
   pdfRenderEnabled: () => envBool('OCR_PDF_RENDER_ENABLED', 'yes'),

@@ -62,6 +62,13 @@ const CLAUDE_OCR_IMAGE_TYPES = new Set([
 const CLAUDE_OCR_MAX_TOKENS = 64000;
 const CLAUDE_OCR_MAX_TOKENS_CEILING = 128000;
 
+// The completion cap an OpenAI-compatible OCR request sends when
+// OCR_MAX_TOKENS gives none (config.js has the same default; this one covers
+// a config without the key). Sending no cap leaves it to the server, and
+// mlx_vlm's default of 2048 cut a dense A4 page off: about 2500 tokens. Kept
+// moderate because vLLM rejects prompt + max_tokens beyond its context window.
+const LOCAL_OCR_MAX_TOKENS = 4096;
+
 // What the model answers for a page without any text. The empty-result guard
 // in processQueueItem() then refuses to overwrite the document's content,
 // instead of a sentence like "This page is blank." becoming its text.
@@ -233,6 +240,14 @@ class MistralOcrService {
       '120000';
     const parsed = Number.parseInt(String(raw).trim(), 10);
     return Number.isFinite(parsed) && parsed >= 1000 ? parsed : 120000;
+  }
+
+  /** max_tokens of one OpenAI-compatible OCR request: OCR_MAX_TOKENS or 4096. */
+  get localOcrMaxTokens() {
+    const configured = config.mistralOcr?.maxTokens;
+    return Number.isInteger(configured) && configured > 0
+      ? configured
+      : LOCAL_OCR_MAX_TOKENS;
   }
 
   get pdfRenderEnabled() {
@@ -858,13 +873,15 @@ class MistralOcrService {
    *
    * @param {unknown} finishReason - the provider's stop reason
    * @param {string} endpointLabel - which endpoint answered, for the message
+   * @param {string} [remedy] - what the operator can do, appended when given
    * @throws {Error} when the response was cut short
    */
-  _assertLocalOcrNotTruncated(finishReason, endpointLabel) {
+  _assertLocalOcrNotTruncated(finishReason, endpointLabel, remedy = '') {
     if (String(finishReason || '').toLowerCase() === 'length') {
       throw new Error(
         `${endpointLabel} OCR response was cut off at the token limit (stop reason "length"); ` +
-          'refusing to use a truncated page as document text'
+          'refusing to use a truncated page as document text' +
+          (remedy ? `. ${remedy}` : '')
       );
     }
   }
@@ -893,12 +910,14 @@ class MistralOcrService {
       : {};
 
     const ocrTimeoutMs = this.ocrTimeoutMs;
+    const maxTokens = this.localOcrMaxTokens;
     const runOpenAiLikeRequest = async (targetApiUrl, imageUrlValue) =>
       axios.post(
         `${targetApiUrl}/chat/completions`,
         {
           model: this.model,
           temperature: 0,
+          max_tokens: maxTokens,
           messages: [
             {
               role: 'user',
@@ -929,7 +948,8 @@ class MistralOcrService {
     const readOpenAiLikeText = (response) => {
       this._assertLocalOcrNotTruncated(
         response?.data?.choices?.[0]?.finish_reason,
-        'OpenAI-compatible'
+        'OpenAI-compatible',
+        `Raise OCR_MAX_TOKENS (now ${maxTokens}) to give a page more room`
       );
       return String(response.data?.choices?.[0]?.message?.content || '').trim();
     };

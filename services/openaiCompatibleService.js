@@ -31,11 +31,7 @@ const axios = require('axios');
 const fs = require('fs').promises;
 const path = require('path');
 const config = require('../config/config');
-const paperlessService = require('./paperlessService');
-const {
-  THUMBNAIL_CACHE_DIR,
-  getThumbnailCachePath,
-} = require('./thumbnailCachePaths');
+const { cacheThumbnail } = require('./thumbnailCache');
 const {
   calculateTokens,
   calculateTotalPromptTokens,
@@ -45,6 +41,8 @@ const {
   assertCompletionNotTruncated,
   isTimeoutError,
   buildTimeoutErrorMessage,
+  isRefusalAnswer,
+  insufficientContentResult,
 } = require('./serviceUtils');
 const {
   abortSignal,
@@ -219,9 +217,6 @@ const PROFILES = Object.freeze({
   },
 });
 
-/** Words a model answers with when it declines a document instead of JSON. */
-const REFUSAL_MARKERS = ["i'm sorry", 'i cannot', 'insufficient'];
-
 class OpenAICompatibleService {
   /**
    * @param {'openai'|'azure'|'custom'} providerId
@@ -279,29 +274,14 @@ class OpenAICompatibleService {
   }
 
   /**
-   * Caches the document's thumbnail for the history page.
+   * Caches the document's thumbnail for the history page. Best effort: the
+   * thumbnail never enters the prompt, so no outcome here decides whether
+   * the document is analysed (see services/thumbnailCache.js).
    *
-   * @returns {Promise<boolean>} false when Paperless-ngx had none to give;
-   *   the analysis then returns nothing, as it always has
+   * @returns {Promise<boolean>} true when a thumbnail is cached afterwards
    */
   async _cacheThumbnail(id) {
-    const cachePath = getThumbnailCachePath(id);
-    try {
-      await fs.access(cachePath);
-      console.log('[DEBUG] Thumbnail already cached');
-      return true;
-    } catch {
-      console.log('Thumbnail not cached, fetching from Paperless');
-    }
-
-    const thumbnailData = await paperlessService.getThumbnailImage(id);
-    if (!thumbnailData) {
-      console.warn('Thumbnail not found');
-      return false;
-    }
-    await fs.mkdir(THUMBNAIL_CACHE_DIR, { recursive: true });
-    await fs.writeFile(cachePath, thumbnailData);
-    return true;
+    return cacheThumbnail(id);
   }
 
   async analyzeDocument(
@@ -326,9 +306,7 @@ class OpenAICompatibleService {
         throw new Error(`${label} client not initialized`);
       }
 
-      if (!(await this._cacheThumbnail(id))) {
-        return;
-      }
+      await this._cacheThumbnail(id);
 
       let validatedExternalApiData = null;
       if (options.externalApiData) {
@@ -461,22 +439,9 @@ class OpenAICompatibleService {
         // A model that declines the document instead of answering: a
         // default structure rather than a throw, so the scan loop does not
         // retry it, with the error the OCR fallback recognises.
-        const lowered = String(jsonContent).toLowerCase();
-        if (REFUSAL_MARKERS.some((marker) => lowered.includes(marker))) {
+        if (isRefusalAnswer(jsonContent)) {
           console.warn(`Document ${id} has insufficient content for analysis`);
-          return {
-            document: {
-              tags: [],
-              correspondent: 'Unknown',
-              title: `Document ${id}`,
-              document_date: new Date().toISOString().split('T')[0],
-              document_type: 'Document',
-              language: 'und',
-            },
-            metrics: mappedUsage,
-            truncated: false,
-            error: 'Insufficient content for AI analysis',
-          };
+          return insufficientContentResult(id, mappedUsage);
         }
         throw error;
       }

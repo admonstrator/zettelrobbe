@@ -32,12 +32,15 @@ dist/
 .local/
 *.local.*
 .vscode/
+.idea/
+.ollamassist/
 # AI context files (auto-generated)
 COPILOT.md
 .DS_Store
 GEMINI.md
 CVE/*
 .todo/*
+.ai/
 tests/ui-review/
 
 # Local assistant worktrees and scratch

@@ -31,6 +31,7 @@ function formatStatus(status) {
 }
 
 const TESTS = {
+  'cached-name-id-enum': 'test-cached-name-id-enum.js',
   'dashboard-stats-cache': 'test-dashboard-stats-cache.js',
   'document-type-restriction': 'test-document-type-restriction.js',
   'effective-document-count-cache': 'test-effective-document-count-cache.js',
@@ -66,6 +67,10 @@ const TESTS = {
   'document-metadata-batching': 'test-document-metadata-batching.js',
   'pr772-fix': 'test-pr772-fix.js',
   'ollama-response-limit': 'test-ollama-response-limit.js',
+  'ollama-upstream-error': 'test-ollama-upstream-error.js',
+  'ollama-analysis-contract': 'test-ollama-analysis-contract.js',
+  'timeout-classification': 'test-timeout-classification.js',
+  'predefined-retrigger': 'test-predefined-retrigger.js',
   'response-truncation-detection': 'test-response-truncation-detection.js',
   'ollama-temperature-wiring': 'test-ollama-temperature-wiring.js',
   'quickstart-model-classification': 'test-quickstart-model-classification.js',
@@ -85,6 +90,7 @@ const TESTS = {
   'setup-remote-guard': 'test-setup-remote-guard.js',
   'thumbnail-auth-guard': 'test-thumbnail-auth-guard.js',
   'thumbnail-startup-migration': 'test-thumbnail-startup-migration.js',
+  'thumbnail-optional-analysis': 'test-thumbnail-optional-analysis.js',
   'restriction-service': 'test-restriction-service.js',
   'updated-service': 'test-updated-service.js',
   'prompt-existing-data-serialization':
@@ -98,6 +104,7 @@ const TESTS = {
   'ai-temperature-config': 'test-ai-temperature-config.js',
   'custom-field-monetary-normalization':
     'test-custom-field-monetary-normalization.js',
+  'manual-analyze-route': 'test-manual-analyze-route.js',
   'custom-field-longtext': 'test-custom-field-longtext.js',
   'document-processing-service': 'test-document-processing-service.js',
   'settings-custom-field-type-conflict':
@@ -106,6 +113,7 @@ const TESTS = {
     'test-mistral-ocr-no-processed-on-update-failure.js',
   'ocr-provider-lmstudio-compatible':
     'test-ocr-provider-lmstudio-compatible.js',
+  'ocr-max-tokens': 'test-ocr-max-tokens.js',
   'ocr-model-fetch-key': 'test-ocr-model-fetch-key.js',
   'mistral-ocr-image-payload': 'test-mistral-ocr-image-payload.js',
   'ocr-model-discovery-unfiltered': 'test-ocr-model-discovery-unfiltered.js',
@@ -198,6 +206,7 @@ const AREAS = {
     'document-metadata-batching',
     'mistral-ocr-no-processed-on-update-failure',
     'ocr-provider-lmstudio-compatible',
+    'ocr-max-tokens',
     'ocr-model-fetch-key',
     'ocr-model-discovery-unfiltered',
     'mistral-ocr-image-payload',
@@ -250,6 +259,7 @@ const AREAS = {
     'scanner-startup-resilience',
     'paperless-unreachable-banner',
     'thumbnail-startup-migration',
+    'thumbnail-optional-analysis',
     'ai-temperature-config',
     'custom-field-monetary-normalization',
     'custom-field-longtext',
@@ -258,6 +268,14 @@ const AREAS = {
     'ollama-token-metrics',
     'reconciliation-service',
     'settings-paperless-url-fallback',
+    'llm-analysis-result-contract',
+    'llm-document-analyzer',
+    'llm-ocr-fallback-phrases',
+    'llm-response-parser',
+    'llm-transport-request-mapping',
+    'llm-azure-temperature-wiring',
+    'llm-provider-parity',
+    'manual-analyze-route',
     'rescan-fetch-before-delete',
   ],
   prompts: [
@@ -265,6 +283,8 @@ const AREAS = {
     'updated-service',
     'prompt-existing-data-serialization',
     'restricted-document-types-placeholder',
+    'llm-prompt-builder',
+    'llm-token-budget',
     'token-limit-config',
     'truncate-returns-string',
   ],
@@ -327,7 +347,11 @@ const AREAS = {
   'tidy-up': ['tidy-up-contract', 'tidy-up-run', 'tidy-up-endpoints'],
   'tidy-up-ui': ['tidy-up-ui'],
   'tidy-up-failures': ['model-failure', 'tidy-up-wording'],
-  providers: ['openai-compatible-service'],
+  providers: [
+    'openai-compatible-service',
+    'ollama-analysis-contract',
+    'timeout-classification',
+  ],
   anthropic: [
     'anthropic-support',
     'anthropic-provider',

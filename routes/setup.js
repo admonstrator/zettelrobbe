@@ -4799,23 +4799,21 @@ router.get('/setup', async (req, res) => {
       console.warn(
         '[SECURITY] Attempting to access /setup in degraded state (corrupted database)'
       );
-      return res
-        .status(500)
-        .render('setup-error', {
+      try {
+        return res.status(500).render('setup-error', {
           title: 'System Configuration Error',
           errorMessage:
             'The system configuration exists but the database is inaccessible or corrupted. This is an administrative error state. Please check system logs and database integrity.',
           supportText:
             'This may occur if: (1) the database file was deleted or corrupted, (2) file permissions changed, or (3) the database is locked. Restart the application after verifying database and permissions.',
-        })
-        .catch(() => {
-          // Fallback if setup-error template doesn't exist
-          res
-            .status(500)
-            .send(
-              '<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>'
-            );
         });
+      } catch {
+        return res
+          .status(500)
+          .send(
+            '<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>'
+          );
+      }
     }
 
     // Base configuration object - load this FIRST, before any checks
@@ -8230,7 +8228,9 @@ router.post(
  *       This endpoint processes the document text to extract relevant information such as tags,
  *       correspondent, and document type based on content analysis.
  *
- *       The analysis is performed using the AI provider configured in the application settings.
+ *       The analysis is performed by the AI provider configured in the application settings, the
+ *       same one the scan uses. The existing tags, correspondents and document types are read from
+ *       Paperless-ngx. When the request carries an `id`, the token usage is recorded against it.
  *     tags:
  *       - Documents
  *       - API
@@ -8251,53 +8251,23 @@ router.post(
  *                 example: "Invoice from Acme Corp. Total amount: $125.00, Due date: 2023-08-15"
  *               existingTags:
  *                 type: array
- *                 description: List of existing tags in the system to help with tag matching
+ *                 description: Accepted but not read; the existing tags are taken from Paperless-ngx
  *                 items:
  *                   type: string
  *                 example: ["Invoice", "Finance", "Acme Corp"]
  *               id:
  *                 type: string
- *                 description: Optional document ID for tracking metrics
+ *                 description: Optional Paperless-ngx document ID; the token usage is recorded against it
  *                 example: "doc_123"
  *     responses:
  *       200:
- *         description: Document analysis results
+ *         description: |
+ *           The analysis result. A failed analysis is answered with status 200 as well, with
+ *           `error` set and `metrics` null.
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 correspondent:
- *                   type: string
- *                   description: Detected correspondent name
- *                   example: "Acme Corp"
- *                 title:
- *                   type: string
- *                   description: Suggested document title
- *                   example: "Acme Corp Invoice - August 2023"
- *                 tags:
- *                   type: array
- *                   description: Suggested tags for the document
- *                   items:
- *                     type: string
- *                   example: ["Invoice", "Finance"]
- *                 documentType:
- *                   type: string
- *                   description: Detected document type
- *                   example: "Invoice"
- *                 metrics:
- *                   type: object
- *                   description: Token usage metrics (when using OpenAI)
- *                   properties:
- *                     promptTokens:
- *                       type: number
- *                       example: 350
- *                     completionTokens:
- *                       type: number
- *                       example: 120
- *                     totalTokens:
- *                       type: number
- *                       example: 470
+ *               $ref: '#/components/schemas/AnalysisResult'
  *       400:
  *         description: Invalid request parameters
  *         content:
@@ -8305,7 +8275,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: Server error or AI provider not configured
+ *         description: Server error, e.g. Paperless-ngx could not be reached
  *         content:
  *           application/json:
  *             schema:
@@ -8340,7 +8310,7 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
       existingTagsList,
       existingCorrespondentList,
       existingDocumentTypesList,
-      id || []
+      id
     );
     if (analyzeDocument.metrics && id) {
       await documentModel.addOpenAIMetrics(
@@ -10358,7 +10328,10 @@ router.post('/settings', express.json(), async (req, res) => {
         );
       }
     } catch (error) {
-      console.log('[ERROR] Error creating custom fields:', error);
+      if (error.code === 'CUSTOM_FIELD_TYPE_MISMATCH') {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
     }
 
     const restart = restartKeys.length > 0;
