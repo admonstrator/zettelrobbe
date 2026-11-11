@@ -11,10 +11,12 @@ const documentModel = require('./models/document');
 const setupService = require('./services/setupService');
 const { runStartupMigrations } = require('./services/startupMigrations');
 const setupRoutes = require('./routes/setup');
+const tidyUpRoutes = require('./routes/tidyUp');
 const oidcRoutes = require('./routes/oidc');
 const oidcService = require('./services/oidcService');
 const { isAuthenticated } = require('./routes/auth');
 const mistralOcrService = require('./services/mistralOcrService');
+const skipRuleService = require('./services/skipRuleService');
 const ocrAutoProcessService = require('./services/ocrAutoProcessService');
 const duplicateReviewJobService = require('./services/duplicateReviewJobService');
 const duplicateMergeService = require('./services/duplicateMergeService');
@@ -816,6 +818,13 @@ async function processDocument(
     return queued;
   };
 
+  // Skip rules come before both OCR and AI: a hundred pages of terms and
+  // conditions should cost neither.
+  if (await skipRuleService.apply(originalData || doc, content)) {
+    retryTracker.delete(doc.id);
+    return null;
+  }
+
   if (!content || content.length < MIN_CONTENT_LENGTH) {
     console.debug(
       `Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${MIN_CONTENT_LENGTH}), skipping analysis`
@@ -1140,6 +1149,7 @@ async function scanDocuments(source = 'scheduler') {
 // Single sign-on comes first: its callback must be reachable without a
 // session, before the setup router's authentication guard runs.
 app.use('/', oidcRoutes);
+app.use('/', tidyUpRoutes);
 app.use('/', setupRoutes);
 
 // Development-only reference page for the zr UI framework. It ships no product

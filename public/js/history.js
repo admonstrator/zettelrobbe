@@ -276,10 +276,6 @@ class HistoryManager {
             // place — the popover opened and was dismissed again, so the row
             // menu simply never appeared on a phone.
             const menuId = `historyRowMenu-${surface || 'table'}-${docId}`;
-            // _esc(), not escape(): the innerHTML round-trip behind escape()
-            // leaves a double quote intact, and a Paperless-ngx title is free
-            // text that would otherwise break out of the attribute.
-            const titleAttr = this._esc(row.title ?? '');
             return (
               '<div class="zr-row zr-row--wrap">' +
               `<button type="button" class="history-info-btn zr-btn" data-docid="${escape(value)}" title="Show AI analysis details">` +
@@ -311,8 +307,8 @@ class HistoryManager {
               '<div class="zr-menu__sep"></div>' +
               // Last and set apart: it is the only entry here that takes the
               // document out of future scans rather than feeding one.
-              `<button type="button" class="zr-menu__item zr-menu__item--danger history-ignore-btn" data-docid="${docId}" data-title="${titleAttr}">` +
-              '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>Ignore</button>' +
+              `<button type="button" class="zr-menu__item zr-menu__item--danger history-skip-btn" data-docid="${docId}">` +
+              '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>Skip…</button>' +
               '</div>' +
               '</div>'
             );
@@ -564,7 +560,7 @@ class HistoryManager {
       button.dataset.boundClick = 'true';
     });
 
-    document.querySelectorAll('.history-ignore-btn').forEach((button) => {
+    document.querySelectorAll('.history-skip-btn').forEach((button) => {
       if (button.dataset.boundClick === 'true') return;
       button.addEventListener('click', () => {
         const docId = button.dataset.docid || '';
@@ -572,9 +568,7 @@ class HistoryManager {
           console.warn('Blocked unsafe document id:', docId);
           return;
         }
-        // The title travels in the markup because the ignore list stores it and
-        // the row is the only place that still knows it at click time.
-        this.ignoreDocument(Number(docId), button.dataset.title || '');
+        this.openSkipDialog(Number(docId));
       });
       button.dataset.boundClick = 'true';
     });
@@ -807,47 +801,208 @@ class HistoryManager {
   }
 
   /**
-   * Puts a document on the ignore list, so the scan loop leaves it alone from
-   * now on. The Ignored page is otherwise the only way in, and it wants a
-   * document id typed by hand — from here the row already knows it. Reversible
-   * there via "Unignore".
+   * Opens the skip dialog for one document: it goes on the ignore list, and
+   * the dialog proposes rules built from it so the next copy is skipped too.
+   * The proposals come from Paperless-ngx, so the dialog opens first and
+   * fills once they arrive.
    */
-  async ignoreDocument(documentId, title) {
-    let message;
-    let tone = 'success';
+  async openSkipDialog(documentId) {
+    const dialog = document.getElementById('skipDialog');
+    if (!dialog) return;
+    this.bindSkipDialog(dialog);
 
-    // Same split as sendToOcrQueue(): the request stands alone so a fault while
-    // reporting the outcome cannot be shown as a failure to ignore.
+    const loading = document.getElementById('skipDialogLoading');
+    const errorBox = document.getElementById('skipDialogError');
+    const form = document.getElementById('skipDialogForm');
+    const confirm = document.getElementById('skipDialogConfirm');
+    loading.classList.remove('hidden');
+    errorBox.classList.add('hidden');
+    form.classList.add('hidden');
+    confirm.disabled = true;
+    this.skipDocumentId = documentId;
+    dialog.showModal();
+
     try {
-      const response = await fetch('/api/ignored/add', {
+      const response = await fetch(`/api/ignored/suggest/${documentId}`);
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || `Request failed (${response.status})`);
+      }
+      // A second row opened while this one was loading wins.
+      if (this.skipDocumentId !== documentId) return;
+      this.fillSkipDialog(data.data);
+      loading.classList.add('hidden');
+      form.classList.remove('hidden');
+      confirm.disabled = false;
+    } catch (error) {
+      loading.classList.add('hidden');
+      errorBox.textContent = `Could not read the document: ${error.message}`;
+      errorBox.classList.remove('hidden');
+    }
+  }
+
+  /** Wires the dialog's controls once. */
+  bindSkipDialog(dialog) {
+    if (dialog.dataset.bound === 'true') return;
+    dialog.dataset.bound = 'true';
+
+    dialog
+      .querySelectorAll('[data-skip-close]')
+      .forEach((button) =>
+        button.addEventListener('click', () => dialog.close())
+      );
+    dialog.addEventListener('change', () => this.updateSkipConfirm());
+    document
+      .getElementById('skipTitlePattern')
+      .addEventListener('input', () => {
+        document.getElementById('skipRuleTitle').checked = Boolean(
+          document.getElementById('skipTitlePattern').value.trim()
+        );
+        this.updateSkipTitleHint();
+        this.updateSkipConfirm();
+      });
+    document.getElementById('skipPageLimit').addEventListener('input', () => {
+      document.getElementById('skipRulePages').checked = true;
+      this.updateSkipConfirm();
+    });
+    document
+      .getElementById('skipDialogConfirm')
+      .addEventListener('click', () => this.submitSkip(dialog));
+  }
+
+  fillSkipDialog(suggestion) {
+    const { document: doc, sameText, title, pageLimit } = suggestion;
+    const setText = (id, value) => {
+      document.getElementById(id).textContent = value;
+    };
+
+    setText('skipFactDocument', `#${doc.id} ${doc.title || ''}`.trim());
+    setText(
+      'skipFactPages',
+      doc.pageCount === null ? 'unknown' : String(doc.pageCount)
+    );
+    setText('skipFactFile', doc.fileName || '–');
+    setText('skipFactCorrespondent', doc.correspondent || '–');
+
+    const textBox = document.getElementById('skipRuleText');
+    textBox.disabled = !sameText.available;
+    textBox.checked = sameText.available;
+    let textHint = sameText.available
+      ? `Fingerprint of the ${doc.characters.toLocaleString()} characters Paperless-ngx recognised. Catches the next copy with the same text, even as a newly generated PDF. An identical file is caught the same way.`
+      : 'The text is too short to tell copies apart, so copies are not recognised.';
+    if (sameText.available && !sameText.enabled) {
+      textHint +=
+        ' Copy recognition is switched off in Settings › Skip rules; the fingerprint is kept for when it is on.';
+    }
+    setText('skipRuleTextHint', textHint);
+
+    this.skipTitleSuggestions = title.suggestions;
+    const first = title.suggestions[0];
+    document.getElementById('skipTitlePattern').value = first?.pattern || '';
+    document.getElementById('skipRuleTitle').checked = Boolean(first);
+    const picks = document.getElementById('skipTitleSuggestions');
+    picks.querySelectorAll('button').forEach((button) => button.remove());
+    title.suggestions.slice(1).forEach((entry) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'history-skip__pick';
+      button.textContent = entry.pattern;
+      button.addEventListener('click', () => {
+        document.getElementById('skipTitlePattern').value = entry.pattern;
+        document.getElementById('skipRuleTitle').checked = true;
+        this.updateSkipTitleHint();
+        this.updateSkipConfirm();
+      });
+      picks.appendChild(button);
+    });
+    picks.classList.toggle('hidden', title.suggestions.length < 2);
+    this.skipExistingPatterns = title.existing;
+    this.updateSkipTitleHint();
+
+    const pagesTile = document.getElementById('skipRulePagesTile');
+    pagesTile.classList.toggle('hidden', !pageLimit.suggested);
+    document.getElementById('skipRulePages').checked = false;
+    document.getElementById('skipPageLimit').value = pageLimit.suggested || '';
+    setText(
+      'skipRulePagesHint',
+      pageLimit.current > 0
+        ? `The current limit is ${pageLimit.current}. Applies to all documents.`
+        : 'No limit is set yet. Applies to all documents.'
+    );
+
+    this.updateSkipConfirm();
+  }
+
+  updateSkipTitleHint() {
+    const value = document
+      .getElementById('skipTitlePattern')
+      .value.trim()
+      .toLowerCase();
+    const known = (this.skipTitleSuggestions || []).find(
+      (entry) => entry.pattern.toLowerCase() === value
+    );
+    let hint = 'Dates and numbers are left out of the suggestion.';
+    if (known) {
+      hint += ` Matches ${known.historyMatches} earlier document${known.historyMatches === 1 ? '' : 's'} in the history.`;
+    }
+    const existing = this.skipExistingPatterns || [];
+    if (existing.length) {
+      hint += ` Already on the list: ${existing.join(', ')}.`;
+    }
+    document.getElementById('skipRuleTitleHint').textContent = hint;
+  }
+
+  updateSkipConfirm() {
+    const pagesTile = document.getElementById('skipRulePagesTile');
+    const count =
+      1 +
+      ['skipRuleText', 'skipRuleTitle'].filter(
+        (id) => document.getElementById(id).checked
+      ).length +
+      (!pagesTile.classList.contains('hidden') &&
+      document.getElementById('skipRulePages').checked
+        ? 1
+        : 0);
+    document.getElementById('skipDialogConfirm').textContent =
+      count === 1 ? 'Skip document' : `Skip with ${count} rules`;
+  }
+
+  async submitSkip(dialog) {
+    const confirm = document.getElementById('skipDialogConfirm');
+    const pagesTile = document.getElementById('skipRulePagesTile');
+    const titleChecked = document.getElementById('skipRuleTitle').checked;
+    const pagesChecked =
+      !pagesTile.classList.contains('hidden') &&
+      document.getElementById('skipRulePages').checked;
+    const payload = {
+      documentId: this.skipDocumentId,
+      sameText: document.getElementById('skipRuleText').checked,
+      titlePattern: titleChecked
+        ? document.getElementById('skipTitlePattern').value.trim()
+        : null,
+      pageLimit: pagesChecked
+        ? Number(document.getElementById('skipPageLimit').value)
+        : null,
+    };
+
+    confirm.disabled = true;
+    try {
+      const response = await fetch('/api/ignored/skip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentId,
-          // The list shows the title next to the id; without it the entry would
-          // be a bare number nobody can place later.
-          title: title || '',
-          reason: 'manual',
-        }),
+        body: JSON.stringify(payload),
       });
-      const data = await response.json();
-
-      if (data.success) {
-        message =
-          data.message || `Document ${documentId} added to the ignore list.`;
-      } else {
-        message =
-          data.message || data.error || 'Could not ignore the document.';
-        tone = 'error';
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || `Request failed (${response.status})`);
       }
-    } catch (error) {
-      message = `Could not ignore the document: ${error.message}`;
-      tone = 'error';
-    }
-
-    this.showToast(message, tone);
-    if (tone === 'success') {
+      dialog.close();
+      this.showToast(data.message, 'success');
       this.table?.reload();
+    } catch (error) {
+      this.showToast(`Could not skip the document: ${error.message}`, 'error');
+    } finally {
+      confirm.disabled = false;
     }
   }
 

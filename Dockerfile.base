@@ -3,6 +3,16 @@ FROM node:26-slim
 
 WORKDIR /app
 
+# Fail the build on a runtime that predates the October 2026 Node.js security
+# release instead of shipping a stale node:26-slim from the layer cache.
+# 26.12.1 fixes the Brotli decoder out-of-bounds write (CVE-2026-111497), the
+# TLS certificate hostname bypasses (CVE-2026-106069, CVE-2026-105483,
+# CVE-2026-106072) and the dns.resolve NUL truncation (CVE-2026-105482), all of
+# which are reachable through the outbound calls to Paperless-ngx and the AI
+# providers.
+ARG MIN_NODE_VERSION=26.12.1
+RUN MIN_NODE_VERSION="${MIN_NODE_VERSION}" node -e "const parse=(v)=>v.split('.').map(Number); const [a,b,c]=parse(process.versions.node); const [x,y,z]=parse(process.env.MIN_NODE_VERSION); if (a<x || (a===x && (b<y || (b===y && c<z)))) { console.error('Node '+process.versions.node+' predates the required security release '+process.env.MIN_NODE_VERSION); process.exit(1); }"
+
 # Install system dependencies including build tools for better-sqlite3 and
 # poppler-utils (pdftoppm/pdfinfo) for multi-page PDF OCR rendering
 RUN apt-get update && \

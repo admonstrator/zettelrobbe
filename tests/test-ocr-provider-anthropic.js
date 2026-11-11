@@ -466,7 +466,10 @@ async function main() {
       );
       await service.performOcr(PDF_BASE64, 'application/pdf', 77);
       assert.strictEqual(fake.requests.length, 1);
-      assert.strictEqual(fake.requests[0].headers['x-api-key'], 'sk-ant-ocr');
+      assert.strictEqual(
+        fake.requests[0].headers.authorization,
+        'Bearer sk-ant-ocr'
+      );
     });
 
     await run(
@@ -481,7 +484,10 @@ async function main() {
           'precondition: config.mistralOcr.apiKey falls back to MISTRAL_API_KEY'
         );
         await service.performOcr(PDF_BASE64, 'application/pdf', 77);
-        assert.strictEqual(fake.requests[0].headers['x-api-key'], 'sk-ant-ai');
+        assert.strictEqual(
+          fake.requests[0].headers.authorization,
+          'Bearer sk-ant-ai'
+        );
       }
     );
 
@@ -902,7 +908,7 @@ async function main() {
         );
         assert.strictEqual(fake.requests.length, 1);
         const [{ headers, body }] = fake.requests;
-        assert.strictEqual(headers['x-api-key'], 'sk-ant-explicit');
+        assert.strictEqual(headers.authorization, 'Bearer sk-ant-explicit');
         assert.strictEqual(body.model, 'claude-opus-5-5');
         assert.strictEqual(body.max_tokens, 64000);
         assert.deepStrictEqual(body.messages[0].content[0].source, {

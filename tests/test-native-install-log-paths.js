@@ -24,8 +24,10 @@ function assertMatches(content, regex, message) {
 function run() {
   console.log('\n=== Native Install Log Path Checks ===');
 
-  // Every provider writes the response log through the DocumentAnalyzer.
-  const filesUsingResponseLogPath = ['services/llm/documentAnalyzer.js'];
+  const filesUsingResponseLogPath = [
+    // OpenAI, Azure and custom share this one analysis path.
+    'services/openaiCompatibleService.js',
+  ];
 
   filesUsingResponseLogPath.forEach((relativePath) => {
     const fullPath = path.join(process.cwd(), relativePath);

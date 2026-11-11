@@ -6,18 +6,15 @@
  * tag is set on a document that was already analysed (the documented way to
  * re-run documents after fixing a bug).
  *
- * Two defects made that workflow impossible:
- * 1. processDocument() consulted processed_documents before anything else, so
- *    a re-tagged document was silently skipped forever.
- * 2. updateDocument() merged the AI tag list into the current tags, so the
- *    trigger tag stuck around after processing instead of being removed.
+ * processDocument() used to consult processed_documents before anything
+ * else, so a re-tagged document was silently skipped forever. Taking the
+ * trigger tag off after processing is REMOVE_TAGS_AFTER_PROCESSING's job
+ * (see test-remove-tags-after-processing.js).
  *
  * Covers:
  * 1. The scan loop re-processes a tagged document that is already recorded
  *    as processed (source-level guard, since the loop lives in server.js)
  * 2. Ignored and permanently-failed documents stay protected
- * 3. updateDocument() drops the trigger tag from the merged payload when
- *    asked to (functional, against a mocked Paperless API)
  */
 
 'use strict';
@@ -29,9 +26,9 @@ const path = require('path');
 let passed = 0;
 let failed = 0;
 
-async function test(name, fn) {
+function test(name, fn) {
   try {
-    await fn();
+    fn();
     console.log(`✅  ${name}`);
     passed++;
   } catch (error) {
@@ -71,70 +68,7 @@ test('The re-trigger respects ignored and permanently-failed documents', () => {
   );
 });
 
-(async () => {
-  // ── updateDocument drops the trigger tag on request ──────────────────────
-  process.env.PAPERLESS_API_URL = 'http://paperless.test';
-  process.env.PAPERLESS_API_TOKEN = 'test-token';
-
-  const calls = [];
-  const paperlessService = require('../services/paperlessService');
-
-  const originalClient = paperlessService.client;
-  paperlessService.client = {
-    defaults: { baseURL: 'http://paperless.test/api' },
-    get: async (url) => {
-      calls.push({ method: 'get', url });
-      if (url === '/documents/315/') {
-        return {
-          data: {
-            id: 315,
-            tags: [11, 42], // 42 is the trigger tag
-            correspondent: 7,
-          },
-        };
-      }
-      throw new Error(`unexpected GET ${url}`);
-    },
-    patch: async (url, body) => {
-      calls.push({ method: 'patch', url, body });
-      if (url === '/documents/315/') {
-        return { data: { ok: true } };
-      }
-      throw new Error(`unexpected PATCH ${url}`);
-    },
-    post: async (url) => {
-      throw new Error(`unexpected POST ${url}`);
-    },
-  };
-
-  try {
-    await test('updateDocument removes configured tag ids from the merged payload', async () => {
-      await paperlessService.updateDocument(315, {
-        title: 'New title',
-        tags: [5], // AI-chosen tags
-        removeTagIds: [42], // the predefined-mode trigger tag
-      });
-
-      const updateCall = calls.find((call) => call.method === 'patch');
-      assert.ok(updateCall, 'an update request was sent');
-      const sentTags = updateCall.body.tags;
-      assert.deepStrictEqual(
-        [...sentTags].sort((a, b) => a - b),
-        [5, 11],
-        'AI tags merge with existing tags, the trigger tag is gone'
-      );
-      assert.strictEqual(
-        sentTags.includes(42),
-        false,
-        'the trigger tag must not survive the write-back'
-      );
-    });
-  } finally {
-    paperlessService.client = originalClient;
-  }
-
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) {
-    process.exitCode = 1;
-  }
-})();
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed > 0) {
+  process.exitCode = 1;
+}

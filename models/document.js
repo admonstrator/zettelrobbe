@@ -569,6 +569,29 @@ const MIGRATIONS = [
       );
     },
   },
+  {
+    version: 16,
+    description:
+      'Skip rules: text fingerprint on ignored documents, and documents released by hand',
+    up: (database) => {
+      // A fingerprint of the text Paperless-ngx recognised, so a later copy
+      // of an ignored document is recognised without OCR or AI.
+      database.exec(
+        'ALTER TABLE ignored_documents ADD COLUMN content_hash TEXT DEFAULT NULL'
+      );
+      database.exec(
+        'CREATE INDEX IF NOT EXISTS idx_ignored_documents_content_hash ON ignored_documents (content_hash)'
+      );
+      // A document taken off the ignored list by hand is processed even when
+      // a skip rule would match it again.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS skip_rule_exemptions (
+          document_id INTEGER PRIMARY KEY,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    },
+  },
 ];
 
 /** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
@@ -2222,19 +2245,28 @@ module.exports = {
     }
   },
 
-  async addIgnoredDocument(documentId, title, reason = 'manual') {
+  async addIgnoredDocument(
+    documentId,
+    title,
+    reason = 'manual',
+    contentHash = null
+  ) {
     try {
       const result = db
         .prepare(
           `
-        INSERT INTO ignored_documents (document_id, title, reason)
-        VALUES (?, ?, ?)
+        INSERT INTO ignored_documents (document_id, title, reason, content_hash)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(document_id) DO UPDATE SET
           title = excluded.title,
-          reason = excluded.reason
+          reason = excluded.reason,
+          content_hash = COALESCE(excluded.content_hash, ignored_documents.content_hash)
       `
         )
-        .run(documentId, title, reason);
+        .run(documentId, title, reason, contentHash);
+      db.prepare('DELETE FROM skip_rule_exemptions WHERE document_id = ?').run(
+        documentId
+      );
       return result.changes > 0;
     } catch (error) {
       console.error('[ERROR] adding ignored document:', error);
@@ -2247,6 +2279,11 @@ module.exports = {
       const result = db
         .prepare('DELETE FROM ignored_documents WHERE document_id = ?')
         .run(documentId);
+      if (result.changes > 0) {
+        db.prepare(
+          'INSERT OR IGNORE INTO skip_rule_exemptions (document_id) VALUES (?)'
+        ).run(documentId);
+      }
       return result.changes > 0;
     } catch (error) {
       console.error('[ERROR] removing ignored document:', error);
@@ -2310,11 +2347,78 @@ module.exports = {
 
   async clearAllIgnoredDocuments() {
     try {
-      const result = db.prepare('DELETE FROM ignored_documents').run();
-      return result.changes;
+      const clear = db.transaction(() => {
+        db.prepare(
+          'INSERT OR IGNORE INTO skip_rule_exemptions (document_id) SELECT document_id FROM ignored_documents'
+        ).run();
+        return db.prepare('DELETE FROM ignored_documents').run().changes;
+      });
+      return clear();
     } catch (error) {
       console.error('[ERROR] clearing all ignored documents:', error);
       return 0;
+    }
+  },
+
+  /**
+   * How many documents in the history, other than the one given, carry this
+   * text in their title. Shown next to a title rule before it is saved.
+   */
+  async countHistoryTitlesContaining(text, excludeDocumentId = null) {
+    try {
+      const escaped = String(text).replace(/[\\%_]/g, (c) => `\\${c}`);
+      const row = db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM history_documents WHERE title LIKE ? ESCAPE '\\' AND document_id IS NOT ?"
+        )
+        .get(`%${escaped}%`, excludeDocumentId);
+      return row?.count || 0;
+    } catch (error) {
+      console.error('[ERROR] counting history titles:', error);
+      return 0;
+    }
+  },
+
+  /** Stores the text fingerprint of an ignored document, if it has none yet. */
+  async setIgnoredContentHash(documentId, contentHash) {
+    try {
+      const result = db
+        .prepare(
+          'UPDATE ignored_documents SET content_hash = ? WHERE document_id = ? AND content_hash IS NULL'
+        )
+        .run(contentHash, documentId);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] storing ignored document fingerprint:', error);
+      return false;
+    }
+  },
+
+  /** The ignored document whose text has this fingerprint, if any. */
+  async findIgnoredByContentHash(contentHash) {
+    try {
+      return (
+        db
+          .prepare(
+            'SELECT document_id, title FROM ignored_documents WHERE content_hash = ? ORDER BY created_at ASC LIMIT 1'
+          )
+          .get(contentHash) || null
+      );
+    } catch (error) {
+      console.error('[ERROR] looking up ignored document fingerprint:', error);
+      return null;
+    }
+  },
+
+  async isSkipRuleExempt(documentId) {
+    try {
+      const row = db
+        .prepare('SELECT 1 FROM skip_rule_exemptions WHERE document_id = ?')
+        .get(documentId);
+      return !!row;
+    } catch (error) {
+      console.error('[ERROR] checking skip rule exemption:', error);
+      return false;
     }
   },
 

@@ -365,6 +365,16 @@
  *           type: string
  *           description: Result of the local database check
  *           example: ok
+ *         bootId:
+ *           type: string
+ *           description: |
+ *             Random id drawn when the process started. It changes with every
+ *             restart, so a client waiting for one polls until it differs.
+ *           example: 3f2c9a1e-7b4d-4e8a-9c61-2d5f0b8e4a17
+ *         startedAt:
+ *           type: string
+ *           format: date-time
+ *           description: When the process started
  *         message:
  *           type: string
  *           description: Additional status information (for non-healthy states). Authenticated callers only.
@@ -910,6 +920,15 @@
  *           type: boolean
  *           nullable: true
  *           description: true when the verdict came from the judge's memory of an earlier review instead of a request
+ *         unanswered:
+ *           type: boolean
+ *           nullable: true
+ *           description: true when nobody judged the pair - the request failed or left it out; the page lets the spelling rule stand
+ *         failureKind:
+ *           type: string
+ *           nullable: true
+ *           enum: [unreadable, budget, unreachable, thinking, rejected, paperless, stopped, unknown]
+ *           description: present only on an unsure verdict whose request failed; its reason then says so in plain words
  *
  *     DuplicateAiReviewRequest:
  *       type: object
@@ -977,6 +996,11 @@
  *                 failedRequests:
  *                   type: integer
  *                   description: model requests that answered nothing usable; their pairs are marked unsure
+ *                 failures:
+ *                   type: array
+ *                   description: one entry per failed request, with its kind (a single pair that did not fit the token limit is one too)
+ *                   items:
+ *                     $ref: '#/components/schemas/ModelFailure'
  *                 retries:
  *                   type: integer
  *                   description: extra requests made because an answer was cut off at the token limit and the batch was re-asked in smaller pieces
@@ -1162,6 +1186,59 @@
  *         hasResult:
  *           type: boolean
  *           description: true when the job carries a DuplicateAiReviewResult (done, or stopped with partial verdicts)
+ *         failure:
+ *           nullable: true
+ *           description: why the job did not end as done; set for a failed job, a stop at the token budget (kind budget) and a stop because the page was closed (kind stopped), null otherwise
+ *           allOf:
+ *             - $ref: '#/components/schemas/ModelFailure'
+ *         partialFailures:
+ *           type: array
+ *           description: the requests that failed while the job went on, one entry per kind with the affected counts summed
+ *           items:
+ *             $ref: '#/components/schemas/ModelFailure'
+ *
+ *     ModelFailure:
+ *       type: object
+ *       description: A model failure sorted into a kind a person can be told about (services/modelFailure.js)
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [unreadable, budget, unreachable, thinking, rejected, paperless, stopped, unknown]
+ *         message:
+ *           type: string
+ *           description: the raw message, for the Details disclosure only
+ *         model:
+ *           type: string
+ *           nullable: true
+ *         endpoint:
+ *           type: string
+ *           nullable: true
+ *         status:
+ *           type: integer
+ *           nullable: true
+ *           description: the HTTP status the provider answered with, when there was one
+ *         pairsAffected:
+ *           type: integer
+ *           description: pairs left "needs a look" by it (judge requests)
+ *         tagsAffected:
+ *           type: integer
+ *           description: tags left as they are by it (split and order requests)
+ *         namesAffected:
+ *           type: integer
+ *           description: names a vocabulary or sweep request did not read
+ *         request:
+ *           type: object
+ *           description: where the failed request sat in its run; on a single request only
+ *           properties:
+ *             index:
+ *               type: integer
+ *               nullable: true
+ *             total:
+ *               type: integer
+ *               nullable: true
+ *         requests:
+ *           type: integer
+ *           description: on a collapsed entry (partialFailures), how many failed requests it stands for
  *
  *     AiReviewJobEvent:
  *       type: object
@@ -1719,6 +1796,358 @@
  *         finishedAt:
  *           type: string
  *           format: date-time
+ */
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     TidyUpRunRequest:
+ *       type: object
+ *       properties:
+ *         askModel:
+ *           type: boolean
+ *           default: true
+ *           description: ask the configured model about the pairs spelling cannot settle; ignored when no provider is configured
+ *         suggestSplits:
+ *           type: boolean
+ *           default: false
+ *           description: also ask the model which compound tags to split into a document type and topics (the Simplify order)
+ *         kind:
+ *           type: string
+ *           enum: [tags, correspondents, all]
+ *           default: all
+ *         action:
+ *           type: string
+ *           nullable: true
+ *           enum: [retry, continue, retry-affected, retry-larger, test-connection]
+ *           description: |
+ *             the key of the failure-notice action that started this run;
+ *             `continue` and `retry-affected` ask the model only about the
+ *             groups the previous run left as "needs a look" and carry the
+ *             rest over; `retry-larger` and `test-connection` answer 501
+ *         answerTokens:
+ *           type: integer
+ *           nullable: true
+ *           description: a larger answer cap for retry-larger (not wired up yet)
+ *     TidyUpStep:
+ *       type: object
+ *       description: one line of the run's progress list; keys and labels come from tidyUpWording.RUN_STEPS
+ *       properties:
+ *         key:
+ *           type: string
+ *           enum: [compare, evidence, judge, split, sort]
+ *         label:
+ *           type: string
+ *         state:
+ *           type: string
+ *           enum: [done, now, next, skipped]
+ *         detail:
+ *           type: string
+ *           description: the numbers next to the step, e.g. 550 names · 9 sure matches · 23 pairs spelling cannot settle
+ *     TidyUpFailure:
+ *       type: object
+ *       description: present when the run failed or a part of it did; everything the notice needs
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [unreadable, budget, unreachable, thinking, rejected, paperless, stopped, unknown]
+ *         title:
+ *           type: string
+ *         body:
+ *           type: string
+ *         actions:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               key:
+ *                 type: string
+ *                 description: retry | retry-affected | retry-larger | continue | decide-myself | test-connection
+ *               label:
+ *                 type: string
+ *         settingsHint:
+ *           type: string
+ *           nullable: true
+ *           description: the label of a link to /settings#tidy-up, null for none
+ *         technical:
+ *           type: string
+ *           description: the raw message and request context, for the Details disclosure
+ *         pairsAffected:
+ *           type: integer
+ *           description: pairs that ended as "needs a look" because of this failure
+ *     TidyUpRun:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *         status:
+ *           type: string
+ *           enum: [running, stopping, done, stopped, failed]
+ *         headline:
+ *           type: string
+ *           description: tidyUpWording.runHeadline(status)
+ *         options:
+ *           $ref: '#/components/schemas/TidyUpRunRequest'
+ *         steps:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TidyUpStep'
+ *         progress:
+ *           type: object
+ *           properties:
+ *             percent:
+ *               type: integer
+ *             etaText:
+ *               type: string
+ *               nullable: true
+ *               description: e.g. About a minute left
+ *             costText:
+ *               type: string
+ *               nullable: true
+ *               description: e.g. 38,400 tokens of your 200,000 budget
+ *             tokens:
+ *               type: integer
+ *             tokenBudget:
+ *               type: integer
+ *               nullable: true
+ *         model:
+ *           type: string
+ *           nullable: true
+ *           description: the model label shown in sentences, e.g. "Claude Haiku"
+ *         failure:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TidyUpFailure'
+ *           nullable: true
+ *         partialFailures:
+ *           type: array
+ *           description: failures of single requests the run survived (their pairs are "needs a look")
+ *           items:
+ *             $ref: '#/components/schemas/TidyUpFailure'
+ *         summary:
+ *           $ref: '#/components/schemas/TidyUpSummary'
+ *         startedAt:
+ *           type: string
+ *           format: date-time
+ *         finishedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *         activity:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TidyUpActivity'
+ *           nullable: true
+ *           description: what a decide or undo call is writing right now; null when idle
+ *     TidyUpActivity:
+ *       type: object
+ *       description: |
+ *         A decide or undo call while it writes to Paperless-ngx, one
+ *         suggestion (or undo entry) after the other. GET /api/tidy-up/suggestions
+ *         and the run's event stream carry it; a 409 of decide or undo names it.
+ *       properties:
+ *         kind:
+ *           type: string
+ *           enum: [accept, decline, undo]
+ *         batchId:
+ *           type: string
+ *           nullable: true
+ *           description: the batch an accept creates, or the batch an undo takes back; null for a decline
+ *         total:
+ *           type: integer
+ *           description: suggestions to carry out or decline, or undo entries to take back
+ *         done:
+ *           type: integer
+ *           description: how many of them are finished
+ *         current:
+ *           type: object
+ *           nullable: true
+ *           description: the suggestion in flight; several when unused names are deleted in one call
+ *           properties:
+ *             id: { type: string }
+ *             ids:
+ *               type: array
+ *               items: { type: string }
+ *             kind:
+ *               type: string
+ *               enum: [merge, split, delete]
+ *             headline: { type: string }
+ *         startedAt:
+ *           type: string
+ *           format: date-time
+ *         sentence:
+ *           type: string
+ *           description: tidyUpWording.activitySentence, e.g. Merging Invoices into invoice… 2 of 9
+ *     TidyUpEntity:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         documentCount:
+ *           type: integer
+ *     TidyUpEvidenceSide:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         name:
+ *           type: string
+ *         documentCount:
+ *           type: integer
+ *         titles:
+ *           type: array
+ *           items:
+ *             type: string
+ *           description: up to three document titles
+ *         neighbours:
+ *           type: array
+ *           items:
+ *             type: string
+ *           description: the names usually filed with this one
+ *     TidyUpSuggestion:
+ *       type: object
+ *       description: one sentence a person accepts or declines; built by services/tidyUpSuggestions.js
+ *       properties:
+ *         id:
+ *           type: string
+ *         kind:
+ *           type: string
+ *           enum: [merge, split, delete]
+ *         entityKind:
+ *           type: string
+ *           enum: [tags, correspondents]
+ *         certainty:
+ *           type: string
+ *           enum: [sure, likely, unsure]
+ *         headline:
+ *           type: string
+ *           description: e.g. Merge Invoices into invoice, or for an unsure pair the question Are Kontoauszug and Kontoumzug the same thing?
+ *         reason:
+ *           type: string
+ *           description: why, in plain words, and what moves
+ *         from:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/TidyUpEntity'
+ *         to:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TidyUpEntity'
+ *           nullable: true
+ *         typeName:
+ *           type: string
+ *           nullable: true
+ *         topicNames:
+ *           type: array
+ *           items:
+ *             type: string
+ *         evidence:
+ *           type: object
+ *           nullable: true
+ *           properties:
+ *             sides:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/TidyUpEvidenceSide'
+ *         details:
+ *           type: object
+ *           description: what the Details disclosure shows; never in the sentence
+ *           properties:
+ *             rules:
+ *               type: array
+ *               items:
+ *                 type: string
+ *             confidence:
+ *               type: number
+ *               nullable: true
+ *             verdict:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/AiVerdict'
+ *               nullable: true
+ *             source:
+ *               type: string
+ *               enum: [scan, ai-candidate, order, unused]
+ *             warnings:
+ *               type: array
+ *               items:
+ *                 type: string
+ *         status:
+ *           type: string
+ *           enum: [open, done, declined, later, failed]
+ *         outcome:
+ *           type: string
+ *           nullable: true
+ *           description: after done or failed, one line, e.g. 12 documents moved
+ *         undoId:
+ *           type: string
+ *           nullable: true
+ *           description: the merge-log id that undoes it
+ *     TidyUpSummary:
+ *       type: object
+ *       properties:
+ *         total: { type: integer }
+ *         open: { type: integer }
+ *         sure: { type: integer }
+ *         likely: { type: integer }
+ *         unsure: { type: integer }
+ *         merge: { type: integer }
+ *         split: { type: integer }
+ *         delete: { type: integer }
+ *         done: { type: integer }
+ *         declined: { type: integer }
+ *         later: { type: integer }
+ *         failed: { type: integer }
+ *     TidyUpDecisionRequest:
+ *       type: object
+ *       required: [ids, decision]
+ *       properties:
+ *         ids:
+ *           type: array
+ *           items:
+ *             type: string
+ *         decision:
+ *           type: string
+ *           enum: [accept, decline, later]
+ *         edits:
+ *           type: object
+ *           description: per suggestion id, changes to apply before accepting
+ *           additionalProperties:
+ *             type: object
+ *             properties:
+ *               keepId:
+ *                 type: integer
+ *                 description: merge - the member that should survive instead of the proposed target
+ *               targetName:
+ *                 type: string
+ *                 description: merge - a new name for the survivor
+ *               typeName:
+ *                 type: string
+ *                 nullable: true
+ *               topicNames:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               memberIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                 description: delete - only these of the grouped unused names
+ *     TidyUpRecentChange:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *         when:
+ *           type: string
+ *           format: date-time
+ *         sentence:
+ *           type: string
+ *           description: e.g. Merged Invoices into invoice · 12 documents moved
+ *         status:
+ *           type: string
+ *           enum: [done, partial, failed, undone]
+ *         canUndo:
+ *           type: boolean
  */
 
 // This file only contains JSDoc comments for Swagger schema definitions

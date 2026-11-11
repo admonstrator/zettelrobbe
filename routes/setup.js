@@ -7,6 +7,11 @@ const paperlessService = require('../services/paperlessService.js');
 const documentModel = require('../models/document.js');
 const AIServiceFactory = require('../services/aiServiceFactory');
 const configFile = require('../config/config.js');
+const aiProviderRules = require('../services/aiProviderRules');
+const {
+  RESTART_REQUIRED_KEYS,
+  restartRequiredAmong,
+} = require('../config/restartRequiredKeys');
 const changelog = require('../config/changelog.js');
 const dashboardWidgets = require('../config/dashboardWidgets.js');
 const documentsService = require('../services/documentsService.js');
@@ -29,6 +34,7 @@ const {
   SESSION_TOKEN_TYPE,
 } = require('./auth.js');
 const mistralOcrService = require('../services/mistralOcrService');
+const skipRuleService = require('../services/skipRuleService');
 const quickstartService = require('../services/quickstartService');
 const reconciliationService = require('../services/reconciliationService');
 const scanHealthService = require('../services/scanHealthService');
@@ -3145,7 +3151,8 @@ async function processDocument(
   existingTags,
   existingCorrespondentList,
   existingDocumentTypesList,
-  customPrompt = null
+  customPrompt = null,
+  { applySkipRules = false } = {}
 ) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
   if (isProcessed) {
@@ -3184,6 +3191,22 @@ async function processDocument(
     paperlessService.getDocumentContent(doc.id),
     paperlessService.getDocument(doc.id),
   ]);
+
+  // A webhook delivers what Paperless-ngx just consumed, so the ignored list
+  // and the skip rules hold here as in the scan. A rescan asked for by hand
+  // passes both.
+  if (applySkipRules) {
+    if (await documentModel.isDocumentIgnored(doc.id)) {
+      await documentModel.clearProcessingStatusByDocumentId(doc.id);
+      console.log(
+        `[DEBUG] Document ${doc.id} is on the ignored list, skipping`
+      );
+      return null;
+    }
+    if (await skipRuleService.apply(originalData || doc, content)) {
+      return null;
+    }
+  }
 
   const minContentLength = config.minContentLength;
   if (!content || content.length < minContentLength) {
@@ -3622,9 +3645,14 @@ const ENV_EXPORT_GROUPS = [
       'PROCESS_PREDEFINED_DOCUMENTS',
       'TAGS',
       'IGNORE_TAGS',
+      'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
+      'REMOVE_TAGS_AFTER_PROCESSING',
       'ADD_AI_PROCESSED_TAG',
       'AI_PROCESSED_TAG_NAME',
       'MIN_CONTENT_LENGTH',
+      'MAX_PAGE_COUNT',
+      'IGNORE_TITLE_PATTERNS',
+      'IGNORE_REPEATED_CONTENT',
       'USE_EXISTING_DATA',
     ],
   },
@@ -3819,6 +3847,7 @@ function toEnvPreviewLines(config) {
     'IGNORE_TAGS',
     'ADD_AI_PROCESSED_TAG',
     'AI_PROCESSED_TAG_NAME',
+    'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
     'DISABLE_AUTOMATIC_PROCESSING',
     'SCAN_INTERVAL',
     'AI_PROVIDER',
@@ -4810,6 +4839,8 @@ router.get('/setup', async (req, res) => {
       ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
       AI_PROCESSED_TAG_NAME:
         process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
+      REMOVE_INBOX_TAGS_AFTER_PROCESSING:
+        process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
       USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
       PROMPT_TAGS: normalizeArray(process.env.PROMPT_TAGS),
       PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
@@ -6017,6 +6048,31 @@ router.post(
  *       accept a connection whose validation failed.
  *     tags:
  *       - Setup
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: true
+ *             description: >
+ *               The wizard's answers (administrator, Paperless-ngx connection,
+ *               document scope, AI and OCR settings). Only the fields below are
+ *               described individually.
+ *             properties:
+ *               processedTag:
+ *                 type: string
+ *                 description: >
+ *                   Tag added after a document was analysed; empty turns the
+ *                   tag off. It is also added to the excluded tags.
+ *               removeInboxTagsAfterProcessing:
+ *                 type: boolean
+ *                 default: false
+ *                 description: >
+ *                   Take every Paperless-ngx inbox tag off a document once its
+ *                   analysis was written. Saved as
+ *                   REMOVE_INBOX_TAGS_AFTER_PROCESSING; an absent value saves
+ *                   "no".
  *     responses:
  *       200:
  *         description: Setup completed successfully
@@ -6067,6 +6123,11 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const processedTag = String(req.body?.processedTag || '').trim();
     const effectiveExcludeTags = Array.from(
       new Set([...excludeTags, ...(processedTag ? [processedTag] : [])])
+    );
+    // Absent in requests from older clients: those keep the inbox tags.
+    const removeInboxTagsAfterProcessing = parseBooleanInput(
+      req.body?.removeInboxTagsAfterProcessing,
+      false
     );
     const automaticScanEnabled = parseBooleanInput(
       req.body?.automaticScanEnabled,
@@ -6280,6 +6341,9 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       IGNORE_TAGS: effectiveExcludeTags,
       ADD_AI_PROCESSED_TAG: processedTag ? 'yes' : 'no',
       AI_PROCESSED_TAG_NAME: processedTag || 'ai-processed',
+      REMOVE_INBOX_TAGS_AFTER_PROCESSING: removeInboxTagsAfterProcessing
+        ? 'yes'
+        : 'no',
       DISABLE_AUTOMATIC_PROCESSING: automaticScanEnabled ? 'no' : 'yes',
       TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
       RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
@@ -6835,7 +6899,7 @@ async function processQueue(customPrompt) {
     const existingDocumentTypesList = toNameList(existingDocumentTypes);
 
     while (documentQueue.length > 0) {
-      const doc = documentQueue.shift();
+      const { document: doc, applySkipRules } = documentQueue.shift();
 
       try {
         const result = await processDocument(
@@ -6843,7 +6907,8 @@ async function processQueue(customPrompt) {
           existingTagNames,
           existingCorrespondentNames,
           existingDocumentTypesList,
-          customPrompt
+          customPrompt,
+          { applySkipRules }
         );
         if (!result) continue;
 
@@ -6933,7 +6998,7 @@ async function rescanDocumentsByIds(ids) {
   await removeThumbnailCacheForDocumentIds(resolvedIds);
 
   for (const entry of resolvedDocuments) {
-    documentQueue.push(entry.document);
+    documentQueue.push({ document: entry.document, applySkipRules: false });
   }
   const queued = resolvedDocuments.length;
 
@@ -7050,7 +7115,7 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
         return res.status(404).send(`Document with ID ${documentId} not found`);
       }
 
-      documentQueue.push(document);
+      documentQueue.push({ document, applySkipRules: true });
       if (prompt) {
         console.log('[DEBUG] Using custom prompt:', prompt);
         await processQueue(prompt);
@@ -7281,48 +7346,6 @@ router.get('/settings', async (req, res) => {
 
   let showErrorCheckSettings = false;
   const isConfigured = await setupService.isConfigured();
-  const runtimeOverrides = await setupService.loadRuntimeOverrides();
-  const injectedEnvSnapshot =
-    global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ || {};
-  const secretKeys = new Set(SETTINGS_SECRET_FIELDS);
-
-  const formatValueForTooltip = (key, value) => {
-    const normalizedValue = value == null ? '' : String(value);
-    if (secretKeys.has(key)) {
-      return normalizedValue ? '[hidden]' : '[empty]';
-    }
-    return normalizedValue === '' ? '[empty]' : normalizedValue;
-  };
-
-  const runtimeOverrideDetails = {};
-  const runtimeOverrideKeys = new Set(
-    Object.keys(runtimeOverrides || {}).filter((key) => {
-      const hasInjectedValue = Object.prototype.hasOwnProperty.call(
-        injectedEnvSnapshot,
-        key
-      );
-      if (!hasInjectedValue) {
-        return false;
-      }
-
-      const injectedValue =
-        injectedEnvSnapshot[key] == null
-          ? ''
-          : String(injectedEnvSnapshot[key]);
-      const overrideValue =
-        runtimeOverrides[key] == null ? '' : String(runtimeOverrides[key]);
-      const isOverwritten = injectedValue !== overrideValue;
-
-      if (isOverwritten) {
-        runtimeOverrideDetails[key] = {
-          injected: formatValueForTooltip(key, injectedValue),
-          override: formatValueForTooltip(key, overrideValue),
-        };
-      }
-
-      return isOverwritten;
-    })
-  );
   // An incomplete configuration now always lands here rather than reopening the
   // setup wizard, so say why - not only in the PAPERLESS_AI_INITIAL_SETUP case.
   if (!isConfigured) {
@@ -7341,6 +7364,7 @@ router.get('/settings', async (req, res) => {
     OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
     OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
     OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
+    OLLAMA_THINK: process.env.OLLAMA_THINK || 'false',
     SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
     RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
     RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
@@ -7354,6 +7378,11 @@ router.get('/settings', async (req, res) => {
     AI_TEMPERATURE_GENERATION: process.env.AI_TEMPERATURE_GENERATION || '0.7',
     TAGS: normalizeArray(process.env.TAGS),
     IGNORE_TAGS: normalizeArray(process.env.IGNORE_TAGS),
+    REMOVE_INBOX_TAGS_AFTER_PROCESSING:
+      process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
+    REMOVE_TAGS_AFTER_PROCESSING: normalizeArray(
+      process.env.REMOVE_TAGS_AFTER_PROCESSING
+    ),
     ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
     AI_PROCESSED_TAG_NAME: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
     USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
@@ -7459,6 +7488,9 @@ router.get('/settings', async (req, res) => {
         : process.env.TRUST_PROXY,
     COOKIE_SECURE_MODE: process.env.COOKIE_SECURE_MODE || 'auto',
     MIN_CONTENT_LENGTH: process.env.MIN_CONTENT_LENGTH || '10',
+    MAX_PAGE_COUNT: process.env.MAX_PAGE_COUNT || '0',
+    IGNORE_TITLE_PATTERNS: normalizeArray(process.env.IGNORE_TITLE_PATTERNS),
+    IGNORE_REPEATED_CONTENT: process.env.IGNORE_REPEATED_CONTENT || 'yes',
     PAPERLESS_AI_PORT: process.env.PAPERLESS_AI_PORT || '3000',
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     DATE_FORMAT: process.env.DATE_FORMAT || 'DD.MM.YYYY',
@@ -7493,7 +7525,13 @@ router.get('/settings', async (req, res) => {
 
       savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
       savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
+      savedConfig.REMOVE_TAGS_AFTER_PROCESSING = normalizeArray(
+        savedConfig.REMOVE_TAGS_AFTER_PROCESSING
+      );
       savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
+      savedConfig.IGNORE_TITLE_PATTERNS = normalizeArray(
+        savedConfig.IGNORE_TITLE_PATTERNS
+      );
 
       config = { ...config, ...savedConfig };
     }
@@ -7504,17 +7542,15 @@ router.get('/settings', async (req, res) => {
   console.log('Current config IGNORE_TAGS:', config.IGNORE_TAGS);
   console.log('Current config PROMPT_TAGS:', config.PROMPT_TAGS);
 
-  const lockedEnvKeys = Object.keys(config).filter((key) =>
-    configFile.isProtectedRuntimeEnvKey(key)
-  );
-  const lockedEnvDetails = Object.fromEntries(
-    lockedEnvKeys.map((key) => [
-      key,
-      {
-        managed: formatValueForTooltip(key, injectedEnvSnapshot[key]),
-      },
-    ])
-  );
+  // The keys the container pins. Their fields render locked; the value
+  // shown is the one in effect. The AI options are listed too, since not
+  // every one of them has a slot in the config object above.
+  const lockedEnvKeys = [
+    ...new Set([
+      ...Object.keys(config),
+      ...aiProviderRules.AI_OPTIONS.map((option) => option.key),
+    ]),
+  ].filter((key) => configFile.isProtectedRuntimeEnvKey(key));
 
   const configuredSecrets = {};
   SETTINGS_SECRET_FIELDS.forEach((key) => {
@@ -7553,12 +7589,19 @@ router.get('/settings', async (req, res) => {
     version,
     config,
     configuredSecrets,
-    runtimeOverrideKeys: Array.from(runtimeOverrideKeys),
-    runtimeOverrideDetails,
     lockedEnvKeys,
-    lockedEnvDetails,
+    // The process's boot id; the page compares /health against it to tell
+    // the restarted server from the one it saved to.
+    bootId: BOOT_IDENTITY.bootId,
     aiProviderPresets,
     anthropicOptions: getAnthropicFormOptions(),
+    // The AI option catalogue (labels, plain-language help, basic/advanced
+    // level, which providers show each) and the keys whose change ends in a
+    // restart. Both come from their single source so the view holds no list
+    // of its own.
+    aiOptions: aiProviderRules.AI_OPTIONS,
+    aiProviders: aiProviderRules.PROVIDERS,
+    restartRequiredKeys: Array.from(RESTART_REQUIRED_KEYS),
     mfaSettings,
     // Single sign-on: the callback URL as this request sees it (what to
     // register at the provider when OIDC_REDIRECT_URI is empty), and what the
@@ -8256,25 +8299,28 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
         .json({ error: 'Valid content string is required' });
     }
 
-    // The factory picks the provider the scan loop uses. Every provider
-    // answers with the same AnalysisResult; metrics need a document to be
-    // recorded against, and a failed analysis carries none.
-    const analysis = await AIServiceFactory.getService().analyzeDocument(
+    if (!aiProviderRules.PROVIDER_IDS.includes(process.env.AI_PROVIDER)) {
+      return res.status(500).json({ error: 'AI provider not configured' });
+    }
+
+    // Through the factory, which owns the provider service like every scan
+    // does. Every provider's tokens are recorded the same way.
+    const analyzeDocument = await AIServiceFactory.getService().analyzeDocument(
       content,
       existingTagsList,
       existingCorrespondentList,
       existingDocumentTypesList,
       id
     );
-    if (analysis.metrics && id) {
+    if (analyzeDocument.metrics && id) {
       await documentModel.addOpenAIMetrics(
         id,
-        analysis.metrics.promptTokens,
-        analysis.metrics.completionTokens,
-        analysis.metrics.totalTokens
+        analyzeDocument.metrics.promptTokens,
+        analyzeDocument.metrics.completionTokens,
+        analyzeDocument.metrics.totalTokens
       );
     }
-    return res.json(analysis);
+    return res.json(analyzeDocument);
   } catch (error) {
     console.error('Analysis error:', error);
     return res.status(500).json({ error: error.message });
@@ -8468,6 +8514,15 @@ function buildScannerHealthSnapshot() {
   };
 }
 
+/* Drawn once per process. The settings page embeds it and, after a save that
+   restarts the server, waits for /health to report a different one: the old
+   process keeps answering healthy for the seconds before it exits, which is
+   how a reload used to land on a server that was already gone. */
+const BOOT_IDENTITY = Object.freeze({
+  bootId: crypto.randomUUID(),
+  startedAt: new Date().toISOString(),
+});
+
 /**
  * @swagger
  * /health:
@@ -8489,11 +8544,15 @@ function buildScannerHealthSnapshot() {
  *       `DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and
  *       never reported as degraded.
  *
- *       Without authentication the response carries only `status` and
- *       `database`, with the same HTTP status codes. `message`, `scanner` and
- *       `paperless` hold raw error messages with internal host names and
- *       ports, so they are returned only with a session (cookie or bearer
- *       token) or the `x-api-key` header.
+ *       Without authentication the response carries only `status`,
+ *       `database`, `bootId` and `startedAt`, with the same HTTP status codes.
+ *       `message`, `scanner` and `paperless` hold raw error messages with
+ *       internal host names and ports, so they are returned only with a
+ *       session (cookie or bearer token) or the `x-api-key` header.
+ *
+ *       `bootId` is a random id the process draws when it starts. A client
+ *       that waits for a restart polls until it sees an id other than the one
+ *       it had before; the old process answers healthy until it exits.
  *     tags:
  *       - System
  *     responses:
@@ -8535,6 +8594,7 @@ router.get('/health', async (req, res) => {
       return res.status(503).json({
         status: 'database_error',
         message: 'Database check failed',
+        ...BOOT_IDENTITY,
       });
     }
 
@@ -8547,7 +8607,7 @@ router.get('/health', async (req, res) => {
     // details carry raw error messages ("connect ECONNREFUSED 172.18.0.2:8000")
     // and the schedule, so only an authenticated caller gets them.
     if (!isAuthenticatedCaller(req)) {
-      const summary = { status, database: 'ok' };
+      const summary = { status, database: 'ok', ...BOOT_IDENTITY };
       if (degraded && scanHealthService.strictHealthEnabled) {
         return res.status(503).json(summary);
       }
@@ -8557,6 +8617,7 @@ router.get('/health', async (req, res) => {
     const payload = {
       status,
       database: 'ok',
+      ...BOOT_IDENTITY,
       ...snapshot,
     };
 
@@ -8728,6 +8789,15 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: Comma-separated list of tags to use for filtering
  *                 example: "Invoice,Receipt,Contract"
+ *               removeInboxTagsAfterProcessing:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Take every tag Paperless-ngx marks as inbox tag off a document once its analysis was written back (yes/no). Default no.
+ *                 example: "yes"
+ *               removeTags:
+ *                 type: string
+ *                 description: Comma-separated tag names taken off a document after a successful analysis, matched case-insensitively, whatever the analysis proposed. Default empty.
+ *                 example: "todo,scan"
  *               aiProcessedTag:
  *                 type: boolean
  *                 description: Whether to add a tag for AI-processed documents
@@ -8970,19 +9040,34 @@ router.get('/health', async (req, res) => {
  *                 example: "#ffffff"
  *     responses:
  *       200:
- *         description: Settings updated successfully
+ *         description: |
+ *           Settings saved. Most values apply at once. When a saved value is
+ *           one the process only reads at boot (the port, a cron schedule, the
+ *           Paperless-ngx connection, ...), `restart` is true, `restartKeys`
+ *           names those keys and the process exits five seconds later so the
+ *           container restarts it. Poll `GET /health` until its `bootId`
+ *           changes to know the new process is up.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 status:
- *                   type: string
- *                   enum: ["success"]
- *                   example: "success"
+ *                 success:
+ *                   type: boolean
+ *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Settings updated successfully"
+ *                   example: "Settings saved. The changes are in effect."
+ *                 restart:
+ *                   type: boolean
+ *                   description: Whether the server restarts to apply the save
+ *                   example: false
+ *                 restartKeys:
+ *                   type: array
+ *                   description: The changed keys that need the restart; empty when restart is false
+ *                   items:
+ *                     type: string
+ *                   example: []
  *       400:
  *         description: |
  *           Invalid configuration parameters, or a custom field added or changed in
@@ -9036,6 +9121,8 @@ router.post('/settings', express.json(), async (req, res) => {
       aiTemperatureGeneration,
       tags,
       ignoreTags,
+      removeInboxTagsAfterProcessing,
+      removeTags,
       aiProcessedTag,
       aiTagName,
       usePromptTags,
@@ -9100,6 +9187,9 @@ router.post('/settings', express.json(), async (req, res) => {
       trustProxy,
       cookieSecureMode,
       minContentLength,
+      maxPageCount,
+      ignoreTitlePatterns,
+      ignoreRepeatedContent,
       paperlessAiPort,
       externalApiAllowPrivateIps,
       logLevel,
@@ -9135,6 +9225,10 @@ router.post('/settings', express.json(), async (req, res) => {
       AI_TEMPERATURE_GENERATION: process.env.AI_TEMPERATURE_GENERATION || '0.7',
       TAGS: process.env.TAGS || '',
       IGNORE_TAGS: process.env.IGNORE_TAGS || '',
+      REMOVE_INBOX_TAGS_AFTER_PROCESSING:
+        process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
+      REMOVE_TAGS_AFTER_PROCESSING:
+        process.env.REMOVE_TAGS_AFTER_PROCESSING || '',
       ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
       AI_PROCESSED_TAG_NAME:
         process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
@@ -9239,6 +9333,9 @@ router.post('/settings', express.json(), async (req, res) => {
           : process.env.TRUST_PROXY,
       COOKIE_SECURE_MODE: process.env.COOKIE_SECURE_MODE || 'auto',
       MIN_CONTENT_LENGTH: process.env.MIN_CONTENT_LENGTH || '10',
+      MAX_PAGE_COUNT: process.env.MAX_PAGE_COUNT || '0',
+      IGNORE_TITLE_PATTERNS: process.env.IGNORE_TITLE_PATTERNS || '',
+      IGNORE_REPEATED_CONTENT: process.env.IGNORE_REPEATED_CONTENT || 'yes',
       PAPERLESS_AI_PORT: process.env.PAPERLESS_AI_PORT || '3000',
       LOG_LEVEL: process.env.LOG_LEVEL || 'info',
       DATE_FORMAT: process.env.DATE_FORMAT || 'DD.MM.YYYY',
@@ -9550,6 +9647,18 @@ router.post('/settings', express.json(), async (req, res) => {
         if (hasOllamaApiKeyInput)
           updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
+        // The switch arrives as the settings-switch partial's yes/no;
+        // config.ollama.think only counts the literal 'true'.
+        if (req.body.ollamaThink !== undefined) {
+          const ollamaThinkValue = String(req.body.ollamaThink ?? '')
+            .trim()
+            .toLowerCase();
+          updatedConfig.OLLAMA_THINK = ['yes', 'on', 'true', '1'].includes(
+            ollamaThinkValue
+          )
+            ? 'true'
+            : 'false';
+        }
       } else if (selectedAiProvider === 'custom') {
         const effectiveCustomBaseUrl =
           customBaseUrl || currentConfig.CUSTOM_BASE_URL;
@@ -9756,6 +9865,18 @@ router.post('/settings', express.json(), async (req, res) => {
     if (tags !== undefined) updatedConfig.TAGS = normalizeArray(tags);
     if (ignoreTags !== undefined)
       updatedConfig.IGNORE_TAGS = normalizeArray(ignoreTags);
+    if (removeInboxTagsAfterProcessing !== undefined) {
+      updatedConfig.REMOVE_INBOX_TAGS_AFTER_PROCESSING = [
+        'yes',
+        'true',
+        '1',
+        'on',
+      ].includes(String(removeInboxTagsAfterProcessing).trim().toLowerCase())
+        ? 'yes'
+        : 'no';
+    }
+    if (removeTags !== undefined)
+      updatedConfig.REMOVE_TAGS_AFTER_PROCESSING = normalizeArray(removeTags);
     if (aiProcessedTag) updatedConfig.ADD_AI_PROCESSED_TAG = aiProcessedTag;
     if (aiTagName) updatedConfig.AI_PROCESSED_TAG_NAME = aiTagName;
     if (usePromptTags) updatedConfig.USE_PROMPT_TAGS = usePromptTags;
@@ -10098,6 +10219,25 @@ router.post('/settings', express.json(), async (req, res) => {
       }
     }
     if (minContentLength) updatedConfig.MIN_CONTENT_LENGTH = minContentLength;
+    if (maxPageCount !== undefined) {
+      const pages = String(maxPageCount).trim();
+      if (pages === '') {
+        updatedConfig.MAX_PAGE_COUNT = '0';
+      } else if (/^\d+$/.test(pages)) {
+        updatedConfig.MAX_PAGE_COUNT = String(parseInt(pages, 10));
+      } else {
+        return res.status(400).json({
+          error:
+            'Invalid page limit. Use a whole number of pages, or 0 for no limit.',
+        });
+      }
+    }
+    if (ignoreTitlePatterns !== undefined)
+      updatedConfig.IGNORE_TITLE_PATTERNS =
+        normalizeArray(ignoreTitlePatterns).join(',');
+    if (ignoreRepeatedContent !== undefined)
+      updatedConfig.IGNORE_REPEATED_CONTENT =
+        ignoreRepeatedContent === 'no' ? 'no' : 'yes';
     if (paperlessAiPort) updatedConfig.PAPERLESS_AI_PORT = paperlessAiPort;
     if (typeof logLevel === 'string') {
       const normalizedLogLevel = logLevel.trim().toLowerCase();
@@ -10159,6 +10299,26 @@ router.post('/settings', express.json(), async (req, res) => {
       ...updatedConfig,
     };
 
+    // Compared before saveConfig() writes the values onto process.env, and
+    // against the values in effect: currentConfig fills in the defaults the
+    // form submits for keys nobody has set. Only a changed key that something
+    // reads once at boot ends in a restart; every other value is read live
+    // and applies with the save.
+    const changedKeys = setupService.changedConfigKeys(mergedConfig, {
+      ...process.env,
+      ...currentConfig,
+    });
+    const restartKeys = restartRequiredAmong(changedKeys);
+
+    // The route has already validated the submitted values (and Paperless
+    // reachability when its settings changed). Skip saveConfig's built-in
+    // validateConfig so saving does not live-test Paperless/AI on every save.
+    await setupService.saveConfig(mergedConfig, { skipValidation: true });
+
+    // The tag cache keeps its lifetime once it has read it.
+    if (changedKeys.includes('TAG_CACHE_TTL_SECONDS')) {
+      paperlessService._cacheTTL = null;
+    }
     try {
       for (const field of processedCustomFields) {
         await paperlessService.createCustomFieldSafely(
@@ -10174,25 +10334,24 @@ router.post('/settings', express.json(), async (req, res) => {
       throw error;
     }
 
-    // The route has already validated the submitted values (and Paperless
-    // reachability when its settings changed). Skip saveConfig's built-in
-    // validateConfig so saving does not live-test Paperless/AI on every save.
-    await setupService.saveConfig(mergedConfig, { skipValidation: true });
-
+    const restart = restartKeys.length > 0;
     res.json({
       success: true,
-      message: 'Configuration saved successfully.',
-      restart: true,
+      message: restart
+        ? 'Settings saved. The server restarts to apply them.'
+        : 'Settings saved. The changes are in effect.',
+      restart,
+      restartKeys,
     });
 
-    // NOTE: paperlessService caches the tag cache TTL (_cacheTTL) in memory.
-    // The new TAG_CACHE_TTL_SECONDS value will take effect after the server
-    // restart that is triggered below. If the restart mechanism is changed
-    // or removed in the future, make sure to also reset paperlessService._cacheTTL
-    // to null so that its cached TTL is invalidated and reloaded from config.
-    setTimeout(() => {
-      process.exit(0);
-    }, 5000);
+    if (restart) {
+      console.log(
+        `[INFO] Settings saved; restarting for ${restartKeys.join(', ')}.`
+      );
+      setTimeout(() => {
+        process.exit(0);
+      }, 5000);
+    }
   } catch (error) {
     console.error('Settings update error:', error);
     res.status(500).json({
@@ -11539,6 +11698,10 @@ router.post('/api/ignored/add', isAuthenticated, async (req, res) => {
       if (wasAdded) added += 1;
     }
 
+    // In the background: the fingerprint lets later copies of the same text
+    // skip OCR and AI, and fetching it must not hold up the answer.
+    skipRuleService.rememberFingerprints(documentIds);
+
     const skipped = documentIds.length - added;
     return res.json({
       success: true,
@@ -11557,6 +11720,233 @@ router.post('/api/ignored/add', isAuthenticated, async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/ignored/suggest/{documentId}:
+ *   get:
+ *     summary: Propose skip rules built from one document
+ *     description: |
+ *       Reads the document from Paperless-ngx and proposes what skipping it by
+ *       hand could also cover: copies with the same text, a part of its title
+ *       or file name (with how many history entries contain it), and a page
+ *       limit for long documents. Changes nothing.
+ *     tags:
+ *       - Documents
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: documentId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *     responses:
+ *       200:
+ *         description: The document's facts and a proposal per rule
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     document:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: integer
+ *                         title:
+ *                           type: string
+ *                         fileName:
+ *                           type: string
+ *                         pageCount:
+ *                           type: integer
+ *                           nullable: true
+ *                         correspondent:
+ *                           type: string
+ *                           nullable: true
+ *                         characters:
+ *                           type: integer
+ *                     sameText:
+ *                       type: object
+ *                       properties:
+ *                         available:
+ *                           type: boolean
+ *                           description: False when the text is too short to compare.
+ *                         enabled:
+ *                           type: boolean
+ *                           description: IGNORE_REPEATED_CONTENT
+ *                     title:
+ *                       type: object
+ *                       properties:
+ *                         suggestions:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               pattern:
+ *                                 type: string
+ *                               historyMatches:
+ *                                 type: integer
+ *                         existing:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                     pageLimit:
+ *                       type: object
+ *                       properties:
+ *                         current:
+ *                           type: integer
+ *                         suggested:
+ *                           type: integer
+ *                           nullable: true
+ *       400:
+ *         description: Invalid document id
+ *       404:
+ *         description: Document not found in Paperless-ngx
+ */
+router.get(
+  '/api/ignored/suggest/:documentId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId, 10);
+      if (!Number.isInteger(documentId) || documentId < 1) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid document ID' });
+      }
+      const data = await skipRuleService.suggest(documentId);
+      if (!data) {
+        return res
+          .status(404)
+          .json({ success: false, error: `Document ${documentId} not found` });
+      }
+      return res.json({ success: true, data });
+    } catch (error) {
+      console.error('[ERROR] GET /api/ignored/suggest/:documentId:', error);
+      return res.status(error?.response?.status === 404 ? 404 : 500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/ignored/skip:
+ *   post:
+ *     summary: Skip one document and store rules for documents like it
+ *     description: |
+ *       Puts the document on the ignored list and, as chosen, keeps its text
+ *       fingerprint (so copies are skipped), adds a title part to
+ *       IGNORE_TITLE_PATTERNS and sets MAX_PAGE_COUNT. A value the container
+ *       injects is not changed and is listed in notSaved.
+ *     tags:
+ *       - Documents
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - documentId
+ *             properties:
+ *               documentId:
+ *                 type: integer
+ *                 minimum: 1
+ *               sameText:
+ *                 type: boolean
+ *                 default: true
+ *               titlePattern:
+ *                 type: string
+ *                 nullable: true
+ *               pageLimit:
+ *                 type: integer
+ *                 minimum: 1
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: The document is ignored and the rules are stored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     rules:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     notSaved:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid document id or page limit
+ *       404:
+ *         description: Document not found in Paperless-ngx
+ */
+router.post('/api/ignored/skip', isAuthenticated, async (req, res) => {
+  try {
+    const documentId = parseInt(req.body?.documentId, 10);
+    if (!Number.isInteger(documentId) || documentId < 1) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid document ID' });
+    }
+    const rawLimit = req.body?.pageLimit;
+    const pageLimit =
+      rawLimit === undefined || rawLimit === null || rawLimit === ''
+        ? null
+        : Number(rawLimit);
+    if (pageLimit !== null && !(Number.isInteger(pageLimit) && pageLimit > 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid page limit. Use a whole number of pages.',
+      });
+    }
+
+    const data = await skipRuleService.skipDocument(documentId, {
+      sameText: req.body?.sameText !== false,
+      titlePattern:
+        typeof req.body?.titlePattern === 'string'
+          ? req.body.titlePattern
+          : null,
+      pageLimit,
+    });
+    const notSavedNote = data.notSaved.length
+      ? ` Set by the container, not changed: ${data.notSaved.join(', ')}.`
+      : '';
+    return res.json({
+      success: true,
+      data,
+      message: `Document ${documentId} skipped (${data.rules.join(', ')}).${notSavedNote}`,
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/ignored/skip:', error);
+    const status =
+      error?.status === 404 || error?.response?.status === 404 ? 404 : 500;
+    return res.status(status).json({ success: false, error: error.message });
+  }
+});
+
 // API: Remove a document from the ignored list (unignore)
 router.delete('/api/ignored/:documentId', isAuthenticated, async (req, res) => {
   try {
@@ -11571,7 +11961,7 @@ router.delete('/api/ignored/:documentId', isAuthenticated, async (req, res) => {
     return res.json({
       success: removed,
       message: removed
-        ? `Document ${documentId} removed from ignored list. It can be scanned again.`
+        ? `Document ${documentId} removed from ignored list. It will be processed again, even if a skip rule matches it.`
         : `Document ${documentId} was not in ignored list.`,
     });
   } catch (error) {
@@ -11628,6 +12018,7 @@ router.post(
       );
       await documentModel.resetFailedDocument(documentId);
       await documentModel.clearProcessingStatusByDocumentId(documentId);
+      skipRuleService.rememberFingerprints([documentId]);
 
       return res.json({
         success: true,
@@ -11799,42 +12190,25 @@ async function readMergeLog({ limit, offset, kind, action }) {
  * @swagger
  * /duplicates:
  *   get:
- *     summary: Duplicate tags and correspondents page
+ *     summary: Former Duplicates page, now part of Tidy up
  *     description: |
- *       Renders the Duplicates page. The page scans on request through
- *       `/api/duplicates/scan`; nothing runs automatically.
+ *       The Duplicates page was replaced by Tidy up (`/tidy-up`); this path
+ *       redirects there permanently so bookmarks keep working. The
+ *       `/api/duplicates/*` routes are unchanged.
  *     tags:
  *       - Navigation
  *       - Duplicates
  *     security:
  *       - BearerAuth: []
  *     responses:
- *       200:
- *         description: Duplicates page rendered successfully
- *         content:
- *           text/html:
- *             schema:
- *               type: string
+ *       301:
+ *         description: Moved permanently to /tidy-up
  *       401:
  *         description: Not authenticated
- *       500:
- *         description: Server error
  */
-router.get('/duplicates', protectApiRoute, async (req, res) => {
-  try {
-    return res.render('duplicates', {
-      version: configFile.PAPERLESS_AI_VERSION || ' ',
-      sensitivity: entityNameMatcher.SENSITIVITY,
-      defaultThreshold: entityNameMatcher.DEFAULT_THRESHOLD,
-      // Decides whether the page asks the model at all; a review is only
-      // ever started by the user.
-      aiReviewEnabled: entityMatchAiService.isEnabled(),
-    });
-  } catch (error) {
-    console.error('[ERROR] GET /duplicates:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+router.get('/duplicates', protectApiRoute, (req, res) =>
+  res.redirect(301, '/tidy-up')
+);
 
 /**
  * @swagger
@@ -13920,42 +14294,25 @@ function startSimplifyJob(res, route, task, options, runner) {
  * @swagger
  * /simplify:
  *   get:
- *     summary: Simplify tags page
+ *     summary: Former Simplify tags page, now part of Tidy up
  *     description: |
- *       Renders the page that turns compound tags such as "Stromrechnung" into
- *       a document type ("Rechnung") and topic tags ("Strom"). The vocabulary
- *       and the proposals are read through `/api/simplify/*`; nothing runs
- *       automatically and no split happens without a confirmation.
+ *       The Simplify tags page was replaced by Tidy up (`/tidy-up`), where
+ *       splitting compound tags is one option of a run; this path redirects
+ *       there permanently. The `/api/simplify/*` routes are unchanged.
  *     tags:
  *       - Navigation
  *       - Simplify
  *     security:
  *       - BearerAuth: []
  *     responses:
- *       200:
- *         description: Simplify tags page rendered successfully
- *         content:
- *           text/html:
- *             schema:
- *               type: string
+ *       301:
+ *         description: Moved permanently to /tidy-up
  *       401:
  *         description: Not authenticated
- *       500:
- *         description: Server error
  */
-router.get('/simplify', protectApiRoute, async (req, res) => {
-  try {
-    return res.render('simplify', {
-      version: configFile.PAPERLESS_AI_VERSION || ' ',
-      // Decides whether the page offers the two model-backed proposals at
-      // all. The rule pass and every edit work without a model.
-      aiReviewEnabled: entityMatchAiService.isEnabled(),
-    });
-  } catch (error) {
-    console.error('[ERROR] GET /simplify:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+router.get('/simplify', protectApiRoute, (req, res) =>
+  res.redirect(301, '/tidy-up')
+);
 
 /**
  * @swagger

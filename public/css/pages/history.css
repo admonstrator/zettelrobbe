@@ -30,4 +30,73 @@
       min-width: 0;
     }
   }
+
+  /* Skip dialog: one bordered tile per proposed rule. Not .zr-checktile,
+     because these tiles hold their own inputs and a label wrapping them
+     would toggle the rule on every click into the title field. */
+  .history-skip__facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-1) var(--zr-4);
+    margin: 0;
+    padding: var(--zr-2) var(--zr-3);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-2);
+    font-size: var(--zr-fs-sm);
+  }
+  .history-skip__facts > div {
+    display: flex;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+  .history-skip__facts dt {
+    color: var(--zr-text-muted);
+  }
+  .history-skip__facts dd {
+    margin: 0;
+    color: var(--zr-text);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .history-skip__rule {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-3);
+    padding: var(--zr-3);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+  }
+  .history-skip__rule:has(> .zr-check:checked) {
+    border-color: var(--zr-brand);
+    background: var(--zr-brand-soft);
+  }
+  .history-skip__rule > .zr-check {
+    margin-top: 2px;
+  }
+  .history-skip__name {
+    color: var(--zr-text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .history-skip__pick {
+    padding: 2px var(--zr-2);
+    border: 1px solid var(--zr-line-strong);
+    border-radius: 999px;
+    background: var(--zr-surface);
+    color: var(--zr-text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .history-skip__pick:hover {
+    border-color: var(--zr-brand);
+  }
+  .history-skip__pages {
+    width: 90px;
+  }
+  @media (max-width: 860px) {
+    .history-skip__facts {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 }

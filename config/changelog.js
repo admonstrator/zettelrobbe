@@ -157,6 +157,31 @@ const RELEASES = [
       'Security: The login no longer reveals whether a username exists, a two-factor code is accepted only once, and the health endpoint keeps scanner and Paperless-ngx details behind authentication. Contributed by <a href="https://github.com/krauseerl">@krauseerl</a>',
     ],
   },
+  {
+    version: 'v2026.10.03',
+    entries: [
+      'Security: The SSRF check now recognises IPv4-mapped IPv6 answers in every spelling.',
+      'Security: The container image now requires Node.js 26.12.1 or newer, which closes the Brotli remote-code-execution flaw and the TLS certificate hostname bypasses of the October 2026 Node.js release.',
+      'Security: Updated dependencies to newer versions',
+      'Fix: A Paperless-ngx URL written as an IPv6 literal is accepted instead of failing',
+      'New: Skip rules keep documents away from OCR and AI - see details in the settings page',
+    ],
+  },
+  {
+    version: 'v2026.11.01',
+    entries: [
+      'New: Tidy up replaces Duplicates and Simplify tags: one page with suggestions in plain sentences (merge, split, delete), each with its reason and evidence; you accept or decline, and every change can be undone',
+      'New: Sure, Likely and Needs a look instead of percentages; the details sit behind a disclosure',
+      'New: Model failures are explained in plain words, with what to do next',
+      'New: The inbox tag and named tags can be removed once a document is done (Settings → Tag Filters, also in the setup wizard)',
+      'New: AI settings show the essentials; everything else is behind Advanced options with an explanation',
+      'New: Saving settings restarts only when a changed value needs it; the page waits for the new server instead of reloading into a 502',
+      'Improvement: The settings page no longer talks about environment variables; a pinned value is a disabled field with a note',
+      'Improvement: Ollama thinking mode can be switched on the settings page',
+      'Improvement: OpenAI, Azure and compatible endpoints share one service with per-model rules; GPT-5 and o-series models get the right request shape',
+      'Removed: The Duplicates and Simplify tags pages (/duplicates and /simplify redirect to /tidy-up) and the Local Overrides section',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];

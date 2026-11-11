@@ -67,6 +67,14 @@ class DocumentProcessingService {
         console.warn('[ERROR] Some tags could not be processed:', errors);
       }
       updateData.tags = tagIds;
+    } else if (
+      config.removeInboxTagsAfterProcessing === 'yes' ||
+      (config.removeTagsAfterProcessing || []).length > 0
+    ) {
+      // No tag of its own to add, but tags to take off: an empty list keeps
+      // the document's tags and lets updateDocument() remove the configured
+      // ones, so a document is done whether or not the analysis tags it.
+      updateData.tags = [];
     }
 
     // Only process title if title generation is activated
@@ -259,31 +267,6 @@ class DocumentProcessingService {
     const origDocType = originalData.document_type ?? null;
     const origLanguage = originalData.language ?? null;
     const recordedTitle = updateData.title || originalTitle;
-
-    // Predefined-scan trigger tags have done their job once the document has
-    // been processed; leaving them in place would make the next scan re-run
-    // the document forever. Removal only happens when the operator opts in.
-    if (
-      config.predefinedMode === 'yes' &&
-      config.removeTriggerTags === 'yes' &&
-      Array.isArray(updateData.tags)
-    ) {
-      try {
-        const triggerNames = (process.env.TAGS || '')
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean);
-        if (triggerNames.length > 0) {
-          updateData.removeTagIds =
-            await paperlessService.resolveTagIdsByName(triggerNames);
-        }
-      } catch (error) {
-        console.warn(
-          `[WARN] Could not resolve trigger tags for removal on document ${docId}:`,
-          error.message
-        );
-      }
-    }
 
     await documentModel.saveOriginalData(
       docId,

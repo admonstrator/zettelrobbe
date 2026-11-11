@@ -1,0 +1,916 @@
+/* ==========================================================================
+   The Tidy up page: the start, the run, the suggestions, the failure
+   notices and the recent changes, in one centred column.
+   @layer pages: above the framework layers, below utilities.
+
+   Framework classes (zr-module, zr-btn, zr-meter, zr-alert, zr-select,
+   zr-input, zr-check) draw what they can; this file adds what the page has
+   that the kit has no class for, all under the tidy- prefix.
+   ========================================================================== */
+
+@layer pages {
+  /* --- the column ------------------------------------------------------- */
+  .tidy-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    max-width: 880px;
+    margin: 0 auto;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tidy-page .zr-module + .zr-module,
+  .tidy-page .zr-module + .zr-alert {
+    margin-top: 0;
+  }
+
+  .tidy-page code,
+  .tidy-name {
+    font-family: var(--zr-font-mono);
+    font-size: 0.92em;
+    padding: 1px 5px;
+    border-radius: var(--zr-r-sm);
+    background: var(--zr-surface-sunken);
+    color: var(--zr-text);
+    overflow-wrap: anywhere;
+  }
+
+  .tidy-title {
+    font-size: var(--zr-fs-xl);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    margin: 0 0 var(--zr-2);
+  }
+
+  .tidy-subtitle {
+    font-size: var(--zr-fs-md);
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .tidy-lead {
+    color: var(--zr-text-muted);
+    max-width: 68ch;
+    margin: 0 0 var(--zr-4);
+  }
+
+  /* Text buttons: a real button that reads like a link. */
+  .tidy-textbtn {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--zr-brand);
+    cursor: pointer;
+  }
+
+  .tidy-textbtn:hover {
+    text-decoration: underline;
+  }
+
+  .tidy-textbtn:focus-visible {
+    outline: 2px solid var(--zr-focus);
+    outline-offset: 2px;
+    border-radius: var(--zr-r-sm);
+  }
+
+  .tidy-btn--outline {
+    border-color: var(--zr-brand);
+    color: var(--zr-brand);
+  }
+
+  .tidy-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  /* --- 1 · start -------------------------------------------------------- */
+  .tidy-start .zr-module__body {
+    padding: var(--zr-5);
+  }
+
+  .tidy-explainers {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--zr-4);
+    list-style: none;
+    margin: 0;
+    padding: var(--zr-4);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-2);
+    border: 1px solid var(--zr-line);
+  }
+
+  .tidy-explainer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  .tidy-explainer .zr-icon {
+    color: var(--zr-brand);
+    margin-bottom: var(--zr-1);
+  }
+
+  .tidy-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+    margin-top: var(--zr-4);
+    padding-top: var(--zr-4);
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .tidy-options p {
+    margin: 0;
+  }
+
+  .tidy-option {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-2);
+    cursor: pointer;
+  }
+
+  .tidy-option .zr-check {
+    margin-top: 2px;
+  }
+
+  .tidy-option > span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .tidy-go {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-3);
+    margin-top: var(--zr-4);
+  }
+
+  .tidy-go__btn {
+    height: 44px;
+    padding: 0 var(--zr-5);
+    font-size: var(--zr-fs-md);
+  }
+
+  .tidy-advanced {
+    margin-top: var(--zr-4);
+    padding-top: var(--zr-3);
+    border-top: 1px solid var(--zr-line);
+  }
+
+  .tidy-advanced > summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-2);
+    cursor: pointer;
+  }
+
+  .tidy-advanced__label {
+    font-weight: 600;
+  }
+
+  .tidy-advanced__items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+    margin-top: var(--zr-3);
+  }
+
+  .tidy-advanced__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  .tidy-hidden__rows,
+  .tidy-recent__rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .tidy-hidden {
+    padding: var(--zr-2) var(--zr-3);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-2);
+  }
+
+  .tidy-hidden__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+    padding: var(--zr-1) 0;
+  }
+
+  /* --- 2 · while it works ------------------------------------------------- */
+  .tidy-run__body {
+    padding: var(--zr-5);
+  }
+
+  .tidy-run__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--zr-3);
+    margin-bottom: var(--zr-4);
+  }
+
+  .tidy-run__text {
+    min-width: 0;
+    flex: 1 1 320px;
+  }
+
+  .tidy-run__text p {
+    margin: 0;
+  }
+
+  .tidy-steps {
+    list-style: none;
+    margin: 0 0 var(--zr-4);
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+  }
+
+  .tidy-step {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  .tidy-step__mark {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid var(--zr-line-strong);
+    font-size: var(--zr-fs-xs);
+    font-weight: 600;
+  }
+
+  .tidy-step--done .tidy-step__mark {
+    border-color: var(--zr-ok);
+    background: var(--zr-ok);
+    color: var(--zr-on-brand);
+  }
+
+  .tidy-step--now .tidy-step__mark {
+    border-color: var(--zr-brand);
+    color: var(--zr-brand);
+  }
+
+  .tidy-step--now .tidy-step__label {
+    font-weight: 600;
+  }
+
+  .tidy-step--next .tidy-step__label {
+    color: var(--zr-text-muted);
+  }
+
+  .tidy-step__detail {
+    text-align: right;
+  }
+
+  .tidy-meter {
+    height: 8px;
+  }
+
+  .tidy-meter__text {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--zr-1) var(--zr-3);
+    margin-top: var(--zr-2);
+  }
+
+  .tidy-sofar {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .tidy-sofar p {
+    margin: 0;
+  }
+
+  /* --- 4 · failure notices ------------------------------------------------- */
+  .tidy-notices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .tidy-run--failure {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .tidy-notice {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--zr-3);
+    padding: var(--zr-4);
+    border: 1px solid var(--zr-line);
+    border-left: 4px solid var(--tidy-tone, var(--zr-line-strong));
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface);
+    box-shadow: var(--zr-shadow-sm);
+  }
+
+  .tidy-notice--warn {
+    --tidy-tone: var(--zr-warn);
+  }
+
+  .tidy-notice--info {
+    --tidy-tone: var(--zr-info);
+  }
+
+  .tidy-notice--danger {
+    --tidy-tone: var(--zr-danger);
+  }
+
+  .tidy-notice--muted {
+    --tidy-tone: var(--zr-text-faint);
+  }
+
+  .tidy-notice__icon {
+    color: var(--tidy-tone);
+    padding-top: 2px;
+  }
+
+  .tidy-notice__main {
+    min-width: 0;
+  }
+
+  .tidy-notice__title {
+    font-size: var(--zr-fs-md);
+    font-weight: 600;
+    margin: 0 0 var(--zr-1);
+  }
+
+  .tidy-notice__body {
+    color: var(--zr-text-muted);
+    margin: 0 0 var(--zr-3);
+  }
+
+  .tidy-notice__hint {
+    font-size: var(--zr-fs-sm);
+  }
+
+  .tidy-notice__details {
+    align-self: start;
+    max-width: 260px;
+  }
+
+  .tidy-notice__details[open] {
+    grid-column: 1 / -1;
+    max-width: none;
+  }
+
+  .tidy-notice__technical {
+    margin: var(--zr-2) 0 0;
+    padding: var(--zr-2);
+    border-radius: var(--zr-r-sm);
+    background: var(--zr-surface-sunken);
+    font-family: var(--zr-font-mono);
+    font-size: var(--zr-fs-sm);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* --- 3 · suggestions ---------------------------------------------------- */
+  .tidy-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .tidy-summary__body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--zr-3);
+    padding: var(--zr-5);
+  }
+
+  .tidy-summary__text {
+    min-width: 0;
+    flex: 1 1 320px;
+  }
+
+  .tidy-summary__text p {
+    margin: 0;
+  }
+
+  .tidy-banner__alert {
+    align-items: center;
+  }
+
+  /* --- what a decide or undo is writing right now ------------------------
+     The strip above the list stays in view under the top bar while the
+     person scrolls; its copy in the run card sits below the meter. */
+  .tidy-activity {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    min-width: 0;
+    padding: var(--zr-2) var(--zr-3);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-sunken);
+    color: var(--zr-text);
+    font-size: var(--zr-fs-sm);
+  }
+
+  .tidy-results > .tidy-activity {
+    position: sticky;
+    top: calc(var(--zr-topbar-h) + var(--zr-2));
+    z-index: 5;
+    box-shadow: var(--zr-shadow-sm);
+  }
+
+  .tidy-activity--run {
+    margin-top: var(--zr-3);
+  }
+
+  .tidy-activity__text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Every button that writes waits while something is written. */
+  .tidy-page[data-busy] [aria-disabled='true'] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .tidy-page[data-busy] .tidy-list .tidy-actions {
+    opacity: 0.75;
+  }
+
+  /* The card (or line) in flight: a spinner in place of its buttons. */
+  .tidy-card.tidy-inflight {
+    border-color: var(--zr-brand);
+  }
+
+  .tidy-page[data-busy] .tidy-list .tidy-inflight .tidy-actions {
+    opacity: 1;
+  }
+
+  .tidy-inflight .tidy-actions > :not(.tidy-inflight__mark),
+  .tidy-line.tidy-inflight > button {
+    display: none;
+  }
+
+  .tidy-inflight__mark {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+  }
+
+  .tidy-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-2);
+  }
+
+  .tidy-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-1);
+  }
+
+  .tidy-chip {
+    height: 28px;
+    padding: 0 var(--zr-3);
+    border-radius: var(--zr-r-full);
+    border: 1px solid var(--zr-line);
+    background: var(--zr-surface);
+    color: var(--zr-text-muted);
+    font: inherit;
+    font-size: var(--zr-fs-sm);
+    cursor: pointer;
+  }
+
+  .tidy-chip:hover {
+    border-color: var(--zr-line-strong);
+    color: var(--zr-text);
+  }
+
+  .tidy-chip[aria-pressed='true'] {
+    background: var(--zr-brand-soft);
+    border-color: var(--zr-brand);
+    color: var(--zr-brand-text);
+    font-weight: 600;
+  }
+
+  .tidy-chip:focus-visible {
+    outline: 2px solid var(--zr-focus);
+    outline-offset: 2px;
+  }
+
+  .tidy-filters__earlier {
+    font-size: var(--zr-fs-sm);
+  }
+
+  .tidy-filters__earlier[aria-pressed='true'] {
+    font-weight: 600;
+  }
+
+  .tidy-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+  }
+
+  .tidy-list__empty {
+    margin: 0;
+  }
+
+  /* The card */
+  .tidy-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-3);
+    padding: var(--zr-4);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-lg);
+    background: var(--zr-surface);
+    box-shadow: var(--zr-shadow-sm);
+    min-width: 0;
+  }
+
+  .tidy-card__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+  }
+
+  .tidy-card__headline {
+    flex: 1 1 260px;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--zr-fs-lg);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .tidy-card__meta {
+    margin-left: auto;
+    white-space: nowrap;
+  }
+
+  .tidy-card__reason {
+    margin: 0;
+    color: var(--zr-text-muted);
+  }
+
+  .tidy-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 var(--zr-2);
+    border-radius: var(--zr-r-full);
+    font-size: var(--zr-fs-xs);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .tidy-pill--sure {
+    background: var(--zr-ok-soft);
+    color: var(--zr-ok);
+  }
+
+  .tidy-pill--likely {
+    background: var(--zr-info-soft);
+    color: var(--zr-info);
+  }
+
+  .tidy-pill--unsure {
+    background: var(--zr-warn-soft);
+    color: var(--zr-warn);
+  }
+
+  .tidy-note {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--zr-1);
+    margin: 0;
+    color: var(--zr-ok);
+  }
+
+  /* Evidence: one box per name, side by side */
+  .tidy-evidence {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-3);
+  }
+
+  .tidy-evidence__side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+    padding: var(--zr-3);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-2);
+    min-width: 0;
+  }
+
+  .tidy-evidence__name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-2);
+  }
+
+  .tidy-evidence__titles {
+    margin: 0;
+    padding-left: var(--zr-4);
+    font-size: var(--zr-fs-sm);
+  }
+
+  /* The name that stays, when a merge has more than two */
+  .tidy-keep {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2) var(--zr-4);
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .tidy-keep legend {
+    float: left;
+    margin-right: var(--zr-2);
+  }
+
+  .tidy-keep__option,
+  .tidy-pick__option {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--zr-1);
+    cursor: pointer;
+  }
+
+  .tidy-radio {
+    accent-color: var(--zr-brand);
+    margin: 0;
+  }
+
+  .tidy-pick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--zr-2) var(--zr-4);
+    margin: 0;
+    padding: var(--zr-3);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+  }
+
+  /* Split form */
+  .tidy-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-3);
+  }
+
+  .tidy-split__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    min-width: 0;
+  }
+
+  .tidy-split__field .zr-select,
+  .tidy-split__field .zr-input {
+    width: 100%;
+    max-width: none;
+  }
+
+  .tidy-split__note {
+    margin: 0;
+  }
+
+  /* Details: rules, confidence, the verdict */
+  .tidy-details {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
+
+  .tidy-details > summary {
+    cursor: pointer;
+    width: fit-content;
+  }
+
+  .tidy-details__list {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--zr-1) var(--zr-3);
+    margin: var(--zr-2) 0 0;
+  }
+
+  .tidy-details__list dt {
+    color: var(--zr-text-faint);
+  }
+
+  .tidy-details__list dd {
+    margin: 0;
+    min-width: 0;
+  }
+
+  .tidy-details__verdict {
+    margin: 0;
+    font-family: var(--zr-font-mono);
+    font-size: var(--zr-fs-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* A decided suggestion, one line */
+  .tidy-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--zr-2);
+    padding: var(--zr-2) var(--zr-3);
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface);
+  }
+
+  .tidy-line__mark {
+    flex: none;
+  }
+
+  .tidy-line--done .tidy-line__mark {
+    color: var(--zr-ok);
+  }
+
+  .tidy-line--failed {
+    border-color: color-mix(in srgb, var(--zr-danger) 40%, var(--zr-line));
+    background: var(--zr-danger-soft);
+  }
+
+  .tidy-line--failed .tidy-line__mark,
+  .tidy-line--failed .tidy-line__outcome {
+    color: var(--zr-danger);
+  }
+
+  .tidy-line--declined,
+  .tidy-line--later {
+    background: var(--zr-surface-2);
+    color: var(--zr-text-muted);
+  }
+
+  .tidy-line--declined .tidy-line__mark,
+  .tidy-line--later .tidy-line__mark {
+    color: var(--zr-text-faint);
+  }
+
+  .tidy-line__text {
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+
+  .tidy-line__outcome {
+    color: var(--zr-text-muted);
+  }
+
+  /* --- recent changes ------------------------------------------------------ */
+  .tidy-recent__list {
+    padding: var(--zr-2) var(--zr-3);
+  }
+
+  .tidy-recent__empty {
+    margin: var(--zr-1) 0;
+  }
+
+  .tidy-recent__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-1) var(--zr-3);
+    padding: var(--zr-2) 0;
+    border-bottom: 1px solid var(--zr-line);
+  }
+
+  .tidy-recent__row:last-child {
+    border-bottom: 0;
+  }
+
+  .tidy-recent__when {
+    min-width: 110px;
+  }
+
+  .tidy-recent__sentence {
+    flex: 1 1 260px;
+    min-width: 0;
+  }
+
+  .tidy-recent__status--done {
+    color: var(--zr-ok);
+  }
+
+  .tidy-recent__status--partial {
+    color: var(--zr-warn);
+  }
+
+  .tidy-recent__status--failed {
+    color: var(--zr-danger);
+  }
+
+  .tidy-recent__status--undone {
+    color: var(--zr-text-faint);
+  }
+
+  /* --- the vocabulary dialog ----------------------------------------------- */
+  .tidy-vocab {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--zr-3);
+  }
+
+  .tidy-vocab > p {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  .tidy-vocab__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+  }
+
+  .tidy-vocab__field .zr-textarea {
+    max-width: none;
+  }
+
+  /* --- phones -------------------------------------------------------------- */
+  @media (max-width: 720px) {
+    .tidy-start .zr-module__body,
+    .tidy-run__body,
+    .tidy-summary__body {
+      padding: var(--zr-3);
+    }
+
+    .tidy-explainers,
+    .tidy-evidence,
+    .tidy-split,
+    .tidy-vocab {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tidy-step {
+      grid-template-columns: 22px minmax(0, 1fr);
+    }
+
+    .tidy-step__detail {
+      grid-column: 2;
+      text-align: left;
+    }
+
+    .tidy-notice {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .tidy-notice__details {
+      grid-column: 1 / -1;
+      max-width: none;
+    }
+
+    .tidy-card__meta {
+      margin-left: 0;
+    }
+
+    .tidy-go__btn {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+}

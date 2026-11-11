@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="<%= theme || 'light' %>">
+<%- include('partials/shell/head-start', { pageTitle: 'Tidy up - Zettelrobbe' }) %>
+    <script src="/js/dialogs.js"></script>
+<%- include('partials/shell/head-end') %>
+<%- include('partials/shell/body-open', {
+    pageTitle: 'Tidy up',
+    version: typeof version !== 'undefined' ? version : ''
+}) %>
+<%
+/* Locals from GET /tidy-up (routes/tidyUp.js). Every one may be missing; the
+   page then leaves out what depends on it.
+     modelAvailable  boolean   a provider is configured: the model options show
+     modelLabel      string    the model's name, for the explanation
+     splitsAvailable boolean   the split option shows (needs the model too)
+     counts          {tags, correspondents}
+     lastRun         {when, accepted} | null */
+const tidyModel = typeof modelAvailable !== 'undefined' && modelAvailable === true;
+const tidyModelLabel = typeof modelLabel !== 'undefined' && modelLabel ? String(modelLabel) : '';
+const tidySplits = tidyModel && typeof splitsAvailable !== 'undefined' && splitsAvailable === true;
+const tidyCounts = typeof counts !== 'undefined' && counts && typeof counts === 'object' ? counts : null;
+const tidyLastRun = typeof lastRun !== 'undefined' && lastRun && lastRun.when ? lastRun : null;
+
+const tidyNumber = (n) => Number(n || 0).toLocaleString('en-US');
+const tidyAgo = (when) => {
+    const then = new Date(when);
+    if (Number.isNaN(then.getTime())) return '';
+    const days = Math.floor((Date.now() - then.getTime()) / 86400000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 60) return days + ' days ago';
+    return 'on ' + then.toISOString().slice(0, 10);
+};
+const tidyFacts = [];
+if (tidyCounts) {
+    if (Number.isFinite(Number(tidyCounts.tags))) tidyFacts.push(tidyNumber(tidyCounts.tags) + ' tags');
+    if (Number.isFinite(Number(tidyCounts.correspondents))) tidyFacts.push(tidyNumber(tidyCounts.correspondents) + ' correspondents');
+}
+if (tidyLastRun) {
+    const ago = tidyAgo(tidyLastRun.when);
+    const accepted = Number(tidyLastRun.accepted) || 0;
+    if (ago) tidyFacts.push('last run ' + ago + ', ' + tidyNumber(accepted) + ' accepted');
+}
+-%>
+            <!-- One page in four states, all drawn by js/modules/tidy-up.js:
+                 the start (server-rendered below), the run while it works, the
+                 suggestions, and a failure notice in place of the run. -->
+            <div class="tidy-page" data-tidy-page data-module="tidy-up"
+                data-model-available="<%= tidyModel ? 'yes' : 'no' %>"
+                data-model-label="<%= tidyModelLabel %>"
+                data-splits-available="<%= tidySplits ? 'yes' : 'no' %>">
+
+                <!-- 1 · Start -->
+                <section class="zr-module tidy-start" data-tidy-start aria-labelledby="tidyStartTitle">
+                    <div class="zr-module__body">
+                        <h2 class="tidy-title" id="tidyStartTitle">Tidy up tags and correspondents</h2>
+                        <p class="tidy-lead">Zettelrobbe looks through the names in your archive and suggests what to clean up. You decide on every suggestion. Nothing changes in Paperless-ngx until you accept one, and every change can be undone.</p>
+
+                        <ul class="tidy-explainers">
+                            <li class="tidy-explainer">
+                                <svg class="zr-icon zr-icon--lg" aria-hidden="true"><use href="/icons.svg#i-merge"/></svg>
+                                <strong>Two names, one thing</strong>
+                                <span class="zr-sm zr-muted"><code>invoice</code> and <code>Invoices</code> are merged into one; the documents move to the name that stays.</span>
+                            </li>
+                            <li class="tidy-explainer">
+                                <svg class="zr-icon zr-icon--lg" aria-hidden="true"><use href="/icons.svg#i-split"/></svg>
+                                <strong>One tag doing two jobs</strong>
+                                <span class="zr-sm zr-muted"><code>Rechnung Auto</code> becomes the document type <em>Invoice</em> plus the topic <em>Car</em>.</span>
+                            </li>
+                            <li class="tidy-explainer">
+                                <svg class="zr-icon zr-icon--lg" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                <strong>Names nobody uses</strong>
+                                <span class="zr-sm zr-muted">Tags and correspondents with no document are listed for deletion.</span>
+                            </li>
+                        </ul>
+
+                        <div class="tidy-options">
+<% if (tidyModel) { -%>
+                            <label class="tidy-option">
+                                <input type="checkbox" class="zr-check" id="tidyAskModel" data-tidy-option="askModel" checked>
+                                <span>
+                                    <strong>Also ask the model about the pairs spelling can't settle</strong>
+                                    <span class="zr-sm zr-muted" data-tidy-ask-hint><%= tidyModelLabel ? tidyModelLabel + ' answers' : 'The model from your settings answers' %> only the pairs the spelling comparison leaves open<span data-tidy-estimate></span>.</span>
+                                </span>
+                            </label>
+<% if (tidySplits) { -%>
+                            <label class="tidy-option">
+                                <input type="checkbox" class="zr-check" id="tidySuggestSplits" data-tidy-option="suggestSplits">
+                                <span>
+                                    <strong>Suggest splitting compound tags into a type and topics</strong>
+                                    <span class="zr-sm zr-muted">The model proposes the document types and topics your archive keeps coming back to, then sorts every tag. You can rename them before anything is applied.</span>
+                                </span>
+                            </label>
+<% } -%>
+<% } else { -%>
+                            <p class="zr-sm zr-muted" data-tidy-no-model>Asking the model about unclear pairs and splitting compound tags need an AI provider. <a class="zr-link" href="/settings#ai-provider">Set one up in the settings</a>.</p>
+<% } -%>
+                        </div>
+
+                        <div class="tidy-go">
+                            <button type="button" class="zr-btn zr-btn--primary tidy-go__btn" data-tidy-find>
+                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-wand"/></svg>
+                                Find suggestions
+                            </button>
+<% if (tidyFacts.length) { -%>
+                            <span class="zr-sm zr-muted" data-tidy-facts><%= tidyFacts.join(' · ') %></span>
+<% } -%>
+                        </div>
+
+                        <details class="tidy-advanced" data-tidy-advanced>
+                            <summary>
+                                <span class="tidy-advanced__label">Advanced</span>
+                                <span class="zr-sm zr-faint tidy-advanced__list">Pick a merge by hand · Forget my earlier decisions · See hidden pairs · Model and budget settings</span>
+                            </summary>
+                            <div class="tidy-advanced__items">
+                                <div class="tidy-advanced__item">
+                                    <button type="button" class="zr-btn" disabled>Pick a merge by hand</button>
+                                    <span class="zr-sm zr-faint">Coming later.</span>
+                                </div>
+                                <div class="tidy-advanced__item">
+                                    <button type="button" class="zr-btn" data-tidy-forget>Forget my earlier decisions</button>
+                                    <span class="zr-sm zr-muted">The model is asked about every pair again on the next run.</span>
+                                </div>
+                                <div class="tidy-advanced__item">
+                                    <button type="button" class="zr-btn" data-tidy-hidden-toggle aria-expanded="false" aria-controls="tidyHiddenList">See hidden pairs</button>
+                                    <span class="zr-sm zr-muted">Pairs you said are not the same. They stay out of every run until you restore them.</span>
+                                </div>
+                                <div class="tidy-hidden hidden" id="tidyHiddenList" data-tidy-hidden></div>
+                                <div class="tidy-advanced__item">
+                                    <a class="zr-btn" href="/settings#tidy-up">Model and budget settings</a>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </section>
+
+                <!-- 2 · While it works, or 4 · the failure that ended it -->
+                <section class="zr-module tidy-run hidden" data-tidy-run aria-live="polite"></section>
+                <div class="tidy-notices hidden" data-tidy-notices></div>
+
+                <!-- 3 · Suggestions (also the ones found so far, while a run works) -->
+                <section class="tidy-results hidden" data-tidy-results aria-label="Suggestions">
+                    <div class="zr-module tidy-summary hidden" data-tidy-summary></div>
+                    <div class="tidy-sofar hidden" data-tidy-sofar></div>
+                    <div class="tidy-banner hidden" data-tidy-banner role="status"></div>
+                    <div class="tidy-filters hidden" data-tidy-filters></div>
+                    <!-- What a decide or undo is writing right now (activity) -->
+                    <div class="tidy-activity hidden" data-tidy-activity role="status" aria-live="polite"></div>
+                    <div class="tidy-list" data-tidy-list></div>
+                </section>
+
+                <!-- Recent changes, with their undo -->
+                <section class="zr-module tidy-recent" data-tidy-recent aria-labelledby="tidyRecentTitle">
+                    <div class="zr-module__head"><h2 class="zr-module__title" id="tidyRecentTitle">Recent changes</h2></div>
+                    <div class="tidy-recent__list" data-tidy-recent-list><p class="zr-sm zr-faint tidy-recent__empty">Loading…</p></div>
+                </section>
+            </div>
+    <%- include('partials/shell/body-close') %>

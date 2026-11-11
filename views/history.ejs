@@ -249,6 +249,79 @@
             </div>
         </div>
     </div>
+    <!-- Skip a document and propose rules for documents like it. Filled by
+         js/history.js from /api/ignored/suggest/:id. -->
+    <dialog class="zr-dialog zr-dialog--wide history-skip" id="skipDialog" aria-labelledby="skipDialogTitle">
+        <div class="zr-dialog__head">
+            <span class="zr-grow" id="skipDialogTitle">Skip documents like this</span>
+            <button class="zr-btn zr-btn--ghost zr-btn--icon" type="button" data-skip-close aria-label="Close">
+                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
+            </button>
+        </div>
+        <div class="zr-dialog__body zr-col">
+            <p class="zr-sm">Pick what should keep documents like this one away from OCR and AI. The rules are built from this document; adjust them before saving.</p>
+            <p class="zr-sm" id="skipDialogLoading">
+                <svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                Reading the document from Paperless-ngx…
+            </p>
+            <p class="zr-sm zr-danger-text hidden" id="skipDialogError"></p>
+            <div class="zr-col hidden" id="skipDialogForm">
+                <dl class="history-skip__facts">
+                    <div><dt>Document</dt><dd id="skipFactDocument"></dd></div>
+                    <div><dt>Pages</dt><dd id="skipFactPages"></dd></div>
+                    <div><dt>File</dt><dd class="zr-mono" id="skipFactFile"></dd></div>
+                    <div><dt>Correspondent</dt><dd id="skipFactCorrespondent"></dd></div>
+                </dl>
+
+                <div class="history-skip__rule">
+                    <input type="checkbox" class="zr-check" id="skipRuleDocument" checked disabled>
+                    <div class="zr-col zr-col--tight zr-grow">
+                        <label for="skipRuleDocument" class="history-skip__name">This document</label>
+                        <p class="zr-sm">Goes on the ignored list. Always part of a skip.</p>
+                    </div>
+                </div>
+
+                <div class="history-skip__rule">
+                    <input type="checkbox" class="zr-check" id="skipRuleText">
+                    <div class="zr-col zr-col--tight zr-grow">
+                        <label for="skipRuleText" class="history-skip__name">Copies with the same text</label>
+                        <p class="zr-sm" id="skipRuleTextHint"></p>
+                    </div>
+                </div>
+
+                <div class="history-skip__rule">
+                    <input type="checkbox" class="zr-check" id="skipRuleTitle">
+                    <div class="zr-col zr-col--tight zr-grow">
+                        <label for="skipRuleTitle" class="history-skip__name">Title or file name contains</label>
+                        <input type="text" class="zr-input" id="skipTitlePattern" aria-label="Title part" maxlength="200">
+                        <div class="zr-row zr-row--wrap zr-sm hidden" id="skipTitleSuggestions">
+                            <span>Other suggestions:</span>
+                        </div>
+                        <p class="zr-sm" id="skipRuleTitleHint"></p>
+                    </div>
+                </div>
+
+                <div class="history-skip__rule hidden" id="skipRulePagesTile">
+                    <input type="checkbox" class="zr-check" id="skipRulePages">
+                    <div class="zr-col zr-col--tight zr-grow">
+                        <label for="skipRulePages" class="history-skip__name">Page limit for every document</label>
+                        <div class="zr-row zr-sm">
+                            <span>Skip anything over</span>
+                            <input type="number" class="zr-input history-skip__pages" id="skipPageLimit" min="1" step="1" aria-label="Page limit">
+                            <span>pages</span>
+                        </div>
+                        <p class="zr-sm" id="skipRulePagesHint"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="zr-dialog__foot">
+            <span class="zr-grow zr-sm zr-faint">Title and page rules are saved to <a href="/settings#skip-rules">Settings › Skip rules</a>.</span>
+            <button type="button" class="zr-btn" data-skip-close>Cancel</button>
+            <button type="button" class="zr-btn zr-btn--primary" id="skipDialogConfirm" disabled>Skip document</button>
+        </div>
+    </dialog>
+
     <%- include('partials/ocr-progress-overlay') %>
 
     <!-- Classic script: history.js is a module and can read the global it sets,

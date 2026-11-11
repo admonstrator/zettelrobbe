@@ -262,7 +262,7 @@ async function main() {
       const record = fake.last();
       const body = record.body;
       assert.strictEqual(record.path, '/v1/messages');
-      assert.strictEqual(record.headers['x-api-key'], 'sk-ant-test');
+      assert.strictEqual(record.headers.authorization, 'Bearer sk-ant-test');
       assert.ok(record.headers['anthropic-version'], 'the SDK sends a version');
       assert.strictEqual(body.model, 'claude-haiku-5-5', 'the default model');
       assert.strictEqual(body.max_tokens, 16000, 'ANTHROPIC_MAX_TOKENS');
