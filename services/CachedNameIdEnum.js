@@ -4,15 +4,11 @@ class CachedNameIdEnum {
   constructor(
     element_type_name,
     url_prefix,
-    similarity_prompt,
     cache_ttl_access,
-    ai_service,
     page_size = 100
   ) {
-    this.ai_service = ai_service;
     this.element_type_name = element_type_name;
     this.url_prefix = url_prefix;
-    this.similarity_prompt = similarity_prompt;
     this.cache_ttl_access = cache_ttl_access;
     // Asked for on every page request. DRF clamps to its own max_page_size
     // rather than rejecting, so a server that allows less simply pages more.
@@ -152,57 +148,6 @@ class CachedNameIdEnum {
     return null;
   }
 
-  async _findSemanticMatch(name) {
-    let selectPrompt =
-      `These ${this.element_type_name}s are known: ` +
-      `${this.element_list.map((e) => `${e.name} (ID: ${e.id})`).join(', ')}. ` +
-      `Is ${name} contained in this list? ${this.similarity_prompt}`;
-
-    const format = {
-      type: 'object',
-      properties: {
-        match: {
-          type: ['object', 'null'],
-          properties: {
-            id: { type: 'number' },
-            name: { type: 'string' },
-          },
-          required: ['id', 'name'],
-        },
-      },
-      required: ['match'],
-    };
-    try {
-      let aiResult = await this.ai_service.generateAnswer(
-        selectPrompt,
-        undefined,
-        300,
-        format
-      );
-      console.debug(`[DEBUG] AI result: ${aiResult}`);
-      let parsedResult =
-        typeof aiResult === 'string' ? JSON.parse(aiResult) : aiResult;
-      if (!parsedResult.match) {
-        console.debug(
-          `[DEBUG] No ${this.element_type_name} found similar to "${name}"`
-        );
-        return null;
-      }
-      const matchedElement = parsedResult.match;
-      console.debug(
-        `[DEBUG] Found similar match for ${this.element_type_name} "${name}": "${matchedElement.name}" with ID ${matchedElement.id}`
-      );
-      return this._result_element_from_element(matchedElement);
-    } catch (error) {
-      console.error(
-        '[ERROR] while searching for existing correspondent:',
-        error.message
-      );
-    }
-
-    return null;
-  }
-
   async _findMatchByFilter(name, filter, filterName) {
     let elementResultList = await this.element_list.filter(filter);
     if (elementResultList.length === 0) {
@@ -268,18 +213,14 @@ class CachedNameIdEnum {
     );
   }
 
+  // Text matchers only. Mapping a name onto an existing entity by model
+  // judgement is Tidy up's job, where a person accepts or declines it.
   async _findSimilar(name) {
-    // Todo: implement methods to find similar element by matching with single word permutations and with something
-    //  like hemming distance before asking ai to spare tokens
-    let match = await this._findSubString(name);
+    const match = await this._findSubString(name);
     if (match) {
       return match;
     }
-    match = await this._findByTermMatch(name);
-    if (match) {
-      return match;
-    }
-    return this._findSemanticMatch(name);
+    return this._findByTermMatch(name);
   }
 
   _checkClient(client) {

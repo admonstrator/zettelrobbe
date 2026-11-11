@@ -105,17 +105,6 @@ async function main() {
     paperlessService.correspondentNameCache.clear();
     paperlessService.lastCorrespondentRefresh = 0;
     paperlessService._invalidateGuardEntities();
-    // The lookup caches (CachedNameIdEnum) ask the AI provider about a name
-    // they cannot match by text. Offline that answer is "no match", so the
-    // guard is what decides.
-    for (const cache of [
-      paperlessService.tags,
-      paperlessService.correspondents,
-    ]) {
-      cache.ai_service = {
-        generateAnswer: async () => JSON.stringify({ match: null }),
-      };
-    }
     return fake;
   }
 

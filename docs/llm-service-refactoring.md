@@ -27,13 +27,13 @@ gone on both sides.
 
 ### Against the goals of the refactoring
 
-| Goal                                          | Now                                                                                                                                                                      |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Business logic once                           | Partly. Once for the OpenAI family; prompt and parser shared with Anthropic. Ollama builds its prompt (`CUSTOM_FIELDS` block three times), parses and shapes on its own. |
-| A new provider is one adapter                 | For an OpenAI-compatible API: one profile plus an `aiProviderRules` entry. Any other API: a whole service.                                                               |
-| Seams testable without `require.cache` tricks | No. Tests assign `service.client` or talk to fake servers (`tests/helpers/fake-openai.js`, `fake-ollama.js`, `fake-anthropic.js`).                                       |
-| Consistent errors and result shape            | For the OpenAI family and Anthropic. Ollama since `2ac678f` for refusals, broken answers and empty payloads; see the table below for the rest.                           |
-| Delegation over inheritance                   | Yes, no `extends`.                                                                                                                                                       |
+| Goal                                          | Now                                                                                                                                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Business logic once                           | Partly. Once for the OpenAI family; prompt and parser shared with Anthropic. Ollama shares the parser and the `CUSTOM_FIELDS` block, but builds its prompt and shapes its result on its own. |
+| A new provider is one adapter                 | For an OpenAI-compatible API: one profile plus an `aiProviderRules` entry. Any other API: a whole service.                                                                                   |
+| Seams testable without `require.cache` tricks | No. Tests assign `service.client` or talk to fake servers (`tests/helpers/fake-openai.js`, `fake-ollama.js`, `fake-anthropic.js`).                                                           |
+| Consistent errors and result shape            | For the OpenAI family and Anthropic. Ollama since `2ac678f` for refusals, broken answers and empty payloads; see the table below for the rest.                                               |
+| Delegation over inheritance                   | Yes, no `extends`.                                                                                                                                                                           |
 
 ## The contracts every provider has to honour
 
@@ -95,42 +95,36 @@ reports the backend's own error body (`_wrapOllamaRequestError()`, `:817`); guar
 
 ## Where the providers still differ
 
-Rows from the plan's Finding 7, against the code after `2ac678f`.
+Rows from the plan's Finding 7, against the code after `c7b45e7`.
 
-| #   | Topic                                                  | OpenAI family                               | Anthropic                               | Ollama                                                                          |
-| --- | ------------------------------------------------------ | ------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------- |
-| a   | Temperature follows the configuration                  | yes, where `aiProviderRules` allows it      | never sent                              | yes, where `aiProviderRules` allows it                                          |
-| b/j | Thumbnail caching is best effort                       | yes (`thumbnailCache.js`)                   | own copy, best effort                   | yes (`thumbnailCache.js`)                                                       |
-| c   | A refusal is insufficient content                      | yes (`isRefusalAnswer()`)                   | `stop_reason: "refusal"` → `ai_refused` | yes, since `2ac678f`                                                            |
-| d   | JSON parser                                            | `parseAnalysisAnswer()` (brace matcher)     | `parseAnalysisAnswer()`                 | **own**: greedy `\{[\s\S]*\}` plus a sanitizer                                  |
-| e   | Timeouts normalised (`isTimeoutError()`)               | yes                                         | yes                                     | **no** — the axios message passes through                                       |
-| i   | Thumbnail cached inside `analyzeDocument()`            | yes                                         | yes                                     | yes                                                                             |
-| k   | A broken answer (no tag list, odd correspondent) fails | yes                                         | yes                                     | yes, since `2ac678f`                                                            |
-| l   | An empty payload carries an OCR marker                 | yes                                         | yes                                     | yes, since `2ac678f`; `generateText()` keeps "Invalid response from Ollama API" |
-| m   | "socket hang up" counts as a timeout                   | **yes** — via `isTimeoutError()`, undecided | **yes**, undecided                      | no (row e)                                                                      |
+| #   | Topic                                                  | OpenAI family                           | Anthropic                               | Ollama                                                                           |
+| --- | ------------------------------------------------------ | --------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------- |
+| a   | Temperature follows the configuration                  | yes, where `aiProviderRules` allows it  | never sent                              | yes, where `aiProviderRules` allows it                                           |
+| b/j | Thumbnail caching is best effort                       | yes (`thumbnailCache.js`)               | own copy, best effort                   | yes (`thumbnailCache.js`)                                                        |
+| c   | A refusal is insufficient content                      | yes (`isRefusalAnswer()`)               | `stop_reason: "refusal"` → `ai_refused` | yes, since `2ac678f`                                                             |
+| d   | JSON parser                                            | `parseAnalysisAnswer()` (brace matcher) | `parseAnalysisAnswer()`                 | `parseAnalysisAnswer()` since `c7b45e7`; the old regex and sanitizer as fallback |
+| e   | Timeouts normalised (`isTimeoutError()`)               | yes                                     | yes                                     | yes, since `98b26c5`                                                             |
+| i   | Thumbnail cached inside `analyzeDocument()`            | yes                                     | yes                                     | yes                                                                              |
+| k   | A broken answer (no tag list, odd correspondent) fails | yes                                     | yes                                     | yes, since `2ac678f`                                                             |
+| l   | An empty payload carries an OCR marker                 | yes                                     | yes                                     | yes, since `2ac678f`; `generateText()` keeps "Invalid response from Ollama API"  |
+| m   | "socket hang up" counts as a timeout                   | no, since `98b26c5`                     | no, since `98b26c5`                     | no; retried once (`ollama-upstream-error`)                                       |
 
 An answer that found nothing — no tags and no correspondent — is a success on every provider; row
 k is about the answer's structure, not its content.
 
 ## Follow-ups
 
-- **Ollama onto `analysisPrompt.js`** (rows d, and the triple `CUSTOM_FIELDS` block): the last
-  provider with its own prompt and parser. Check first that the prompt stays byte-identical where
-  it should, or record the difference; `ollama-response-limit` and `ollama-token-metrics` pin the
-  arithmetic around it.
-- **Ollama timeouts** (row e) and **"socket hang up"** (row m): decide whether a dropped
-  connection is a timeout, then apply the same rule to all providers. Ollama already retries it
-  once (`ollama-upstream-error`).
+Done since the merge: Ollama reads answers with `parseAnalysisAnswer()` and builds its
+`CUSTOM_FIELDS` block once (`c7b45e7`, row d); a dropped connection is no longer a timeout, and
+Ollama normalises timeouts like the rest (`98b26c5`, rows e and m); `CachedNameIdEnum` lost its AI
+tier, which called a `generateAnswer()` no provider ever had, so lookups were text-only all along
+and still are.
+
 - **A phrase guard for every provider**: what `llm-ocr-fallback-phrases` did — every message an
   `analyzeDocument()` can return checked against the OCR markers — now exists only for Ollama
   (`ollama-analysis-contract`).
 - **Thumbnail caching inside `analyzeDocument()`** (row i): the thumbnail never enters the prompt.
   One `cacheThumbnail(id)` call per provider now, so hoisting it to the caller is small.
-- **`CachedNameIdEnum` calls a method no provider has**: `_findSemanticMatch()`
-  (`services/CachedNameIdEnum.js:176`) calls `ai_service.generateAnswer()`, which exists only in
-  test stubs. The call throws, is caught and returns "no match", so tag, correspondent and document
-  type lookup falls back to its text matchers. Point it at `generateText(prompt, options)` (one AI
-  call per unmatched name) or drop the AI tier.
 - **Relocating tests into `tests/services/`** needs `findUnregisteredTests()` in
   `scripts/run-tests.js` to read `tests/` recursively first, or moved tests silently leave the CI
   guard.

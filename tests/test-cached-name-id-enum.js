@@ -1,17 +1,8 @@
 const assert = require('assert');
 const { CachedNameIdEnum } = require('../services/CachedNameIdEnum');
 
-function createEnum(
-  aiService = { generateAnswer: async () => JSON.stringify({ match: null }) },
-  cacheTtl = () => 0
-) {
-  return new CachedNameIdEnum(
-    'correspondent',
-    '/correspondents/',
-    'Use the closest match.',
-    cacheTtl,
-    aiService
-  );
+function createEnum(cacheTtl = () => 0) {
+  return new CachedNameIdEnum('correspondent', '/correspondents/', cacheTtl);
 }
 
 function createClient(pages) {
@@ -80,20 +71,17 @@ async function run() {
   assert.strictEqual(await exactEnum.getByName(exactClient, 'Unknown'), null);
   assert.strictEqual(await exactEnum.getById(exactClient, 'missing'), null);
 
-  const similarityEnum = createEnum({
-    generateAnswer: async () =>
-      JSON.stringify({
-        match: { id: '42', name: 'Acme Corporation' },
-      }),
-  });
-  const similarityClient = createClient([
-    [{ id: '42', name: 'Acme Corporation' }],
-  ]);
-  assert.deepStrictEqual(
-    await similarityEnum.getByName(similarityClient, 'The Acme business'),
-    { id: '42', name: 'Acme Corporation' },
-    'semantic matches must unwrap the match property from the AI response'
+  // A near name that no text matcher catches stays unmatched. The enum has
+  // no AI tier: it never had a provider method to call, and mapping names
+  // onto existing entities by model judgement is Tidy up's job.
+  const nearEnum = createEnum();
+  const nearClient = createClient([[{ id: 42, name: 'Acme Corporation' }]]);
+  assert.strictEqual(
+    await nearEnum.getByName(nearClient, 'The Acme business'),
+    null
   );
+  assert.strictEqual(nearEnum.ai_service, undefined);
+  assert.strictEqual(typeof nearEnum._findSemanticMatch, 'undefined');
 
   const missEnum = createEnum();
   const missClient = createClient([
@@ -147,48 +135,16 @@ async function run() {
   assert.strictEqual(await zeroIdEnum.getById(zeroIdClient, 0), null);
   assert.strictEqual(zeroIdClient.getCalls().length, 0);
 
-  const semanticCalls = [];
-  const semanticObjectEnum = createEnum({
-    generateAnswer: async (...args) => {
-      semanticCalls.push(args);
-      return { match: { id: 42, name: 'Acme Corporation' } };
-    },
-  });
-  const semanticObjectClient = createClient([
+  const substringEnum = createEnum();
+  const substringClient = createClient([
     [{ id: 42, name: 'Acme Corporation' }],
   ]);
   assert.deepStrictEqual(
-    await semanticObjectEnum.getByName(
-      semanticObjectClient,
-      'Completely different'
-    ),
-    { id: 42, name: 'Acme Corporation' }
-  );
-  assert.strictEqual(semanticCalls.length, 1);
-  assert.match(semanticCalls[0][0], /Acme Corporation \(ID: 42\)/);
-  assert.strictEqual(semanticCalls[0][2], 300);
-  assert.deepStrictEqual(semanticCalls[0][3], {
-    type: 'object',
-    properties: {
-      match: {
-        type: ['object', 'null'],
-        properties: { id: { type: 'number' }, name: { type: 'string' } },
-        required: ['id', 'name'],
-      },
-    },
-    required: ['match'],
-  });
-
-  const failingAiEnum = createEnum({
-    generateAnswer: async () => {
-      throw new Error('AI unavailable');
-    },
-  });
-  const failingAiClient = createClient([[{ id: 1, name: 'Acme' }]]);
-  assert.strictEqual(
-    await failingAiEnum.getByName(failingAiClient, 'No such correspondent'),
-    null,
-    'AI errors should be treated as a similarity miss'
+    await substringEnum.getByName(substringClient, 'Acme'),
+    {
+      id: 42,
+      name: 'Acme Corporation',
+    }
   );
 
   const refreshEnum = createEnum();
@@ -213,7 +169,7 @@ async function run() {
   assert.strictEqual(refreshCalls.length, 1);
   assert.strictEqual(await refreshEnum.getCount(refreshClient), 1);
 
-  const expiringEnum = createEnum(undefined, () => 1);
+  const expiringEnum = createEnum(() => 1);
   let expiringFetchNo = 0;
   const expiringCalls = [];
   const expiringClient = {

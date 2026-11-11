@@ -248,17 +248,10 @@ class PaperlessService {
 
   get correspondents() {
     if (this._correspondents === null) {
-      const aiServiceFactory = require('./aiServiceFactory');
-      const aiService = aiServiceFactory.getService();
       this._correspondents = new CachedNameIdEnum(
         'correspondent',
         '/correspondents/',
-        'Ignore case and consider typos, misspellings, and alternative spellings, misplaced Address data, seasonal ads,' +
-          'abbreviations of organization form etc.. ',
-        () => {
-          return this.CACHE_LIFETIME;
-        },
-        aiService
+        () => this.CACHE_LIFETIME
       );
     }
     return this._correspondents;
@@ -266,17 +259,10 @@ class PaperlessService {
 
   get documentTypes() {
     if (this._documentTypes === null) {
-      const aiServiceFactory = require('./aiServiceFactory');
-      const aiService = aiServiceFactory.getService();
       this._documentTypes = new CachedNameIdEnum(
         'document_type',
         '/document_types/',
-        'Ignore case. Ignore special characters. consider typos, misspellings, alternative spellings, ' +
-          'same words in a different language. Especially check if it is a synonyme for a existing document type',
-        () => {
-          return this.CACHE_LIFETIME;
-        },
-        aiService
+        () => this.CACHE_LIFETIME
       );
     }
     return this._documentTypes;
@@ -288,17 +274,10 @@ class PaperlessService {
   // 25 per page once stalled startup for a minute (54 sequential requests).
   get tags() {
     if (this._tags === null) {
-      const aiServiceFactory = require('./aiServiceFactory');
-      const aiService = aiServiceFactory.getService();
       this._tags = new CachedNameIdEnum(
         'tag',
         '/tags/',
-        'Ignore case and consider typos, misspellings, singular vs plural forms, ' +
-          'abbreviations and compound words. Only match a tag that clearly means the same thing',
-        () => {
-          return this.CACHE_LIFETIME;
-        },
-        aiService,
+        () => this.CACHE_LIFETIME,
         TAG_PAGE_SIZE
       );
     }
@@ -794,9 +773,9 @@ class PaperlessService {
     if (!tagName || typeof tagName !== 'string') {
       return null;
     }
-    // Delegates to the enum: exact match first, then substring/term/AI
-    // similarity so a near-duplicate name resolves to the existing tag
-    // instead of creating one.
+    // Delegates to the enum: exact match first, then substring and
+    // all-terms matching so a near-duplicate name resolves to the existing
+    // tag instead of creating one.
     return this.tags.getByName(this.client, tagName);
   }
 

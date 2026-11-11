@@ -101,9 +101,6 @@ function createTagServer({ existing = [], failCreateFor = [] } = {}) {
  */
 function resetTagCache() {
   paperlessService._tags = null;
-  paperlessService.tags.ai_service = {
-    generateAnswer: async () => JSON.stringify({ match: null }),
-  };
 }
 
 async function withServer(server, fn) {
