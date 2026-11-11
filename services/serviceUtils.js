@@ -940,6 +940,48 @@ function assertCompletionNotTruncated(response, provider, remedy, extra) {
   throw error;
 }
 
+/** What a model writes when it declines a document instead of analysing it. */
+const REFUSAL_MARKERS = ["i'm sorry", 'i cannot', 'insufficient'];
+
+/**
+ * True when an analysis answer that did not parse is the model declining
+ * the document. Only consulted after the answer failed to parse: a JSON
+ * answer that mentions "insufficient" somewhere is still an answer.
+ *
+ * @param {unknown} answer - The raw answer text
+ * @returns {boolean}
+ */
+function isRefusalAnswer(answer) {
+  const lowered = String(answer ?? '').toLowerCase();
+  return REFUSAL_MARKERS.some((marker) => lowered.includes(marker));
+}
+
+/**
+ * The analysis result for a document the model declined. A default
+ * structure rather than a throw, so the scan loop does not retry it, with
+ * the error the OCR fallback files as `ai_insufficient_content`. Shared by
+ * every provider that detects a refusal, so they answer identically.
+ *
+ * @param {string|number} id - Paperless-ngx document ID
+ * @param {{promptTokens:number, completionTokens:number, totalTokens:number}|null} metrics
+ * @returns {Object}
+ */
+function insufficientContentResult(id, metrics) {
+  return {
+    document: {
+      tags: [],
+      correspondent: 'Unknown',
+      title: `Document ${id}`,
+      document_date: new Date().toISOString().split('T')[0],
+      document_type: 'Document',
+      language: 'und',
+    },
+    metrics,
+    truncated: false,
+    error: 'Insufficient content for AI analysis',
+  };
+}
+
 /**
  * Decide whether an AI error should trigger OCR queue fallback.
  *
@@ -1222,6 +1264,8 @@ module.exports = {
   createRedirectGuard,
   validateCustomFieldValue,
   assertCompletionNotTruncated,
+  isRefusalAnswer,
+  insufficientContentResult,
   shouldQueueForOcrOnAiError,
   classifyOcrQueueReasonFromAiError,
   extractChatMessageContent,

@@ -68,6 +68,7 @@ const TESTS = {
   'pr772-fix': 'test-pr772-fix.js',
   'ollama-response-limit': 'test-ollama-response-limit.js',
   'ollama-upstream-error': 'test-ollama-upstream-error.js',
+  'ollama-analysis-contract': 'test-ollama-analysis-contract.js',
   'predefined-retrigger': 'test-predefined-retrigger.js',
   'response-truncation-detection': 'test-response-truncation-detection.js',
   'ollama-temperature-wiring': 'test-ollama-temperature-wiring.js',
@@ -343,7 +344,7 @@ const AREAS = {
   'tidy-up': ['tidy-up-contract', 'tidy-up-run', 'tidy-up-endpoints'],
   'tidy-up-ui': ['tidy-up-ui'],
   'tidy-up-failures': ['model-failure', 'tidy-up-wording'],
-  providers: ['openai-compatible-service'],
+  providers: ['openai-compatible-service', 'ollama-analysis-contract'],
   anthropic: [
     'anthropic-support',
     'anthropic-provider',

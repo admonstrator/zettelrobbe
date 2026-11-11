@@ -1,4 +1,9 @@
-const { writePromptToFile, toNameList } = require('./serviceUtils');
+const {
+  writePromptToFile,
+  toNameList,
+  isRefusalAnswer,
+  insufficientContentResult,
+} = require('./serviceUtils');
 const {
   abortSignal,
   abortedGenerationError,
@@ -259,7 +264,24 @@ class OllamaService {
       );
 
       // Process response
-      const parsedResponse = this._processOllamaResponse(response);
+      let parsedResponse;
+      try {
+        parsedResponse = this._processOllamaResponse(response);
+      } catch (error) {
+        // A model that declines the document instead of answering, as the
+        // OpenAI-compatible providers detect it.
+        if (
+          typeof response?.response === 'string' &&
+          isRefusalAnswer(response.response)
+        ) {
+          console.warn(`Document ${id} has insufficient content for analysis`);
+          return insufficientContentResult(
+            id,
+            this._extractOllamaMetrics(response)
+          );
+        }
+        throw error;
+      }
       const metrics = this._extractOllamaMetrics(response);
 
       // Check for missing data
@@ -733,7 +755,11 @@ class OllamaService {
     }
 
     if (!response?.data) {
-      throw new Error('Invalid response from Ollama API');
+      // Carries the marker the OCR fallback recognises, as the
+      // OpenAI-compatible providers' empty answers do.
+      throw new Error(
+        'Invalid API response structure: Ollama sent an empty response'
+      );
     }
 
     this._assertNotTruncated(response.data, numPredict, numCtx);
@@ -875,24 +901,47 @@ class OllamaService {
     if (responseData.response && typeof responseData.response === 'object') {
       // We got a structured response directly
       console.log('Using structured output response');
-      return {
-        tags: Array.isArray(responseData.response.tags)
-          ? responseData.response.tags
-          : [],
-        correspondent: responseData.response.correspondent || null,
-        title: responseData.response.title || null,
-        document_date: responseData.response.document_date || null,
-        document_type: responseData.response.document_type || null,
-        language: responseData.response.language || null,
-        custom_fields: responseData.response.custom_fields || null,
-      };
+      return this._toAnalysisDocument(responseData.response);
     } else if (responseData.response) {
       // Fall back to parsing from text response
       console.log('Falling back to text response parsing');
       return this._parseResponse(responseData.response);
     } else {
-      throw new Error('No response data from Ollama API');
+      throw new Error('Invalid API response structure: Ollama sent no answer');
     }
+  }
+
+  /**
+   * The parsed answer as the document the scan loop writes back. An answer
+   * without a tag list or with a correspondent that is neither a name nor
+   * null fails, with the message the OCR fallback recognises — the check the
+   * OpenAI-compatible providers and Anthropic run. Without it the defaults
+   * below papered over a broken answer and it counted as a success. An
+   * answer that found nothing (no tags, no correspondent) is still one.
+   *
+   * @param {Object} parsed - The answer object, structured or parsed
+   * @returns {Object} Every document field, null where the answer had none
+   */
+  _toAnalysisDocument(parsed) {
+    if (
+      !parsed ||
+      !Array.isArray(parsed.tags) ||
+      (typeof parsed.correspondent !== 'string' &&
+        parsed.correspondent !== null)
+    ) {
+      throw new Error(
+        'AI could not determine assignable metadata: no tags or correspondent found'
+      );
+    }
+    return {
+      tags: parsed.tags,
+      correspondent: parsed.correspondent || null,
+      title: parsed.title || null,
+      document_date: parsed.document_date || null,
+      document_type: parsed.document_type || null,
+      language: parsed.language || null,
+      custom_fields: parsed.custom_fields || null,
+    };
   }
 
   /**
@@ -939,20 +988,11 @@ class OllamaService {
       let jsonStr = jsonMatch[0];
       console.log('Extracted JSON String:', jsonStr);
 
+      // Parsed first, checked after: a broken answer must not be mistaken
+      // for broken JSON and sent through the sanitizer.
+      let result;
       try {
-        // Attempt to parse the JSON
-        const result = JSON.parse(jsonStr);
-
-        // Validate and return the result
-        return {
-          tags: Array.isArray(result.tags) ? result.tags : [],
-          correspondent: result.correspondent || null,
-          title: result.title || null,
-          document_date: result.document_date || null,
-          document_type: result.document_type || null,
-          language: result.language || null,
-          custom_fields: result.custom_fields || null,
-        };
+        result = JSON.parse(jsonStr);
       } catch (jsonError) {
         console.warn('Error parsing JSON from response:', jsonError.message);
         console.warn('Attempting to sanitize the JSON...');
@@ -961,16 +1001,7 @@ class OllamaService {
         jsonStr = this._sanitizeJsonString(jsonStr);
 
         try {
-          const sanitizedResult = JSON.parse(jsonStr);
-          return {
-            tags: Array.isArray(sanitizedResult.tags)
-              ? sanitizedResult.tags
-              : [],
-            correspondent: sanitizedResult.correspondent || null,
-            title: sanitizedResult.title || null,
-            document_date: sanitizedResult.document_date || null,
-            language: sanitizedResult.language || null,
-          };
+          result = JSON.parse(jsonStr);
         } catch {
           console.error(
             'Final JSON parsing failed after sanitization. This happens when the JSON structure is too complex or invalid. That indicates an issue with the generated JSON string by Ollama. Switch to OpenAI for better results or fine tune your prompt.'
@@ -980,6 +1011,8 @@ class OllamaService {
           );
         }
       }
+
+      return this._toAnalysisDocument(result);
     } catch (error) {
       console.error('Error parsing Ollama response:', error.message);
       throw error;

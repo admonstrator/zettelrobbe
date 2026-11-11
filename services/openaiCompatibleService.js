@@ -41,6 +41,8 @@ const {
   assertCompletionNotTruncated,
   isTimeoutError,
   buildTimeoutErrorMessage,
+  isRefusalAnswer,
+  insufficientContentResult,
 } = require('./serviceUtils');
 const {
   abortSignal,
@@ -214,9 +216,6 @@ const PROFILES = Object.freeze({
     },
   },
 });
-
-/** Words a model answers with when it declines a document instead of JSON. */
-const REFUSAL_MARKERS = ["i'm sorry", 'i cannot', 'insufficient'];
 
 class OpenAICompatibleService {
   /**
@@ -440,22 +439,9 @@ class OpenAICompatibleService {
         // A model that declines the document instead of answering: a
         // default structure rather than a throw, so the scan loop does not
         // retry it, with the error the OCR fallback recognises.
-        const lowered = String(jsonContent).toLowerCase();
-        if (REFUSAL_MARKERS.some((marker) => lowered.includes(marker))) {
+        if (isRefusalAnswer(jsonContent)) {
           console.warn(`Document ${id} has insufficient content for analysis`);
-          return {
-            document: {
-              tags: [],
-              correspondent: 'Unknown',
-              title: `Document ${id}`,
-              document_date: new Date().toISOString().split('T')[0],
-              document_type: 'Document',
-              language: 'und',
-            },
-            metrics: mappedUsage,
-            truncated: false,
-            error: 'Insufficient content for AI analysis',
-          };
+          return insufficientContentResult(id, mappedUsage);
         }
         throw error;
       }
