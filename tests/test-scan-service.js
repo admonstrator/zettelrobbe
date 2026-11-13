@@ -15,7 +15,6 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
@@ -36,7 +35,11 @@ const modulePaths = {
   scanHealthService: require.resolve('../services/scanHealthService'),
   dashboardStatsService: require.resolve('../services/dashboardStatsService'),
 };
-const underTest = [path.join(ROOT, 'services', 'documentPipeline.js')];
+const SCAN_SERVICE = path.join(ROOT, 'services', 'scanService.js');
+const underTest = [
+  path.join(ROOT, 'services', 'documentPipeline.js'),
+  SCAN_SERVICE,
+];
 
 let passed = 0;
 let failed = 0;
@@ -77,45 +80,12 @@ function show(value) {
 }
 
 /**
- * The scan as server.js defines it. Built from the source text with its
- * collaborators handed in, the way server.js would have required them.
+ * services/scanService.js, loaded fresh on top of the fakes of the current
+ * world (it reads MIN_CONTENT_LENGTH when it is loaded, as at boot).
  */
 function loadScan() {
-  const source = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
-  const cut = (startMarker, endMarker) => {
-    const start = source.indexOf(startMarker);
-    const end = source.indexOf(endMarker, start);
-    assert.ok(start > -1 && end > start, `server.js: ${startMarker}`);
-    return source.slice(start, end);
-  };
-  const levers = cut(
-    'function requestScanStop()',
-    'scanControlService.register('
-  );
-  const loop = cut('async function scanDocuments(', '\n// Routes\n');
-  const config = require(modulePaths.config);
-  const scanHealthService = require(modulePaths.scanHealthService);
-  const deps = {
-    config,
-    paperlessService: require(modulePaths.paperlessService),
-    documentModel: require(modulePaths.documentModel),
-    ocrAutoProcessService: require(modulePaths.ocrAutoProcessService),
-    duplicateReviewJobService: require(modulePaths.duplicateReviewJobService),
-    duplicateMergeService: require(modulePaths.duplicateMergeService),
-    scanHealthService,
-    dashboardStatsService: require(modulePaths.dashboardStatsService),
-    documentProcessingService: require(modulePaths.documentProcessingService),
-    documentPipeline: require('../services/documentPipeline'),
-    scanControl: require('../services/scanControl').getState(),
-    RUN_STATUS: scanHealthService.RUN_STATUS,
-    MIN_CONTENT_LENGTH: config.minContentLength,
-  };
-  const build = new Function(
-    'deps',
-    `const { ${Object.keys(deps).join(', ')} } = deps;\n${levers}\n${loop}\n` +
-      'return { scanDocuments, triggerScanNow, requestScanStop };'
-  );
-  return build(deps);
+  delete require.cache[SCAN_SERVICE];
+  return require(SCAN_SERVICE);
 }
 
 /**

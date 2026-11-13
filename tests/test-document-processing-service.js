@@ -321,7 +321,7 @@ async function main() {
 
   await test('scan loop, queue and OCR call the shared write-back', async () => {
     const files = [
-      'server.js',
+      path.join('services', 'scanService.js'),
       path.join('services', 'webhookQueueService.js'),
       path.join('services', 'mistralOcrService.js'),
     ];

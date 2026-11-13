@@ -20,14 +20,11 @@ const {
 } = require('./services/sessionCookie');
 const mistralOcrService = require('./services/mistralOcrService');
 const ocrAutoProcessService = require('./services/ocrAutoProcessService');
-const duplicateReviewJobService = require('./services/duplicateReviewJobService');
-const duplicateMergeService = require('./services/duplicateMergeService');
 const reconciliationService = require('./services/reconciliationService');
 const scanHealthService = require('./services/scanHealthService');
 const dashboardStatsService = require('./services/dashboardStatsService');
-const documentProcessingService = require('./services/documentProcessingService');
-const documentPipeline = require('./services/documentPipeline');
 const scanControlService = require('./services/scanControl');
+const scanService = require('./services/scanService');
 const { RUN_STATUS } = scanHealthService;
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -63,76 +60,16 @@ const app = express();
 // DataTables server-side processing. Restore the Express 4 "extended" (qs)
 // parser so req.query.order/columns are objects again and table sorting works.
 app.set('query parser', 'extended');
-// The one scan state, owned by services/scanControl.js: the loop below writes
-// to it, routes and services read it from there.
+// The one scan state, owned by services/scanControl.js: the scan run in
+// services/scanService.js writes to it, the cron jobs below read it.
 const scanControl = scanControlService.getState();
 
-function requestScanStop() {
-  if (!scanControl.running) {
-    return false;
-  }
-
-  scanControl.stopRequested = true;
-  scanControl.stopRequestedAt = new Date().toISOString();
-  return true;
-}
-
-async function triggerScanNow(source = 'manual') {
-  if (scanControl.running) {
-    return {
-      started: false,
-      running: true,
-      stopRequested: scanControl.stopRequested,
-      message: 'Scan is already running.',
-    };
-  }
-
-  // The OCR drain works on the same documents through the same AI backend.
-  // Letting a scan start next to it is what bought a second paid OCR run for a
-  // document the drain had just finished (issue #322).
-  if (ocrAutoProcessService.running) {
-    return {
-      started: false,
-      running: false,
-      message: 'OCR auto-processing is currently running.',
-    };
-  }
-
-  // The Duplicates and Simplify pages write tags too; the scan loop itself
-  // stands down for them, and the button is told why nothing started.
-  if (duplicateReviewJobService.isRunning()) {
-    return {
-      started: false,
-      running: false,
-      message:
-        'A Duplicates or Simplify job is running. Try again when it has finished.',
-    };
-  }
-  if (duplicateMergeService.isWriting()) {
-    return {
-      started: false,
-      running: false,
-      message:
-        'A merge, undo or delete is being written. Try again in a moment.',
-    };
-  }
-
-  scanDocuments(source).catch((error) => {
-    console.error(
-      `[ERROR] scanDocuments() failed in triggerScanNow: ${error.message}`
-    );
-    console.debug(error);
-  });
-
-  return {
-    started: true,
-    running: true,
-    stopRequested: false,
-    message: 'Scan started.',
-  };
-}
-
-scanControlService.register({ triggerScanNow, requestScanStop });
+// The scan itself lives in services/scanService.js; the routes reach its two
+// levers through services/scanControl.js.
+scanControlService.register({
+  triggerScanNow: (source) => scanService.triggerScanNow(source),
+  requestScanStop: () => scanService.requestScanStop(),
+});
 
 function persistJwtSecret(secret) {
   const runtimeDataDir = path.join(process.cwd(), 'data');
@@ -230,10 +167,6 @@ if (trustProxy !== false) {
 // The CSRF cookie is configured once, without a request: Secure follows
 // COOKIE_SECURE_MODE, and in auto mode NODE_ENV=production.
 const csrfCookieSecure = shouldUseSecureCookies();
-
-// Minimum content length, read once at boot: MIN_CONTENT_LENGTH restarts the
-// server when it is saved (services/settingsCatalog.js).
-const MIN_CONTENT_LENGTH = config.minContentLength;
 
 const corsOptions = {
   origin: true,
@@ -610,216 +543,6 @@ async function saveOpenApiSpec() {
   }
 }
 
-// Main scanning function
-// The initial scan runs through here as well (source='initial') so it shares the
-// concurrency guard, the stop support and the health reporting below.
-async function scanDocuments(source = 'scheduler') {
-  if (scanControl.running) {
-    console.info('Scan request ignored because a task is already running');
-    return;
-  }
-
-  // The OCR cron already stands down while a scan runs; this is the other
-  // direction. Both paths analyse the same documents through the same AI
-  // backend, and a scan that overlaps an OCR run is what let a document be
-  // OCR'd twice within minutes (issue #322).
-  if (ocrAutoProcessService.running) {
-    console.info(
-      'Scan request ignored because OCR auto-processing is currently running'
-    );
-    return;
-  }
-
-  // The Duplicates and Simplify pages write tags too: their jobs wait for a
-  // running scan, and a scan waits for them, because a scan that tags
-  // documents while a merge deletes tags is how a document ends up with an
-  // id that no longer exists. A merge, undo or delete made by hand counts
-  // as well; it is over in seconds and the next tick catches up.
-  const busy = duplicateReviewJobService.isRunning()
-    ? 'a Duplicates or Simplify job is running'
-    : duplicateMergeService.isWriting()
-      ? 'a merge, undo or delete is being written'
-      : null;
-  if (busy) {
-    console.info(
-      `Scan request ignored because ${busy}; the next scheduled scan tries again`
-    );
-    return;
-  }
-
-  const scanStartedAtMs = Date.now();
-  const scanStats = {
-    source,
-    total: 0,
-    processed: 0,
-    skipped: 0,
-    failed: 0,
-    stopRequested: false,
-    abortReason: null,
-  };
-
-  scanControl.running = true;
-  scanControl.stopRequested = false;
-  scanControl.source = source;
-  scanControl.startedAt = new Date().toISOString();
-  scanControl.stopRequestedAt = null;
-  scanHealthService.recordRunStart(source);
-
-  console.info(`Scan started (source=${source})`);
-
-  try {
-    // Probe first: the read helpers below swallow transport errors and return
-    // empty lists, which would make an unreachable Paperless-ngx look like a
-    // successful scan with nothing to do.
-    const connection = await paperlessService.checkConnection();
-    scanHealthService.recordConnectivity(connection);
-
-    if (!connection.reachable || !connection.authorized) {
-      scanStats.abortReason = connection.reachable
-        ? 'paperless_unauthorized'
-        : 'paperless_unreachable';
-      scanHealthService.recordRunResult({
-        status: RUN_STATUS.PAPERLESS_UNREACHABLE,
-        error: connection.error,
-      });
-      console.error(
-        `[ERROR] Scan aborted: Paperless-ngx is not usable (${connection.error}). ` +
-          `The scheduler stays armed and retries at the next interval (${config.scanInterval}).`
-      );
-      return;
-    }
-
-    let [
-      existingTags,
-      documents,
-      existingCorrespondentList,
-      existingDocumentTypes,
-    ] = await Promise.all([
-      paperlessService.getTags(),
-      paperlessService.getAllDocuments(),
-      paperlessService.listCorrespondentsNames(),
-      paperlessService.listDocumentTypesNames(),
-    ]);
-
-    scanStats.total = documents.length;
-
-    // get existing correspondent list
-    existingCorrespondentList = existingCorrespondentList.map(
-      (correspondent) => correspondent.name
-    );
-
-    // get existing document types list
-    const existingDocumentTypesList = existingDocumentTypes.map(
-      (docType) => docType.name
-    );
-
-    // Extract tag names from tag objects
-    const existingTagNames = existingTags.map((tag) => tag.name);
-
-    // Read once per run: every document that waits for OCR or is being OCR'd
-    // is skipped below before the scan spends a single Paperless-ngx call on
-    // it. Documents that enter the queue during this run are caught by the
-    // per-document checks in documentPipeline.processDocument().
-    const ocrQueuedDocumentIds = new Set(
-      (await documentModel.getOcrQueueDocumentIds()).map((documentId) =>
-        Number(documentId)
-      )
-    );
-
-    for (const doc of documents) {
-      if (scanControl.stopRequested) {
-        scanStats.stopRequested = true;
-        console.info(
-          `Graceful stop requested. Halting scan before next document (source=${scanControl.source || 'unknown'})`
-        );
-        break;
-      }
-
-      try {
-        const result = await documentPipeline.processDocument(
-          doc,
-          existingTagNames,
-          existingCorrespondentList,
-          existingDocumentTypesList,
-          {
-            source: 'scan',
-            minContentLength: MIN_CONTENT_LENGTH,
-            ocrQueuedDocumentIds,
-          }
-        );
-        if (!result) {
-          scanStats.skipped += 1;
-          continue;
-        }
-
-        const { analysis, originalData } = result;
-        const updateData = await documentProcessingService.buildUpdateData(
-          analysis,
-          doc
-        );
-        await documentProcessingService.saveDocumentChanges(
-          doc.id,
-          updateData,
-          analysis,
-          originalData
-        );
-        await documentModel.setProcessingStatus(doc.id, doc.title, 'complete');
-        scanStats.processed += 1;
-        // The document counters and token figures just changed. Marking the
-        // cache stale costs nothing here; the next dashboard poll pays for the
-        // rebuild, so a long scan does not rebuild once per document.
-        dashboardStatsService.invalidate();
-      } catch (error) {
-        await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-        scanStats.failed += 1;
-        // A failure moves the failed counter and the failure rate, which the
-        // dashboard shows just as prominently as the successes.
-        dashboardStatsService.invalidate();
-        console.error(
-          `[ERROR] processing document ${doc.id}: ${error.message}`
-        );
-        console.debug(error);
-      }
-    }
-
-    // Documents that fail individually are not an infrastructure problem, so
-    // the run itself still counts as successful for health reporting.
-    scanHealthService.recordRunResult({ status: RUN_STATUS.OK });
-  } catch (error) {
-    scanHealthService.recordRunResult({
-      status: RUN_STATUS.ERROR,
-      error: error.message,
-    });
-    scanStats.abortReason = 'error';
-    console.error(`[ERROR] during document scan: ${error.message}`);
-    console.debug(error);
-  } finally {
-    const durationMs = Date.now() - scanStartedAtMs;
-    const abortSuffix = scanStats.abortReason
-      ? `, aborted=${scanStats.abortReason}`
-      : '';
-    console.info(
-      `Scan completed (source=${scanStats.source}, total=${scanStats.total}, processed=${scanStats.processed}, skipped=${scanStats.skipped}, failed=${scanStats.failed}, stopRequested=${scanStats.stopRequested}${abortSuffix}, durationMs=${durationMs})`
-    );
-
-    scanControl.running = false;
-    scanControl.stopRequested = false;
-    scanControl.source = null;
-    scanControl.startedAt = null;
-    scanControl.stopRequestedAt = null;
-
-    // Rebuild once the run is over so the first dashboard poll after a scan
-    // reads finished numbers instead of paying for the assembly itself.
-    // Detached: nothing in the scan depends on it, and an unhandled rejection
-    // would take the process down.
-    dashboardStatsService.refresh().catch((error) => {
-      console.debug(
-        `[DASHBOARD-STATS] Refresh after scan failed: ${error.message}`
-      );
-    });
-  }
-}
-
 // Routes
 // Single sign-on comes first: its callback must be reachable without a
 // session, before the authentication guard of routes/index.js runs.
@@ -970,7 +693,7 @@ async function runInitialScanWhenReachable() {
 
     if (connection.reachable && connection.authorized) {
       console.log(`Starting initial scan at ${new Date().toISOString()}`);
-      await scanDocuments('initial');
+      await scanService.scanDocuments('initial');
       return;
     }
 
@@ -1174,7 +897,7 @@ async function startScanning() {
         console.warn('Scheduled scan skipped: setup is not completed.');
         return;
       }
-      await scanDocuments();
+      await scanService.scanDocuments();
     });
     scanHealthService.markArmed(config.scanInterval);
 

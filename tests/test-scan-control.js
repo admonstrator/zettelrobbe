@@ -117,7 +117,7 @@ async function main() {
           running: true,
           message: 'Scan is already running.',
         }),
-        // Mirrors requestScanStop() in server.js.
+        // Mirrors requestScanStop() in services/scanService.js.
         requestScanStop: () => {
           if (!state.running) return false;
           state.stopRequested = true;

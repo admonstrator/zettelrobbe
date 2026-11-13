@@ -356,8 +356,12 @@ test('The initial scan runs through the guarded scan function', () => {
 });
 
 test('Every scan run probes Paperless-ngx explicitly', () => {
+  const scanServiceSource = fs.readFileSync(
+    path.join(process.cwd(), 'services', 'scanService.js'),
+    'utf8'
+  );
   assert.ok(
-    serverSource.includes('paperlessService.checkConnection()'),
+    scanServiceSource.includes('paperlessService.checkConnection()'),
     'Read helpers swallow transport errors, so the scan must probe connectivity itself'
   );
 });

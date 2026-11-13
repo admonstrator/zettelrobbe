@@ -4,10 +4,11 @@
 /**
  * The state of the document scan and the two levers on it, start and stop.
  *
- * The scan loop lives in server.js, which mutates the state object while it
- * runs and registers its start and stop functions at boot. Routes and services
- * only read the state or pull a lever through this module; before server.js
- * has registered, both levers report that they are not available.
+ * The scan loop lives in services/scanService.js, which mutates the state
+ * object while it runs; server.js registers its start and stop functions at
+ * boot. Routes and services only read the state or pull a lever through this
+ * module; before server.js has registered, both levers report that they are
+ * not available.
  */
 
 /**
@@ -63,7 +64,8 @@ let registeredTrigger = null;
 let registeredStop = null;
 
 /**
- * The live scan state object. server.js writes to it; everyone else reads.
+ * The live scan state object. services/scanService.js writes to it; everyone
+ * else reads.
  *
  * @returns {ScanState}
  */
@@ -77,7 +79,7 @@ function isRunning() {
 }
 
 /**
- * Called once by server.js when its scan loop is ready.
+ * Called once by server.js at boot, with the levers of services/scanService.js.
  *
  * @param {{ triggerScanNow?: TriggerScanNow|null, requestScanStop?: RequestScanStop|null }} levers
  * @returns {void}

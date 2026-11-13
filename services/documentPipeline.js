@@ -3,8 +3,9 @@
 
 /**
  * One document, from "is it due?" to "here is what the model made of it". The
- * scheduled scan (server.js), a webhook delivery and a rescan asked for by hand
- * (services/webhookQueueService.js) all go through processDocument() below.
+ * scheduled scan (services/scanService.js), a webhook delivery and a rescan
+ * asked for by hand (services/webhookQueueService.js) all go through
+ * processDocument() below.
  * Writing the result back to Paperless-ngx stays with the callers, which do it
  * through services/documentProcessingService.js.
  *
