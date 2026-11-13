@@ -12,5 +12,9 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "files": ["services/restartService.js"]
+  "files": [
+    "services/restartService.js",
+    "scripts/route-proof.js",
+    "tests/test-route-table.js"
+  ]
 }
