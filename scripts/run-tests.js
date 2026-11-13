@@ -187,6 +187,7 @@ const TESTS = {
   'settings-catalog': 'test-settings-catalog.js',
   'document-pipeline-callers': 'test-document-pipeline-callers.js',
   'route-shadowing': 'test-route-shadowing.js',
+  'typecheck-config': 'test-typecheck-config.js',
 };
 
 const AREAS = {
@@ -353,6 +354,7 @@ const AREAS = {
     'ocr-provider-anthropic',
   ],
   routes: ['route-table', 'route-shadowing'],
+  tooling: ['typecheck-config'],
   settings: ['settings-save-golden', 'settings-catalog'],
 };
 

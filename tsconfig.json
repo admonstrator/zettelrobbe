@@ -31,6 +31,7 @@
     "services/documentPipeline.js",
     "routes/index.js",
     "tests/test-route-shadowing.js",
-    "services/bootIdentity.js"
+    "services/bootIdentity.js",
+    "tests/test-typecheck-config.js"
   ]
 }
