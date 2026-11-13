@@ -325,8 +325,26 @@ function checkCustomFieldConflicts(conflicts, currentCustomFields) {
 /* ── 3. The Paperless-ngx connection ──────────────────────────────────── */
 
 /**
+ * The Paperless-ngx address as the app uses it: without trailing slashes and
+ * without a trailing /api (config.paperless.apiUrl reads it the same way, and
+ * the client appends /api itself).
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function effectivePaperlessUrl(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api$/i, '');
+}
+
+/**
  * The connection a save ends up with. An omitted or empty URL or token keeps
  * the stored one; a new URL or a typed token has to be tested before saving.
+ * A URL that differs from the stored one only in spelling (a trailing slash
+ * or /api, which the page does not show) is the same address: it is neither
+ * written nor tested, so it does not restart the server.
  *
  * @param {SettingsBody} body
  * @param {SettingsValues} current
@@ -335,24 +353,22 @@ function checkCustomFieldConflicts(conflicts, currentCustomFields) {
 function resolvePaperlessConnection(body, current) {
   const hasUrlInput = hasValue(body.paperlessUrl);
   const hasTokenInput = hasValue(body.paperlessToken);
-  const currentUrl = String(current.PAPERLESS_API_URL || '').replace(
-    /\/api$/,
-    ''
-  );
+  const currentUrl = effectivePaperlessUrl(current.PAPERLESS_API_URL);
   const url = hasUrlInput ? body.paperlessUrl : currentUrl;
+  const urlChanged = hasUrlInput && effectivePaperlessUrl(url) !== currentUrl;
   const token = hasTokenInput
     ? body.paperlessToken.trim()
     : current.PAPERLESS_API_TOKEN;
 
   /** @type {SettingsValues} */
   const updates = {};
-  if (hasUrlInput) updates.PAPERLESS_API_URL = url;
+  if (urlChanged) updates.PAPERLESS_API_URL = url;
   if (hasTokenInput) updates.PAPERLESS_API_TOKEN = token;
 
   return {
     url,
     token,
-    needsValidation: Boolean((url && url !== currentUrl) || hasTokenInput),
+    needsValidation: Boolean((url && urlChanged) || hasTokenInput),
     updates,
   };
 }

@@ -771,18 +771,20 @@
       "warnings": [],
       "errors": []
     },
-    "stored url ending in /api is written back without it": {
+    "stored url ending in /api, page sends it without: same address, no write, no restart": {
       "status": 200,
       "response": {
         "success": true,
-        "message": "Settings saved. The server restarts to apply them.",
-        "restart": true,
-        "restartKeys": ["PAPERLESS_API_URL"]
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
       },
       "saved": [
         {
           "config": {
-            "differsFromReference": {},
+            "differsFromReference": {
+              "PAPERLESS_API_URL": "http://paperless.local:8000/api"
+            },
             "missingFromReference": []
           },
           "options": {
@@ -790,7 +792,7 @@
           }
         }
       ],
-      "restartRequested": 1,
+      "restartRequested": 0,
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],

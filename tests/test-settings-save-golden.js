@@ -395,7 +395,7 @@ const SAVE_SCENARIOS = [
     body: page({ paperlessToken: 'typed-token' }),
   },
   {
-    name: 'stored url ending in /api is written back without it',
+    name: 'stored url ending in /api, page sends it without: same address, no write, no restart',
     env: { PAPERLESS_API_URL: 'http://paperless.local:8000/api' },
     body: page({}),
   },

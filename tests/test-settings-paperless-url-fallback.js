@@ -4,8 +4,8 @@ const { resolvePaperlessConnection } = require('../services/settingsService');
 /*
  * POST /settings keeps the stored Paperless-ngx URL when the form leaves the
  * field out (a field pinned by the environment is disabled and not
- * submitted), tests the connection only when the URL changes or a token is
- * typed, and writes the URL only when one was submitted.
+ * submitted), tests the connection only when the address changes or a token
+ * is typed, and writes the URL only when a different address was submitted.
  */
 function main() {
   const current = {
@@ -37,15 +37,22 @@ function main() {
     PAPERLESS_API_TOKEN: 'new-token',
   });
 
-  // The same URL as stored: saved, but not tested again.
-  const same = resolvePaperlessConnection(
-    { paperlessUrl: 'http://paperless.local:8000' },
-    current
-  );
-  assert.strictEqual(same.needsValidation, false);
-  assert.deepStrictEqual(same.updates, {
-    PAPERLESS_API_URL: 'http://paperless.local:8000',
-  });
+  // The same address as stored, spelled without /api (as the page shows it)
+  // or with a trailing slash: neither tested nor written, so a save does not
+  // restart the server for it.
+  for (const spelling of [
+    'http://paperless.local:8000',
+    'http://paperless.local:8000/',
+    'http://paperless.local:8000/api/',
+    'http://paperless.local:8000/API',
+  ]) {
+    const same = resolvePaperlessConnection(
+      { paperlessUrl: spelling },
+      current
+    );
+    assert.strictEqual(same.needsValidation, false, spelling);
+    assert.deepStrictEqual(same.updates, {}, spelling);
+  }
 
   // A new URL: tested with the stored token, then saved.
   const changed = resolvePaperlessConnection(
