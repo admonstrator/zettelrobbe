@@ -29,6 +29,7 @@
     "services/settingsCatalog.js",
     "services/settingsService.js",
     "routes/index.js",
-    "tests/test-route-shadowing.js"
+    "tests/test-route-shadowing.js",
+    "services/bootIdentity.js"
   ]
 }

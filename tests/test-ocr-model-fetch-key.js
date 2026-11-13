@@ -8,26 +8,18 @@
  * "Missing API key", so an instance configured through MISTRAL_API_KEY could
  * never load its model list.
  *
- * The resolver is read out of the route file rather than copied, so this test
- * cannot keep passing after the real one changes.
+ * The real resolver is required from services/connectionChecks.js, so this
+ * test cannot keep passing after it changes. The call sites are read out of
+ * the route modules.
  */
 
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { readRouteSources } = require('./helpers/route-sources');
+const { resolveOcrApiKey } = require('../services/connectionChecks');
 
 const source = readRouteSources();
-
-const start = source.indexOf('function resolveOcrApiKey');
-assert.ok(
-  start !== -1,
-  'Could not find resolveOcrApiKey in the route modules — did it move or get renamed?'
-);
-const end = source.indexOf('\n}', start);
-const resolveOcrApiKey = new Function(
-  `${source.slice(start, end + 2)}\nreturn resolveOcrApiKey;`
-)();
 
 let failed = 0;
 const check = (label, fn) => {

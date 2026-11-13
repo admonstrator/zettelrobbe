@@ -1,5 +1,4 @@
 const express = require('express');
-const router = express.Router();
 const setupService = require('../services/setupService.js');
 const paperlessService = require('../services/paperlessService.js');
 const documentModel = require('../models/document.js');
@@ -13,7 +12,6 @@ const changelog = require('../config/changelog.js');
 const dashboardWidgets = require('../config/dashboardWidgets.js');
 const documentsService = require('../services/documentsService.js');
 const fs = require('fs').promises;
-const path = require('path');
 const crypto = require('crypto');
 const {
   validateApiUrl,
@@ -63,7 +61,6 @@ const {
 } = require('../services/thumbnailCache');
 const mistralOcrService = require('../services/mistralOcrService');
 const skipRuleService = require('../services/skipRuleService');
-const quickstartService = require('../services/quickstartService');
 const reconciliationService = require('../services/reconciliationService');
 const restartService = require('../services/restartService');
 const scanHealthService = require('../services/scanHealthService');
@@ -81,14 +78,26 @@ const {
 const {
   sanitizeConfigForBootstrap,
 } = require('../services/bootstrapConfigSanitizer');
-const {
-  ANTHROPIC_DEFAULT_MODEL,
-  ANTHROPIC_SUGGESTED_MODELS,
-  ANTHROPIC_EFFORT_LEVELS,
-  ANTHROPIC_DEFAULT_MAX_TOKENS,
-  isConfiguredAnthropicHost,
-} = require('../services/anthropicSupport');
+const { isConfiguredAnthropicHost } = require('../services/anthropicSupport');
 const config = require('../config/config.js');
+const {
+  resolveOcrApiKeyForProvider,
+  validateAiConnectionForSetup,
+  validateOcrConnectionForSetup,
+  discoverAiModelsForSetup,
+  discoverOcrModelsForSetup,
+  detectQuickstartForSetup,
+} = require('../services/connectionChecks');
+const {
+  getAnthropicFormOptions,
+  loadAiProviderPresets,
+} = require('../services/aiFormOptions');
+const { normalizeDocumentIdList } = require('../services/documentIdList');
+const {
+  buildScannerHealthSnapshot,
+} = require('../services/scannerHealthSnapshot');
+const { BOOT_IDENTITY } = require('../services/bootIdentity');
+const router = express.Router();
 /**
  * @swagger
  * /login:
@@ -2384,66 +2393,6 @@ router.post('/api/key-regenerate', isAuthenticated, async (req, res) => {
   }
 });
 
-const DEFAULT_AI_PROVIDER_PRESETS = [
-  {
-    id: 'openai-default',
-    label: 'OpenAI',
-    provider: 'openai',
-    apiUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-    tokenPlaceholder: 'sk-...',
-  },
-  {
-    id: 'lmstudio-local',
-    label: 'LM Studio (OpenAI compatible)',
-    provider: 'custom',
-    apiUrl: 'http://127.0.0.1:1234/v1',
-    model: 'qwen2.5-7b-instruct',
-    tokenPlaceholder: 'lm-studio-token',
-  },
-  {
-    id: 'ollama-local',
-    label: 'Ollama',
-    provider: 'ollama',
-    apiUrl: 'http://localhost:11434',
-    model: 'llama3.2',
-    tokenPlaceholder: '',
-  },
-  {
-    id: 'ionos-openai-compatible',
-    label: 'IONOS (OpenAI compatible)',
-    provider: 'custom',
-    apiUrl: 'https://openai.inference.de-txl.ionos.com/v1',
-    model: 'meta-llama/llama-3.3-70b-instruct',
-    tokenPlaceholder: 'ionos-api-key',
-  },
-  {
-    // No URL: the SDK knows api.anthropic.com, and ANTHROPIC_API_URL is only
-    // for a proxy in front of it.
-    id: 'anthropic-default',
-    label: 'Anthropic (Claude)',
-    provider: 'anthropic',
-    apiUrl: '',
-    model: ANTHROPIC_DEFAULT_MODEL,
-    tokenPlaceholder: 'sk-ant-...',
-  },
-];
-
-/* What the setup wizard and the settings page need to offer the Claude
-   models and effort levels without a request: the same constants the
-   provider itself runs with. */
-function getAnthropicFormOptions() {
-  return {
-    defaultModel: ANTHROPIC_DEFAULT_MODEL,
-    suggestedModels: ANTHROPIC_SUGGESTED_MODELS.map((entry) => ({
-      id: entry.id,
-      label: entry.label,
-    })),
-    effortLevels: ANTHROPIC_EFFORT_LEVELS.slice(),
-    defaultMaxTokens: ANTHROPIC_DEFAULT_MAX_TOKENS,
-  };
-}
-
 function normalizeSetupBaseUrl(url) {
   return stripTrailingSlashes(String(url || '').trim()).replace(/\/api$/, '');
 }
@@ -2561,47 +2510,6 @@ function toEnvPreviewLines(config) {
     .join('\n');
 }
 
-async function loadAiProviderPresets() {
-  const presetsPath = path.join(
-    process.cwd(),
-    'config',
-    'ai-provider-presets.json'
-  );
-
-  try {
-    const raw = await fs.readFile(presetsPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const source = Array.isArray(parsed) ? parsed : parsed?.presets;
-
-    if (!Array.isArray(source) || source.length === 0) {
-      return DEFAULT_AI_PROVIDER_PRESETS;
-    }
-
-    return source
-      .map((item, index) => ({
-        id: String(item.id || `preset-${index + 1}`),
-        label: String(item.label || item.name || `Preset ${index + 1}`),
-        provider: String(item.provider || 'custom'),
-        apiUrl: String(item.apiUrl || item.baseUrl || ''),
-        model: String(item.model || ''),
-        tokenPlaceholder: String(
-          item.tokenPlaceholder || item.apiKeyPlaceholder || ''
-        ),
-      }))
-      .filter((item) =>
-        ['openai', 'ollama', 'custom', 'azure', 'anthropic'].includes(
-          item.provider
-        )
-      );
-  } catch (error) {
-    console.warn(
-      '[WARN] Could not load AI provider presets from config/ai-provider-presets.json:',
-      error.message
-    );
-    return DEFAULT_AI_PROVIDER_PRESETS;
-  }
-}
-
 // Settings pages leave secret inputs empty to mean "keep the configured
 // value", so requests from there may carry an empty token even though the
 // endpoint requires auth. Fall back to the stored key for the provider.
@@ -2628,19 +2536,6 @@ function resolveSettingsAiToken(aiProvider, token, apiUrl) {
     return '';
   }
   return resolveStoredAiToken(aiProvider);
-}
-
-/* Accepts what the row menu sends (one id) and what the bulk menu sends (a
-   list), so both reach the same endpoint. Anything that is not a positive
-   whole number is dropped rather than rejected: a selection is assembled from
-   checkboxes, and one stale row should not fail the other forty. */
-function normalizeDocumentIdList(input) {
-  const raw = Array.isArray(input) ? input : [input];
-  const ids = raw
-    .map((value) => Number.parseInt(String(value ?? '').trim(), 10))
-    .filter((value) => Number.isInteger(value) && value > 0);
-
-  return [...new Set(ids)];
 }
 
 /* Quickstart detection on the settings page talks to the AI server that is
@@ -2727,46 +2622,6 @@ function isSameQuickstartHost(requestedUrl, configuredUrl) {
   return Boolean(requested && configured && requested === configured);
 }
 
-/* The key may be typed into the form, saved from an earlier save, or
-   injected through the environment. Only this side can see the last two, which
-   is why neither page refuses an empty field on its own. */
-function resolveOcrApiKey(apiKey) {
-  const normalizedApiKey = String(apiKey || '').trim();
-  return (
-    normalizedApiKey ||
-    process.env.OCR_API_KEY ||
-    process.env.MISTRAL_API_KEY ||
-    ''
-  );
-}
-
-/* resolveOcrApiKey() for a request that names its OCR provider. Claude OCR
-   must never receive a stored Mistral key: MISTRAL_API_KEY never belongs to
-   it, and OCR_API_KEY only when Claude is the OCR provider it was saved for.
-   An empty answer is fine — setupService falls back to the Anthropic AI key.
-   `apiUrl` is where the request goes; the stored key is withheld from any
-   host that is not already configured for Claude. */
-function resolveOcrApiKeyForProvider(provider, apiKey, apiUrl = '') {
-  const normalizedProvider = String(provider || '')
-    .trim()
-    .toLowerCase();
-  if (normalizedProvider !== 'anthropic') {
-    return resolveOcrApiKey(apiKey);
-  }
-
-  const normalizedApiKey = String(apiKey || '').trim();
-  if (normalizedApiKey) {
-    return normalizedApiKey;
-  }
-
-  const storedProvider = String(process.env.OCR_PROVIDER || '')
-    .trim()
-    .toLowerCase();
-  return storedProvider === 'anthropic' && isConfiguredAnthropicHost(apiUrl)
-    ? process.env.OCR_API_KEY || ''
-    : '';
-}
-
 async function validatePaperlessConnectionForSetup(
   paperlessUrl,
   paperlessToken
@@ -2812,488 +2667,6 @@ async function validatePaperlessConnectionForSetup(
     stage: 'ok',
     message: 'Paperless-ngx connection and permissions are valid.',
   };
-}
-
-async function validateAiConnectionForSetup({
-  aiProvider,
-  apiUrl,
-  token,
-  model,
-  azureApiVersion,
-  setupValidationTimeoutMs,
-}) {
-  return setupService.withTemporaryValidationTimeout(
-    setupValidationTimeoutMs,
-    async () => {
-      const provider = String(aiProvider || '')
-        .trim()
-        .toLowerCase();
-      const normalizedApiUrl = String(apiUrl || '').trim();
-      const normalizedToken = String(token || '').trim();
-      const normalizedModel = String(model || '').trim();
-
-      if (
-        !provider ||
-        !['openai', 'ollama', 'custom', 'azure', 'anthropic'].includes(provider)
-      ) {
-        return {
-          success: false,
-          message: 'A valid AI provider is required.',
-        };
-      }
-
-      if (provider === 'openai') {
-        if (!normalizedToken) {
-          return {
-            success: false,
-            message: 'An API token is required for OpenAI.',
-          };
-        }
-
-        const valid = await setupService.validateOpenAIConfig(normalizedToken);
-        return {
-          success: valid,
-          message: valid
-            ? 'OpenAI credentials are valid.'
-            : 'OpenAI test failed. Check token and network access.',
-        };
-      }
-
-      if (provider === 'ollama') {
-        if (!normalizedModel) {
-          return {
-            success: false,
-            message: 'Model is required for Ollama.',
-          };
-        }
-
-        const detection = await setupService.detectAiApiUrlForSetup({
-          provider,
-          apiUrl: normalizedApiUrl,
-          apiKey: normalizedToken,
-        });
-        const resolvedApiUrl = String(
-          detection?.resolvedApiUrl || normalizedApiUrl || ''
-        ).trim();
-
-        const valid =
-          detection?.mode === 'openai'
-            ? await setupService.validateCustomConfig(
-                resolvedApiUrl,
-                normalizedToken,
-                normalizedModel
-              )
-            : await setupService.validateOllamaConfig(
-                resolvedApiUrl,
-                normalizedModel,
-                normalizedToken
-              );
-
-        return {
-          success: valid,
-          resolvedApiUrl,
-          message: valid
-            ? 'Ollama connection is valid.'
-            : 'Ollama test failed. Check URL and model.',
-        };
-      }
-
-      if (provider === 'azure') {
-        if (!normalizedApiUrl || !normalizedToken || !normalizedModel) {
-          return {
-            success: false,
-            message:
-              'Endpoint, token, and deployment/model are required for Azure.',
-          };
-        }
-
-        const valid = await setupService.validateAzureConfig(
-          normalizedToken,
-          normalizedApiUrl,
-          normalizedModel,
-          azureApiVersion || '2023-05-15'
-        );
-
-        return {
-          success: valid,
-          message: valid
-            ? 'Azure connection is valid.'
-            : 'Azure test failed. Check endpoint, token, deployment, and API version.',
-        };
-      }
-
-      if (provider === 'anthropic') {
-        if (!normalizedToken) {
-          return {
-            success: false,
-            message: 'An API key is required for Anthropic.',
-          };
-        }
-
-        // The URL stays optional: empty means api.anthropic.com.
-        const valid = await setupService.validateAnthropicConfig(
-          normalizedToken,
-          normalizedModel || ANTHROPIC_DEFAULT_MODEL,
-          normalizedApiUrl
-        );
-
-        return {
-          success: valid,
-          message: valid
-            ? 'Anthropic API key and model are valid.'
-            : 'Anthropic test failed. Check the API key, the model and, if set, the proxy URL.',
-        };
-      }
-
-      if (!normalizedApiUrl || !normalizedModel) {
-        return {
-          success: false,
-          message: 'API URL and model are required for custom providers.',
-        };
-      }
-
-      const detection = await setupService.detectAiApiUrlForSetup({
-        provider,
-        apiUrl: normalizedApiUrl,
-        apiKey: normalizedToken,
-      });
-      const resolvedApiUrl = String(
-        detection?.resolvedApiUrl || normalizedApiUrl
-      ).trim();
-      const valid =
-        detection?.mode === 'ollama'
-          ? await setupService.validateOllamaConfig(
-              resolvedApiUrl,
-              normalizedModel,
-              normalizedToken
-            )
-          : await setupService.validateCustomConfig(
-              resolvedApiUrl,
-              normalizedToken,
-              normalizedModel
-            );
-
-      return {
-        success: valid,
-        resolvedApiUrl,
-        message: valid
-          ? 'Custom provider connection is valid.'
-          : 'Custom provider test failed. Check URL, optional token, and model.',
-      };
-    }
-  );
-}
-
-async function validateOcrConnectionForSetup({
-  enabled,
-  provider,
-  apiUrl,
-  apiKey,
-  model,
-  setupOcrValidationTimeoutMs,
-  anthropicApiKey,
-  anthropicApiUrl,
-  anthropicModel,
-}) {
-  return setupService.withTemporaryValidationTimeout(
-    setupOcrValidationTimeoutMs,
-    async () => {
-      // Correctly handles both boolean (true/false) and string ('yes'/'no') values.
-      // Using a truthy check on a string would misinterpret 'no' as enabled.
-      const normalizedEnabled =
-        enabled === true ||
-        String(enabled ?? '')
-          .trim()
-          .toLowerCase() === 'yes'
-          ? 'yes'
-          : 'no';
-      if (normalizedEnabled !== 'yes') {
-        return {
-          success: true,
-          message: 'OCR fallback is disabled.',
-        };
-      }
-
-      const normalizedProviderInput = String(provider || 'mistral')
-        .trim()
-        .toLowerCase();
-      const normalizedProvider =
-        normalizedProviderInput === 'custom'
-          ? 'ollama'
-          : normalizedProviderInput;
-      const detection = await setupService.detectOcrApiUrlForSetup({
-        provider: normalizedProvider,
-        apiUrl: String(apiUrl || '').trim(),
-        apiKey: String(apiKey || '').trim(),
-      });
-      const resolvedApiUrl = String(
-        detection?.resolvedApiUrl || apiUrl || ''
-      ).trim();
-
-      const valid = await setupService.validateOcrConfig({
-        enabled: normalizedEnabled,
-        provider: normalizedProvider,
-        apiUrl: resolvedApiUrl,
-        apiKey: String(apiKey || '').trim(),
-        // Claude OCR picks its own model when this one is not a Claude model
-        // (see setupService.resolveAnthropicOcrModel), so the Mistral default
-        // must not be filled in for it.
-        model:
-          String(model || '').trim() ||
-          (normalizedProvider === 'anthropic' ? '' : 'mistral-ocr-latest'),
-        // The Anthropic AI provider's key, URL and model, which Claude OCR
-        // falls back to; the environment covers them when they are saved.
-        anthropicApiKey,
-        anthropicApiUrl,
-        anthropicModel,
-      });
-
-      return {
-        success: valid,
-        resolvedApiUrl,
-        message: valid
-          ? 'OCR connection is valid.'
-          : 'OCR connection test failed. Check OCR provider, OCR API URL, API key and model.',
-      };
-    }
-  );
-}
-
-/* The model-discovery answer for Anthropic. The list is never empty — it
-   falls back to the suggested models — so the message has to say which list
-   the picker now shows, or a refused key would look like a working one. */
-function describeAnthropicModelDiscovery(discovery, apiUrl) {
-  return {
-    success: true,
-    models: discovery.models,
-    live: discovery.live,
-    resolvedApiUrl: apiUrl,
-    message: discovery.live
-      ? `Discovered ${discovery.models.length} model(s).`
-      : `Could not load the live model list (${discovery.error}). Showing the suggested Claude models instead.`,
-  };
-}
-
-async function discoverAiModelsForSetup({
-  aiProvider,
-  apiUrl,
-  token,
-  setupValidationTimeoutMs,
-}) {
-  return setupService.withTemporaryValidationTimeout(
-    setupValidationTimeoutMs,
-    async () => {
-      const provider = String(aiProvider || '')
-        .trim()
-        .toLowerCase();
-      const normalizedApiUrl = String(apiUrl || '').trim();
-      const normalizedToken = String(token || '').trim();
-
-      if (provider === 'anthropic') {
-        return describeAnthropicModelDiscovery(
-          await setupService.discoverAnthropicModels({
-            apiKey: normalizedToken,
-            apiUrl: normalizedApiUrl,
-          }),
-          normalizedApiUrl
-        );
-      }
-
-      // For local providers, classify models via quickstart detection so
-      // embedding-only models are excluded from the AI model dropdown.
-      if (['custom', 'ollama'].includes(provider) && normalizedApiUrl) {
-        try {
-          const classification = await quickstartService.detectAndClassify({
-            baseUrl: normalizedApiUrl,
-            apiKey: normalizedToken,
-          });
-
-          if (classification.textModels.length > 0) {
-            const excludedCount =
-              classification.models.length - classification.textModels.length;
-            return {
-              success: true,
-              models: classification.textModels,
-              resolvedApiUrl: classification.resolvedAiApiUrl,
-              message:
-                excludedCount > 0
-                  ? `Discovered ${classification.textModels.length} model(s) (${excludedCount} embedding-only model(s) excluded).`
-                  : `Discovered ${classification.textModels.length} model(s).`,
-            };
-          }
-        } catch {
-          // Classification probe failed; fall through to the legacy unfiltered
-          // discovery below so existing setups keep working.
-        }
-      }
-
-      const detection = await setupService.detectAiApiUrlForSetup({
-        provider,
-        apiUrl: normalizedApiUrl,
-        apiKey: normalizedToken,
-      });
-      const resolvedApiUrl = String(
-        detection?.resolvedApiUrl || normalizedApiUrl || ''
-      ).trim();
-
-      const models = await setupService.discoverAiModels({
-        provider,
-        apiUrl: resolvedApiUrl,
-        apiKey: normalizedToken,
-      });
-
-      return {
-        success: true,
-        models,
-        resolvedApiUrl,
-        message:
-          models.length > 0
-            ? `Discovered ${models.length} model(s).`
-            : 'No models discovered for this provider.',
-      };
-    }
-  );
-}
-
-async function discoverOcrModelsForSetup({
-  provider,
-  apiUrl,
-  apiKey,
-  setupOcrValidationTimeoutMs,
-  anthropicApiKey,
-  anthropicApiUrl,
-  anthropicModel,
-}) {
-  return setupService.withTemporaryValidationTimeout(
-    setupOcrValidationTimeoutMs,
-    async () => {
-      const normalizedProvider = String(provider || 'mistral')
-        .trim()
-        .toLowerCase();
-      const normalizedApiUrl = String(apiUrl || '').trim();
-      const normalizedApiKey = String(apiKey || '').trim();
-
-      // Claude OCR lists the same models as the AI provider, reached with the
-      // OCR key or the AI key, and preselects the model OCR would run with.
-      if (normalizedProvider === 'anthropic') {
-        const connection = setupService.resolveAnthropicOcrConnection({
-          apiKey: normalizedApiKey,
-          apiUrl: normalizedApiUrl,
-          anthropicApiKey,
-          anthropicApiUrl,
-        });
-        return {
-          ...describeAnthropicModelDiscovery(
-            await setupService.discoverAnthropicModels(connection),
-            normalizedApiUrl
-          ),
-          suggestedModel: setupService.resolveAnthropicOcrModel(
-            '',
-            anthropicModel
-          ),
-        };
-      }
-
-      // For local providers, classify models via quickstart detection so
-      // embedding-only models are excluded from the OCR dropdown
-      // (metadata-first via LM Studio /api/v0/models or Ollama /api/show,
-      // heuristics otherwise).
-      //
-      // Vision detection is a name heuristic, so it must rank the list rather
-      // than cut it: it recognizes llava, pixtral or *-vl and misses every
-      // OCR-capable model with an unremarkable name — gpt-4o among them. This
-      // used to return the vision subset as soon as it was non-empty, which on
-      // a router serving dozens of models hid nearly all of them. Vision hits
-      // are reported separately so the UI can recommend them.
-      if (
-        ['custom', 'ollama'].includes(normalizedProvider) &&
-        normalizedApiUrl
-      ) {
-        try {
-          const classification = await quickstartService.detectAndClassify({
-            baseUrl: normalizedApiUrl,
-            apiKey: normalizedApiKey,
-          });
-
-          const models = classification.textModels;
-          const visionModels = classification.visionModels;
-          const excludedCount = classification.models.length - models.length;
-          const details = [
-            visionModels.length > 0
-              ? `${visionModels.length} with detected vision support`
-              : null,
-            excludedCount > 0
-              ? `${excludedCount} embedding-only model(s) excluded`
-              : null,
-          ].filter(Boolean);
-
-          return {
-            success: true,
-            models,
-            visionModels,
-            suggestedModel: classification.suggestedOcrModel || null,
-            resolvedApiUrl: classification.resolvedOcrApiUrl,
-            message:
-              models.length > 0
-                ? `Discovered ${models.length} OCR model(s)${
-                    details.length > 0 ? ` (${details.join(', ')})` : ''
-                  }.`
-                : 'No OCR models discovered for this provider.',
-          };
-        } catch {
-          // Classification probe failed; fall through to the legacy unfiltered
-          // discovery below so existing setups keep working.
-        }
-      }
-
-      const detection = await setupService.detectOcrApiUrlForSetup({
-        provider: normalizedProvider,
-        apiUrl: normalizedApiUrl,
-        apiKey: normalizedApiKey,
-      });
-      const resolvedApiUrl = String(
-        detection?.resolvedApiUrl || normalizedApiUrl
-      ).trim();
-
-      const models = await setupService.discoverOcrModels({
-        provider: normalizedProvider,
-        apiUrl: resolvedApiUrl,
-        apiKey: normalizedApiKey,
-      });
-
-      return {
-        success: true,
-        models,
-        resolvedApiUrl,
-        message:
-          models.length > 0
-            ? `Discovered ${models.length} OCR model(s).`
-            : 'No OCR models discovered for this provider.',
-      };
-    }
-  );
-}
-
-async function detectQuickstartForSetup({
-  baseUrl,
-  apiKey,
-  setupValidationTimeoutMs,
-}) {
-  return setupService.withTemporaryValidationTimeout(
-    setupValidationTimeoutMs,
-    async () => {
-      const detection = await quickstartService.detectAndClassify({
-        baseUrl: String(baseUrl || '').trim(),
-        apiKey: String(apiKey || '').trim(),
-      });
-
-      return {
-        success: true,
-        detection,
-        message: quickstartService.buildDetectionSummaryMessage(detection),
-      };
-    }
-  );
 }
 
 /**
@@ -6632,50 +6005,6 @@ router.post(
     }
   }
 );
-
-/**
- * Builds the scanner/Paperless section of the health payload.
- * Shared by /health and /api/processing-status so both report the same state.
- */
-function buildScannerHealthSnapshot() {
-  const scanner = scanHealthService.getState();
-  const scanState = scanControl.getState();
-
-  return {
-    scanner: {
-      automaticProcessingEnabled: scanner.automaticProcessingEnabled,
-      armed: scanner.armed,
-      running: Boolean(scanState.running),
-      scanInterval: scanner.scanInterval,
-      lastRunStartedAt: scanner.lastRunStartedAt,
-      lastRunFinishedAt: scanner.lastRunFinishedAt,
-      lastRunSource: scanner.lastRunSource,
-      lastRunStatus: scanner.lastRunStatus,
-      lastSuccessfulRunAt: scanner.lastSuccessfulRunAt,
-      consecutiveFailures: scanner.consecutiveFailures,
-      failureThreshold: scanner.failureThreshold,
-      degraded: scanner.degraded,
-      lastError: scanner.lastError,
-    },
-    paperless: {
-      reachable: scanner.paperless.reachable,
-      authorized: scanner.paperless.authorized,
-      usable: scanner.paperless.usable,
-      status: scanner.paperless.status,
-      lastCheckedAt: scanner.paperless.lastCheckedAt,
-      error: scanner.paperless.error,
-    },
-  };
-}
-
-/* Drawn once per process. The settings page embeds it and, after a save that
-   restarts the server, waits for /health to report a different one: the old
-   process keeps answering healthy for the seconds before it exits, which is
-   how a reload used to land on a server that was already gone. */
-const BOOT_IDENTITY = Object.freeze({
-  bootId: crypto.randomUUID(),
-  startedAt: new Date().toISOString(),
-});
 
 /**
  * @swagger
