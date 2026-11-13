@@ -100,8 +100,6 @@ const MAX_ATTEMPTS = 3;
  * @property {PipelineSource} source - which caller this is; picks the profile
  * @property {string|null} [customPrompt] - prompt to analyse with instead of
  *   the configured one (webhook and rescan)
- * @property {Set<number>} [ocrQueuedDocumentIds] - documents in the OCR queue
- *   when the scan run or the queue pass started, read once per run
  */
 
 /**
@@ -121,6 +119,34 @@ class DocumentPipeline {
     this.retryTracker = new Map();
     /** The switches per caller, for tests and for reading. */
     this.CALLER_PROFILES = CALLER_PROFILES;
+  }
+
+  /**
+   * Whether the OCR path is responsible for the document right now: an OCR
+   * run is reading it, or it waits in the OCR queue (pending or processing).
+   * Such a document gets both its text and its analysis from that path.
+   *
+   * A queue row only counts while OCR is switched on. With OCR off nothing
+   * works the queue, and a pending row would hold the document back forever.
+   * A run in progress counts either way: it is reading the document now.
+   *
+   * Looked up per document, not once per run: the webhook queue picks up
+   * entries added while it drains, and the OCR queue changes meanwhile too.
+   *
+   * @param {number} documentId
+   * @returns {Promise<boolean>}
+   */
+  async isWaitingForOcr(documentId) {
+    if (mistralOcrService.isDocumentActivelyProcessing(documentId)) {
+      return true;
+    }
+    if (!mistralOcrService.isEnabled()) {
+      return false;
+    }
+    const queueItem = await documentModel.getOcrQueueItem(documentId);
+    return (
+      queueItem?.status === 'pending' || queueItem?.status === 'processing'
+    );
   }
 
   /**
@@ -172,11 +198,7 @@ class DocumentPipeline {
     // now, gets both its text and its analysis from that path. Analysing it
     // here would work on the very text the OCR run is about to replace, and
     // the three Paperless-ngx calls below would be spent for nothing.
-    const queuedForOcrIds = options.ocrQueuedDocumentIds;
-    if (
-      (queuedForOcrIds && queuedForOcrIds.has(Number(doc.id))) ||
-      mistralOcrService.isDocumentActivelyProcessing(doc.id)
-    ) {
+    if (await this.isWaitingForOcr(doc.id)) {
       console.debug(
         `Document ${doc.id} is waiting for Mistral OCR, skipping analysis this round`
       );

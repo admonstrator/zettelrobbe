@@ -114,15 +114,6 @@ class WebhookQueueService {
       const existingCorrespondentNames = toNameList(existingCorrespondentList);
       const existingDocumentTypesList = toNameList(existingDocumentTypes);
 
-      // Read once per pass, as the scan does once per run: a document that
-      // waits for OCR or is being OCR'd gets its text and its analysis from
-      // that path (issue #322).
-      const ocrQueuedDocumentIds = new Set(
-        /** @type {Array<number|string>} */ (
-          await documentModel.getOcrQueueDocumentIds()
-        ).map((documentId) => Number(documentId))
-      );
-
       while (this.documentQueue.length > 0) {
         const { document: doc, applySkipRules } = /** @type {QueueEntry} */ (
           this.documentQueue.shift()
@@ -137,7 +128,6 @@ class WebhookQueueService {
             {
               source: applySkipRules ? 'webhook' : 'rescan',
               customPrompt: customPrompt || null,
-              ocrQueuedDocumentIds,
             }
           );
           if (!result) continue;

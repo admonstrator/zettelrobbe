@@ -92,6 +92,7 @@ function makeWorld(scenario) {
     ocrQueueIds: [],
     activeOcr: false,
     saveFails: null,
+    onSave: null,
     analyses: [ANALYSIS],
     externalApi: false,
     minContentLength: 10,
@@ -124,7 +125,9 @@ function makeWorld(scenario) {
       isDocumentFailed: record('isDocumentFailed', () => s.failed),
       setProcessingStatus: record('setProcessingStatus'),
       addToOcrQueue: record('addToOcrQueue', () => s.ocrQueueAccepts),
-      getOcrQueueItem: record('getOcrQueueItem', () => s.ocrQueueItem),
+      getOcrQueueItem: record('getOcrQueueItem', (id) =>
+        s.ocrQueueIds.includes(id) ? { status: 'pending' } : s.ocrQueueItem
+      ),
       addFailedDocument: record('addFailedDocument'),
       getOcrQueueDocumentIds: record('getOcrQueueDocumentIds', () =>
         s.ocrQueueIds.map(String)
@@ -168,7 +171,8 @@ function makeWorld(scenario) {
     skipRuleService: { apply: record('skipRules.apply', () => s.skipMatch) },
     documentProcessingService: {
       buildUpdateData: record('buildUpdateData', { title: 'Phone bill' }),
-      saveDocumentChanges: record('saveDocumentChanges', () => {
+      saveDocumentChanges: record('saveDocumentChanges', (id) => {
+        if (s.onSave) s.onSave(id);
         if (s.saveFails) throw new Error(s.saveFails);
       }),
     },
@@ -214,7 +218,7 @@ async function quietly(fn) {
  * times in a row on the same document (the retry cap only shows over several
  * scans). Each run reports null, the analysis, or the error it threw.
  */
-async function runScan(scenario, { runs = 1, ocrQueuedDocumentIds } = {}) {
+async function runScan(scenario, { runs = 1 } = {}) {
   const { calls } = makeWorld(scenario);
   const documentPipeline = require('../services/documentPipeline');
   const outcomes = [];
@@ -226,10 +230,7 @@ async function runScan(scenario, { runs = 1, ocrQueuedDocumentIds } = {}) {
           ['Tax'],
           ['Bank'],
           ['Invoice'],
-          {
-            source: 'scan',
-            ocrQueuedDocumentIds: ocrQueuedDocumentIds || new Set(),
-          }
+          { source: 'scan' }
         );
         outcomes.push(result ? `analysis ${show(result.analysis)}` : 'null');
       } catch (error) {
@@ -262,16 +263,18 @@ const runRescan = (scenario, options = {}) =>
 
 // ── Expected call lists ─────────────────────────────────────────────────────
 
-/* The queue reads the three entity lists and the OCR queue once per pass
-   before the first document; the scan loop does that outside
-   processDocument(). */
+/* The queue reads the three entity lists once per pass before the first
+   document; the scan loop does that outside processDocument(). The OCR queue
+   is looked up per document, and only while OCR is on. */
 const QUEUE_START = [
   'isConfigured()',
   'getTags()',
   'listCorrespondentsNames()',
   'listDocumentTypesNames()',
-  'getOcrQueueDocumentIds()',
 ];
+/* With OCR on, the first check after "already processed" asks the OCR queue
+   about the document. */
+const OCR_LOOKUP = 'getOcrQueueItem(7)';
 const FETCH = [
   'getPermissionOfDocument(7)',
   'getDocumentContent(7)',
@@ -321,11 +324,46 @@ async function main() {
   });
 
   await test('scan: a document waiting for OCR is not analysed', async () => {
-    const queued = await runScan({}, { ocrQueuedDocumentIds: new Set([7]) });
-    assert.deepStrictEqual(queued.calls, ['isDocumentProcessed(7)']);
+    const queued = await runScan({ ocrEnabled: true, ocrQueueIds: [7] });
+    assert.deepStrictEqual(queued.calls, [
+      'isDocumentProcessed(7)',
+      OCR_LOOKUP,
+    ]);
     assert.deepStrictEqual(queued.outcomes, ['null']);
+    const processing = await runScan({
+      ocrEnabled: true,
+      ocrQueueItem: { status: 'processing' },
+    });
+    assert.deepStrictEqual(processing.calls, [
+      'isDocumentProcessed(7)',
+      OCR_LOOKUP,
+    ]);
     const active = await runScan({ activeOcr: true });
     assert.deepStrictEqual(active.calls, ['isDocumentProcessed(7)']);
+  });
+
+  await test('scan: with OCR off a queue row does not hold the document back', async () => {
+    const { calls, outcomes } = await runScan({ ocrQueueIds: [7] });
+    assert.deepStrictEqual(calls, [
+      'isDocumentProcessed(7)',
+      'isDocumentIgnored(7)',
+      'isDocumentFailed(7)',
+      PROCESSING,
+      ...FETCH,
+      SKIP_RULES,
+      SCAN_ANALYZE,
+    ]);
+    assert.deepStrictEqual(outcomes, [ANALYSIS_OUT]);
+  });
+
+  await test('scan: an OCR row that is done or failed does not hold the document back', async () => {
+    for (const status of ['done', 'failed']) {
+      const { outcomes } = await runScan({
+        ocrEnabled: true,
+        ocrQueueItem: { status },
+      });
+      assert.deepStrictEqual(outcomes, [ANALYSIS_OUT], status);
+    }
   });
 
   await test('scan: the ignored list is read before anything is written', async () => {
@@ -366,6 +404,7 @@ async function main() {
     });
     assert.deepStrictEqual(calls, [
       'isDocumentProcessed(7)',
+      OCR_LOOKUP,
       'isDocumentIgnored(7)',
       'isDocumentFailed(7)',
       PROCESSING,
@@ -380,7 +419,7 @@ async function main() {
       content: 'x',
       ocrEnabled: true,
     });
-    assert.deepStrictEqual(calls.slice(8), [
+    assert.deepStrictEqual(calls.slice(9), [
       'isDocumentProcessed(7)',
       'addToOcrQueue(7, "Scan 0007", "short_content_lt_10", {"skipIfProcessed":true})',
     ]);
@@ -394,7 +433,7 @@ async function main() {
       ocrQueueAccepts: false,
       ocrQueueItem: { status: 'done' },
     });
-    assert.deepStrictEqual(calls.slice(9), [
+    assert.deepStrictEqual(calls.slice(10), [
       'addToOcrQueue(7, "Scan 0007", "short_content_lt_10", {"skipIfProcessed":true})',
       'getOcrQueueItem(7)',
     ]);
@@ -406,7 +445,7 @@ async function main() {
       ocrEnabled: true,
       processedOnRecheck: true,
     });
-    assert.deepStrictEqual(calls.slice(8), ['isDocumentProcessed(7)']);
+    assert.deepStrictEqual(calls.slice(9), ['isDocumentProcessed(7)']);
   });
 
   await test('scan: short content without OCR is a failure', async () => {
@@ -461,7 +500,7 @@ async function main() {
       ocrEnabled: true,
       analyses: [OCR_ERROR],
     });
-    assert.deepStrictEqual(calls.slice(9), [
+    assert.deepStrictEqual(calls.slice(10), [
       'isDocumentProcessed(7)',
       'addToOcrQueue(7, "Scan 0007", "ai_invalid_json", {"skipIfProcessed":true})',
     ]);
@@ -488,13 +527,13 @@ async function main() {
       ocrEnabled: true,
       analyses: [PLAIN_ERROR],
     });
-    assert.deepStrictEqual(calls.slice(9), failedWith('ai_refused'));
+    assert.deepStrictEqual(calls.slice(10), failedWith('ai_refused'));
     const generic = await runScan({
       ocrEnabled: true,
       analyses: [{ error: 'Model refused' }],
     });
     assert.deepStrictEqual(
-      generic.calls.slice(9),
+      generic.calls.slice(10),
       failedWith('ai_failed_without_ocr_fallback')
     );
   });
@@ -565,10 +604,42 @@ async function main() {
       ...QUEUE_START,
       'isDocumentProcessed(7)',
     ]);
-    const queued = await runWebhook({ ocrQueueIds: [7] });
+    const queued = await runWebhook({ ocrEnabled: true, ocrQueueIds: [7] });
     assert.deepStrictEqual(queued.calls, [
       ...QUEUE_START,
       'isDocumentProcessed(7)',
+      OCR_LOOKUP,
+    ]);
+  });
+
+  await test('webhook: with OCR off a queue row does not hold the document back', async () => {
+    const { calls } = await runWebhook({ ocrQueueIds: [7] });
+    assert.deepStrictEqual(calls.slice(-4), [
+      queueAnalyze(),
+      ...QUEUE_WRITE_BACK,
+    ]);
+  });
+
+  await test('webhook: a document queued for OCR during the pass is looked up afresh', async () => {
+    // Document 7 is written back; meanwhile a delivery for document 8 joins
+    // the queue and document 8 enters the OCR queue. The pass picks 8 up and
+    // must see its OCR row, which did not exist when the pass started.
+    const { calls, s } = makeWorld({ ocrEnabled: true });
+    const webhookQueueService = require('../services/webhookQueueService');
+    s.onSave = (id) => {
+      if (id !== 7) return;
+      webhookQueueService.enqueue(
+        { id: 8, title: 'Scan 0008' },
+        { applySkipRules: true }
+      );
+      s.ocrQueueIds.push(8);
+    };
+    webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+    await quietly(() => webhookQueueService.processQueue());
+    assert.deepStrictEqual(calls.slice(-3), [
+      'setProcessingStatus(7, "Scan 0007", "complete")',
+      'isDocumentProcessed(8)',
+      'getOcrQueueItem(8)',
     ]);
   });
 
@@ -757,8 +828,20 @@ async function main() {
   });
 
   await test('rescan: a document waiting for OCR is not analysed', async () => {
+    const { calls } = await runRescan({ ocrEnabled: true, ocrQueueIds: [7] });
+    assert.deepStrictEqual(calls, [
+      ...QUEUE_START,
+      'isDocumentProcessed(7)',
+      OCR_LOOKUP,
+    ]);
+  });
+
+  await test('rescan: with OCR off a queue row does not hold the document back', async () => {
     const { calls } = await runRescan({ ocrQueueIds: [7] });
-    assert.deepStrictEqual(calls, [...QUEUE_START, 'isDocumentProcessed(7)']);
+    assert.deepStrictEqual(calls.slice(-4), [
+      queueAnalyze(),
+      ...QUEUE_WRITE_BACK,
+    ]);
   });
 
   await test('rescan: short content goes to OCR through the guarded insert', async () => {

@@ -3,7 +3,7 @@
 /**
  * Pins the scheduled scan end to end: the loop around processDocument() that
  * tests/test-document-pipeline-callers.js does not reach. One run probes
- * Paperless-ngx, reads the entity lists and the OCR queue once, walks the
+ * Paperless-ngx, reads the entity lists once, walks the
  * documents, writes each result back through documentProcessingService,
  * completes or fails the document, counts it, marks the dashboard cache stale,
  * honours a stop request between documents, and reports to the health
@@ -158,7 +158,9 @@ function makeWorld(scenario = {}) {
       isDocumentFailed: record('isDocumentFailed', () => s.failed),
       setProcessingStatus: record('setProcessingStatus'),
       addToOcrQueue: record('addToOcrQueue', () => s.ocrQueueAccepts),
-      getOcrQueueItem: record('getOcrQueueItem', null),
+      getOcrQueueItem: record('getOcrQueueItem', (id) =>
+        s.ocrQueueIds.includes(id) ? { status: 'pending' } : null
+      ),
       addFailedDocument: record('addFailedDocument'),
       getOcrQueueDocumentIds: record('getOcrQueueDocumentIds', () =>
         s.ocrQueueIds.map(String)
@@ -317,14 +319,16 @@ const LISTS = [
   'getAllDocuments()',
   'listCorrespondentsNames()',
   'listDocumentTypesNames()',
-  'getOcrQueueDocumentIds()',
 ];
 const RUN_OK = [
   'health.recordRunResult({"status":"ok"})',
   'dashboard.refresh()',
 ];
-const pipelineUpTo = (id, title) => [
+/* With OCR on, the pipeline asks the OCR queue about each document right
+   after "already processed". */
+const pipelineUpTo = (id, title, { ocr = false } = {}) => [
   `isDocumentProcessed(${id})`,
+  ...(ocr ? [`getOcrQueueItem(${id})`] : []),
   `isDocumentIgnored(${id})`,
   `isDocumentFailed(${id})`,
   `setProcessingStatus(${id}, "${title}", "processing")`,
@@ -491,7 +495,7 @@ async function main() {
     const oneFailingRun = [
       ...runStart(),
       ...LISTS,
-      ...pipelineUpTo(7, 'Scan 0007'),
+      ...pipelineUpTo(7, 'Scan 0007', { ocr: true }),
       analyze(7),
       'isDocumentProcessed(7)',
       'addToOcrQueue(7, "Scan 0007", "ai_invalid_json", {"skipIfProcessed":true})',
@@ -520,7 +524,7 @@ async function main() {
     assert.deepStrictEqual(calls, [
       ...runStart(),
       ...LISTS,
-      ...pipelineUpTo(7, 'Scan 0007').slice(0, -1),
+      ...pipelineUpTo(7, 'Scan 0007', { ocr: true }).slice(0, -1),
       'skipRules.apply({"id":7,"title":"Scan 0007","page_count":2}, "x")',
       'isDocumentProcessed(7)',
       'addToOcrQueue(7, "Scan 0007", "short_content_lt_10", {"skipIfProcessed":true})',
@@ -529,15 +533,32 @@ async function main() {
     assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
   });
 
-  await test('a document in the OCR queue at run start costs no Paperless call', async () => {
-    const { calls, summaries } = await runScan({ ocrQueueIds: [7] });
+  await test('a document in the OCR queue costs no Paperless call', async () => {
+    const { calls, summaries } = await runScan({
+      ocrEnabled: true,
+      ocrQueueIds: [7],
+    });
     assert.deepStrictEqual(calls, [
       ...runStart(),
       ...LISTS,
       'isDocumentProcessed(7)',
+      'getOcrQueueItem(7)',
       ...RUN_OK,
     ]);
     assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
+  });
+
+  await test('with OCR off a document in the OCR queue is analysed', async () => {
+    const { calls, summaries } = await runScan({ ocrQueueIds: [7] });
+    assert.deepStrictEqual(calls, [
+      ...runStart(),
+      ...LISTS,
+      ...pipelineUpTo(7, 'Scan 0007'),
+      analyze(7),
+      ...COMPLETE,
+      ...RUN_OK,
+    ]);
+    assert.deepStrictEqual(summaries, [summary({ processed: 1 })]);
   });
 
   await test('a skip rule match counts as skipped', async () => {
