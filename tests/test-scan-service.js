@@ -509,9 +509,10 @@ async function main() {
       ...RUN_OK,
     ];
     assert.deepStrictEqual(calls.slice(0, oneFailingRun.length), oneFailingRun);
-    assert.deepStrictEqual(calls.slice(-4), [
+    assert.deepStrictEqual(calls.slice(-5), [
       `skipRules.apply({"id":7,"title":"Scan 0007","page_count":2}, "<156 chars>")`,
       'setProcessingStatus(7, "Scan 0007", "failed")',
+      'addFailedDocument(7, "Scan 0007", "ai_failed_retry_limit", "ai")',
       ...RUN_OK,
     ]);
     assert.deepStrictEqual(summaries, [

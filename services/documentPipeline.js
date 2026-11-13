@@ -328,6 +328,15 @@ class DocumentPipeline {
         `Document ${doc.id} has failed ${attempts} times, skipping to prevent infinite retry loop`
       );
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
+      // Recorded like every other terminal failure. Without the row the next
+      // run starts a fresh count and pays for three more analyses, forever.
+      // The failed page lists it, and its reset brings the document back.
+      await documentModel.addFailedDocument(
+        doc.id,
+        doc.title,
+        'ai_failed_retry_limit',
+        'ai'
+      );
       this.retryTracker.delete(doc.id);
       return null;
     }

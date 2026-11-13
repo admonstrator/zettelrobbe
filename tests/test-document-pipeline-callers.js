@@ -553,9 +553,10 @@ async function main() {
     const error =
       'throw [ERROR] Document analysis failed: Invalid JSON response from API';
     assert.deepStrictEqual(outcomes, [error, error, error, 'null']);
-    assert.deepStrictEqual(calls.slice(-2), [
+    // Recorded as failed, so the next run does not start a fresh count.
+    assert.deepStrictEqual(calls.slice(-3), [
       SKIP_RULES,
-      'setProcessingStatus(7, "Scan 0007", "failed")',
+      ...failedWith('ai_failed_retry_limit'),
     ]);
   });
 
