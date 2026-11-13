@@ -262,6 +262,9 @@ class ScanService {
       // Extract tag names from tag objects
       const existingTagNames = existingTags.map((tag) => tag.name);
 
+      // Asked once per run, when the first document gets that far.
+      const getExternalApiData = documentPipeline.externalApiDataForRun();
+
       for (const doc of documents) {
         if (scanControl.stopRequested) {
           scanStats.stopRequested = true;
@@ -277,7 +280,7 @@ class ScanService {
             existingTagNames,
             existingCorrespondentList,
             existingDocumentTypesList,
-            { source: 'scan' }
+            { source: 'scan', getExternalApiData }
           );
           if (!result) {
             scanStats.skipped += 1;

@@ -100,6 +100,10 @@ const MAX_ATTEMPTS = 3;
  * @property {PipelineSource} source - which caller this is; picks the profile
  * @property {string|null} [customPrompt] - prompt to analyse with instead of
  *   the configured one (webhook and rescan)
+ * @property {() => Promise<unknown>} [getExternalApiData] - the external API
+ *   data of this run, from externalApiDataForRun(): a scan run or a pass over
+ *   the webhook queue asks the API once, not once per document. Left out,
+ *   the data is fetched for this document alone.
  */
 
 /**
@@ -302,7 +306,9 @@ class DocumentPipeline {
       restrictToExistingCorrespondents:
         config.restrictToExistingCorrespondents === 'yes',
     };
-    const externalApiData = await this.fetchExternalApiData();
+    const externalApiData = options.getExternalApiData
+      ? await options.getExternalApiData()
+      : await this.fetchExternalApiData();
     if (externalApiData) {
       analysisOptions.externalApiData = externalApiData;
     }
@@ -456,6 +462,25 @@ class DocumentPipeline {
     }
 
     return queued;
+  }
+
+  /**
+   * The external API data of one run, fetched when the first document needs
+   * it and reused for the rest: a first scan of 2000 documents makes one
+   * call, an unreachable API costs one timeout per run instead of one per
+   * document, and a run that analyses nothing makes none.
+   *
+   * @returns {() => Promise<unknown>}
+   */
+  externalApiDataForRun() {
+    /** @type {Promise<unknown>|null} */
+    let pending = null;
+    return () => {
+      if (!pending) {
+        pending = this.fetchExternalApiData();
+      }
+      return pending;
+    };
   }
 
   /**

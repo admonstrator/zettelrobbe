@@ -114,6 +114,9 @@ class WebhookQueueService {
       const existingCorrespondentNames = toNameList(existingCorrespondentList);
       const existingDocumentTypesList = toNameList(existingDocumentTypes);
 
+      // Asked once per pass, when the first document gets that far.
+      const getExternalApiData = documentPipeline.externalApiDataForRun();
+
       while (this.documentQueue.length > 0) {
         const { document: doc, applySkipRules } = /** @type {QueueEntry} */ (
           this.documentQueue.shift()
@@ -128,6 +131,7 @@ class WebhookQueueService {
             {
               source: applySkipRules ? 'webhook' : 'rescan',
               customPrompt: customPrompt || null,
+              getExternalApiData,
             }
           );
           if (!result) continue;

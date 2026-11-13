@@ -587,6 +587,38 @@ async function main() {
     ]);
   });
 
+  await test('external API data is fetched once per run, not per document', async () => {
+    const { calls } = await runScan({
+      externalApi: true,
+      documents: [DOC, DOC_8],
+    });
+    assert.deepStrictEqual(calls, [
+      ...runStart(),
+      ...LISTS,
+      ...pipelineUpTo(7, 'Scan 0007'),
+      'externalApi.fetchData()',
+      analyze(7, ',"externalApiData":{"rate":1.1}'),
+      ...COMPLETE,
+      ...pipelineUpTo(8, 'Scan 0008'),
+      analyze(8, ',"externalApiData":{"rate":1.1}'),
+      ...writeBack(8, 'Scan 0008'),
+      'setProcessingStatus(8, "Scan 0008", "complete")',
+      'dashboard.invalidate()',
+      ...RUN_OK,
+    ]);
+    const twoRuns = await runScan({ externalApi: true }, { runs: 2 });
+    assert.strictEqual(
+      twoRuns.calls.filter((call) => call === 'externalApi.fetchData()').length,
+      2,
+      'each run asks once'
+    );
+  });
+
+  await test('a run that analyses nothing does not ask the external API', async () => {
+    const { calls } = await runScan({ externalApi: true, processed: true });
+    assert.ok(!calls.includes('externalApi.fetchData()'), calls.join('\n'));
+  });
+
   await test('a saved minimum content length applies without a restart', async () => {
     const { calls, summaries } = await runScan(
       {},

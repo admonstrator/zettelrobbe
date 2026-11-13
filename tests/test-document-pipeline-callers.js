@@ -760,6 +760,35 @@ async function main() {
     ]);
   });
 
+  await test('webhook: external API data is fetched once per pass over the queue', async () => {
+    const { calls } = makeWorld({ externalApi: true });
+    const webhookQueueService = require('../services/webhookQueueService');
+    webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+    webhookQueueService.enqueue(
+      { id: 8, title: 'Scan 0008' },
+      { applySkipRules: true }
+    );
+    await quietly(() => webhookQueueService.processQueue());
+    assert.strictEqual(
+      calls.filter((call) => call === 'externalApi.fetchData()').length,
+      1,
+      calls.join('\n')
+    );
+    assert.strictEqual(
+      calls.filter((call) => call.includes('"externalApiData":{"rate":1.1}'))
+        .length,
+      2,
+      'both documents carry the data'
+    );
+    webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+    await quietly(() => webhookQueueService.processQueue());
+    assert.strictEqual(
+      calls.filter((call) => call === 'externalApi.fetchData()').length,
+      2,
+      'the next pass asks again'
+    );
+  });
+
   await test('webhook: an OCR-relevant AI error queues OCR, logs and moves on', async () => {
     const { calls, outcomes } = await runWebhook({
       ocrEnabled: true,
