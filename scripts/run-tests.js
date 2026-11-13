@@ -183,6 +183,8 @@ const TESTS = {
   'mfa-service': 'test-mfa-service.js',
   'session-cookie': 'test-session-cookie.js',
   'scan-control': 'test-scan-control.js',
+  'settings-save-golden': 'test-settings-save-golden.js',
+  'settings-catalog': 'test-settings-catalog.js',
 };
 
 const AREAS = {
@@ -348,6 +350,7 @@ const AREAS = {
     'ocr-provider-anthropic',
   ],
   routes: ['route-table'],
+  settings: ['settings-save-golden', 'settings-catalog'],
 };
 
 // Tests intentionally excluded from the auto-discovery drift check below.

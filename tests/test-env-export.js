@@ -7,25 +7,12 @@
  * environment. The quoting matters too — a system prompt with spaces has to
  * come back as one value, not three.
  *
- * The functions are read out of the route file rather than copied, so this test
- * cannot keep passing after the real ones change.
+ * The export lives in services/settingsService.js and takes its keys from the
+ * settings catalogue, so this test exercises the real function.
  */
 
 const assert = require('assert');
-const { readRouteSources } = require('./helpers/route-sources');
-
-const source = readRouteSources();
-
-const start = source.indexOf('const ENV_EXPORT_GROUPS');
-const end = source.indexOf('\n}', source.indexOf('function buildEnvExport'));
-assert.ok(
-  start !== -1 && end !== -1 && end > start,
-  'Could not find buildEnvExport in the route modules — did it move or get renamed?'
-);
-
-const buildEnvExport = new Function(
-  `${source.slice(start, end + 2)}\nreturn buildEnvExport;`
-)();
+const { buildEnvExport } = require('../services/settingsService');
 
 let failed = 0;
 const check = (label, fn) => {

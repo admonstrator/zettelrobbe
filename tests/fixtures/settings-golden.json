@@ -1,0 +1,3597 @@
+{
+  "referencePayload": {
+    "page save, nothing touched": {
+      "PAPERLESS_API_URL": "http://paperless.local:8000",
+      "PAPERLESS_PUBLIC_URL": "",
+      "PAPERLESS_API_TOKEN": "stored-paperless-token",
+      "PAPERLESS_USERNAME": "archivist",
+      "AI_PROVIDER": "openai",
+      "OPENAI_API_KEY": "stored-openai-key",
+      "OPENAI_MODEL": "gpt-4o-mini",
+      "OLLAMA_API_URL": "",
+      "OLLAMA_API_KEY": "",
+      "OLLAMA_MODEL": "",
+      "SCAN_INTERVAL": "*/30 * * * *",
+      "RECONCILIATION_INTERVAL": "0 * * * *",
+      "RECONCILIATION_ENABLED": "no",
+      "SYSTEM_PROMPT": "You are a document assistant.",
+      "PROCESS_PREDEFINED_DOCUMENTS": "no",
+      "TOKEN_LIMIT": "128000",
+      "RESPONSE_TOKENS": "1000",
+      "AI_TEMPERATURE_ANALYSIS": "0.3",
+      "AI_TEMPERATURE_GENERATION": "0.7",
+      "TAGS": [],
+      "IGNORE_TAGS": [],
+      "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+      "REMOVE_TAGS_AFTER_PROCESSING": [],
+      "ADD_AI_PROCESSED_TAG": "no",
+      "AI_PROCESSED_TAG_NAME": "ai-processed",
+      "USE_PROMPT_TAGS": "no",
+      "PROMPT_TAGS": "",
+      "USE_EXISTING_DATA": "no",
+      "API_KEY": "test-api-key",
+      "CUSTOM_API_KEY": "",
+      "CUSTOM_BASE_URL": "",
+      "CUSTOM_MODEL": "",
+      "ACTIVATE_TAGGING": "yes",
+      "ACTIVATE_CORRESPONDENTS": "yes",
+      "ACTIVATE_DOCUMENT_TYPE": "yes",
+      "ACTIVATE_TITLE": "yes",
+      "ACTIVATE_CUSTOM_FIELDS": "yes",
+      "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+      "DISABLE_AUTOMATIC_PROCESSING": "yes",
+      "DUPLICATES_AI_REVIEW": "yes",
+      "DUPLICATES_AI_MODEL": "",
+      "DUPLICATES_AI_REVIEW_BATCH_SIZE": "25",
+      "DUPLICATES_AI_CANDIDATE_FLOOR": "0.6",
+      "DUPLICATES_AI_EXCERPTS": "yes",
+      "DUPLICATES_AI_EXCERPT_CHARS": "300",
+      "DUPLICATES_AI_EXCERPT_DOCUMENTS": "2",
+      "DUPLICATES_AI_TOKEN_BUDGET": "200000",
+      "DUPLICATES_AI_IDLE_STOP_SECONDS": "60",
+      "DUPLICATES_AI_THINKING": "no",
+      "DUPLICATES_AI_REQUEST_SECONDS": "30",
+      "DUPLICATES_AI_CONCURRENCY": "0",
+      "DUPLICATES_AI_VERDICT_MEMORY_DAYS": "90",
+      "DUPLICATES_GUARD_NEW_NAMES": "yes",
+      "DUPLICATES_AI_SWEEP_NAMES": "300",
+      "SIMPLIFY_TAGS_PER_REQUEST": "50",
+      "SIMPLIFY_VOCABULARY_SIZE": "25",
+      "AZURE_ENDPOINT": "",
+      "AZURE_API_KEY": "",
+      "AZURE_DEPLOYMENT_NAME": "",
+      "AZURE_API_VERSION": "",
+      "ANTHROPIC_API_KEY": "",
+      "ANTHROPIC_API_URL": "",
+      "ANTHROPIC_MODEL": "<ANTHROPIC_DEFAULT_MODEL>",
+      "ANTHROPIC_EFFORT": "",
+      "ANTHROPIC_MAX_TOKENS": "<ANTHROPIC_DEFAULT_MAX_TOKENS>",
+      "ANTHROPIC_STRUCTURED_OUTPUT": "yes",
+      "ANTHROPIC_PROMPT_CACHING": "yes",
+      "RESTRICT_TO_EXISTING_TAGS": "no",
+      "RESTRICT_TO_EXISTING_CORRESPONDENTS": "no",
+      "RESTRICT_TO_EXISTING_DOCUMENT_TYPES": "no",
+      "EXTERNAL_API_ENABLED": "no",
+      "EXTERNAL_API_URL": "",
+      "EXTERNAL_API_METHOD": "GET",
+      "EXTERNAL_API_HEADERS": "{}",
+      "EXTERNAL_API_BODY": "{}",
+      "EXTERNAL_API_TIMEOUT": "5000",
+      "EXTERNAL_API_TRANSFORM": "",
+      "EXTERNAL_API_ALLOW_PRIVATE_IPS": "no",
+      "TAG_CACHE_TTL_SECONDS": "300",
+      "MISTRAL_OCR_ENABLED": "no",
+      "OCR_PROVIDER": "mistral",
+      "OCR_API_URL": "",
+      "OCR_API_KEY": "",
+      "MISTRAL_API_KEY": "",
+      "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+      "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+      "OCR_PDF_RENDER_ENABLED": "yes",
+      "OCR_PDF_RENDER_MAX_PAGES": "10",
+      "OCR_PDF_RENDER_DPI": "150",
+      "OCR_AUTO_PROCESS_ENABLED": "no",
+      "OCR_AUTO_PROCESS_INTERVAL": "*/15 * * * *",
+      "OCR_AUTO_PROCESS_BATCH_SIZE": "10",
+      "OCR_AUTO_ANALYZE": "yes",
+      "GLOBAL_RATE_LIMIT_WINDOW_MS": "900000",
+      "GLOBAL_RATE_LIMIT_MAX": "1000",
+      "TRUST_PROXY": "",
+      "COOKIE_SECURE_MODE": "auto",
+      "MIN_CONTENT_LENGTH": "10",
+      "MAX_PAGE_COUNT": "0",
+      "IGNORE_TITLE_PATTERNS": "",
+      "IGNORE_REPEATED_CONTENT": "yes",
+      "PAPERLESS_AI_PORT": "3000",
+      "LOG_LEVEL": "error",
+      "DATE_FORMAT": "DD.MM.YYYY",
+      "OIDC_ENABLED": "no",
+      "OIDC_ISSUER_URL": "",
+      "OIDC_CLIENT_ID": "",
+      "OIDC_ADMIN_EMAIL": "",
+      "OIDC_REDIRECT_URI": "",
+      "OIDC_SCOPES": "openid profile email",
+      "OIDC_EMAIL_CLAIM": "email",
+      "OIDC_ALLOW_UNVERIFIED_EMAIL": "no",
+      "OIDC_TOKEN_AUTH_METHOD": "",
+      "OIDC_BUTTON_TEXT": "",
+      "OIDC_BUTTON_ICON": "",
+      "OIDC_BUTTON_COLOR": "",
+      "OIDC_BUTTON_TEXT_COLOR": ""
+    }
+  },
+  "save": {
+    "empty body": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SYSTEM_PROMPT": "",
+              "TOKEN_LIMIT": 128000,
+              "RESPONSE_TOKENS": 1000,
+              "TAGS": "",
+              "IGNORE_TAGS": "",
+              "REMOVE_TAGS_AFTER_PROCESSING": "",
+              "ACTIVATE_TAGGING": "no",
+              "ACTIVATE_CORRESPONDENTS": "no",
+              "ACTIVATE_DOCUMENT_TYPE": "no",
+              "ACTIVATE_TITLE": "no",
+              "ACTIVATE_CUSTOM_FIELDS": "no"
+            },
+            "missingFromReference": [
+              "OIDC_ENABLED",
+              "OIDC_ISSUER_URL",
+              "OIDC_CLIENT_ID",
+              "OIDC_ADMIN_EMAIL",
+              "OIDC_REDIRECT_URI",
+              "OIDC_SCOPES",
+              "OIDC_EMAIL_CLAIM",
+              "OIDC_ALLOW_UNVERIFIED_EMAIL",
+              "OIDC_TOKEN_AUTH_METHOD",
+              "OIDC_BUTTON_TEXT",
+              "OIDC_BUTTON_ICON",
+              "OIDC_BUTTON_COLOR",
+              "OIDC_BUTTON_TEXT_COLOR"
+            ]
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "page save, nothing touched": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {},
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "page save on a fresh instance without saved values": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "OPENAI_MODEL": ""
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "openai with a typed key and model": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "OPENAI_API_KEY": "sk-typed",
+              "OPENAI_MODEL": "gpt-4.1"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "openai without any key": {
+      "status": 400,
+      "response": {
+        "error": "OpenAI API key is required when OpenAI provider is selected."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "ollama full": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "ollama",
+              "OLLAMA_API_URL": "http://gpu.local:11434",
+              "OLLAMA_API_KEY": "ollama-key",
+              "OLLAMA_MODEL": "qwen3:14b",
+              "OLLAMA_THINK": "true"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "ollama keeps stored url and model, think false": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "ollama",
+              "OLLAMA_API_URL": "http://stored.local:11434",
+              "OLLAMA_API_KEY": "stored-ollama-key",
+              "OLLAMA_MODEL": "stored-model",
+              "OLLAMA_THINK": "false"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "ollama without think field and without model": {
+      "status": 400,
+      "response": {
+        "error": "Ollama URL and model are required when Ollama provider is selected."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom full": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "custom",
+              "CUSTOM_API_KEY": "lm-key",
+              "CUSTOM_BASE_URL": "http://lmstudio.local:1234/v1",
+              "CUSTOM_MODEL": "qwen2.5-7b-instruct"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom keeps stored key, url and model": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "custom",
+              "CUSTOM_API_KEY": "stored-custom-key",
+              "CUSTOM_BASE_URL": "http://stored-custom/v1",
+              "CUSTOM_MODEL": "stored-custom-model"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom without url": {
+      "status": 400,
+      "response": {
+        "error": "Custom provider URL and model are required when custom provider is selected."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "azure full": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "azure",
+              "AZURE_ENDPOINT": "https://x.openai.azure.com",
+              "AZURE_API_KEY": "az-key",
+              "AZURE_DEPLOYMENT_NAME": "gpt4o",
+              "AZURE_API_VERSION": "2024-06-01"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "azure with stored key only": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "azure",
+              "AZURE_ENDPOINT": "https://x.openai.azure.com",
+              "AZURE_API_KEY": "stored-az-key",
+              "AZURE_DEPLOYMENT_NAME": "gpt4o"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "azure without key": {
+      "status": 400,
+      "response": {
+        "error": "Azure endpoint, API key and deployment name are required when Azure provider is selected."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "anthropic full": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "anthropic",
+              "ANTHROPIC_API_KEY": "sk-ant-typed",
+              "ANTHROPIC_API_URL": "https://proxy.example.com/anthropic",
+              "ANTHROPIC_MODEL": "claude-opus-test",
+              "ANTHROPIC_EFFORT": "high",
+              "ANTHROPIC_MAX_TOKENS": "12000",
+              "ANTHROPIC_STRUCTURED_OUTPUT": "no"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "anthropic with stored key, effort and url field absent": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "anthropic",
+              "ANTHROPIC_API_KEY": "stored-ant-key",
+              "ANTHROPIC_API_URL": "https://stored-proxy.example.com",
+              "ANTHROPIC_EFFORT": "medium",
+              "ANTHROPIC_STRUCTURED_OUTPUT": "no"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "anthropic without key": {
+      "status": 400,
+      "response": {
+        "error": "Anthropic API key is required when the Anthropic provider is selected."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "anthropic invalid effort": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Anthropic effort. Allowed values are low, medium, high, xhigh, max, or empty for the model default."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "anthropic invalid max tokens": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Anthropic max tokens. Expected a positive whole number."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "anthropic invalid url": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Anthropic API URL. Expected an http(s) URL, or leave it empty for api.anthropic.com."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "unknown provider is stored as given": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "mystery"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "masked secrets keep the stored values": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_API_KEY": "stored-ocr-key",
+              "MISTRAL_API_KEY": "stored-mistral-key"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "paperless url changed and reachable": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["PAPERLESS_API_TOKEN", "PAPERLESS_API_URL"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "PAPERLESS_API_URL": "http://new-paperless:8000",
+              "PAPERLESS_PUBLIC_URL": "https://paperless.example.com",
+              "PAPERLESS_API_TOKEN": "new-token"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [["http://new-paperless:8000", "new-token"]],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "paperless url changed and unreachable": {
+      "status": 400,
+      "response": {
+        "error": "Paperless-ngx connection failed. Please check URL and Token."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [
+        ["http://bad-paperless:8000", "stored-paperless-token"]
+      ],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "paperless token typed for the same url": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["PAPERLESS_API_TOKEN"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "PAPERLESS_API_TOKEN": "typed-token"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [["http://paperless.local:8000", "typed-token"]],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "stored url ending in /api is written back without it": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["PAPERLESS_API_URL"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {},
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "paperless url omitted keeps the stored one": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["PAPERLESS_API_TOKEN"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "PAPERLESS_API_TOKEN": "typed-token"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [["http://paperless.local:8000", "typed-token"]],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "lists as comma strings with blanks and spaces": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "TAGS": ["inbox", "", "scan", "todo"],
+              "IGNORE_TAGS": ["private", ""],
+              "REMOVE_TAGS_AFTER_PROCESSING": ["new"],
+              "PROMPT_TAGS": ["p1", "p2", "", "p3"],
+              "IGNORE_TITLE_PATTERNS": "Invoice*,,Scan_??"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "lists as arrays": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "TAGS": [" inbox ", "scan", ""],
+              "IGNORE_TAGS": ["a", " b"],
+              "PROMPT_TAGS": ["x"],
+              "IGNORE_TITLE_PATTERNS": "A*, B "
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "lists absent and empty prompt tags": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "TAGS": "stored-a,stored-b",
+              "IGNORE_TAGS": "",
+              "REMOVE_TAGS_AFTER_PROCESSING": "",
+              "PROMPT_TAGS": "kept"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "booleans as yes/no/true/false/on": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": [
+          "DISABLE_AUTOMATIC_PROCESSING",
+          "OCR_AUTO_PROCESS_ENABLED",
+          "RECONCILIATION_ENABLED"
+        ]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "RECONCILIATION_ENABLED": "yes",
+              "PROCESS_PREDEFINED_DOCUMENTS": "yes",
+              "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "yes",
+              "ADD_AI_PROCESSED_TAG": "yes",
+              "USE_PROMPT_TAGS": "yes",
+              "USE_EXISTING_DATA": "yes",
+              "ACTIVATE_TAGGING": "no",
+              "DISABLE_AUTOMATIC_PROCESSING": "no",
+              "DUPLICATES_AI_REVIEW": "no",
+              "DUPLICATES_AI_THINKING": "yes",
+              "RESTRICT_TO_EXISTING_TAGS": "yes",
+              "RESTRICT_TO_EXISTING_DOCUMENT_TYPES": "yes",
+              "OCR_AUTO_PROCESS_ENABLED": "yes",
+              "OCR_AUTO_ANALYZE": "no"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "booleans absent": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SYSTEM_PROMPT": "",
+              "TOKEN_LIMIT": 128000,
+              "RESPONSE_TOKENS": 1000,
+              "TAGS": "",
+              "IGNORE_TAGS": "",
+              "REMOVE_TAGS_AFTER_PROCESSING": "",
+              "ACTIVATE_TAGGING": "no",
+              "ACTIVATE_CORRESPONDENTS": "no",
+              "ACTIVATE_DOCUMENT_TYPE": "no",
+              "ACTIVATE_TITLE": "no",
+              "ACTIVATE_CUSTOM_FIELDS": "no",
+              "EXTERNAL_API_ENABLED": "yes",
+              "EXTERNAL_API_URL": "https://hook.example.com",
+              "EXTERNAL_API_ALLOW_PRIVATE_IPS": "yes",
+              "IGNORE_REPEATED_CONTENT": "no"
+            },
+            "missingFromReference": [
+              "OIDC_ENABLED",
+              "OIDC_ISSUER_URL",
+              "OIDC_CLIENT_ID",
+              "OIDC_ADMIN_EMAIL",
+              "OIDC_REDIRECT_URI",
+              "OIDC_SCOPES",
+              "OIDC_EMAIL_CLAIM",
+              "OIDC_ALLOW_UNVERIFIED_EMAIL",
+              "OIDC_TOKEN_AUTH_METHOD",
+              "OIDC_BUTTON_TEXT",
+              "OIDC_BUTTON_ICON",
+              "OIDC_BUTTON_COLOR",
+              "OIDC_BUTTON_TEXT_COLOR"
+            ]
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "mistral ocr with a typed key": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_API_KEY": "mistral-typed",
+              "MISTRAL_API_KEY": "mistral-typed"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "mistral ocr key from the legacy field": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_API_KEY": "legacy-field",
+              "MISTRAL_API_KEY": "legacy-field"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "mistral ocr enabled without any key": {
+      "status": 400,
+      "response": {
+        "error": "Mistral API key is required when OCR fallback is enabled with provider mistral."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "invalid ocr provider": {
+      "status": 400,
+      "response": {
+        "error": "Invalid OCR provider. Allowed values are mistral, custom and anthropic."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "ocr crosses from mistral to claude": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "ANTHROPIC_API_KEY": "stored-ant-key",
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_PROVIDER": "anthropic",
+              "MISTRAL_API_KEY": "stored-mistral-key",
+              "MISTRAL_OCR_MODEL": "<ANTHROPIC_DEFAULT_MODEL>"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "ocr crosses to claude with a new url and model": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_PROVIDER": "anthropic",
+              "OCR_API_URL": "https://claude-proxy",
+              "OCR_API_KEY": "sk-ant-ocr",
+              "MISTRAL_OCR_MODEL": "claude-ocr-model"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "claude ocr with anthropic ai key typed": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_PROVIDER": "anthropic",
+              "ANTHROPIC_API_KEY": "sk-ant-ai",
+              "ANTHROPIC_MODEL": "claude-test-model",
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_PROVIDER": "anthropic",
+              "MISTRAL_OCR_MODEL": "claude-test-model"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "claude ocr without any anthropic key": {
+      "status": 400,
+      "response": {
+        "error": "Claude OCR needs an Anthropic API key: enter one for OCR, or configure the Anthropic AI provider."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "claude ocr borrows a saved anthropic key while openai is selected": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "ANTHROPIC_API_KEY": "saved-ant",
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_PROVIDER": "anthropic",
+              "MISTRAL_OCR_MODEL": "<ANTHROPIC_DEFAULT_MODEL>"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "ocr crosses from claude to ollama": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_PROVIDER": "ollama",
+              "OCR_API_URL": "http://ollama:11434",
+              "MISTRAL_API_KEY": "stored-mistral",
+              "MISTRAL_OCR_MODEL": "llava"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "claude ocr stays claude": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["MISTRAL_OCR_ENABLED"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "ANTHROPIC_MODEL": "claude-env-model",
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_PROVIDER": "anthropic",
+              "OCR_API_URL": "https://other-proxy",
+              "OCR_API_KEY": "stored-claude-ocr"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "ocr numbers out of range": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["OCR_AUTO_PROCESS_INTERVAL"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SETUP_OCR_VALIDATION_TIMEOUT_MS": "45000",
+              "OCR_AUTO_PROCESS_INTERVAL": "*/5 * * * *"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [
+        "[WARN] Invalid OCR_AUTO_PROCESS_BATCH_SIZE value: 0. Using default: 10",
+        "[WARN] Invalid OCR_PDF_RENDER_DPI value: abc. Using default: 150",
+        "[WARN] Invalid OCR_PDF_RENDER_MAX_PAGES value: 99. Using default: 10",
+        "[WARN] Invalid TAG_CACHE_TTL_SECONDS value: 30. Using default: 300"
+      ],
+      "errors": []
+    },
+    "ocr numbers in range and timeout clamped": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "TAG_CACHE_TTL_SECONDS": "3600",
+              "SETUP_OCR_VALIDATION_TIMEOUT_MS": "7200000",
+              "OCR_PDF_RENDER_MAX_PAGES": "50",
+              "OCR_PDF_RENDER_DPI": "72",
+              "OCR_AUTO_PROCESS_BATCH_SIZE": "100"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": true,
+      "warnings": [],
+      "errors": []
+    },
+    "ocr validation timeout empty keeps the stored one": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SETUP_OCR_VALIDATION_TIMEOUT_MS": "12000"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "invalid ocr interval": {
+      "status": 400,
+      "response": {
+        "error": "Invalid OCR Processing Interval. Use cron syntax, for example */15 * * * *."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom fields as a string with currency": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "CUSTOM_FIELDS": "{\"custom_fields\":[{\"value\":\"Amount\",\"data_type\":\"monetary\",\"currency\":\"EUR\"},{\"value\":\"Due\",\"data_type\":\"date\"}]}"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [
+        [
+          {
+            "value": "Amount",
+            "data_type": "monetary",
+            "currency": "EUR"
+          },
+          {
+            "value": "Due",
+            "data_type": "date"
+          }
+        ]
+      ],
+      "createdCustomFields": [
+        ["Amount", "monetary", "EUR"],
+        ["Due", "date", null]
+      ],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom fields as an object": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "CUSTOM_FIELDS": "{\"custom_fields\":[{\"value\":\"Note\",\"data_type\":\"string\"}]}"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [
+        [
+          {
+            "value": "Note",
+            "data_type": "string"
+          }
+        ]
+      ],
+      "createdCustomFields": [["Note", "string", null]],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom fields unreadable": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {},
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": ["Error processing custom fields:"]
+    },
+    "custom fields absent": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {},
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom field type conflict on a new field": {
+      "status": 400,
+      "response": {
+        "success": false,
+        "error": "Custom field \"Amount\" exists in Paperless-ngx with the type \"string\", not \"monetary\". Remove it and add it again with the type Paperless-ngx has, or use another name."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [
+        [
+          {
+            "value": "Amount",
+            "data_type": "monetary"
+          }
+        ]
+      ],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom field type conflicts on two new fields": {
+      "status": 400,
+      "response": {
+        "success": false,
+        "error": "Custom field \"A\" exists in Paperless-ngx with the type \"string\", not \"integer\". Custom field \"B\" exists in Paperless-ngx with the type \"date\", not \"string\". Remove them and add them again with the type Paperless-ngx has, or use another name."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [
+        [
+          {
+            "value": "A",
+            "data_type": "integer"
+          },
+          {
+            "value": "B",
+            "data_type": "string"
+          }
+        ]
+      ],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "custom field type conflict on a configured field only warns": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "CUSTOM_FIELDS": "{\"custom_fields\":[{\"value\":\"Amount\",\"data_type\":\"monetary\"}]}"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [
+        [
+          {
+            "value": "Amount",
+            "data_type": "monetary"
+          }
+        ]
+      ],
+      "createdCustomFields": [["Amount", "monetary", null]],
+      "tagCacheReset": false,
+      "warnings": [
+        "[WARN] Custom field \"Amount\" exists in Paperless-ngx with the type \"string\", not \"monetary\"."
+      ],
+      "errors": []
+    },
+    "custom field types cannot be compared": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "CUSTOM_FIELDS": "{\"custom_fields\":[{\"value\":\"X\",\"data_type\":\"string\"}]}"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [
+        [
+          {
+            "value": "X",
+            "data_type": "string"
+          }
+        ]
+      ],
+      "createdCustomFields": [["X", "string", null]],
+      "tagCacheReset": false,
+      "warnings": [
+        "[WARN] Could not compare custom field types with Paperless-ngx; saving without the check"
+      ],
+      "errors": []
+    },
+    "tidy-up numbers out of range are clamped": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "DUPLICATES_AI_MODEL": "judge-model",
+              "DUPLICATES_AI_REVIEW_BATCH_SIZE": "1",
+              "DUPLICATES_AI_CANDIDATE_FLOOR": "0.5",
+              "DUPLICATES_AI_EXCERPT_CHARS": "500",
+              "DUPLICATES_AI_EXCERPT_DOCUMENTS": "3",
+              "DUPLICATES_AI_TOKEN_BUDGET": "0",
+              "DUPLICATES_AI_IDLE_STOP_SECONDS": "3600",
+              "DUPLICATES_AI_REQUEST_SECONDS": "5",
+              "DUPLICATES_AI_CONCURRENCY": "8",
+              "DUPLICATES_AI_VERDICT_MEMORY_DAYS": "365",
+              "DUPLICATES_AI_SWEEP_NAMES": "50",
+              "SIMPLIFY_TAGS_PER_REQUEST": "10",
+              "SIMPLIFY_VOCABULARY_SIZE": "100"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "tidy-up numbers not numbers keep the current values": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "DUPLICATES_AI_REVIEW_BATCH_SIZE": "40",
+              "DUPLICATES_AI_CANDIDATE_FLOOR": "0.8",
+              "DUPLICATES_AI_TOKEN_BUDGET": "1000"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "tidy-up floor rounding": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "DUPLICATES_AI_CANDIDATE_FLOOR": "0.78"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "token limit rejected": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Token Limit. Expected a positive whole number."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "response tokens rejected": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Response Tokens. Expected a positive whole number."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "response tokens parsed leniently, token limit normalised": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "TOKEN_LIMIT": "64000",
+              "RESPONSE_TOKENS": "2048"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "temperatures out of range and padded": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_TEMPERATURE_GENERATION": "0.5"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [
+        "[WARN] Invalid AI_TEMPERATURE_ANALYSIS value: 3. Using fallback: 0.3"
+      ],
+      "errors": []
+    },
+    "temperatures empty keep the current values": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_TEMPERATURE_ANALYSIS": "1.2"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [
+        "[WARN] Invalid AI_TEMPERATURE_GENERATION value: x. Using fallback: 0.7"
+      ],
+      "errors": []
+    },
+    "cookie secure mode rejected": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Cookie Secure Mode. Allowed values: auto, always, never."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "page limit rejected": {
+      "status": 400,
+      "response": {
+        "error": "Invalid page limit. Use a whole number of pages, or 0 for no limit."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "page limit empty and padded": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["COOKIE_SECURE_MODE"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "COOKIE_SECURE_MODE": "always",
+              "MAX_PAGE_COUNT": "7"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "page limit empty": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {},
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "log level rejected": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Log Level. Allowed values: debug, info, warn, error."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "date format normalised": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "DATE_FORMAT": "YYYY-MM-DD"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "date format rejected": {
+      "status": 400,
+      "response": {
+        "error": "Invalid Date Format. Allowed values: DD.MM.YYYY, YYYY-MM-DD."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "system prompt with line breaks and equals signs": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SYSTEM_PROMPT": "Line one\\nkeyvalue\\nline three"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "first error wins: provider before token limit": {
+      "status": 400,
+      "response": {
+        "error": "OpenAI API key is required when OpenAI provider is selected."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "oidc switched on and complete": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "OIDC_ENABLED": "yes",
+              "OIDC_ISSUER_URL": "https://id.example.com/realms/home",
+              "OIDC_CLIENT_ID": "zettelrobbe",
+              "OIDC_CLIENT_SECRET": "typed-oidc-secret",
+              "OIDC_ADMIN_EMAIL": "admin@example.com",
+              "OIDC_REDIRECT_URI": "https://zr.example.com/auth/oidc/callback",
+              "OIDC_SCOPES": "openid email profile",
+              "OIDC_ALLOW_UNVERIFIED_EMAIL": "yes",
+              "OIDC_TOKEN_AUTH_METHOD": "client_secret_post",
+              "OIDC_BUTTON_TEXT": "Sign in with the very long name of our identity provider",
+              "OIDC_BUTTON_ICON": "/icons/sso.svg",
+              "OIDC_BUTTON_COLOR": "#1f6feb",
+              "OIDC_BUTTON_TEXT_COLOR": "white"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "oidc switched on without issuer": {
+      "status": 400,
+      "response": {
+        "success": false,
+        "error": "Single sign-on is switched on but cannot work: OIDC_ISSUER_URL is missing or not a URL. Fix these or switch single sign-on off."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "oidc switched on with bad method, icon and colour": {
+      "status": 400,
+      "response": {
+        "success": false,
+        "error": "Single sign-on is switched on but cannot work: OIDC_TOKEN_AUTH_METHOD must be empty (automatic) or one of client_secret_basic, client_secret_post, none; OIDC_BUTTON_ICON must be empty, \"none\", an https:// URL or a path starting with /; OIDC_BUTTON_COLOR must be a CSS colour such as #1f6feb, a colour name, or rgb()/hsl(). Fix these or switch single sign-on off."
+      },
+      "saved": [],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "oidc switched off keeps a half-finished setup": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "OIDC_ISSUER_URL": "not a url"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "oidc empty secret keeps the stored one": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "OIDC_ENABLED": "yes",
+              "OIDC_ISSUER_URL": "https://id.example.com/realms/home",
+              "OIDC_CLIENT_ID": "zettelrobbe",
+              "OIDC_ADMIN_EMAIL": "admin@example.com",
+              "OIDC_REDIRECT_URI": "https://zr.example.com/auth/oidc/callback"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "oidc pinned issuer wins over a typed one": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "OIDC_ENABLED": "yes",
+              "OIDC_CLIENT_ID": "zettelrobbe",
+              "OIDC_CLIENT_SECRET": "typed-oidc-secret",
+              "OIDC_ADMIN_EMAIL": "admin@example.com",
+              "OIDC_REDIRECT_URI": "https://zr.example.com/auth/oidc/callback"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "oidc fields absent": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SYSTEM_PROMPT": "",
+              "TOKEN_LIMIT": 128000,
+              "RESPONSE_TOKENS": 1000,
+              "TAGS": "",
+              "IGNORE_TAGS": "",
+              "REMOVE_TAGS_AFTER_PROCESSING": "",
+              "ACTIVATE_TAGGING": "no",
+              "ACTIVATE_CORRESPONDENTS": "no",
+              "ACTIVATE_DOCUMENT_TYPE": "no",
+              "ACTIVATE_TITLE": "no",
+              "ACTIVATE_CUSTOM_FIELDS": "no"
+            },
+            "missingFromReference": [
+              "OIDC_ENABLED",
+              "OIDC_ISSUER_URL",
+              "OIDC_CLIENT_ID",
+              "OIDC_ADMIN_EMAIL",
+              "OIDC_REDIRECT_URI",
+              "OIDC_SCOPES",
+              "OIDC_EMAIL_CLAIM",
+              "OIDC_ALLOW_UNVERIFIED_EMAIL",
+              "OIDC_TOKEN_AUTH_METHOD",
+              "OIDC_BUTTON_TEXT",
+              "OIDC_BUTTON_ICON",
+              "OIDC_BUTTON_COLOR",
+              "OIDC_BUTTON_TEXT_COLOR"
+            ]
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "live key only does not restart": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "AI_TEMPERATURE_ANALYSIS": "0.9"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "trust proxy change restarts": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": ["TRUST_PROXY"]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "TRUST_PROXY": "1"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "several restart keys change": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The server restarts to apply them.",
+        "restart": true,
+        "restartKeys": [
+          "DISABLE_AUTOMATIC_PROCESSING",
+          "GLOBAL_RATE_LIMIT_MAX",
+          "LOG_LEVEL",
+          "MIN_CONTENT_LENGTH",
+          "MISTRAL_OCR_ENABLED",
+          "PAPERLESS_AI_PORT",
+          "RECONCILIATION_ENABLED",
+          "SCAN_INTERVAL"
+        ]
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SCAN_INTERVAL": "0 * * * *",
+              "RECONCILIATION_ENABLED": "yes",
+              "DISABLE_AUTOMATIC_PROCESSING": "no",
+              "MISTRAL_OCR_ENABLED": "yes",
+              "OCR_API_KEY": "k",
+              "MISTRAL_API_KEY": "k",
+              "GLOBAL_RATE_LIMIT_MAX": "50",
+              "MIN_CONTENT_LENGTH": "20",
+              "PAPERLESS_AI_PORT": "3100",
+              "LOG_LEVEL": "debug"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 1,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "pinned restart key is never reported": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "SCAN_INTERVAL": "0 * * * *"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    },
+    "tag cache ttl change resets the cache": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "TAG_CACHE_TTL_SECONDS": "600"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": true,
+      "warnings": [],
+      "errors": []
+    },
+    "missing api key is generated": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Settings saved. The changes are in effect.",
+        "restart": false,
+        "restartKeys": []
+      },
+      "saved": [
+        {
+          "config": {
+            "differsFromReference": {
+              "API_KEY": "<generated 128 hex>"
+            },
+            "missingFromReference": []
+          },
+          "options": {
+            "skipValidation": true
+          }
+        }
+      ],
+      "restartRequested": 0,
+      "paperlessValidations": [],
+      "customFieldConflictQueries": [[]],
+      "createdCustomFields": [],
+      "tagCacheReset": false,
+      "warnings": [],
+      "errors": []
+    }
+  },
+  "settingsPage": {
+    "configured instance, defaults only": {
+      "status": 200,
+      "view": "settings",
+      "config": {
+        "PAPERLESS_API_URL": "http://paperless.local:8000",
+        "PAPERLESS_PUBLIC_URL": "",
+        "PAPERLESS_API_TOKEN": "",
+        "PAPERLESS_USERNAME": "archivist",
+        "AI_PROVIDER": "openai",
+        "OPENAI_API_KEY": "",
+        "OPENAI_MODEL": "gpt-4o-mini",
+        "OLLAMA_API_URL": "http://localhost:11434",
+        "OLLAMA_API_KEY": "",
+        "OLLAMA_MODEL": "llama3.2",
+        "OLLAMA_THINK": "false",
+        "SCAN_INTERVAL": "*/30 * * * *",
+        "RECONCILIATION_INTERVAL": "0 * * * *",
+        "RECONCILIATION_ENABLED": "no",
+        "SYSTEM_PROMPT": "",
+        "PROCESS_PREDEFINED_DOCUMENTS": "no",
+        "TOKEN_LIMIT": 128000,
+        "RESPONSE_TOKENS": 1000,
+        "AI_TEMPERATURE_ANALYSIS": "0.3",
+        "AI_TEMPERATURE_GENERATION": "0.7",
+        "TAGS": [],
+        "IGNORE_TAGS": [],
+        "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+        "REMOVE_TAGS_AFTER_PROCESSING": [],
+        "ADD_AI_PROCESSED_TAG": "no",
+        "AI_PROCESSED_TAG_NAME": "ai-processed",
+        "USE_PROMPT_TAGS": "no",
+        "PROMPT_TAGS": [],
+        "PAPERLESS_AI_VERSION": "<PAPERLESS_AI_VERSION>",
+        "PROCESS_ONLY_NEW_DOCUMENTS": " ",
+        "USE_EXISTING_DATA": "no",
+        "CUSTOM_API_KEY": "",
+        "CUSTOM_BASE_URL": "",
+        "CUSTOM_MODEL": "",
+        "AZURE_ENDPOINT": "",
+        "AZURE_API_KEY": "",
+        "AZURE_DEPLOYMENT_NAME": "",
+        "AZURE_API_VERSION": "",
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_API_URL": "",
+        "ANTHROPIC_MODEL": "<ANTHROPIC_DEFAULT_MODEL>",
+        "ANTHROPIC_EFFORT": "",
+        "ANTHROPIC_MAX_TOKENS": "<ANTHROPIC_DEFAULT_MAX_TOKENS>",
+        "ANTHROPIC_STRUCTURED_OUTPUT": "yes",
+        "ANTHROPIC_PROMPT_CACHING": "yes",
+        "RESTRICT_TO_EXISTING_TAGS": "no",
+        "RESTRICT_TO_EXISTING_CORRESPONDENTS": "no",
+        "RESTRICT_TO_EXISTING_DOCUMENT_TYPES": "no",
+        "EXTERNAL_API_ENABLED": "no",
+        "EXTERNAL_API_URL": "",
+        "EXTERNAL_API_METHOD": "GET",
+        "EXTERNAL_API_HEADERS": "{}",
+        "EXTERNAL_API_BODY": "{}",
+        "EXTERNAL_API_TIMEOUT": "5000",
+        "EXTERNAL_API_TRANSFORM": "",
+        "EXTERNAL_API_ALLOW_PRIVATE_IPS": "no",
+        "TAG_CACHE_TTL_SECONDS": "300",
+        "ACTIVATE_TAGGING": "yes",
+        "ACTIVATE_CORRESPONDENTS": "yes",
+        "ACTIVATE_DOCUMENT_TYPE": "yes",
+        "ACTIVATE_TITLE": "yes",
+        "ACTIVATE_CUSTOM_FIELDS": "yes",
+        "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+        "DISABLE_AUTOMATIC_PROCESSING": "yes",
+        "DUPLICATES_AI_REVIEW": "yes",
+        "DUPLICATES_AI_MODEL": "",
+        "DUPLICATES_AI_REVIEW_BATCH_SIZE": "25",
+        "DUPLICATES_AI_CANDIDATE_FLOOR": "0.6",
+        "DUPLICATES_AI_EXCERPTS": "yes",
+        "DUPLICATES_AI_EXCERPT_CHARS": "300",
+        "DUPLICATES_AI_EXCERPT_DOCUMENTS": "2",
+        "DUPLICATES_AI_TOKEN_BUDGET": "200000",
+        "DUPLICATES_AI_IDLE_STOP_SECONDS": "60",
+        "DUPLICATES_AI_THINKING": "no",
+        "DUPLICATES_AI_REQUEST_SECONDS": "30",
+        "DUPLICATES_AI_CONCURRENCY": "0",
+        "DUPLICATES_AI_VERDICT_MEMORY_DAYS": "90",
+        "DUPLICATES_GUARD_NEW_NAMES": "yes",
+        "DUPLICATES_AI_SWEEP_NAMES": "300",
+        "SIMPLIFY_TAGS_PER_REQUEST": "50",
+        "SIMPLIFY_VOCABULARY_SIZE": "25",
+        "MISTRAL_OCR_ENABLED": "no",
+        "OCR_PROVIDER": "mistral",
+        "OCR_API_URL": "",
+        "OCR_API_KEY": "",
+        "MISTRAL_API_KEY": "",
+        "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+        "OCR_PDF_RENDER_ENABLED": "yes",
+        "OCR_PDF_RENDER_MAX_PAGES": "10",
+        "OCR_PDF_RENDER_DPI": "150",
+        "OCR_AUTO_PROCESS_ENABLED": "no",
+        "OCR_AUTO_PROCESS_INTERVAL": "*/15 * * * *",
+        "OCR_AUTO_PROCESS_BATCH_SIZE": "10",
+        "OCR_AUTO_ANALYZE": "yes",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS": "900000",
+        "GLOBAL_RATE_LIMIT_MAX": "1000",
+        "TRUST_PROXY": "",
+        "COOKIE_SECURE_MODE": "auto",
+        "MIN_CONTENT_LENGTH": "10",
+        "MAX_PAGE_COUNT": "0",
+        "IGNORE_TITLE_PATTERNS": [],
+        "IGNORE_REPEATED_CONTENT": "yes",
+        "PAPERLESS_AI_PORT": "3000",
+        "LOG_LEVEL": "error",
+        "DATE_FORMAT": "DD.MM.YYYY",
+        "OIDC_ENABLED": "no",
+        "OIDC_ISSUER_URL": "",
+        "OIDC_CLIENT_ID": "",
+        "OIDC_CLIENT_SECRET": "",
+        "OIDC_ADMIN_EMAIL": "",
+        "OIDC_REDIRECT_URI": "",
+        "OIDC_SCOPES": "openid profile email",
+        "OIDC_EMAIL_CLAIM": "email",
+        "OIDC_ALLOW_UNVERIFIED_EMAIL": "no",
+        "OIDC_TOKEN_AUTH_METHOD": "",
+        "OIDC_BUTTON_TEXT": "",
+        "OIDC_BUTTON_ICON": "",
+        "OIDC_BUTTON_COLOR": "",
+        "OIDC_BUTTON_TEXT_COLOR": "",
+        "API_KEY": ""
+      },
+      "configuredSecrets": {
+        "PAPERLESS_API_TOKEN": true,
+        "OPENAI_API_KEY": true,
+        "OLLAMA_API_KEY": false,
+        "CUSTOM_API_KEY": false,
+        "AZURE_API_KEY": false,
+        "ANTHROPIC_API_KEY": false,
+        "OCR_API_KEY": false,
+        "MISTRAL_API_KEY": false,
+        "API_KEY": false,
+        "OIDC_CLIENT_SECRET": false
+      },
+      "lockedEnvKeys": [],
+      "restartRequiredKeys": [
+        "COOKIE_SECURE_MODE",
+        "DISABLE_AUTOMATIC_PROCESSING",
+        "EXPOSE_API_DOCS",
+        "GLOBAL_RATE_LIMIT_MAX",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS",
+        "LOG_LEVEL",
+        "MIN_CONTENT_LENGTH",
+        "MISTRAL_OCR_ENABLED",
+        "OCR_AUTO_PROCESS_ENABLED",
+        "OCR_AUTO_PROCESS_INTERVAL",
+        "PAPERLESS_AI_PORT",
+        "PAPERLESS_API_TOKEN",
+        "PAPERLESS_API_URL",
+        "PAPERLESS_PROBE_INTERVAL_SECONDS",
+        "PAPERLESS_REQUEST_TIMEOUT_SECONDS",
+        "RECONCILIATION_ENABLED",
+        "RECONCILIATION_INTERVAL",
+        "SCAN_INTERVAL",
+        "TRUST_PROXY"
+      ],
+      "success": null,
+      "settingsError": null,
+      "mfaSettings": {
+        "available": false,
+        "username": "",
+        "enabled": false
+      }
+    },
+    "configured instance with values and a saved configuration": {
+      "status": 200,
+      "view": "settings",
+      "config": {
+        "PAPERLESS_API_URL": "http://saved-paperless:8000",
+        "PAPERLESS_PUBLIC_URL": "",
+        "PAPERLESS_API_TOKEN": "",
+        "PAPERLESS_USERNAME": "archivist",
+        "AI_PROVIDER": "openai",
+        "OPENAI_API_KEY": "",
+        "OPENAI_MODEL": "gpt-4o-mini",
+        "OLLAMA_API_URL": "http://localhost:11434",
+        "OLLAMA_API_KEY": "",
+        "OLLAMA_MODEL": "llama3.2",
+        "OLLAMA_THINK": "true",
+        "SCAN_INTERVAL": "*/30 * * * *",
+        "RECONCILIATION_INTERVAL": "0 * * * *",
+        "RECONCILIATION_ENABLED": "no",
+        "SYSTEM_PROMPT": "",
+        "PROCESS_PREDEFINED_DOCUMENTS": "no",
+        "TOKEN_LIMIT": "64000",
+        "RESPONSE_TOKENS": 1000,
+        "AI_TEMPERATURE_ANALYSIS": "0.3",
+        "AI_TEMPERATURE_GENERATION": "0.7",
+        "TAGS": ["saved-a", "", "saved-b"],
+        "IGNORE_TAGS": [],
+        "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+        "REMOVE_TAGS_AFTER_PROCESSING": ["x", "y"],
+        "ADD_AI_PROCESSED_TAG": "no",
+        "AI_PROCESSED_TAG_NAME": "ai-processed",
+        "USE_PROMPT_TAGS": "no",
+        "PROMPT_TAGS": [],
+        "PAPERLESS_AI_VERSION": "<PAPERLESS_AI_VERSION>",
+        "PROCESS_ONLY_NEW_DOCUMENTS": "no",
+        "USE_EXISTING_DATA": "no",
+        "CUSTOM_API_KEY": "",
+        "CUSTOM_BASE_URL": "",
+        "CUSTOM_MODEL": "",
+        "AZURE_ENDPOINT": "",
+        "AZURE_API_KEY": "",
+        "AZURE_DEPLOYMENT_NAME": "",
+        "AZURE_API_VERSION": "",
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_API_URL": "",
+        "ANTHROPIC_MODEL": "<ANTHROPIC_DEFAULT_MODEL>",
+        "ANTHROPIC_EFFORT": "",
+        "ANTHROPIC_MAX_TOKENS": "<ANTHROPIC_DEFAULT_MAX_TOKENS>",
+        "ANTHROPIC_STRUCTURED_OUTPUT": "yes",
+        "ANTHROPIC_PROMPT_CACHING": "yes",
+        "RESTRICT_TO_EXISTING_TAGS": "no",
+        "RESTRICT_TO_EXISTING_CORRESPONDENTS": "no",
+        "RESTRICT_TO_EXISTING_DOCUMENT_TYPES": "no",
+        "EXTERNAL_API_ENABLED": "no",
+        "EXTERNAL_API_URL": "",
+        "EXTERNAL_API_METHOD": "GET",
+        "EXTERNAL_API_HEADERS": "{}",
+        "EXTERNAL_API_BODY": "{}",
+        "EXTERNAL_API_TIMEOUT": "5000",
+        "EXTERNAL_API_TRANSFORM": "",
+        "EXTERNAL_API_ALLOW_PRIVATE_IPS": "no",
+        "TAG_CACHE_TTL_SECONDS": "300",
+        "ACTIVATE_TAGGING": "yes",
+        "ACTIVATE_CORRESPONDENTS": "yes",
+        "ACTIVATE_DOCUMENT_TYPE": "yes",
+        "ACTIVATE_TITLE": "yes",
+        "ACTIVATE_CUSTOM_FIELDS": "yes",
+        "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+        "DISABLE_AUTOMATIC_PROCESSING": "yes",
+        "DUPLICATES_AI_REVIEW": "yes",
+        "DUPLICATES_AI_MODEL": "",
+        "DUPLICATES_AI_REVIEW_BATCH_SIZE": "25",
+        "DUPLICATES_AI_CANDIDATE_FLOOR": "0.6",
+        "DUPLICATES_AI_EXCERPTS": "yes",
+        "DUPLICATES_AI_EXCERPT_CHARS": "300",
+        "DUPLICATES_AI_EXCERPT_DOCUMENTS": "2",
+        "DUPLICATES_AI_TOKEN_BUDGET": "200000",
+        "DUPLICATES_AI_IDLE_STOP_SECONDS": "60",
+        "DUPLICATES_AI_THINKING": "no",
+        "DUPLICATES_AI_REQUEST_SECONDS": "30",
+        "DUPLICATES_AI_CONCURRENCY": "0",
+        "DUPLICATES_AI_VERDICT_MEMORY_DAYS": "90",
+        "DUPLICATES_GUARD_NEW_NAMES": "yes",
+        "DUPLICATES_AI_SWEEP_NAMES": "300",
+        "SIMPLIFY_TAGS_PER_REQUEST": "50",
+        "SIMPLIFY_VOCABULARY_SIZE": "25",
+        "MISTRAL_OCR_ENABLED": "no",
+        "OCR_PROVIDER": "mistral",
+        "OCR_API_URL": "",
+        "OCR_API_KEY": "",
+        "MISTRAL_API_KEY": "",
+        "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+        "OCR_PDF_RENDER_ENABLED": "yes",
+        "OCR_PDF_RENDER_MAX_PAGES": "10",
+        "OCR_PDF_RENDER_DPI": "150",
+        "OCR_AUTO_PROCESS_ENABLED": "no",
+        "OCR_AUTO_PROCESS_INTERVAL": "*/15 * * * *",
+        "OCR_AUTO_PROCESS_BATCH_SIZE": "10",
+        "OCR_AUTO_ANALYZE": "yes",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "15000",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS": "900000",
+        "GLOBAL_RATE_LIMIT_MAX": "1000",
+        "TRUST_PROXY": "",
+        "COOKIE_SECURE_MODE": "auto",
+        "MIN_CONTENT_LENGTH": "10",
+        "MAX_PAGE_COUNT": "0",
+        "IGNORE_TITLE_PATTERNS": [],
+        "IGNORE_REPEATED_CONTENT": "yes",
+        "PAPERLESS_AI_PORT": "3000",
+        "LOG_LEVEL": "error",
+        "DATE_FORMAT": "DD.MM.YYYY",
+        "OIDC_ENABLED": "no",
+        "OIDC_ISSUER_URL": "",
+        "OIDC_CLIENT_ID": "",
+        "OIDC_CLIENT_SECRET": "",
+        "OIDC_ADMIN_EMAIL": "",
+        "OIDC_REDIRECT_URI": "",
+        "OIDC_SCOPES": "openid profile email",
+        "OIDC_EMAIL_CLAIM": "email",
+        "OIDC_ALLOW_UNVERIFIED_EMAIL": "no",
+        "OIDC_TOKEN_AUTH_METHOD": "",
+        "OIDC_BUTTON_TEXT": "",
+        "OIDC_BUTTON_ICON": "",
+        "OIDC_BUTTON_COLOR": "",
+        "OIDC_BUTTON_TEXT_COLOR": "",
+        "CUSTOM_EXTRA_KEY": "extra",
+        "API_KEY": ""
+      },
+      "configuredSecrets": {
+        "PAPERLESS_API_TOKEN": true,
+        "OPENAI_API_KEY": true,
+        "OLLAMA_API_KEY": false,
+        "CUSTOM_API_KEY": false,
+        "AZURE_API_KEY": false,
+        "ANTHROPIC_API_KEY": true,
+        "OCR_API_KEY": true,
+        "MISTRAL_API_KEY": false,
+        "API_KEY": true,
+        "OIDC_CLIENT_SECRET": true
+      },
+      "lockedEnvKeys": [],
+      "restartRequiredKeys": [
+        "COOKIE_SECURE_MODE",
+        "DISABLE_AUTOMATIC_PROCESSING",
+        "EXPOSE_API_DOCS",
+        "GLOBAL_RATE_LIMIT_MAX",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS",
+        "LOG_LEVEL",
+        "MIN_CONTENT_LENGTH",
+        "MISTRAL_OCR_ENABLED",
+        "OCR_AUTO_PROCESS_ENABLED",
+        "OCR_AUTO_PROCESS_INTERVAL",
+        "PAPERLESS_AI_PORT",
+        "PAPERLESS_API_TOKEN",
+        "PAPERLESS_API_URL",
+        "PAPERLESS_PROBE_INTERVAL_SECONDS",
+        "PAPERLESS_REQUEST_TIMEOUT_SECONDS",
+        "RECONCILIATION_ENABLED",
+        "RECONCILIATION_INTERVAL",
+        "SCAN_INTERVAL",
+        "TRUST_PROXY"
+      ],
+      "success": null,
+      "settingsError": null,
+      "mfaSettings": {
+        "available": false,
+        "username": "",
+        "enabled": false
+      }
+    },
+    "pinned keys are locked": {
+      "status": 200,
+      "view": "settings",
+      "config": {
+        "PAPERLESS_API_URL": "http://paperless.local:8000",
+        "PAPERLESS_PUBLIC_URL": "",
+        "PAPERLESS_API_TOKEN": "",
+        "PAPERLESS_USERNAME": "archivist",
+        "AI_PROVIDER": "openai",
+        "OPENAI_API_KEY": "",
+        "OPENAI_MODEL": "gpt-4o-mini",
+        "OLLAMA_API_URL": "http://localhost:11434",
+        "OLLAMA_API_KEY": "",
+        "OLLAMA_MODEL": "llama3.2",
+        "OLLAMA_THINK": "false",
+        "SCAN_INTERVAL": "*/30 * * * *",
+        "RECONCILIATION_INTERVAL": "0 * * * *",
+        "RECONCILIATION_ENABLED": "no",
+        "SYSTEM_PROMPT": "",
+        "PROCESS_PREDEFINED_DOCUMENTS": "no",
+        "TOKEN_LIMIT": 128000,
+        "RESPONSE_TOKENS": 1000,
+        "AI_TEMPERATURE_ANALYSIS": "0.3",
+        "AI_TEMPERATURE_GENERATION": "0.7",
+        "TAGS": [],
+        "IGNORE_TAGS": [],
+        "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+        "REMOVE_TAGS_AFTER_PROCESSING": [],
+        "ADD_AI_PROCESSED_TAG": "no",
+        "AI_PROCESSED_TAG_NAME": "ai-processed",
+        "USE_PROMPT_TAGS": "no",
+        "PROMPT_TAGS": [],
+        "PAPERLESS_AI_VERSION": "<PAPERLESS_AI_VERSION>",
+        "PROCESS_ONLY_NEW_DOCUMENTS": " ",
+        "USE_EXISTING_DATA": "no",
+        "CUSTOM_API_KEY": "",
+        "CUSTOM_BASE_URL": "",
+        "CUSTOM_MODEL": "",
+        "AZURE_ENDPOINT": "",
+        "AZURE_API_KEY": "",
+        "AZURE_DEPLOYMENT_NAME": "",
+        "AZURE_API_VERSION": "",
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_API_URL": "",
+        "ANTHROPIC_MODEL": "<ANTHROPIC_DEFAULT_MODEL>",
+        "ANTHROPIC_EFFORT": "",
+        "ANTHROPIC_MAX_TOKENS": "<ANTHROPIC_DEFAULT_MAX_TOKENS>",
+        "ANTHROPIC_STRUCTURED_OUTPUT": "yes",
+        "ANTHROPIC_PROMPT_CACHING": "yes",
+        "RESTRICT_TO_EXISTING_TAGS": "no",
+        "RESTRICT_TO_EXISTING_CORRESPONDENTS": "no",
+        "RESTRICT_TO_EXISTING_DOCUMENT_TYPES": "no",
+        "EXTERNAL_API_ENABLED": "no",
+        "EXTERNAL_API_URL": "",
+        "EXTERNAL_API_METHOD": "GET",
+        "EXTERNAL_API_HEADERS": "{}",
+        "EXTERNAL_API_BODY": "{}",
+        "EXTERNAL_API_TIMEOUT": "5000",
+        "EXTERNAL_API_TRANSFORM": "",
+        "EXTERNAL_API_ALLOW_PRIVATE_IPS": "no",
+        "TAG_CACHE_TTL_SECONDS": "300",
+        "ACTIVATE_TAGGING": "yes",
+        "ACTIVATE_CORRESPONDENTS": "yes",
+        "ACTIVATE_DOCUMENT_TYPE": "yes",
+        "ACTIVATE_TITLE": "yes",
+        "ACTIVATE_CUSTOM_FIELDS": "yes",
+        "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+        "DISABLE_AUTOMATIC_PROCESSING": "yes",
+        "DUPLICATES_AI_REVIEW": "yes",
+        "DUPLICATES_AI_MODEL": "",
+        "DUPLICATES_AI_REVIEW_BATCH_SIZE": "25",
+        "DUPLICATES_AI_CANDIDATE_FLOOR": "0.6",
+        "DUPLICATES_AI_EXCERPTS": "yes",
+        "DUPLICATES_AI_EXCERPT_CHARS": "300",
+        "DUPLICATES_AI_EXCERPT_DOCUMENTS": "2",
+        "DUPLICATES_AI_TOKEN_BUDGET": "200000",
+        "DUPLICATES_AI_IDLE_STOP_SECONDS": "60",
+        "DUPLICATES_AI_THINKING": "no",
+        "DUPLICATES_AI_REQUEST_SECONDS": "30",
+        "DUPLICATES_AI_CONCURRENCY": "0",
+        "DUPLICATES_AI_VERDICT_MEMORY_DAYS": "90",
+        "DUPLICATES_GUARD_NEW_NAMES": "yes",
+        "DUPLICATES_AI_SWEEP_NAMES": "300",
+        "SIMPLIFY_TAGS_PER_REQUEST": "50",
+        "SIMPLIFY_VOCABULARY_SIZE": "25",
+        "MISTRAL_OCR_ENABLED": "no",
+        "OCR_PROVIDER": "mistral",
+        "OCR_API_URL": "",
+        "OCR_API_KEY": "",
+        "MISTRAL_API_KEY": "",
+        "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+        "OCR_PDF_RENDER_ENABLED": "yes",
+        "OCR_PDF_RENDER_MAX_PAGES": "10",
+        "OCR_PDF_RENDER_DPI": "150",
+        "OCR_AUTO_PROCESS_ENABLED": "no",
+        "OCR_AUTO_PROCESS_INTERVAL": "*/15 * * * *",
+        "OCR_AUTO_PROCESS_BATCH_SIZE": "10",
+        "OCR_AUTO_ANALYZE": "yes",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS": "900000",
+        "GLOBAL_RATE_LIMIT_MAX": "1000",
+        "TRUST_PROXY": "",
+        "COOKIE_SECURE_MODE": "auto",
+        "MIN_CONTENT_LENGTH": "10",
+        "MAX_PAGE_COUNT": "0",
+        "IGNORE_TITLE_PATTERNS": [],
+        "IGNORE_REPEATED_CONTENT": "yes",
+        "PAPERLESS_AI_PORT": "3000",
+        "LOG_LEVEL": "error",
+        "DATE_FORMAT": "DD.MM.YYYY",
+        "OIDC_ENABLED": "no",
+        "OIDC_ISSUER_URL": "",
+        "OIDC_CLIENT_ID": "",
+        "OIDC_CLIENT_SECRET": "",
+        "OIDC_ADMIN_EMAIL": "",
+        "OIDC_REDIRECT_URI": "",
+        "OIDC_SCOPES": "openid profile email",
+        "OIDC_EMAIL_CLAIM": "email",
+        "OIDC_ALLOW_UNVERIFIED_EMAIL": "no",
+        "OIDC_TOKEN_AUTH_METHOD": "",
+        "OIDC_BUTTON_TEXT": "",
+        "OIDC_BUTTON_ICON": "",
+        "OIDC_BUTTON_COLOR": "",
+        "OIDC_BUTTON_TEXT_COLOR": "",
+        "API_KEY": ""
+      },
+      "configuredSecrets": {
+        "PAPERLESS_API_TOKEN": true,
+        "OPENAI_API_KEY": true,
+        "OLLAMA_API_KEY": false,
+        "CUSTOM_API_KEY": false,
+        "AZURE_API_KEY": false,
+        "ANTHROPIC_API_KEY": false,
+        "OCR_API_KEY": false,
+        "MISTRAL_API_KEY": false,
+        "API_KEY": false,
+        "OIDC_CLIENT_SECRET": false
+      },
+      "lockedEnvKeys": ["DUPLICATES_AI_MODEL", "OPENAI_MODEL", "SCAN_INTERVAL"],
+      "restartRequiredKeys": [
+        "COOKIE_SECURE_MODE",
+        "DISABLE_AUTOMATIC_PROCESSING",
+        "EXPOSE_API_DOCS",
+        "GLOBAL_RATE_LIMIT_MAX",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS",
+        "LOG_LEVEL",
+        "MIN_CONTENT_LENGTH",
+        "MISTRAL_OCR_ENABLED",
+        "OCR_AUTO_PROCESS_ENABLED",
+        "OCR_AUTO_PROCESS_INTERVAL",
+        "PAPERLESS_AI_PORT",
+        "PAPERLESS_API_TOKEN",
+        "PAPERLESS_API_URL",
+        "PAPERLESS_PROBE_INTERVAL_SECONDS",
+        "PAPERLESS_REQUEST_TIMEOUT_SECONDS",
+        "RECONCILIATION_ENABLED",
+        "RECONCILIATION_INTERVAL",
+        "SCAN_INTERVAL",
+        "TRUST_PROXY"
+      ],
+      "success": null,
+      "settingsError": null,
+      "mfaSettings": {
+        "available": false,
+        "username": "",
+        "enabled": false
+      }
+    },
+    "incomplete configuration shows the warning": {
+      "status": 200,
+      "view": "settings",
+      "config": {
+        "PAPERLESS_API_URL": "http://localhost:8000",
+        "PAPERLESS_PUBLIC_URL": "",
+        "PAPERLESS_API_TOKEN": "",
+        "PAPERLESS_USERNAME": "archivist",
+        "AI_PROVIDER": "openai",
+        "OPENAI_API_KEY": "",
+        "OPENAI_MODEL": "gpt-4o-mini",
+        "OLLAMA_API_URL": "http://localhost:11434",
+        "OLLAMA_API_KEY": "",
+        "OLLAMA_MODEL": "llama3.2",
+        "OLLAMA_THINK": "false",
+        "SCAN_INTERVAL": "*/30 * * * *",
+        "RECONCILIATION_INTERVAL": "0 * * * *",
+        "RECONCILIATION_ENABLED": "no",
+        "SYSTEM_PROMPT": "",
+        "PROCESS_PREDEFINED_DOCUMENTS": "no",
+        "TOKEN_LIMIT": 128000,
+        "RESPONSE_TOKENS": 1000,
+        "AI_TEMPERATURE_ANALYSIS": "0.3",
+        "AI_TEMPERATURE_GENERATION": "0.7",
+        "TAGS": [],
+        "IGNORE_TAGS": [],
+        "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+        "REMOVE_TAGS_AFTER_PROCESSING": [],
+        "ADD_AI_PROCESSED_TAG": "no",
+        "AI_PROCESSED_TAG_NAME": "ai-processed",
+        "USE_PROMPT_TAGS": "no",
+        "PROMPT_TAGS": [],
+        "PAPERLESS_AI_VERSION": "<PAPERLESS_AI_VERSION>",
+        "PROCESS_ONLY_NEW_DOCUMENTS": " ",
+        "USE_EXISTING_DATA": "no",
+        "CUSTOM_API_KEY": "",
+        "CUSTOM_BASE_URL": "",
+        "CUSTOM_MODEL": "",
+        "AZURE_ENDPOINT": "",
+        "AZURE_API_KEY": "",
+        "AZURE_DEPLOYMENT_NAME": "",
+        "AZURE_API_VERSION": "",
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_API_URL": "",
+        "ANTHROPIC_MODEL": "<ANTHROPIC_DEFAULT_MODEL>",
+        "ANTHROPIC_EFFORT": "",
+        "ANTHROPIC_MAX_TOKENS": "<ANTHROPIC_DEFAULT_MAX_TOKENS>",
+        "ANTHROPIC_STRUCTURED_OUTPUT": "yes",
+        "ANTHROPIC_PROMPT_CACHING": "yes",
+        "RESTRICT_TO_EXISTING_TAGS": "no",
+        "RESTRICT_TO_EXISTING_CORRESPONDENTS": "no",
+        "RESTRICT_TO_EXISTING_DOCUMENT_TYPES": "no",
+        "EXTERNAL_API_ENABLED": "no",
+        "EXTERNAL_API_URL": "",
+        "EXTERNAL_API_METHOD": "GET",
+        "EXTERNAL_API_HEADERS": "{}",
+        "EXTERNAL_API_BODY": "{}",
+        "EXTERNAL_API_TIMEOUT": "5000",
+        "EXTERNAL_API_TRANSFORM": "",
+        "EXTERNAL_API_ALLOW_PRIVATE_IPS": "no",
+        "TAG_CACHE_TTL_SECONDS": "300",
+        "ACTIVATE_TAGGING": "yes",
+        "ACTIVATE_CORRESPONDENTS": "yes",
+        "ACTIVATE_DOCUMENT_TYPE": "yes",
+        "ACTIVATE_TITLE": "yes",
+        "ACTIVATE_CUSTOM_FIELDS": "yes",
+        "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+        "DISABLE_AUTOMATIC_PROCESSING": "yes",
+        "DUPLICATES_AI_REVIEW": "yes",
+        "DUPLICATES_AI_MODEL": "",
+        "DUPLICATES_AI_REVIEW_BATCH_SIZE": "25",
+        "DUPLICATES_AI_CANDIDATE_FLOOR": "0.6",
+        "DUPLICATES_AI_EXCERPTS": "yes",
+        "DUPLICATES_AI_EXCERPT_CHARS": "300",
+        "DUPLICATES_AI_EXCERPT_DOCUMENTS": "2",
+        "DUPLICATES_AI_TOKEN_BUDGET": "200000",
+        "DUPLICATES_AI_IDLE_STOP_SECONDS": "60",
+        "DUPLICATES_AI_THINKING": "no",
+        "DUPLICATES_AI_REQUEST_SECONDS": "30",
+        "DUPLICATES_AI_CONCURRENCY": "0",
+        "DUPLICATES_AI_VERDICT_MEMORY_DAYS": "90",
+        "DUPLICATES_GUARD_NEW_NAMES": "yes",
+        "DUPLICATES_AI_SWEEP_NAMES": "300",
+        "SIMPLIFY_TAGS_PER_REQUEST": "50",
+        "SIMPLIFY_VOCABULARY_SIZE": "25",
+        "MISTRAL_OCR_ENABLED": "no",
+        "OCR_PROVIDER": "mistral",
+        "OCR_API_URL": "",
+        "OCR_API_KEY": "",
+        "MISTRAL_API_KEY": "",
+        "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+        "OCR_PDF_RENDER_ENABLED": "yes",
+        "OCR_PDF_RENDER_MAX_PAGES": "10",
+        "OCR_PDF_RENDER_DPI": "150",
+        "OCR_AUTO_PROCESS_ENABLED": "no",
+        "OCR_AUTO_PROCESS_INTERVAL": "*/15 * * * *",
+        "OCR_AUTO_PROCESS_BATCH_SIZE": "10",
+        "OCR_AUTO_ANALYZE": "yes",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS": "900000",
+        "GLOBAL_RATE_LIMIT_MAX": "1000",
+        "TRUST_PROXY": "",
+        "COOKIE_SECURE_MODE": "auto",
+        "MIN_CONTENT_LENGTH": "10",
+        "MAX_PAGE_COUNT": "0",
+        "IGNORE_TITLE_PATTERNS": [],
+        "IGNORE_REPEATED_CONTENT": "yes",
+        "PAPERLESS_AI_PORT": "3000",
+        "LOG_LEVEL": "error",
+        "DATE_FORMAT": "DD.MM.YYYY",
+        "OIDC_ENABLED": "no",
+        "OIDC_ISSUER_URL": "",
+        "OIDC_CLIENT_ID": "",
+        "OIDC_CLIENT_SECRET": "",
+        "OIDC_ADMIN_EMAIL": "",
+        "OIDC_REDIRECT_URI": "",
+        "OIDC_SCOPES": "openid profile email",
+        "OIDC_EMAIL_CLAIM": "email",
+        "OIDC_ALLOW_UNVERIFIED_EMAIL": "no",
+        "OIDC_TOKEN_AUTH_METHOD": "",
+        "OIDC_BUTTON_TEXT": "",
+        "OIDC_BUTTON_ICON": "",
+        "OIDC_BUTTON_COLOR": "",
+        "OIDC_BUTTON_TEXT_COLOR": "",
+        "API_KEY": ""
+      },
+      "configuredSecrets": {
+        "PAPERLESS_API_TOKEN": true,
+        "OPENAI_API_KEY": true,
+        "OLLAMA_API_KEY": false,
+        "CUSTOM_API_KEY": false,
+        "AZURE_API_KEY": false,
+        "ANTHROPIC_API_KEY": false,
+        "OCR_API_KEY": false,
+        "MISTRAL_API_KEY": false,
+        "API_KEY": false,
+        "OIDC_CLIENT_SECRET": false
+      },
+      "lockedEnvKeys": [],
+      "restartRequiredKeys": [
+        "COOKIE_SECURE_MODE",
+        "DISABLE_AUTOMATIC_PROCESSING",
+        "EXPOSE_API_DOCS",
+        "GLOBAL_RATE_LIMIT_MAX",
+        "GLOBAL_RATE_LIMIT_WINDOW_MS",
+        "LOG_LEVEL",
+        "MIN_CONTENT_LENGTH",
+        "MISTRAL_OCR_ENABLED",
+        "OCR_AUTO_PROCESS_ENABLED",
+        "OCR_AUTO_PROCESS_INTERVAL",
+        "PAPERLESS_AI_PORT",
+        "PAPERLESS_API_TOKEN",
+        "PAPERLESS_API_URL",
+        "PAPERLESS_PROBE_INTERVAL_SECONDS",
+        "PAPERLESS_REQUEST_TIMEOUT_SECONDS",
+        "RECONCILIATION_ENABLED",
+        "RECONCILIATION_INTERVAL",
+        "SCAN_INTERVAL",
+        "TRUST_PROXY"
+      ],
+      "success": null,
+      "settingsError": "Please check your settings. Something is not working correctly.",
+      "mfaSettings": {
+        "available": false,
+        "username": "",
+        "enabled": false
+      }
+    }
+  },
+  "setupPage": {
+    "fresh instance": {
+      "status": 200,
+      "view": "setup",
+      "config": {
+        "PAPERLESS_API_URL": "http://localhost:8000",
+        "PAPERLESS_USERNAME": "archivist",
+        "AI_PROVIDER": "openai",
+        "OPENAI_MODEL": "gpt-4o-mini",
+        "OLLAMA_API_URL": "http://localhost:11434",
+        "OLLAMA_MODEL": "llama3.2",
+        "SCAN_INTERVAL": "*/30 * * * *",
+        "SYSTEM_PROMPT": "",
+        "PROCESS_PREDEFINED_DOCUMENTS": "no",
+        "TOKEN_LIMIT": 128000,
+        "RESPONSE_TOKENS": 1000,
+        "TAGS": [],
+        "IGNORE_TAGS": [],
+        "ADD_AI_PROCESSED_TAG": "no",
+        "AI_PROCESSED_TAG_NAME": "ai-processed",
+        "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+        "USE_PROMPT_TAGS": "no",
+        "PROMPT_TAGS": [],
+        "PAPERLESS_AI_VERSION": "<PAPERLESS_AI_VERSION>",
+        "PROCESS_ONLY_NEW_DOCUMENTS": "yes",
+        "USE_EXISTING_DATA": "no",
+        "DISABLE_AUTOMATIC_PROCESSING": "yes",
+        "AZURE_ENDPOINT": "",
+        "AZURE_DEPLOYMENT_NAME": "",
+        "AZURE_API_VERSION": "",
+        "ANTHROPIC_API_URL": "",
+        "ANTHROPIC_MODEL": "<ANTHROPIC_DEFAULT_MODEL>",
+        "MISTRAL_OCR_ENABLED": "no",
+        "OCR_PROVIDER": "mistral",
+        "OCR_API_URL": "",
+        "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+        "SETUP_VALIDATION_TIMEOUT_MS": "30000",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000"
+      },
+      "success": null,
+      "error": null,
+      "defaults": {
+        "scanInterval": "*/30 * * * *"
+      }
+    },
+    "environment configured, no users yet": {
+      "status": 200,
+      "view": "setup",
+      "config": {
+        "PAPERLESS_API_URL": "http://saved:8000",
+        "PAPERLESS_USERNAME": "archivist",
+        "AI_PROVIDER": "openai",
+        "OPENAI_MODEL": "gpt-4o-mini",
+        "OLLAMA_API_URL": "http://localhost:11434",
+        "OLLAMA_MODEL": "llama3.2",
+        "SCAN_INTERVAL": "0 */2 * * *",
+        "SYSTEM_PROMPT": "",
+        "PROCESS_PREDEFINED_DOCUMENTS": "no",
+        "TOKEN_LIMIT": 128000,
+        "RESPONSE_TOKENS": 1000,
+        "TAGS": [],
+        "IGNORE_TAGS": ["x", "y"],
+        "ADD_AI_PROCESSED_TAG": "no",
+        "AI_PROCESSED_TAG_NAME": "ai-processed",
+        "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+        "USE_PROMPT_TAGS": "no",
+        "PROMPT_TAGS": [],
+        "PAPERLESS_AI_VERSION": "<PAPERLESS_AI_VERSION>",
+        "PROCESS_ONLY_NEW_DOCUMENTS": "yes",
+        "USE_EXISTING_DATA": "no",
+        "DISABLE_AUTOMATIC_PROCESSING": "yes",
+        "AZURE_ENDPOINT": "",
+        "AZURE_DEPLOYMENT_NAME": "",
+        "AZURE_API_VERSION": "2024-01-01",
+        "ANTHROPIC_API_URL": "",
+        "ANTHROPIC_MODEL": "<ANTHROPIC_DEFAULT_MODEL>",
+        "MISTRAL_OCR_ENABLED": "no",
+        "OCR_PROVIDER": "mistral",
+        "OCR_API_URL": "",
+        "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+        "SETUP_VALIDATION_TIMEOUT_MS": "9000",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "9000",
+        "EXTRA": "kept"
+      },
+      "success": "Environment is configured, but no users exist. Please create at least one user.",
+      "error": null,
+      "defaults": {
+        "scanInterval": "0 */2 * * *"
+      }
+    }
+  },
+  "setupComplete": {
+    "openai, all documents, no ocr": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Initial setup completed successfully.",
+        "restart": true,
+        "redirectTo": "/login",
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=openai\nOPENAI_API_KEY=sk-setup\nOPENAI_MODEL=gpt-4o-mini\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
+      },
+      "saved": [
+        {
+          "config": {
+            "PAPERLESS_API_URL": "http://paperless.local:8000",
+            "PAPERLESS_API_TOKEN": "token",
+            "PAPERLESS_USERNAME": "archivist",
+            "AI_PROVIDER": "openai",
+            "SCAN_INTERVAL": "*/30 * * * *",
+            "PROCESS_PREDEFINED_DOCUMENTS": "no",
+            "TAGS": [],
+            "IGNORE_TAGS": [],
+            "ADD_AI_PROCESSED_TAG": "no",
+            "AI_PROCESSED_TAG_NAME": "ai-processed",
+            "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+            "DISABLE_AUTOMATIC_PROCESSING": "no",
+            "TOKEN_LIMIT": "64000",
+            "RESPONSE_TOKENS": 1000,
+            "USE_PROMPT_TAGS": "no",
+            "PROMPT_TAGS": ["p1", "", "p2"],
+            "USE_EXISTING_DATA": "no",
+            "API_KEY": "test-api-key",
+            "JWT_SECRET": "test-jwt-secret-for-router-harness",
+            "PAPERLESS_AI_INITIAL_SETUP": "yes",
+            "ACTIVATE_TAGGING": "yes",
+            "ACTIVATE_CORRESPONDENTS": "yes",
+            "ACTIVATE_DOCUMENT_TYPE": "yes",
+            "ACTIVATE_TITLE": "yes",
+            "ACTIVATE_CUSTOM_FIELDS": "yes",
+            "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+            "MISTRAL_OCR_ENABLED": "no",
+            "OCR_PROVIDER": "mistral",
+            "OCR_API_URL": "",
+            "OCR_API_KEY": "",
+            "MISTRAL_API_KEY": "",
+            "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+            "SETUP_VALIDATION_TIMEOUT_MS": "30000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+            "OPENAI_API_KEY": "sk-setup",
+            "OPENAI_MODEL": "gpt-4o-mini"
+          },
+          "options": {
+            "skipValidation": false
+          }
+        }
+      ],
+      "users": [["admin", "hashed-password"]],
+      "restartRequested": 1,
+      "warnings": [],
+      "errors": []
+    },
+    "ollama with tags and mistral ocr": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Initial setup completed successfully.",
+        "restart": true,
+        "redirectTo": "/login",
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=yes\nTAGS=inbox,scan,extra\nIGNORE_TAGS=old,junk,ai-done\nADD_AI_PROCESSED_TAG=yes\nAI_PROCESSED_TAG_NAME=ai-done\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=yes\nDISABLE_AUTOMATIC_PROCESSING=yes\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=ollama\nOLLAMA_API_URL=http://localhost:11434\nOLLAMA_API_KEY=\nOLLAMA_MODEL=qwen3\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=mistral-setup\nMISTRAL_API_KEY=mistral-setup\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
+      },
+      "saved": [
+        {
+          "config": {
+            "PAPERLESS_API_URL": "http://paperless.local:8000",
+            "PAPERLESS_API_TOKEN": "token",
+            "PAPERLESS_USERNAME": "archivist",
+            "AI_PROVIDER": "ollama",
+            "SCAN_INTERVAL": "*/30 * * * *",
+            "PROCESS_PREDEFINED_DOCUMENTS": "yes",
+            "TAGS": ["inbox", "scan", "extra"],
+            "IGNORE_TAGS": ["old", "junk", "ai-done"],
+            "ADD_AI_PROCESSED_TAG": "yes",
+            "AI_PROCESSED_TAG_NAME": "ai-done",
+            "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "yes",
+            "DISABLE_AUTOMATIC_PROCESSING": "yes",
+            "TOKEN_LIMIT": 128000,
+            "RESPONSE_TOKENS": 1000,
+            "USE_PROMPT_TAGS": "no",
+            "PROMPT_TAGS": [],
+            "USE_EXISTING_DATA": "no",
+            "API_KEY": "test-api-key",
+            "JWT_SECRET": "test-jwt-secret-for-router-harness",
+            "PAPERLESS_AI_INITIAL_SETUP": "yes",
+            "ACTIVATE_TAGGING": "yes",
+            "ACTIVATE_CORRESPONDENTS": "yes",
+            "ACTIVATE_DOCUMENT_TYPE": "yes",
+            "ACTIVATE_TITLE": "yes",
+            "ACTIVATE_CUSTOM_FIELDS": "yes",
+            "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+            "MISTRAL_OCR_ENABLED": "yes",
+            "OCR_PROVIDER": "mistral",
+            "OCR_API_URL": "",
+            "OCR_API_KEY": "mistral-setup",
+            "MISTRAL_API_KEY": "mistral-setup",
+            "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+            "SETUP_VALIDATION_TIMEOUT_MS": "5000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "5000",
+            "OLLAMA_API_URL": "http://localhost:11434",
+            "OLLAMA_API_KEY": "",
+            "OLLAMA_MODEL": "qwen3"
+          },
+          "options": {
+            "skipValidation": false
+          }
+        }
+      ],
+      "users": [["admin", "hashed-password"]],
+      "restartRequested": 1,
+      "warnings": [],
+      "errors": []
+    },
+    "anthropic with claude ocr": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Initial setup completed successfully.",
+        "restart": true,
+        "redirectTo": "/login",
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=anthropic\nANTHROPIC_API_KEY=sk-ant-setup\nANTHROPIC_API_URL=https://proxy.example.com\nANTHROPIC_MODEL=claude-setup-model\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=anthropic\nOCR_API_URL=https://ocr-proxy\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=claude-setup-model"
+      },
+      "saved": [
+        {
+          "config": {
+            "PAPERLESS_API_URL": "http://paperless.local:8000",
+            "PAPERLESS_API_TOKEN": "token",
+            "PAPERLESS_USERNAME": "archivist",
+            "AI_PROVIDER": "anthropic",
+            "SCAN_INTERVAL": "*/30 * * * *",
+            "PROCESS_PREDEFINED_DOCUMENTS": "no",
+            "TAGS": [],
+            "IGNORE_TAGS": [],
+            "ADD_AI_PROCESSED_TAG": "no",
+            "AI_PROCESSED_TAG_NAME": "ai-processed",
+            "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+            "DISABLE_AUTOMATIC_PROCESSING": "no",
+            "TOKEN_LIMIT": 128000,
+            "RESPONSE_TOKENS": 1000,
+            "USE_PROMPT_TAGS": "no",
+            "PROMPT_TAGS": [],
+            "USE_EXISTING_DATA": "no",
+            "API_KEY": "test-api-key",
+            "JWT_SECRET": "test-jwt-secret-for-router-harness",
+            "PAPERLESS_AI_INITIAL_SETUP": "yes",
+            "ACTIVATE_TAGGING": "yes",
+            "ACTIVATE_CORRESPONDENTS": "yes",
+            "ACTIVATE_DOCUMENT_TYPE": "yes",
+            "ACTIVATE_TITLE": "yes",
+            "ACTIVATE_CUSTOM_FIELDS": "yes",
+            "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+            "MISTRAL_OCR_ENABLED": "yes",
+            "OCR_PROVIDER": "anthropic",
+            "OCR_API_URL": "https://ocr-proxy",
+            "OCR_API_KEY": "",
+            "MISTRAL_API_KEY": "",
+            "MISTRAL_OCR_MODEL": "claude-setup-model",
+            "SETUP_VALIDATION_TIMEOUT_MS": "30000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "7200000",
+            "ANTHROPIC_API_KEY": "sk-ant-setup",
+            "ANTHROPIC_MODEL": "claude-setup-model",
+            "ANTHROPIC_API_URL": "https://proxy.example.com"
+          },
+          "options": {
+            "skipValidation": false
+          }
+        }
+      ],
+      "users": [["admin", "hashed-password"]],
+      "restartRequested": 1,
+      "warnings": [],
+      "errors": []
+    },
+    "azure and custom ocr": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Initial setup completed successfully.",
+        "restart": true,
+        "redirectTo": "/login",
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=azure\nAZURE_ENDPOINT=https://x.openai.azure.com\nAZURE_API_KEY=az\nAZURE_DEPLOYMENT_NAME=gpt4o\nAZURE_API_VERSION=2023-05-15\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=custom\nOCR_API_URL=http://lm:1234/v1\nOCR_API_KEY=lm\nMISTRAL_API_KEY=lm\nMISTRAL_OCR_MODEL=qwen-vl"
+      },
+      "saved": [
+        {
+          "config": {
+            "PAPERLESS_API_URL": "http://paperless.local:8000",
+            "PAPERLESS_API_TOKEN": "token",
+            "PAPERLESS_USERNAME": "archivist",
+            "AI_PROVIDER": "azure",
+            "SCAN_INTERVAL": "*/30 * * * *",
+            "PROCESS_PREDEFINED_DOCUMENTS": "no",
+            "TAGS": [],
+            "IGNORE_TAGS": [],
+            "ADD_AI_PROCESSED_TAG": "no",
+            "AI_PROCESSED_TAG_NAME": "ai-processed",
+            "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+            "DISABLE_AUTOMATIC_PROCESSING": "no",
+            "TOKEN_LIMIT": 128000,
+            "RESPONSE_TOKENS": 1000,
+            "USE_PROMPT_TAGS": "no",
+            "PROMPT_TAGS": [],
+            "USE_EXISTING_DATA": "no",
+            "API_KEY": "test-api-key",
+            "JWT_SECRET": "test-jwt-secret-for-router-harness",
+            "PAPERLESS_AI_INITIAL_SETUP": "yes",
+            "ACTIVATE_TAGGING": "yes",
+            "ACTIVATE_CORRESPONDENTS": "yes",
+            "ACTIVATE_DOCUMENT_TYPE": "yes",
+            "ACTIVATE_TITLE": "yes",
+            "ACTIVATE_CUSTOM_FIELDS": "yes",
+            "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+            "MISTRAL_OCR_ENABLED": "yes",
+            "OCR_PROVIDER": "custom",
+            "OCR_API_URL": "http://lm:1234/v1",
+            "OCR_API_KEY": "lm",
+            "MISTRAL_API_KEY": "lm",
+            "MISTRAL_OCR_MODEL": "qwen-vl",
+            "SETUP_VALIDATION_TIMEOUT_MS": "30000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+            "AZURE_ENDPOINT": "https://x.openai.azure.com",
+            "AZURE_API_KEY": "az",
+            "AZURE_DEPLOYMENT_NAME": "gpt4o",
+            "AZURE_API_VERSION": "2023-05-15"
+          },
+          "options": {
+            "skipValidation": false
+          }
+        }
+      ],
+      "users": [["admin", "hashed-password"]],
+      "restartRequested": 1,
+      "warnings": [],
+      "errors": []
+    },
+    "custom provider without anthropic url": {
+      "status": 200,
+      "response": {
+        "success": true,
+        "message": "Initial setup completed successfully.",
+        "restart": true,
+        "redirectTo": "/login",
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=custom\nCUSTOM_BASE_URL=http://lm:1234/v1\nCUSTOM_API_KEY=\nCUSTOM_MODEL=qwen\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
+      },
+      "saved": [
+        {
+          "config": {
+            "PAPERLESS_API_URL": "http://paperless.local:8000",
+            "PAPERLESS_API_TOKEN": "token",
+            "PAPERLESS_USERNAME": "archivist",
+            "AI_PROVIDER": "custom",
+            "SCAN_INTERVAL": "*/30 * * * *",
+            "PROCESS_PREDEFINED_DOCUMENTS": "no",
+            "TAGS": [],
+            "IGNORE_TAGS": [],
+            "ADD_AI_PROCESSED_TAG": "no",
+            "AI_PROCESSED_TAG_NAME": "ai-processed",
+            "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
+            "DISABLE_AUTOMATIC_PROCESSING": "no",
+            "TOKEN_LIMIT": 128000,
+            "RESPONSE_TOKENS": 1000,
+            "USE_PROMPT_TAGS": "no",
+            "PROMPT_TAGS": [],
+            "USE_EXISTING_DATA": "no",
+            "API_KEY": "test-api-key",
+            "JWT_SECRET": "test-jwt-secret-for-router-harness",
+            "PAPERLESS_AI_INITIAL_SETUP": "yes",
+            "ACTIVATE_TAGGING": "yes",
+            "ACTIVATE_CORRESPONDENTS": "yes",
+            "ACTIVATE_DOCUMENT_TYPE": "yes",
+            "ACTIVATE_TITLE": "yes",
+            "ACTIVATE_CUSTOM_FIELDS": "yes",
+            "CUSTOM_FIELDS": "{\"custom_fields\":[]}",
+            "MISTRAL_OCR_ENABLED": "no",
+            "OCR_PROVIDER": "mistral",
+            "OCR_API_URL": "",
+            "OCR_API_KEY": "",
+            "MISTRAL_API_KEY": "",
+            "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
+            "SETUP_VALIDATION_TIMEOUT_MS": "30000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+            "CUSTOM_BASE_URL": "http://lm:1234/v1",
+            "CUSTOM_API_KEY": "",
+            "CUSTOM_MODEL": "qwen"
+          },
+          "options": {
+            "skipValidation": false
+          }
+        }
+      ],
+      "users": [["admin", "hashed-password"]],
+      "restartRequested": 1,
+      "warnings": [],
+      "errors": []
+    }
+  },
+  "envExport": {
+    "a configured instance with values that need quoting": {
+      "status": 200,
+      "success": true,
+      "data": {
+        "env": "# Paperless-ngx connection\nPAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=stored-paperless-token\nPAPERLESS_USERNAME=archivist\nPAPERLESS_PROBE_INTERVAL_SECONDS=30\n\n# Document processing\nDISABLE_AUTOMATIC_PROCESSING=yes\nTAGS=a,b\n\n# AI provider\nAI_PROVIDER=openai\nOPENAI_API_KEY=stored-openai-key\nOPENAI_MODEL=gpt-4o-mini\nOLLAMA_MODEL=llama3.1:8b\n\n# AI behaviour\nSYSTEM_PROMPT=\"You are \\\"careful\\\" # always\"\n\n# OCR fallback\nOCR_AUTO_PROCESS_ENABLED=no\n\n# Server and security\nAPI_KEY=test-api-key\nEXPOSE_API_DOCS=yes\nCONFIG_SOURCE_MODE=runtime-first\n\n# Single sign-on (OIDC)\nOIDC_ENABLED=yes\nOIDC_CLIENT_SECRET=\"secret with space\"\n\n# Maintenance\nLOG_LEVEL=error\nRECONCILIATION_ENABLED=no\nANONYMIZED_TELEMETRY=no\n\n# Interface\nDATE_FORMAT=YYYY-MM-DD",
+        "count": 21
+      }
+    }
+  }
+}

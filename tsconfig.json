@@ -25,6 +25,8 @@
     "services/thumbnailCache.js",
     "services/userPresence.js",
     "services/webhookQueueService.js",
-    "types/jsonwebtoken.d.ts"
+    "types/jsonwebtoken.d.ts",
+    "services/settingsCatalog.js",
+    "services/settingsService.js"
   ]
 }
