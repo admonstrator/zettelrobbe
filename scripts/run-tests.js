@@ -178,6 +178,7 @@ const TESTS = {
   'session-guard': 'test-session-guard.js',
   'harness-session': 'test-harness-session.js',
   'route-guard-coverage': 'test-route-guard-coverage.js',
+  'route-table': 'test-route-table.js',
 };
 
 const AREAS = {
@@ -338,6 +339,7 @@ const AREAS = {
     'anthropic-settings',
     'ocr-provider-anthropic',
   ],
+  routes: ['route-table'],
 };
 
 // Tests intentionally excluded from the auto-discovery drift check below.
