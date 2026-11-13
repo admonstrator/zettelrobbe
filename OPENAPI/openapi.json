@@ -2341,161 +2341,6 @@
         }
       }
     },
-    "/login": {
-      "get": {
-        "summary": "Render login page or redirect to setup if no users exist",
-        "description": "Serves the login page for user authentication to the Zettelrobbe application.\nIf no users exist in the database, the endpoint automatically redirects to the setup page\nto complete the initial application configuration.\n\nThis endpoint handles both new user sessions and returning users whose\nsessions have expired.\n",
-        "tags": [
-          "Authentication",
-          "Navigation"
-        ],
-        "responses": {
-          "200": {
-            "description": "Login page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string",
-                  "description": "HTML content of the login page"
-                }
-              }
-            }
-          },
-          "302": {
-            "description": "Redirect to setup page if no users exist, or to dashboard if already authenticated",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/setup"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Authenticate user with username and password",
-        "description": "Authenticates a user using their username and password credentials.\nThe endpoint supports a preparation flow for MFA:\nfirst step validates credentials and starts an MFA challenge,\nsecond step accepts a TOTP authentication code and completes sign-in.\nIf authentication is successful, a JWT token is generated and stored in a secure HTTP-only\ncookie for subsequent requests.\n\nFailed login attempts are logged for security purposes, and multiple failures\nmay result in temporary account lockout depending on configuration.\n",
-        "tags": [
-          "Authentication"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "username": {
-                    "type": "string",
-                    "description": "User's login name",
-                    "example": "admin"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "User's password",
-                    "example": "securepassword"
-                  },
-                  "mfaStep": {
-                    "type": "string",
-                    "description": "Set to '1' when submitting the MFA step",
-                    "example": "0"
-                  },
-                  "mfaToken": {
-                    "type": "string",
-                    "description": "One-time code entered in the MFA verification step",
-                    "example": "123456"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Login page rendered again for invalid credentials, pending MFA verification, or invalid MFA code"
-          },
-          "302": {
-            "description": "Authentication successful and redirected to dashboard",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string",
-                  "description": "HTTP-only cookie containing JWT token"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many login attempts; login temporarily rate-limited"
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/logout": {
-      "get": {
-        "summary": "Log out user and clear JWT cookie",
-        "description": "Terminates the current user session by invalidating and clearing the JWT authentication\ncookie. After logging out, the user is redirected to the login page.\n\nThis endpoint also clears any session-related data stored on the server side\nfor the current user.\n",
-        "tags": [
-          "Authentication"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Logout successful, redirected to login page",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/login"
-                }
-              },
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string",
-                  "description": "HTTP-only cookie with cleared JWT token and immediate expiration"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/chat/documents": {
       "get": {
         "summary": "Search documents for omnibox selectors",
@@ -8643,6 +8488,161 @@
           },
           "404": {
             "description": "Single sign-on is not enabled"
+          }
+        }
+      }
+    },
+    "/login": {
+      "get": {
+        "summary": "Render login page or redirect to setup if no users exist",
+        "description": "Serves the login page for user authentication to the Zettelrobbe application.\nIf no users exist in the database, the endpoint automatically redirects to the setup page\nto complete the initial application configuration.\n\nThis endpoint handles both new user sessions and returning users whose\nsessions have expired.\n",
+        "tags": [
+          "Authentication",
+          "Navigation"
+        ],
+        "responses": {
+          "200": {
+            "description": "Login page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTML content of the login page"
+                }
+              }
+            }
+          },
+          "302": {
+            "description": "Redirect to setup page if no users exist, or to dashboard if already authenticated",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/setup"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Authenticate user with username and password",
+        "description": "Authenticates a user using their username and password credentials.\nThe endpoint supports a preparation flow for MFA:\nfirst step validates credentials and starts an MFA challenge,\nsecond step accepts a TOTP authentication code and completes sign-in.\nIf authentication is successful, a JWT token is generated and stored in a secure HTTP-only\ncookie for subsequent requests.\n\nFailed login attempts are logged for security purposes, and multiple failures\nmay result in temporary account lockout depending on configuration.\n",
+        "tags": [
+          "Authentication"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "description": "User's login name",
+                    "example": "admin"
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "User's password",
+                    "example": "securepassword"
+                  },
+                  "mfaStep": {
+                    "type": "string",
+                    "description": "Set to '1' when submitting the MFA step",
+                    "example": "0"
+                  },
+                  "mfaToken": {
+                    "type": "string",
+                    "description": "One-time code entered in the MFA verification step",
+                    "example": "123456"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login page rendered again for invalid credentials, pending MFA verification, or invalid MFA code"
+          },
+          "302": {
+            "description": "Authentication successful and redirected to dashboard",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTTP-only cookie containing JWT token"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many login attempts; login temporarily rate-limited"
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/logout": {
+      "get": {
+        "summary": "Log out user and clear JWT cookie",
+        "description": "Terminates the current user session by invalidating and clearing the JWT authentication\ncookie. After logging out, the user is redirected to the login page.\n\nThis endpoint also clears any session-related data stored on the server side\nfor the current user.\n",
+        "tags": [
+          "Authentication"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Logout successful, redirected to login page",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/login"
+                }
+              },
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTTP-only cookie with cleared JWT token and immediate expiration"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }

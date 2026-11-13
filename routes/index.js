@@ -28,7 +28,8 @@ const router = express.Router();
 router.use(remoteSetupGuard);
 router.use(authGate);
 
-router.use(require('./setup'));
+router.use(require('./login')); // login, logout
+router.use(require('./setup')); // not split yet
 
 // Carried over from routes/setup.js, which ran it once its modules had loaded:
 // reads ../data/.env relative to the working directory, and never overwrites
