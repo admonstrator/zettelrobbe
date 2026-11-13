@@ -2341,684 +2341,6 @@
         }
       }
     },
-    "/history": {
-      "get": {
-        "summary": "Document history page",
-        "description": "Renders the document history page with filtering options.\nThis page displays a list of all documents that have been processed by Zettelrobbe,\nshowing the changes made to the documents through AI processing.\n\nThe page includes filtering capabilities by correspondent, tag, and free text search,\nallowing users to easily find specific documents or categories of processed documents.\nEach entry includes links to the original document in Paperless-ngx.\n",
-        "tags": [
-          "History",
-          "Navigation"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "History page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string",
-                  "description": "HTML content of the history page with filtering controls and document list"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - user not authenticated",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/login"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/history": {
-      "get": {
-        "summary": "Get processed document history",
-        "description": "Returns a paginated list of documents that have been processed by Zettelrobbe.\nSupports filtering by tag, correspondent, and search term.\nDesigned for integration with DataTables jQuery plugin.\n\nThis endpoint provides comprehensive information about each processed document,\nincluding its metadata before and after AI processing, allowing users to track\nchanges made by the system.\n",
-        "tags": [
-          "History",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "draw",
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Draw counter for DataTables (prevents XSS)",
-            "example": 1
-          },
-          {
-            "in": "query",
-            "name": "start",
-            "schema": {
-              "type": "integer",
-              "default": 0
-            },
-            "description": "Starting record index for pagination",
-            "example": 0
-          },
-          {
-            "in": "query",
-            "name": "length",
-            "schema": {
-              "type": "integer",
-              "default": 10
-            },
-            "description": "Number of records to return per page",
-            "example": 10
-          },
-          {
-            "in": "query",
-            "name": "search[value]",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Global search term (searches title, correspondent and tags)",
-            "example": "invoice"
-          },
-          {
-            "in": "query",
-            "name": "tag",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Filter by tag ID",
-            "example": "5"
-          },
-          {
-            "in": "query",
-            "name": "correspondent",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Filter by correspondent name",
-            "example": "Acme Corp"
-          },
-          {
-            "in": "query",
-            "name": "order[0][column]",
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Index of column to sort by (0=document_id, 1=title, etc.)",
-            "example": 1
-          },
-          {
-            "in": "query",
-            "name": "order[0][dir]",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
-            },
-            "description": "Sort direction (ascending or descending)",
-            "example": "desc"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Document history returned successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "draw": {
-                      "type": "integer",
-                      "description": "Echo of the draw parameter",
-                      "example": 1
-                    },
-                    "recordsTotal": {
-                      "type": "integer",
-                      "description": "Total number of records in the database",
-                      "example": 100
-                    },
-                    "recordsFiltered": {
-                      "type": "integer",
-                      "description": "Number of records after filtering",
-                      "example": 20
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "document_id": {
-                            "type": "integer",
-                            "description": "Document ID",
-                            "example": 123
-                          },
-                          "title": {
-                            "type": "string",
-                            "description": "Document title",
-                            "example": "Invoice #12345"
-                          },
-                          "created_at": {
-                            "type": "string",
-                            "format": "date-time",
-                            "description": "Date and time when the processing occurred",
-                            "example": "2023-07-15T14:30:45Z"
-                          },
-                          "tags": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "type": "integer",
-                                  "example": 5
-                                },
-                                "name": {
-                                  "type": "string",
-                                  "example": "Invoice"
-                                },
-                                "color": {
-                                  "type": "string",
-                                  "example": "#FF5733"
-                                }
-                              }
-                            }
-                          },
-                          "correspondent": {
-                            "type": "string",
-                            "description": "Document correspondent name",
-                            "example": "Acme Corp"
-                          },
-                          "link": {
-                            "type": "string",
-                            "description": "Link to the document in Paperless-ngx",
-                            "example": "http://paperless.example.com/documents/123/"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Authentication required"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Error loading history data"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/history/load-progress": {
-      "get": {
-        "summary": "Load history data with progress updates (Server-Sent Events)",
-        "description": "Preloads history and tag data with real-time progress updates via SSE.\nThis endpoint should be called before displaying the history table to warm up the cache.\nRequires authentication via JWT token or API key.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Loading in progress (SSE stream)",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string",
-                  "example": "data: {\"type\":\"progress\",\"percentage\":10,\"message\":\"Loading history entries...\"}\n\ndata: {\"type\":\"complete\",\"message\":\"Loaded 150 documents with 25 tags\",\"count\":150}\n"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required"
-          }
-        }
-      }
-    },
-    "/api/reset-all-documents": {
-      "post": {
-        "summary": "Reset all processed documents",
-        "description": "Deletes all processing records from the database, allowing documents to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.\n\nThis operation can be useful when changing AI models or prompts, as it allows reprocessing\nall documents with the updated configuration.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "All documents successfully reset",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Authentication required"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Error resetting documents"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/history/clear-cache": {
-      "post": {
-        "summary": "Clear tag cache",
-        "description": "Forces cache invalidation to load fresh filter data on next request",
-        "tags": [
-          "History",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Cache cleared successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Cache cleared successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required"
-          },
-          "429": {
-            "description": "Too many requests - rate limit exceeded"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/history/{id}/detail": {
-      "get": {
-        "summary": "Get detailed history entry data",
-        "description": "Returns full stored AI output details and a live diff view against current Paperless metadata.",
-        "tags": [
-          "History",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Detailed history data returned",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document ID"
-          },
-          "404": {
-            "description": "No history entry found"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/history/{id}/restore": {
-      "post": {
-        "summary": "Restore document to pre-AI state",
-        "description": "Restores title, tags, correspondent and related metadata from saved original values.",
-        "tags": [
-          "History",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Document restored successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document ID"
-          },
-          "404": {
-            "description": "Original data not found"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/history/{id}/rescan": {
-      "post": {
-        "summary": "Reset one document for reprocessing",
-        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\n",
-        "tags": [
-          "History",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Document reset for rescanning",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document ID"
-          },
-          "404": {
-            "description": "Document could not be retrieved from Paperless-ngx; nothing was changed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "error": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/history/rescan": {
-      "post": {
-        "summary": "Rescan (reprocess) multiple documents by ID",
-        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background.\n",
-        "tags": [
-          "History"
-        ],
-        "security": [
-          {
-            "cookieAuth": []
-          },
-          {
-            "apiKey": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "ids"
-                ],
-                "properties": {
-                  "ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "integer"
-                    },
-                    "description": "Document IDs to reprocess",
-                    "example": [
-                      42,
-                      43,
-                      44
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Documents enqueued for reprocessing",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "queued": {
-                      "type": "integer",
-                      "example": 3
-                    },
-                    "notFound": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      },
-                      "example": []
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document IDs"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
     "/api/settings/clear-tag-cache": {
       "post": {
         "summary": "Manually clear the centralized tag cache",
@@ -3399,43 +2721,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/api/history/validate": {
-      "get": {
-        "summary": "Validate history entries against Paperless-ngx (Server-Sent Events)",
-        "description": "Checks each history entry stored locally and verifies the corresponding document still exists in Paperless-ngx.\nUses Server-Sent Events (SSE) to stream real-time progress updates.\nProcesses documents in parallel batches (50 at a time) for faster validation.\nReturns progress updates and final list of missing documents.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Validation in progress (SSE stream)",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string",
-                  "example": "data: {\"type\":\"progress\",\"current\":50,\"total\":100,\"missing\":3,\"percentage\":50}\n\ndata: {\"type\":\"complete\",\"missing\":[{\"document_id\":123,\"title\":\"Test Doc\"}]}\n"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required"
-          },
-          "500": {
-            "description": "Server error during validation"
           }
         }
       }
@@ -8469,6 +7754,721 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/history": {
+      "get": {
+        "summary": "Document history page",
+        "description": "Renders the document history page with filtering options.\nThis page displays a list of all documents that have been processed by Zettelrobbe,\nshowing the changes made to the documents through AI processing.\n\nThe page includes filtering capabilities by correspondent, tag, and free text search,\nallowing users to easily find specific documents or categories of processed documents.\nEach entry includes links to the original document in Paperless-ngx.\n",
+        "tags": [
+          "History",
+          "Navigation"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "History page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTML content of the history page with filtering controls and document list"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - user not authenticated",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/login"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history": {
+      "get": {
+        "summary": "Get processed document history",
+        "description": "Returns a paginated list of documents that have been processed by Zettelrobbe.\nSupports filtering by tag, correspondent, and search term.\nDesigned for integration with DataTables jQuery plugin.\n\nThis endpoint provides comprehensive information about each processed document,\nincluding its metadata before and after AI processing, allowing users to track\nchanges made by the system.\n",
+        "tags": [
+          "History",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "draw",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Draw counter for DataTables (prevents XSS)",
+            "example": 1
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "description": "Starting record index for pagination",
+            "example": 0
+          },
+          {
+            "in": "query",
+            "name": "length",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Number of records to return per page",
+            "example": 10
+          },
+          {
+            "in": "query",
+            "name": "search[value]",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Global search term (searches title, correspondent and tags)",
+            "example": "invoice"
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by tag ID",
+            "example": "5"
+          },
+          {
+            "in": "query",
+            "name": "correspondent",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by correspondent name",
+            "example": "Acme Corp"
+          },
+          {
+            "in": "query",
+            "name": "order[0][column]",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Index of column to sort by (0=document_id, 1=title, etc.)",
+            "example": 1
+          },
+          {
+            "in": "query",
+            "name": "order[0][dir]",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            },
+            "description": "Sort direction (ascending or descending)",
+            "example": "desc"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document history returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "draw": {
+                      "type": "integer",
+                      "description": "Echo of the draw parameter",
+                      "example": 1
+                    },
+                    "recordsTotal": {
+                      "type": "integer",
+                      "description": "Total number of records in the database",
+                      "example": 100
+                    },
+                    "recordsFiltered": {
+                      "type": "integer",
+                      "description": "Number of records after filtering",
+                      "example": 20
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "document_id": {
+                            "type": "integer",
+                            "description": "Document ID",
+                            "example": 123
+                          },
+                          "title": {
+                            "type": "string",
+                            "description": "Document title",
+                            "example": "Invoice #12345"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Date and time when the processing occurred",
+                            "example": "2023-07-15T14:30:45Z"
+                          },
+                          "tags": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "example": 5
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "example": "Invoice"
+                                },
+                                "color": {
+                                  "type": "string",
+                                  "example": "#FF5733"
+                                }
+                              }
+                            }
+                          },
+                          "correspondent": {
+                            "type": "string",
+                            "description": "Document correspondent name",
+                            "example": "Acme Corp"
+                          },
+                          "link": {
+                            "type": "string",
+                            "description": "Link to the document in Paperless-ngx",
+                            "example": "http://paperless.example.com/documents/123/"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Authentication required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Error loading history data"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history/load-progress": {
+      "get": {
+        "summary": "Load history data with progress updates (Server-Sent Events)",
+        "description": "Preloads history and tag data with real-time progress updates via SSE.\nThis endpoint should be called before displaying the history table to warm up the cache.\nRequires authentication via JWT token or API key.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loading in progress (SSE stream)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "data: {\"type\":\"progress\",\"percentage\":10,\"message\":\"Loading history entries...\"}\n\ndata: {\"type\":\"complete\",\"message\":\"Loaded 150 documents with 25 tags\",\"count\":150}\n"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required"
+          }
+        }
+      }
+    },
+    "/api/reset-all-documents": {
+      "post": {
+        "summary": "Reset all processed documents",
+        "description": "Deletes all processing records from the database, allowing documents to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.\n\nThis operation can be useful when changing AI models or prompts, as it allows reprocessing\nall documents with the updated configuration.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All documents successfully reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Authentication required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Error resetting documents"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history/clear-cache": {
+      "post": {
+        "summary": "Clear tag cache",
+        "description": "Forces cache invalidation to load fresh filter data on next request",
+        "tags": [
+          "History",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cache cleared successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Cache cleared successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required"
+          },
+          "429": {
+            "description": "Too many requests - rate limit exceeded"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/history/{id}/detail": {
+      "get": {
+        "summary": "Get detailed history entry data",
+        "description": "Returns full stored AI output details and a live diff view against current Paperless metadata.",
+        "tags": [
+          "History",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detailed history data returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "404": {
+            "description": "No history entry found"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/history/{id}/restore": {
+      "post": {
+        "summary": "Restore document to pre-AI state",
+        "description": "Restores title, tags, correspondent and related metadata from saved original values.",
+        "tags": [
+          "History",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document restored successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "404": {
+            "description": "Original data not found"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/history/{id}/rescan": {
+      "post": {
+        "summary": "Reset one document for reprocessing",
+        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\n",
+        "tags": [
+          "History",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document reset for rescanning",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "404": {
+            "description": "Document could not be retrieved from Paperless-ngx; nothing was changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/history/rescan": {
+      "post": {
+        "summary": "Rescan (reprocess) multiple documents by ID",
+        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background.\n",
+        "tags": [
+          "History"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Document IDs to reprocess",
+                    "example": [
+                      42,
+                      43,
+                      44
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documents enqueued for reprocessing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "queued": {
+                      "type": "integer",
+                      "example": 3
+                    },
+                    "notFound": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "example": []
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document IDs"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/history/validate": {
+      "get": {
+        "summary": "Validate history entries against Paperless-ngx (Server-Sent Events)",
+        "description": "Checks each history entry stored locally and verifies the corresponding document still exists in Paperless-ngx.\nUses Server-Sent Events (SSE) to stream real-time progress updates.\nProcesses documents in parallel batches (50 at a time) for faster validation.\nReturns progress updates and final list of missing documents.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validation in progress (SSE stream)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "data: {\"type\":\"progress\",\"current\":50,\"total\":100,\"missing\":3,\"percentage\":50}\n\ndata: {\"type\":\"complete\",\"missing\":[{\"document_id\":123,\"title\":\"Test Doc\"}]}\n"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required"
+          },
+          "500": {
+            "description": "Server error during validation"
           }
         }
       }
