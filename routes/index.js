@@ -29,6 +29,7 @@ router.use(remoteSetupGuard);
 router.use(authGate);
 
 router.use(require('./login')); // login, logout
+router.use(require('./documents')); // chat document search, thumbnails
 router.use(require('./setup')); // not split yet
 
 // Carried over from routes/setup.js, which ran it once its modules had loaded:
