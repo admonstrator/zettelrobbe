@@ -2589,6 +2589,53 @@
         }
       }
     },
+    "/api/setup/complete": {
+      "post": {
+        "summary": "Finalize initial setup, persist env config, and trigger restart",
+        "description": "Validates the Paperless, AI and OCR connections before writing the configuration. The boolean body flags paperlessTestPassed, aiTestPassed and ocrTestPassed let a caller that has just verified a connection with these exact values skip the matching probe; anything not flagged is validated here. allowFailedPaperlessTest and allowFailedAiTest still accept a connection whose validation failed.\n",
+        "tags": [
+          "Setup"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually.\n",
+                "properties": {
+                  "processedTag": {
+                    "type": "string",
+                    "description": "Tag added after a document was analysed; empty turns the tag off. It is also added to the excluded tags.\n"
+                  },
+                  "removeInboxTagsAfterProcessing": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Take every Paperless-ngx inbox tag off a document once its analysis was written. Saved as REMOVE_INBOX_TAGS_AFTER_PROCESSING; an absent value saves \"no\".\n"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Setup completed successfully"
+          },
+          "403": {
+            "description": "An administrator account already exists. The wizard is closed for good on this instance; nothing is validated, written or replaced.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings/ai/test": {
       "post": {
         "summary": "Test AI provider connectivity from the settings page",
@@ -3025,53 +3072,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/setup/complete": {
-      "post": {
-        "summary": "Finalize initial setup, persist env config, and trigger restart",
-        "description": "Validates the Paperless, AI and OCR connections before writing the configuration. The boolean body flags paperlessTestPassed, aiTestPassed and ocrTestPassed let a caller that has just verified a connection with these exact values skip the matching probe; anything not flagged is validated here. allowFailedPaperlessTest and allowFailedAiTest still accept a connection whose validation failed.\n",
-        "tags": [
-          "Setup"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true,
-                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually.\n",
-                "properties": {
-                  "processedTag": {
-                    "type": "string",
-                    "description": "Tag added after a document was analysed; empty turns the tag off. It is also added to the excluded tags.\n"
-                  },
-                  "removeInboxTagsAfterProcessing": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Take every Paperless-ngx inbox tag off a document once its analysis was written. Saved as REMOVE_INBOX_TAGS_AFTER_PROCESSING; an absent value saves \"no\".\n"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Setup completed successfully"
-          },
-          "403": {
-            "description": "An administrator account already exists. The wizard is closed for good on this instance; nothing is validated, written or replaced.\n",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         }
       }
