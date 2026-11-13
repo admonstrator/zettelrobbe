@@ -83,9 +83,8 @@ const {
 
 /**
  * Splits a list setting. Arrays are taken as they are; a string is split on
- * commas, empty pieces dropped and the rest trimmed (in that order, so a piece
- * of only spaces survives as an empty string — what the settings save has
- * always stored).
+ * commas, every piece trimmed and then the empty ones dropped, so "a, ,b"
+ * gives ['a', 'b'] and never an empty entry.
  *
  * @param {unknown} value
  * @returns {unknown[]}
@@ -96,8 +95,8 @@ function normalizeList(value) {
   if (typeof value === 'string') {
     return value
       .split(',')
-      .filter(Boolean)
-      .map((item) => item.trim());
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
   return [];
 }

@@ -839,11 +839,11 @@
         {
           "config": {
             "differsFromReference": {
-              "TAGS": ["inbox", "", "scan", "todo"],
-              "IGNORE_TAGS": ["private", ""],
+              "TAGS": ["inbox", "scan", "todo"],
+              "IGNORE_TAGS": ["private"],
               "REMOVE_TAGS_AFTER_PROCESSING": ["new"],
-              "PROMPT_TAGS": ["p1", "p2", "", "p3"],
-              "IGNORE_TITLE_PATTERNS": "Invoice*,,Scan_??"
+              "PROMPT_TAGS": ["p1", "p2", "p3"],
+              "IGNORE_TITLE_PATTERNS": "Invoice*,Scan_??"
             },
             "missingFromReference": []
           },
@@ -2709,7 +2709,7 @@
         "RESPONSE_TOKENS": 1000,
         "AI_TEMPERATURE_ANALYSIS": "0.3",
         "AI_TEMPERATURE_GENERATION": "0.7",
-        "TAGS": ["saved-a", "", "saved-b"],
+        "TAGS": ["saved-a", "saved-b"],
         "IGNORE_TAGS": [],
         "REMOVE_INBOX_TAGS_AFTER_PROCESSING": "no",
         "REMOVE_TAGS_AFTER_PROCESSING": ["x", "y"],
@@ -3310,7 +3310,7 @@
             "TOKEN_LIMIT": "64000",
             "RESPONSE_TOKENS": 1000,
             "USE_PROMPT_TAGS": "no",
-            "PROMPT_TAGS": ["p1", "", "p2"],
+            "PROMPT_TAGS": ["p1", "p2"],
             "USE_EXISTING_DATA": "no",
             "API_KEY": "test-api-key",
             "JWT_SECRET": "test-jwt-secret-for-router-harness",
