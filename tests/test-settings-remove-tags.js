@@ -312,12 +312,22 @@ function sliceBetween(source, from, to) {
         !/ignoreTag|removeTag|promptTag|tagAddButton/.test(lock),
         'no field ids are special-cased'
       );
+      // Every locked field goes through lockEnvField, which locks its chips.
+      const lockOne = sliceBetween(
+        source,
+        'function lockEnvField(setupForm, fieldElement, envKey, notedContainers)',
+        '\n}\n'
+      );
+      assert.match(lockOne, /lockChipField\(fieldElement\)/);
       const pills = sliceBetween(
         source,
         'function initializeRuntimeOverridePills()',
         '\n}\n'
       );
-      assert.match(pills, /lockChipField\(fieldElement\)/);
+      assert.match(
+        pills,
+        /lockEnvField\(setupForm, fieldElement, pinnedBy, notedContainers\)/
+      );
 
       const manager = sliceBetween(source, 'class TagsManager', '\n}\n');
       assert.match(manager, /dataset\?\.locked === 'true'/);
