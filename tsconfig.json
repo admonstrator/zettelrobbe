@@ -27,6 +27,7 @@
     "services/webhookQueueService.js",
     "types/jsonwebtoken.d.ts",
     "services/settingsCatalog.js",
-    "services/settingsService.js"
+    "services/settingsService.js",
+    "services/documentPipeline.js"
   ]
 }

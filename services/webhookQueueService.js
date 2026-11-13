@@ -4,29 +4,20 @@
 /**
  * The in-memory queue behind the webhook and the manual rescan: documents are
  * pushed here and processed one at a time, outside the scheduled scan of
- * server.js (which has its own, different processDocument()).
+ * server.js. Both go through services/documentPipeline.js like the scan; a
+ * webhook entry as source 'webhook', a rescan entry as source 'rescan'.
  *
  * The queue and its "is processing" flag must exist once: two copies would
  * process the same document twice in parallel.
  */
 
-/* config/config.js builds most of its getters at runtime, which the type
-   checker cannot see; read through a loose view of the same live object. */
-/** @type {Record<string, any>} */
-const config = require('../config/config.js');
 const documentModel = require('../models/document.js');
 const paperlessService = require('./paperlessService.js');
 const setupService = require('./setupService.js');
-const AIServiceFactory = require('./aiServiceFactory');
-const mistralOcrService = require('./mistralOcrService');
-const skipRuleService = require('./skipRuleService');
+const documentPipeline = require('./documentPipeline.js');
 const documentProcessingService = require('./documentProcessingService');
 const { removeThumbnailCacheForDocumentIds } = require('./thumbnailCache');
-const {
-  shouldQueueForOcrOnAiError,
-  classifyOcrQueueReasonFromAiError,
-  toNameList,
-} = require('./serviceUtils');
+const { toNameList } = require('./serviceUtils');
 
 /**
  * A Paperless-ngx document as the queue carries it. Only id and title are read
@@ -40,9 +31,6 @@ const {
  * @property {QueuedDocument} document
  * @property {boolean} applySkipRules - true for webhook deliveries, false for a rescan by hand
  */
-
-/** Content beyond this many characters is cut before the analysis. */
-const MAX_CONTENT_LENGTH = 50000;
 
 class WebhookQueueService {
   constructor() {
@@ -79,210 +67,6 @@ class WebhookQueueService {
   /** @returns {number} documents waiting in the queue */
   getQueueLength() {
     return this.documentQueue.length;
-  }
-
-  /**
-   * Analyses one queued document. Returns null when the document is skipped
-   * (already processed, failed before, not editable, ignored, too short).
-   *
-   * @param {QueuedDocument} doc
-   * @param {string[]} existingTags
-   * @param {string[]} existingCorrespondentList
-   * @param {string[]} existingDocumentTypesList
-   * @param {string|null} [customPrompt]
-   * @param {{ applySkipRules?: boolean }} [options]
-   * @returns {Promise<{ analysis: any, originalData: any }|null>}
-   */
-  async processDocument(
-    doc,
-    existingTags,
-    existingCorrespondentList,
-    existingDocumentTypesList,
-    customPrompt = null,
-    { applySkipRules = false } = {}
-  ) {
-    const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-    if (isProcessed) {
-      console.log(
-        `[DEBUG] Document ${doc.id} already in processed_documents — skipping. Remove via Rescan to reprocess.`
-      );
-      return null;
-    }
-
-    const isFailed = await documentModel.isDocumentFailed(doc.id);
-    if (isFailed) {
-      console.log(
-        `[DEBUG] Document ${doc.id} is marked as permanently failed, skipping until reset`
-      );
-      return null;
-    }
-
-    await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
-
-    const documentEditable = await paperlessService.getPermissionOfDocument(
-      doc.id
-    );
-    if (!documentEditable) {
-      console.log(
-        `[DEBUG] Document belongs to: ${documentEditable}, skipping analysis`
-      );
-      console.log(
-        `[DEBUG] Document ${doc.id} Not Editable by Paper-Ai User, skipping analysis`
-      );
-      return null;
-    } else {
-      console.log(`[DEBUG] Document ${doc.id} rights for AI User - processed`);
-    }
-
-    /** @type {[any, any]} */
-    let [content, originalData] = await Promise.all([
-      paperlessService.getDocumentContent(doc.id),
-      paperlessService.getDocument(doc.id),
-    ]);
-
-    // A webhook delivers what Paperless-ngx just consumed, so the ignored list
-    // and the skip rules hold here as in the scan. A rescan asked for by hand
-    // passes both.
-    if (applySkipRules) {
-      if (await documentModel.isDocumentIgnored(doc.id)) {
-        await documentModel.clearProcessingStatusByDocumentId(doc.id);
-        console.log(
-          `[DEBUG] Document ${doc.id} is on the ignored list, skipping`
-        );
-        return null;
-      }
-      if (await skipRuleService.apply(originalData || doc, content)) {
-        return null;
-      }
-    }
-
-    const minContentLength = config.minContentLength;
-    if (!content || content.length < minContentLength) {
-      console.log(
-        `[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${minContentLength}), skipping analysis`
-      );
-      if (mistralOcrService.isEnabled()) {
-        const added = await documentModel.addToOcrQueue(
-          doc.id,
-          doc.title,
-          `short_content_lt_${minContentLength}`
-        );
-        if (added) {
-          console.log(
-            `[OCR] Document ${doc.id} queued for Mistral OCR (short_content)`
-          );
-        }
-      } else {
-        await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-        await documentModel.addFailedDocument(
-          doc.id,
-          doc.title,
-          `insufficient_content_lt_${minContentLength}`,
-          'ai'
-        );
-      }
-      return null;
-    }
-
-    if (content.length > MAX_CONTENT_LENGTH) {
-      content = content.substring(0, MAX_CONTENT_LENGTH);
-    }
-
-    // Prepare options for AI service
-    /** @type {Record<string, any>} */
-    const options = {
-      restrictToExistingTags: config.restrictToExistingTags === 'yes',
-      restrictToExistingCorrespondents:
-        config.restrictToExistingCorrespondents === 'yes',
-    };
-
-    // Get external API data if enabled
-    if (config.externalApiConfig.enabled === 'yes') {
-      try {
-        const externalApiService = require('./externalApiService');
-        const externalData = await externalApiService.fetchData();
-        if (externalData) {
-          options.externalApiData = externalData;
-          console.log(
-            '[DEBUG] Retrieved external API data for prompt enrichment'
-          );
-        }
-      } catch (error) {
-        console.error(
-          '[ERROR] Failed to fetch external API data:',
-          /** @type {Error} */ (error).message
-        );
-      }
-    }
-
-    /** @type {any} */
-    const aiService = AIServiceFactory.getService();
-    /** @type {any} */
-    let analysis;
-    if (customPrompt) {
-      console.log('[DEBUG] Starting document analysis with custom prompt');
-      analysis = await aiService.analyzeDocument(
-        content,
-        existingTags,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        doc.id,
-        customPrompt,
-        options
-      );
-    } else {
-      analysis = await aiService.analyzeDocument(
-        content,
-        existingTags,
-        existingCorrespondentList,
-        existingDocumentTypesList,
-        doc.id,
-        null,
-        options
-      );
-    }
-    console.log('Repsonse from AI service:', analysis);
-    if (analysis.error) {
-      let queuedForOcr = false;
-      if (
-        mistralOcrService.isEnabled() &&
-        shouldQueueForOcrOnAiError(analysis.error)
-      ) {
-        const queueReason = classifyOcrQueueReasonFromAiError(analysis.error);
-        const added = await documentModel.addToOcrQueue(
-          doc.id,
-          doc.title,
-          queueReason
-        );
-        if (added) {
-          console.log(
-            `[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${analysis.error})`
-          );
-        }
-        queuedForOcr = true;
-      }
-
-      if (!mistralOcrService.isEnabled()) {
-        await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-        await documentModel.addFailedDocument(
-          doc.id,
-          doc.title,
-          'ai_failed_ocr_disabled',
-          'ai'
-        );
-      } else if (!queuedForOcr) {
-        await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-        await documentModel.addFailedDocument(
-          doc.id,
-          doc.title,
-          'ai_failed_without_ocr_fallback',
-          'ai'
-        );
-      }
-      throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
-    }
-    await documentModel.setProcessingStatus(doc.id, doc.title, 'complete');
-    return { analysis, originalData };
   }
 
   /**
@@ -336,16 +120,25 @@ class WebhookQueueService {
         );
 
         try {
-          const result = await this.processDocument(
+          const result = await documentPipeline.processDocument(
             doc,
             existingTagNames,
             existingCorrespondentNames,
             existingDocumentTypesList,
-            customPrompt,
-            { applySkipRules }
+            {
+              source: applySkipRules ? 'webhook' : 'rescan',
+              customPrompt: customPrompt || null,
+            }
           );
           if (!result) continue;
 
+          // The queue marks the document complete before the write-back; a
+          // write-back that fails afterwards is only logged below.
+          await documentModel.setProcessingStatus(
+            doc.id,
+            doc.title,
+            'complete'
+          );
           const { analysis, originalData } = result;
           const updateData = await documentProcessingService.buildUpdateData(
             analysis,

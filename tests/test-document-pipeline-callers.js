@@ -206,58 +206,27 @@ async function quietly(fn) {
 // ── Drivers: how each caller reaches processDocument() ──────────────────────
 
 /**
- * server.js starts the app when it is required, so its processDocument() is
- * read from the source and built against the fakes, with the module state it
- * closes over (the retry tracker, the minimum content length read at boot).
- */
-function loadScanProcessDocument(minContentLength) {
-  const fs = require('fs');
-  const source = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
-  const start = source.indexOf('async function processDocument(');
-  const end = source.indexOf('\n}\n', start);
-  assert.ok(
-    start > 0 && end > start,
-    'processDocument() not found in server.js'
-  );
-  const serviceUtils = require('../services/serviceUtils');
-  const deps = {
-    documentModel: require('../models/document'),
-    paperlessService: require('../services/paperlessService'),
-    mistralOcrService: require('../services/mistralOcrService'),
-    skipRuleService: require('../services/skipRuleService'),
-    AIServiceFactory: require('../services/aiServiceFactory'),
-    retryTracker: new Map(),
-    MIN_CONTENT_LENGTH: minContentLength,
-    shouldQueueForOcrOnAiError: serviceUtils.shouldQueueForOcrOnAiError,
-    classifyOcrQueueReasonFromAiError:
-      serviceUtils.classifyOcrQueueReasonFromAiError,
-    isTimeoutError: serviceUtils.isTimeoutError,
-    buildTimeoutErrorMessage: serviceUtils.buildTimeoutErrorMessage,
-  };
-  return new Function(
-    ...Object.keys(deps),
-    `${source.slice(start, end + 2)}\nreturn processDocument;`
-  )(...Object.values(deps));
-}
-
-/**
  * The scheduled scan: processDocument() as the scan loop calls it, `runs`
  * times in a row on the same document (the retry cap only shows over several
  * scans). Each run reports null, the analysis, or the error it threw.
  */
 async function runScan(scenario, { runs = 1, ocrQueuedDocumentIds } = {}) {
   const { calls, s } = makeWorld(scenario);
-  const processDocument = loadScanProcessDocument(s.minContentLength);
+  const documentPipeline = require('../services/documentPipeline');
   const outcomes = [];
   await quietly(async () => {
     for (let run = 0; run < runs; run += 1) {
       try {
-        const result = await processDocument(
+        const result = await documentPipeline.processDocument(
           DOC,
           ['Tax'],
           ['Bank'],
           ['Invoice'],
-          { ocrQueuedDocumentIds: ocrQueuedDocumentIds || new Set() }
+          {
+            source: 'scan',
+            minContentLength: s.minContentLength,
+            ocrQueuedDocumentIds: ocrQueuedDocumentIds || new Set(),
+          }
         );
         outcomes.push(result ? `analysis ${show(result.analysis)}` : 'null');
       } catch (error) {
@@ -306,8 +275,11 @@ const FETCH = [
 const PROCESSING = 'setProcessingStatus(7, "Scan 0007", "processing")';
 const SKIP_RULES =
   'skipRules.apply({"id":7,"title":"Scan 0007","page_count":2}, "<156 chars>")';
+/* The scan used to stop after the document id. The two trailing arguments
+   are the services' defaults in effect: no custom prompt, and options whose
+   restrict flags no AI service reads (they read config). */
 const SCAN_ANALYZE =
-  'analyzeDocument("<156 chars>", ["Tax"], ["Bank"], ["Invoice"], 7)';
+  'analyzeDocument("<156 chars>", ["Tax"], ["Bank"], ["Invoice"], 7, null, {"restrictToExistingTags":false,"restrictToExistingCorrespondents":true})';
 const queueAnalyze = (prompt = null, extra = '') =>
   `analyzeDocument("<156 chars>", ["Tax"], ["Bank"], ["Invoice"], 7, ${show(prompt)}, {"restrictToExistingTags":false,"restrictToExistingCorrespondents":true${extra}})`;
 const QUEUE_WRITE_BACK = [
@@ -756,6 +728,23 @@ async function main() {
     );
     assert.deepStrictEqual(outcomes, [
       'throw [ERROR] Document analysis failed: Model refused',
+    ]);
+  });
+
+  console.log('Shared');
+
+  await test('an unknown caller is refused before anything is read', async () => {
+    const { calls } = makeWorld({});
+    const documentPipeline = require('../services/documentPipeline');
+    await assert.rejects(
+      documentPipeline.processDocument(DOC, [], [], [], { source: 'cron' }),
+      /Unknown document pipeline source: cron/
+    );
+    assert.deepStrictEqual(calls, []);
+    assert.deepStrictEqual(Object.keys(documentPipeline.CALLER_PROFILES), [
+      'scan',
+      'webhook',
+      'rescan',
     ]);
   });
 
