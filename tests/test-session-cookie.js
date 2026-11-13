@@ -9,6 +9,8 @@
  *   2. the cookie: name jwt, httpOnly, SameSite=Lax, path /, 24 hours, and a
  *      token the session guards accept
  *   3. clearing it
+ *   4. the same policy without a request (the CSRF cookie at startup), and
+ *      server.js keeping no copy of its own
  */
 
 const assert = require('assert');
@@ -58,6 +60,7 @@ async function main() {
   // config/config.js looks for data/ in the current directory.
   const previousCwd = process.cwd();
   const previousMode = process.env.COOKIE_SECURE_MODE;
+  const previousNodeEnv = process.env.NODE_ENV;
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zr-session-cookie-'));
   fs.mkdirSync(path.join(tmpDir, 'data'), { recursive: true });
   process.chdir(tmpDir);
@@ -67,6 +70,7 @@ async function main() {
     const {
       SESSION_COOKIE_NAME,
       SESSION_TTL_MS,
+      isHttpsRequest,
       shouldUseSecureCookies,
       issueSessionCookie,
       clearSessionCookie,
@@ -123,6 +127,71 @@ async function main() {
         shouldUseSecureCookies(makeReq({ forwardedProto: 'https' })),
         true,
         'an unknown mode falls back to auto'
+      );
+    });
+
+    await test('without a request, auto means Secure in production only', () => {
+      for (const mode of [undefined, 'auto', 'bogus']) {
+        if (mode === undefined) {
+          delete process.env.COOKIE_SECURE_MODE;
+        } else {
+          process.env.COOKIE_SECURE_MODE = mode;
+        }
+        process.env.NODE_ENV = 'production';
+        assert.strictEqual(shouldUseSecureCookies(), true, `${mode}`);
+        process.env.NODE_ENV = ' Production ';
+        assert.strictEqual(
+          shouldUseSecureCookies(),
+          false,
+          'NODE_ENV is compared as written, only its case is ignored'
+        );
+        process.env.NODE_ENV = 'PRODUCTION';
+        assert.strictEqual(shouldUseSecureCookies(), true, `${mode}`);
+        process.env.NODE_ENV = 'development';
+        assert.strictEqual(shouldUseSecureCookies(), false, `${mode}`);
+        delete process.env.NODE_ENV;
+        assert.strictEqual(shouldUseSecureCookies(), false, `${mode}`);
+      }
+    });
+
+    await test('without a request, always and never still decide', () => {
+      process.env.NODE_ENV = 'development';
+      process.env.COOKIE_SECURE_MODE = 'always';
+      assert.strictEqual(shouldUseSecureCookies(), true);
+      process.env.NODE_ENV = 'production';
+      process.env.COOKIE_SECURE_MODE = ' NEVER ';
+      assert.strictEqual(shouldUseSecureCookies(), false);
+    });
+
+    await test('isHttpsRequest reads TLS and the first forwarded protocol', () => {
+      process.env.COOKIE_SECURE_MODE = 'never';
+      assert.strictEqual(isHttpsRequest(makeReq({ secure: true })), true);
+      assert.strictEqual(
+        isHttpsRequest(makeReq({ forwardedProto: 'HTTPS, http' })),
+        true,
+        'the mode does not matter here'
+      );
+      assert.strictEqual(
+        isHttpsRequest(makeReq({ forwardedProto: 'http, https' })),
+        false
+      );
+      assert.strictEqual(isHttpsRequest(makeReq()), false);
+    });
+
+    await test('server.js keeps no cookie policy of its own', () => {
+      const server = fs.readFileSync(
+        path.join(__dirname, '..', 'server.js'),
+        'utf8'
+      );
+      assert.ok(
+        !/function (shouldUseSecureCookies|getCookieSecureMode|isHttpsRequest)\b/.test(
+          server
+        ),
+        'server.js must use services/sessionCookie.js'
+      );
+      assert.ok(
+        server.includes("require('./services/sessionCookie')"),
+        'server.js must take the policy from services/sessionCookie.js'
       );
     });
 
@@ -183,6 +252,11 @@ async function main() {
       delete process.env.COOKIE_SECURE_MODE;
     } else {
       process.env.COOKIE_SECURE_MODE = previousMode;
+    }
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
     }
     process.chdir(previousCwd);
     fs.rmSync(tmpDir, { recursive: true, force: true });

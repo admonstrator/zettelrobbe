@@ -14,6 +14,10 @@ const tidyUpRoutes = require('./routes/tidyUp');
 const oidcRoutes = require('./routes/oidc');
 const oidcService = require('./services/oidcService');
 const { isAuthenticated } = require('./routes/auth');
+const {
+  isHttpsRequest,
+  shouldUseSecureCookies,
+} = require('./services/sessionCookie');
 const mistralOcrService = require('./services/mistralOcrService');
 const ocrAutoProcessService = require('./services/ocrAutoProcessService');
 const duplicateReviewJobService = require('./services/duplicateReviewJobService');
@@ -223,44 +227,8 @@ if (trustProxy !== false) {
   app.set('trust proxy', trustProxy);
 }
 
-function getCookieSecureMode() {
-  return typeof config.getCookieSecureMode === 'function'
-    ? config.getCookieSecureMode()
-    : String(process.env.COOKIE_SECURE_MODE || 'auto')
-        .trim()
-        .toLowerCase();
-}
-
-function shouldUseSecureCookies(req) {
-  const mode = getCookieSecureMode();
-
-  if (mode === 'always') {
-    return true;
-  }
-
-  if (mode === 'never') {
-    return false;
-  }
-
-  if (req) {
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-      .split(',')[0]
-      .trim()
-      .toLowerCase();
-    return Boolean(req.secure || forwardedProto === 'https');
-  }
-
-  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-}
-
-function isHttpsRequest(req) {
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    .split(',')[0]
-    .trim()
-    .toLowerCase();
-  return Boolean(req.secure || forwardedProto === 'https');
-}
-
+// The CSRF cookie is configured once, without a request: Secure follows
+// COOKIE_SECURE_MODE, and in auto mode NODE_ENV=production.
 const csrfCookieSecure = shouldUseSecureCookies();
 
 // Minimum content length, read once at boot: MIN_CONTENT_LENGTH restarts the
