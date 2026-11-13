@@ -176,6 +176,7 @@ const TESTS = {
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
+  'settings-save-golden': 'test-settings-save-golden.js',
 };
 
 const AREAS = {
@@ -334,6 +335,7 @@ const AREAS = {
     'anthropic-settings',
     'ocr-provider-anthropic',
   ],
+  settings: ['settings-save-golden'],
 };
 
 // Tests intentionally excluded from the auto-discovery drift check below.
