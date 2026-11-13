@@ -28,6 +28,53 @@ const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
+/** Request header that makes the harness skip its automatic sign-in for one request. */
+const ANONYMOUS_HEADER = 'x-harness-anonymous';
+
+/** What server.js's locals middleware sets for the page shell (theme, footer, about dialog). */
+const SHELL_LOCALS = {
+  theme: 'light',
+  appVersion: 'test',
+  appCommitSha: 'unknown',
+  appPaperlessNgxVersion: 'unknown',
+  appAiProvider: 'openai',
+  appOcrEnabled: false,
+  appOcrProvider: 'mistral',
+  appNodeEnv: 'test',
+  appNodeVersion: process.version,
+  appPlatform: `${process.platform} (${process.arch})`,
+  appServerTimeUtc: '2000-01-01T00:00:00.000Z',
+  appServerTimezone: 'UTC',
+  appDateFormat: 'DD.MM.YYYY',
+  appPaperlessApiUrl: 'unknown',
+  appOllamaApiUrl: 'unknown',
+  appOllamaModel: 'unknown',
+  appCustomBaseUrl: 'unknown',
+  appCustomModel: 'unknown',
+  appAzureEndpoint: 'unknown',
+  appAzureDeploymentName: 'unknown',
+  appAzureApiVersion: 'unknown',
+  appAnthropicModel: 'unknown',
+  appAnthropicApiUrl: 'default',
+  appMistralOcrModel: 'unknown',
+  appScanInterval: 'unknown',
+  appTokenLimit: 'unknown',
+  appResponseTokens: 'unknown',
+  appTrustProxy: 'false',
+  appUseExistingData: 'no',
+  appRestrictTags: 'no',
+  appRestrictCorrespondents: 'no',
+  appRestrictDocumentTypes: 'no',
+  appPaperlessTokenSet: false,
+  appOpenAiKeySet: false,
+  appCustomKeySet: false,
+  appAzureKeySet: false,
+  appAnthropicKeySet: false,
+  appMistralKeySet: false,
+  appApiKeySet: false,
+  loginCookieSecurityWarning: null,
+};
+
 const DEFAULT_ENV = {
   NODE_ENV: 'test',
   LOG_LEVEL: 'error',
@@ -51,10 +98,22 @@ const DEFAULT_ENV = {
  * @param {object} [options]
  * @param {Record<string, string>} [options.env] - environment overrides applied before the modules load
  * @param {boolean} [options.configured=true] - what setupService.isConfigured() should report
- * @param {object|null} [options.user] - a user object injected as req.user before the router runs;
- *   pass null to let the router's own authentication decide (the default)
+ * @param {object|null} [options.user] - signs in as this user. A real session JWT (same secret and
+ *   `typ: 'session'` claim a login issues) is attached to every request that carries no credentials
+ *   of its own (no jwt cookie, no Authorization header, no x-api-key), so the router-wide guard and
+ *   every route guard accept it exactly like a browser session. req.user is also pre-set for code
+ *   that reads it before a guard ran. Pass null to let the router's own authentication decide
+ *   (the default): requests are then anonymous unless the test sends credentials itself.
  * @param {(services: object) => void} [options.stub] - hook to override service methods before the router loads
- * @returns {Promise<{app, base, server, tmpDir, documentModel, paperlessService, setupService, router, close: () => Promise<void>}>}
+ * @returns {Promise<{app, base, server, tmpDir, documentModel, paperlessService, setupService, router, routers: object[],
+ *   sessionToken: string|null, sessionCookie: string|null,
+ *   authHeaders: (extra?: Record<string, string>) => Record<string, string>,
+ *   apiKeyHeaders: (extra?: Record<string, string>) => Record<string, string>,
+ *   anonymousHeaders: (extra?: Record<string, string>) => Record<string, string>,
+ *   close: () => Promise<void>}>}
+ *   routers lists every router the harness mounted, in mount order. sessionToken / sessionCookie are
+ *   null unless options.user was given; authHeaders() then throws, so a test cannot silently run
+ *   anonymous when it meant to be signed in.
  */
 async function mountRouter(options = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zr-router-'));
@@ -72,6 +131,10 @@ async function mountRouter(options = {}) {
   const express = require(path.join(REPO_ROOT, 'node_modules', 'express'));
   const cookieParser = require(
     path.join(REPO_ROOT, 'node_modules', 'cookie-parser')
+  );
+  const jwt = require(path.join(REPO_ROOT, 'node_modules', 'jsonwebtoken'));
+  const { SESSION_TOKEN_TYPE } = require(
+    path.join(REPO_ROOT, 'routes', 'auth.js')
   );
 
   const paperlessService = require(
@@ -101,14 +164,44 @@ async function mountRouter(options = {}) {
   app.use(cookieParser());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  if (options.user !== undefined && options.user !== null) {
+  // server.js puts the shell's locals on every response; without them no real
+  // page (GET /history, ...) renders in here. Fixed values, not the real
+  // config: a page test cares that it renders, not what the footer says.
+  app.use((_req, res, next) => {
+    Object.assign(res.locals, SHELL_LOCALS);
+    next();
+  });
+
+  // Same payload POST /login signs (id, username, typ), plus whatever else the
+  // caller put on the user object, so a test can add claims.
+  const signedInUser =
+    options.user !== undefined && options.user !== null ? options.user : null;
+  let sessionToken = null;
+  if (signedInUser) {
+    sessionToken = jwt.sign(
+      { id: 1, ...signedInUser, typ: SESSION_TOKEN_TYPE },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
     app.use((req, _res, next) => {
-      req.user = options.user;
+      const ownCredentials =
+        req.cookies.jwt ||
+        req.headers.authorization ||
+        req.headers['x-api-key'];
+      if (req.headers[ANONYMOUS_HEADER]) {
+        // Explicit opt-out: this one request is anonymous although the harness
+        // has a user. The router sees no credentials and no pre-set req.user.
+        return next();
+      }
+      if (!ownCredentials) {
+        req.cookies.jwt = sessionToken;
+      }
+      req.user = signedInUser;
       next();
     });
   }
-  app.use(tidyUpRouter);
-  app.use(router);
+  const routers = [tidyUpRouter, router];
+  routers.forEach((r) => app.use(r));
   // Express recognises error middleware by its arity, so the fourth parameter must stay.
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {
@@ -126,6 +219,28 @@ async function mountRouter(options = {}) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
+  const sessionCookie = sessionToken ? `jwt=${sessionToken}` : null;
+
+  /** Request headers for a signed-in call; throws when mountRouter had no user. */
+  function authHeaders(extra = {}) {
+    if (!sessionCookie) {
+      throw new Error(
+        'authHeaders() needs mountRouter({ user }): no session was issued'
+      );
+    }
+    return { cookie: sessionCookie, ...extra };
+  }
+
+  /** Request headers for one anonymous call on a harness that has a user. */
+  function anonymousHeaders(extra = {}) {
+    return { [ANONYMOUS_HEADER]: '1', ...extra };
+  }
+
+  /** Request headers that authenticate with the API key the harness runs with. */
+  function apiKeyHeaders(extra = {}) {
+    return { 'x-api-key': process.env.API_KEY, ...extra };
+  }
+
   return {
     app,
     base,
@@ -135,6 +250,12 @@ async function mountRouter(options = {}) {
     paperlessService,
     setupService,
     router,
+    routers,
+    sessionToken,
+    sessionCookie,
+    authHeaders,
+    apiKeyHeaders,
+    anonymousHeaders,
     close,
   };
 }
@@ -187,4 +308,4 @@ function stubPaperless(paperlessService) {
   paperlessService.getEntityNeighbourhood = async () => [];
 }
 
-module.exports = { mountRouter, DEFAULT_ENV, REPO_ROOT };
+module.exports = { mountRouter, DEFAULT_ENV, REPO_ROOT, ANONYMOUS_HEADER };

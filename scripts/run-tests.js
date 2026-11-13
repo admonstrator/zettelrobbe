@@ -176,6 +176,8 @@ const TESTS = {
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
+  'harness-session': 'test-harness-session.js',
+  'route-guard-coverage': 'test-route-guard-coverage.js',
 };
 
 const AREAS = {
@@ -303,6 +305,8 @@ const AREAS = {
     'login-username-timing',
     'oidc-sso',
     'setup-complete-guard',
+    'harness-session',
+    'route-guard-coverage',
   ],
   duplicates: [
     'entity-merge-model',
