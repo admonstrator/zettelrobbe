@@ -179,6 +179,10 @@ const TESTS = {
   'harness-session': 'test-harness-session.js',
   'route-guard-coverage': 'test-route-guard-coverage.js',
   'route-table': 'test-route-table.js',
+  'auth-gate-public-paths': 'test-auth-gate-public-paths.js',
+  'mfa-service': 'test-mfa-service.js',
+  'session-cookie': 'test-session-cookie.js',
+  'scan-control': 'test-scan-control.js',
 };
 
 const AREAS = {
@@ -190,6 +194,8 @@ const AREAS = {
     'session-guard',
     'oidc-sso',
     'settings-oidc',
+    'mfa-service',
+    'session-cookie',
   ],
   ocr: [
     'ocr-fallback-ai-errors',
@@ -262,6 +268,7 @@ const AREAS = {
     'reconciliation-service',
     'settings-paperless-url-fallback',
     'rescan-fetch-before-delete',
+    'scan-control',
   ],
   prompts: [
     'restriction-service',
@@ -308,6 +315,7 @@ const AREAS = {
     'setup-complete-guard',
     'harness-session',
     'route-guard-coverage',
+    'auth-gate-public-paths',
   ],
   duplicates: [
     'entity-merge-model',

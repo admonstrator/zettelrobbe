@@ -62,6 +62,7 @@ const paperlessService = require('./paperlessService');
 const entityNameMatcher = require('./entityNameMatcher');
 const { calculateTokens } = require('./serviceUtils');
 const { estimateRun } = require('./aiRunEstimate');
+const scanControl = require('./scanControl');
 
 /** The two dimensions a vocabulary entry can belong to. */
 const DIMENSIONS = Object.freeze({ TYPE: 'type', TOPIC: 'topic' });
@@ -2002,7 +2003,7 @@ class TagSimplifyService {
         400
       );
     }
-    if (global.__paperlessAiScanControl?.running) {
+    if (scanControl.isRunning()) {
       throw new SimplifyError(
         'A document scan is running. Wait until it has finished.',
         409
@@ -3807,7 +3808,7 @@ class TagSimplifyService {
    * @returns {Promise<{ applied: object[], merged: object[], failed: object[], stopped: boolean }>}
    */
   async applyAccepted(request = {}, control = {}) {
-    if (global.__paperlessAiScanControl?.running) {
+    if (scanControl.isRunning()) {
       throw new SimplifyError(
         'A document scan is running. Wait until it has finished.',
         409

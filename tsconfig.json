@@ -15,6 +15,16 @@
   "files": [
     "services/restartService.js",
     "scripts/route-proof.js",
-    "tests/test-route-table.js"
+    "tests/test-route-table.js",
+    "middleware/authGate.js",
+    "middleware/rateLimiters.js",
+    "services/loginView.js",
+    "services/mfaService.js",
+    "services/scanControl.js",
+    "services/sessionCookie.js",
+    "services/thumbnailCache.js",
+    "services/userPresence.js",
+    "services/webhookQueueService.js",
+    "types/jsonwebtoken.d.ts"
   ]
 }

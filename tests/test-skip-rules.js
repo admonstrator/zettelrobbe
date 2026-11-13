@@ -283,15 +283,36 @@ async function run() {
 
     const setup = readRouteSources();
     assert.ok(
-      setup.includes('documentQueue.push({ document, applySkipRules: true })'),
+      setup.includes(
+        'webhookQueueService.enqueue(document, { applySkipRules: true })'
+      ),
       'webhook documents should go through the skip rules'
     );
-    assert.ok(
-      setup.includes(
-        'documentQueue.push({ document: entry.document, applySkipRules: false })'
-      ),
-      'a rescan by hand should bypass the skip rules'
-    );
+
+    // A rescan by hand queues its documents without the rules. The queue is
+    // looked at before it is processed, so the AI is never called.
+    const webhookQueueService = require('../services/webhookQueueService');
+    const originalGetDocument = paperlessService.getDocument;
+    const originalProcessQueue = webhookQueueService.processQueue;
+    paperlessService.getDocument = async (id) => ({ id, title: 'Rescanned' });
+    webhookQueueService.processQueue = async () => {};
+    try {
+      const { queued } = await webhookQueueService.rescanDocumentsByIds([904]);
+      assert.strictEqual(queued, 1);
+      const entry = webhookQueueService.documentQueue.find(
+        (item) => item.document.id === 904
+      );
+      assert.ok(entry, 'the rescanned document should be queued');
+      assert.strictEqual(
+        entry.applySkipRules,
+        false,
+        'a rescan by hand should bypass the skip rules'
+      );
+    } finally {
+      webhookQueueService.documentQueue.length = 0;
+      webhookQueueService.processQueue = originalProcessQueue;
+      paperlessService.getDocument = originalGetDocument;
+    }
 
     const historyJs = await fs.readFile(
       path.join(repoRoot, 'public', 'js', 'history.js'),

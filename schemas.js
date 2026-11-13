@@ -42,6 +42,25 @@
 
 /**
  * @swagger
+ * tags:
+ *   - name: Authentication
+ *     description: User authentication and authorization endpoints, including login, logout, and token management
+ *   - name: Documents
+ *     description: Document management and processing endpoints for interacting with Paperless-ngx documents
+ *   - name: History
+ *     description: Document processing history and tracking of AI-generated metadata
+ *   - name: Navigation
+ *     description: General navigation endpoints for the web interface
+ *   - name: System
+ *     description: System configuration, health checks, and administrative functions
+ *   - name: Setup
+ *     description: Application setup and configuration endpoints
+ *   - name: Metadata
+ *     description: Endpoints for managing document metadata like tags, correspondents, and document types
+ */
+
+/**
+ * @swagger
  * components:
  *   schemas:
  *     Error:
@@ -1357,6 +1376,31 @@
  *           type: array
  *           items:
  *             type: string
+ *     TagVocabularyDocumentType:
+ *       type: object
+ *       description: |
+ *         One document type of the Paperless-ngx instance, as the picker on
+ *         the "Simplify tags" page offers it.
+ *       properties:
+ *         id:
+ *           type: integer
+ *           description: The id in Paperless-ngx
+ *           example: 7
+ *         name:
+ *           type: string
+ *           description: The name, exactly as Paperless-ngx spells it
+ *           example: Rechnung
+ *         documentCount:
+ *           type: integer
+ *           description: How many documents carry this type
+ *           example: 128
+ *         inVocabulary:
+ *           type: boolean
+ *           description: |
+ *             True when the saved vocabulary holds a document type of exactly
+ *             this name. Names in Paperless-ngx are case sensitive, so the
+ *             comparison is too.
+ *           example: true
  *     TagSplitProposal:
  *       type: object
  *       description: What one tag stands for, as proposed by a rule, the model or the user

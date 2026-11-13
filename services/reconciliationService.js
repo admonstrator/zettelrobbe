@@ -13,6 +13,7 @@
 
 const paperlessService = require('./paperlessService');
 const documentModel = require('../models/document');
+const scanControl = require('./scanControl');
 
 /** Maximum time (ms) to wait for an active scan to complete before giving up. */
 const SCAN_WAIT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -26,12 +27,11 @@ class ReconciliationService {
   }
 
   /**
-   * Returns the shared scan-control object written by server.js.
-   * Accessing it lazily avoids circular-require issues at module load time.
+   * Returns the shared scan state that server.js writes (services/scanControl.js).
    * @returns {{ running: boolean }}
    */
   _getScanControl() {
-    return global.__paperlessAiScanControl || { running: false };
+    return scanControl.getState();
   }
 
   /**

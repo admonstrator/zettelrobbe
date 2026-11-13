@@ -5,7 +5,10 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const documentModel = require('../models/document');
 const oidcService = require('../services/oidcService');
-const { SESSION_TOKEN_TYPE } = require('./auth');
+const {
+  shouldUseSecureCookies,
+  issueSessionCookie,
+} = require('../services/sessionCookie');
 
 // Holds state, nonce and PKCE verifier between the redirect to the provider
 // and the callback. Signed like the MFA challenge, with its own type claim so
@@ -13,19 +16,6 @@ const { SESSION_TOKEN_TYPE } = require('./auth');
 const OIDC_TRANSACTION_COOKIE = 'zr_oidc_tx';
 const OIDC_TRANSACTION_TYPE = 'oidc-login';
 const OIDC_TRANSACTION_TTL_SECONDS = 10 * 60;
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-
-function shouldUseSecureCookies(req) {
-  const mode = config.getCookieSecureMode();
-  if (mode === 'always') return true;
-  if (mode === 'never') return false;
-
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    .split(',')[0]
-    .trim()
-    .toLowerCase();
-  return Boolean(req.secure || forwardedProto === 'https');
-}
 
 function renderLoginError(res, status, error) {
   return res.status(status).render('login', {
@@ -199,22 +189,7 @@ router.get('/auth/oidc/callback', oidcLimiter, async (req, res) => {
       return renderLoginError(res, 403, error);
     }
 
-    const token = jwt.sign(
-      {
-        id: user.id,
-        username: user.username,
-        typ: SESSION_TOKEN_TYPE,
-      },
-      jwtSecret,
-      { expiresIn: '24h' }
-    );
-    res.cookie('jwt', token, {
-      httpOnly: true,
-      secure: shouldUseSecureCookies(req),
-      sameSite: 'lax',
-      path: '/',
-      maxAge: SESSION_TTL_MS,
-    });
+    issueSessionCookie(req, res, user, jwtSecret);
 
     console.log('[LOGIN] OIDC sign-in for user:', user.username);
     return res.redirect('/dashboard');
