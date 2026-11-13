@@ -12,5 +12,9 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "files": ["services/restartService.js"]
+  "files": [
+    "services/restartService.js",
+    "services/settingsCatalog.js",
+    "services/settingsService.js"
+  ]
 }

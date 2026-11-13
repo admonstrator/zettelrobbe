@@ -1,17 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
-const cron = require('node-cron');
 const setupService = require('../services/setupService.js');
 const paperlessService = require('../services/paperlessService.js');
 const documentModel = require('../models/document.js');
 const AIServiceFactory = require('../services/aiServiceFactory');
 const configFile = require('../config/config.js');
 const aiProviderRules = require('../services/aiProviderRules');
-const {
-  RESTART_REQUIRED_KEYS,
-  restartRequiredAmong,
-} = require('../config/restartRequiredKeys');
+const settingsCatalog = require('../services/settingsCatalog');
+const settingsService = require('../services/settingsService');
+const { RESTART_REQUIRED_KEYS } = require('../config/restartRequiredKeys');
 const changelog = require('../config/changelog.js');
 const dashboardWidgets = require('../config/dashboardWidgets.js');
 const documentsService = require('../services/documentsService.js');
@@ -90,19 +88,6 @@ function shouldUseSecureCookies(req) {
     .toLowerCase();
   return Boolean(req.secure || forwardedProto === 'https');
 }
-
-const SETTINGS_SECRET_FIELDS = [
-  'PAPERLESS_API_TOKEN',
-  'OPENAI_API_KEY',
-  'OLLAMA_API_KEY',
-  'CUSTOM_API_KEY',
-  'AZURE_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'OCR_API_KEY',
-  'MISTRAL_API_KEY',
-  'API_KEY',
-  'OIDC_CLIENT_SECRET',
-];
 
 function formatBytes(bytes) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -3353,18 +3338,6 @@ router.post('/api/key-regenerate', isAuthenticated, async (req, res) => {
   }
 });
 
-const normalizeArray = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  if (typeof value === 'string') {
-    return value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-  return [];
-};
-
 const SETUP_MFA_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const setupMfaChallenges = new Map();
 
@@ -3536,227 +3509,6 @@ async function ensureSetupOpenOrRespond(
   return true;
 }
 
-/* The running configuration as a .env file, grouped the way the settings page
-   is. Separate from toEnvPreviewLines() below on purpose: that one previews the
-   handful of values the setup wizard just collected, this one exports
-   everything an operator needs to reproduce the instance elsewhere.
-
-   The list is curated rather than a dump of process.env: the environment also
-   holds the container's own variables, and JWT_SECRET is deliberately absent —
-   a fresh instance mints its own, and putting it on screen buys nothing. */
-const ENV_EXPORT_GROUPS = [
-  {
-    title: 'Paperless-ngx connection',
-    keys: [
-      'PAPERLESS_API_URL',
-      'PAPERLESS_PUBLIC_URL',
-      'PAPERLESS_API_TOKEN',
-      'PAPERLESS_USERNAME',
-      'PAPERLESS_PROBE_INTERVAL_SECONDS',
-      'PAPERLESS_REQUEST_TIMEOUT_SECONDS',
-      'STARTUP_PAPERLESS_RETRY_MINUTES',
-    ],
-  },
-  {
-    title: 'Document processing',
-    keys: [
-      'SCAN_INTERVAL',
-      'DISABLE_AUTOMATIC_PROCESSING',
-      'PROCESS_PREDEFINED_DOCUMENTS',
-      'TAGS',
-      'IGNORE_TAGS',
-      'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
-      'REMOVE_TAGS_AFTER_PROCESSING',
-      'ADD_AI_PROCESSED_TAG',
-      'AI_PROCESSED_TAG_NAME',
-      'MIN_CONTENT_LENGTH',
-      'MAX_PAGE_COUNT',
-      'IGNORE_TITLE_PATTERNS',
-      'IGNORE_REPEATED_CONTENT',
-      'USE_EXISTING_DATA',
-    ],
-  },
-  {
-    title: 'AI provider',
-    keys: [
-      'AI_PROVIDER',
-      'OPENAI_API_KEY',
-      'OPENAI_MODEL',
-      'OLLAMA_API_URL',
-      'OLLAMA_API_KEY',
-      'OLLAMA_MODEL',
-      'OLLAMA_THINK',
-      'CUSTOM_BASE_URL',
-      'CUSTOM_API_KEY',
-      'CUSTOM_MODEL',
-      'AZURE_ENDPOINT',
-      'AZURE_API_KEY',
-      'AZURE_DEPLOYMENT_NAME',
-      'AZURE_API_VERSION',
-      'ANTHROPIC_API_KEY',
-      'ANTHROPIC_API_URL',
-      'ANTHROPIC_MODEL',
-      'ANTHROPIC_EFFORT',
-      'ANTHROPIC_MAX_TOKENS',
-      'ANTHROPIC_STRUCTURED_OUTPUT',
-      'ANTHROPIC_PROMPT_CACHING',
-    ],
-  },
-  {
-    title: 'AI behaviour',
-    keys: [
-      'TOKEN_LIMIT',
-      'RESPONSE_TOKENS',
-      'AI_TEMPERATURE_ANALYSIS',
-      'AI_TEMPERATURE_GENERATION',
-      'SYSTEM_PROMPT',
-      'PROMPT_TAGS',
-      'ACTIVATE_TAGGING',
-      'ACTIVATE_CORRESPONDENTS',
-      'ACTIVATE_DOCUMENT_TYPE',
-      'ACTIVATE_TITLE',
-      'ACTIVATE_CUSTOM_FIELDS',
-      'CUSTOM_FIELDS',
-      'RESTRICT_TO_EXISTING_TAGS',
-      'RESTRICT_TO_EXISTING_CORRESPONDENTS',
-      'RESTRICT_TO_EXISTING_DOCUMENT_TYPES',
-    ],
-  },
-  {
-    title: 'Duplicates',
-    keys: [
-      'DUPLICATES_AI_REVIEW',
-      'DUPLICATES_AI_MODEL',
-      'DUPLICATES_AI_REVIEW_BATCH_SIZE',
-      'DUPLICATES_AI_CANDIDATE_FLOOR',
-      'DUPLICATES_AI_EXCERPTS',
-      'DUPLICATES_AI_EXCERPT_CHARS',
-      'DUPLICATES_AI_EXCERPT_DOCUMENTS',
-      'DUPLICATES_AI_TOKEN_BUDGET',
-      'DUPLICATES_AI_IDLE_STOP_SECONDS',
-      'DUPLICATES_AI_THINKING',
-      'DUPLICATES_AI_REQUEST_SECONDS',
-      'DUPLICATES_AI_CONCURRENCY',
-      'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
-      'DUPLICATES_GUARD_NEW_NAMES',
-      'DUPLICATES_AI_SWEEP_NAMES',
-    ],
-  },
-  {
-    title: 'Simplify tags',
-    keys: ['SIMPLIFY_TAGS_PER_REQUEST', 'SIMPLIFY_VOCABULARY_SIZE'],
-  },
-  {
-    title: 'External API',
-    keys: [
-      'EXTERNAL_API_ENABLED',
-      'EXTERNAL_API_URL',
-      'EXTERNAL_API_METHOD',
-      'EXTERNAL_API_HEADERS',
-      'EXTERNAL_API_BODY',
-      'EXTERNAL_API_TIMEOUT',
-      'EXTERNAL_API_TRANSFORM',
-    ],
-  },
-  {
-    title: 'OCR fallback',
-    keys: [
-      'MISTRAL_OCR_ENABLED',
-      'OCR_PROVIDER',
-      'OCR_API_URL',
-      'OCR_API_KEY',
-      'MISTRAL_API_KEY',
-      'MISTRAL_OCR_MODEL',
-      'OCR_PDF_RENDER_ENABLED',
-      'OCR_PDF_RENDER_MAX_PAGES',
-      'OCR_PDF_RENDER_DPI',
-      'OCR_AUTO_PROCESS_ENABLED',
-      'OCR_AUTO_PROCESS_INTERVAL',
-      'OCR_AUTO_PROCESS_BATCH_SIZE',
-      'OCR_AUTO_ANALYZE',
-      'SETUP_OCR_VALIDATION_TIMEOUT_MS',
-    ],
-  },
-  {
-    title: 'Server and security',
-    keys: [
-      'PAPERLESS_AI_PORT',
-      'API_KEY',
-      'TRUST_PROXY',
-      'COOKIE_SECURE_MODE',
-      'GLOBAL_RATE_LIMIT_WINDOW_MS',
-      'GLOBAL_RATE_LIMIT_MAX',
-      'EXPOSE_API_DOCS',
-      'CONFIG_SOURCE_MODE',
-    ],
-  },
-  {
-    title: 'Single sign-on (OIDC)',
-    keys: [
-      'OIDC_ENABLED',
-      'OIDC_ISSUER_URL',
-      'OIDC_CLIENT_ID',
-      'OIDC_CLIENT_SECRET',
-      'OIDC_ADMIN_EMAIL',
-      'OIDC_REDIRECT_URI',
-      'OIDC_SCOPES',
-      'OIDC_EMAIL_CLAIM',
-      'OIDC_ALLOW_UNVERIFIED_EMAIL',
-      'OIDC_TOKEN_AUTH_METHOD',
-      'OIDC_BUTTON_TEXT',
-      'OIDC_BUTTON_ICON',
-      'OIDC_BUTTON_COLOR',
-      'OIDC_BUTTON_TEXT_COLOR',
-    ],
-  },
-  {
-    title: 'Maintenance',
-    keys: [
-      'LOG_LEVEL',
-      'TAG_CACHE_TTL_SECONDS',
-      'RECONCILIATION_ENABLED',
-      'RECONCILIATION_INTERVAL',
-      'UPDATE_CHECK_ENABLED',
-      'HEALTHCHECK_STRICT',
-      'HEALTH_SCAN_FAILURE_THRESHOLD',
-      'ANONYMIZED_TELEMETRY',
-    ],
-  },
-  {
-    title: 'Interface',
-    keys: ['DATE_FORMAT'],
-  },
-];
-
-/* A value only needs quoting when it carries something a .env parser would
-   otherwise eat — whitespace, a comment marker or a quote of its own. */
-function quoteEnvValue(value) {
-  const text = String(value);
-  if (!/[\s"'#]/.test(text)) return text;
-  return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-function buildEnvExport(env = process.env) {
-  const lines = [];
-  let count = 0;
-
-  ENV_EXPORT_GROUPS.forEach((group) => {
-    const present = group.keys.filter(
-      (key) => env[key] !== undefined && String(env[key]).length > 0
-    );
-    if (present.length === 0) return;
-
-    if (lines.length > 0) lines.push('');
-    lines.push(`# ${group.title}`);
-    present.forEach((key) => {
-      lines.push(`${key}=${quoteEnvValue(env[key])}`);
-      count += 1;
-    });
-  });
-
-  return { env: lines.join('\n'), count };
-}
-
 function toEnvPreviewLines(config) {
   const previewKeys = [
     'PAPERLESS_API_URL',
@@ -3923,120 +3675,6 @@ function resolveSettingsQuickstartApiKey(baseUrl, apiKey) {
   return isSameQuickstartHost(baseUrl, configuredUrl)
     ? resolveStoredAiToken(provider)
     : '';
-}
-
-/* Single sign-on fields of the settings page: form key -> OIDC_* key. */
-const OIDC_SETTINGS_FIELDS = {
-  oidcEnabled: 'OIDC_ENABLED',
-  oidcIssuerUrl: 'OIDC_ISSUER_URL',
-  oidcClientId: 'OIDC_CLIENT_ID',
-  oidcClientSecret: 'OIDC_CLIENT_SECRET',
-  oidcAdminEmail: 'OIDC_ADMIN_EMAIL',
-  oidcRedirectUri: 'OIDC_REDIRECT_URI',
-  oidcScopes: 'OIDC_SCOPES',
-  oidcEmailClaim: 'OIDC_EMAIL_CLAIM',
-  oidcAllowUnverifiedEmail: 'OIDC_ALLOW_UNVERIFIED_EMAIL',
-  oidcTokenAuthMethod: 'OIDC_TOKEN_AUTH_METHOD',
-  oidcButtonText: 'OIDC_BUTTON_TEXT',
-  oidcButtonIcon: 'OIDC_BUTTON_ICON',
-  oidcButtonColor: 'OIDC_BUTTON_COLOR',
-  oidcButtonTextColor: 'OIDC_BUTTON_TEXT_COLOR',
-};
-const OIDC_SWITCH_FIELDS = new Set(['oidcEnabled', 'oidcAllowUnverifiedEmail']);
-
-/* Turns the single sign-on fields of a settings save into OIDC_* values and
-   checks the result. A field the body does not carry keeps what is stored,
-   so a client that predates the section still saves. An empty client secret
-   keeps the stored one, like every other secret on the page.
-
-   The checks only run when single sign-on ends up switched on, and they look
-   at what will be in force after the save: a value injected by the container
-   wins over a typed one, because saveConfig() never writes over it. Switched
-   off, whatever was typed is saved, so a half-finished setup can be parked.
-
-   Returns { updates } or { error }. */
-function buildOidcSettingsUpdate(body) {
-  const updates = {};
-  for (const [field, envKey] of Object.entries(OIDC_SETTINGS_FIELDS)) {
-    const raw = body?.[field];
-    if (raw === undefined || raw === null) continue;
-    if (OIDC_SWITCH_FIELDS.has(field)) {
-      const normalized = String(raw).trim().toLowerCase();
-      if (['yes', 'on', 'true', '1'].includes(normalized)) {
-        updates[envKey] = 'yes';
-      } else if (['no', 'off', 'false', '0', ''].includes(normalized)) {
-        updates[envKey] = 'no';
-      }
-      continue;
-    }
-    if (field === 'oidcClientSecret') {
-      const secret = String(raw).trim();
-      if (secret) updates[envKey] = secret;
-      continue;
-    }
-    let value = String(raw).trim();
-    if (field === 'oidcScopes') value = value.split(/\s+/).join(' ');
-    if (field === 'oidcTokenAuthMethod') value = value.toLowerCase();
-    if (field === 'oidcButtonText') {
-      value = value.slice(0, oidcService.MAX_BUTTON_TEXT_LENGTH);
-    }
-    updates[envKey] = value;
-  }
-
-  const effective = (envKey) =>
-    String(
-      !configFile.isProtectedRuntimeEnvKey(envKey) && envKey in updates
-        ? updates[envKey]
-        : process.env[envKey] || ''
-    ).trim();
-
-  const enabled = ['yes', 'true', '1', 'on'].includes(
-    effective('OIDC_ENABLED').toLowerCase()
-  );
-  if (!enabled) {
-    return { updates };
-  }
-
-  const errors = oidcService.getConfigErrors({
-    enabled,
-    issuerUrl: effective('OIDC_ISSUER_URL'),
-    clientId: effective('OIDC_CLIENT_ID'),
-    redirectUri: effective('OIDC_REDIRECT_URI'),
-    adminEmail: effective('OIDC_ADMIN_EMAIL'),
-  });
-  const tokenAuthMethod = effective('OIDC_TOKEN_AUTH_METHOD').toLowerCase();
-  if (
-    tokenAuthMethod &&
-    !oidcService.TOKEN_AUTH_METHODS.includes(tokenAuthMethod)
-  ) {
-    errors.push(
-      `OIDC_TOKEN_AUTH_METHOD must be empty (automatic) or one of ${oidcService.TOKEN_AUTH_METHODS.join(', ')}`
-    );
-  }
-  const buttonIcon = effective('OIDC_BUTTON_ICON');
-  if (
-    buttonIcon &&
-    oidcService.resolveButtonIcon(buttonIcon).type === 'default'
-  ) {
-    errors.push(
-      'OIDC_BUTTON_ICON must be empty, "none", an https:// URL or a path starting with /'
-    );
-  }
-  for (const envKey of ['OIDC_BUTTON_COLOR', 'OIDC_BUTTON_TEXT_COLOR']) {
-    const color = effective(envKey);
-    if (color && !oidcService.isSafeCssColor(color)) {
-      errors.push(
-        `${envKey} must be a CSS colour such as #1f6feb, a colour name, or rgb()/hsl()`
-      );
-    }
-  }
-
-  if (errors.length > 0) {
-    return {
-      error: `Single sign-on is switched on but cannot work: ${errors.join('; ')}. Fix these or switch single sign-on off.`,
-    };
-  }
-  return { updates };
 }
 
 /* The origin (scheme, host and port) of a URL, or null. */
@@ -4738,61 +4376,6 @@ router.get('/setup', async (req, res) => {
         });
     }
 
-    // Base configuration object - load this FIRST, before any checks
-    let config = {
-      PAPERLESS_API_URL: (
-        process.env.PAPERLESS_API_URL || 'http://localhost:8000'
-      ).replace(/\/api$/, ''),
-      PAPERLESS_API_TOKEN: process.env.PAPERLESS_API_TOKEN || '',
-      PAPERLESS_USERNAME: process.env.PAPERLESS_USERNAME || '',
-      AI_PROVIDER: process.env.AI_PROVIDER || 'openai',
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-      OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
-      OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
-      SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
-      SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
-      PROCESS_PREDEFINED_DOCUMENTS:
-        process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
-      TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
-      RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
-      TAGS: normalizeArray(process.env.TAGS),
-      IGNORE_TAGS: normalizeArray(process.env.IGNORE_TAGS),
-      ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
-      AI_PROCESSED_TAG_NAME:
-        process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
-      REMOVE_INBOX_TAGS_AFTER_PROCESSING:
-        process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
-      USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
-      PROMPT_TAGS: normalizeArray(process.env.PROMPT_TAGS),
-      PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
-      PROCESS_ONLY_NEW_DOCUMENTS:
-        process.env.PROCESS_ONLY_NEW_DOCUMENTS || 'yes',
-      USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
-      DISABLE_AUTOMATIC_PROCESSING:
-        process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
-      AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
-      AZURE_API_KEY: process.env.AZURE_API_KEY || '',
-      AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
-      AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
-      // The key is dropped by sanitizeConfigForBootstrap() before rendering.
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-      ANTHROPIC_API_URL: process.env.ANTHROPIC_API_URL || '',
-      ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || ANTHROPIC_DEFAULT_MODEL,
-      MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
-      OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
-      OCR_API_URL: process.env.OCR_API_URL || '',
-      OCR_API_KEY: process.env.OCR_API_KEY || '',
-      MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
-      MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
-      SETUP_VALIDATION_TIMEOUT_MS:
-        process.env.SETUP_VALIDATION_TIMEOUT_MS || '30000',
-      SETUP_OCR_VALIDATION_TIMEOUT_MS:
-        process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
-        process.env.SETUP_VALIDATION_TIMEOUT_MS ||
-        '30000',
-    };
-
     // Check both configuration and users
     const [isEnvConfigured, users] = await Promise.all([
       setupService.isConfigured(),
@@ -4800,24 +4383,14 @@ router.get('/setup', async (req, res) => {
     ]);
     const aiProviderPresets = await loadAiProviderPresets();
 
-    // Load saved config if it exists
-    if (isEnvConfigured) {
-      const savedConfig = await setupService.loadConfig();
-      if (savedConfig) {
-        if (savedConfig.PAPERLESS_API_URL) {
-          savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(
-            /\/api$/,
-            ''
-          );
-        }
-
-        savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
-        savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
-        savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
-
-        config = { ...config, ...savedConfig };
-      }
-    }
+    // The wizard's settings with their defaults, and the saved configuration
+    // on top when there is one.
+    const config = settingsService.pageConfig(
+      'wizard',
+      process.env,
+      isEnvConfigured ? await setupService.loadConfig() : null,
+      configFile.PAPERLESS_AI_VERSION
+    );
 
     // Debug output
     console.log('Current config TAGS:', config.TAGS);
@@ -6252,68 +5825,32 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const jwtToken =
       process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 
-    const finalConfig = {
-      PAPERLESS_API_URL: paperlessUrl,
-      PAPERLESS_API_TOKEN: paperlessToken,
-      PAPERLESS_USERNAME: paperlessUsername,
-      AI_PROVIDER: aiProvider,
-      SCAN_INTERVAL: scanInterval,
-      PROCESS_PREDEFINED_DOCUMENTS: scanAllDocuments ? 'no' : 'yes',
-      TAGS: tagsForProcessing,
-      IGNORE_TAGS: effectiveExcludeTags,
-      ADD_AI_PROCESSED_TAG: processedTag ? 'yes' : 'no',
-      AI_PROCESSED_TAG_NAME: processedTag || 'ai-processed',
-      REMOVE_INBOX_TAGS_AFTER_PROCESSING: removeInboxTagsAfterProcessing
-        ? 'yes'
-        : 'no',
-      DISABLE_AUTOMATIC_PROCESSING: automaticScanEnabled ? 'no' : 'yes',
-      TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
-      RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
-      USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
-      PROMPT_TAGS: normalizeArray(process.env.PROMPT_TAGS),
-      USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
-      API_KEY: apiToken,
-      JWT_SECRET: jwtToken,
-      PAPERLESS_AI_INITIAL_SETUP: 'yes',
-      ACTIVATE_TAGGING: process.env.ACTIVATE_TAGGING || 'yes',
-      ACTIVATE_CORRESPONDENTS: process.env.ACTIVATE_CORRESPONDENTS || 'yes',
-      ACTIVATE_DOCUMENT_TYPE: process.env.ACTIVATE_DOCUMENT_TYPE || 'yes',
-      ACTIVATE_TITLE: process.env.ACTIVATE_TITLE || 'yes',
-      ACTIVATE_CUSTOM_FIELDS: process.env.ACTIVATE_CUSTOM_FIELDS || 'yes',
-      CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',
-      MISTRAL_OCR_ENABLED: mistralOcrEnabled ? 'yes' : 'no',
-      OCR_PROVIDER: ocrProvider,
-      OCR_API_URL: ocrApiUrl,
-      OCR_API_KEY: ocrApiKey,
-      // An Anthropic key must not land where Mistral OCR would read it.
-      MISTRAL_API_KEY: ocrProvider === 'anthropic' ? '' : ocrApiKey,
-      MISTRAL_OCR_MODEL: mistralOcrModel,
-      SETUP_VALIDATION_TIMEOUT_MS: String(setupValidationTimeoutMs),
-      SETUP_OCR_VALIDATION_TIMEOUT_MS: String(setupOcrValidationTimeoutMs),
-    };
-
-    if (aiProvider === 'openai') {
-      finalConfig.OPENAI_API_KEY = aiToken;
-      finalConfig.OPENAI_MODEL = aiModel || 'gpt-4o-mini';
-    } else if (aiProvider === 'ollama') {
-      finalConfig.OLLAMA_API_URL = aiApiUrl || 'http://localhost:11434';
-      finalConfig.OLLAMA_API_KEY = aiToken;
-      finalConfig.OLLAMA_MODEL = aiModel || 'llama3.2';
-    } else if (aiProvider === 'azure') {
-      finalConfig.AZURE_ENDPOINT = aiApiUrl;
-      finalConfig.AZURE_API_KEY = aiToken;
-      finalConfig.AZURE_DEPLOYMENT_NAME = aiModel;
-      finalConfig.AZURE_API_VERSION = aiAzureApiVersion;
-    } else if (aiProvider === 'anthropic') {
-      finalConfig.ANTHROPIC_API_KEY = aiToken;
-      finalConfig.ANTHROPIC_MODEL = aiModel || ANTHROPIC_DEFAULT_MODEL;
-      // Only a proxy needs one; leaving it out keeps api.anthropic.com.
-      if (aiApiUrl) finalConfig.ANTHROPIC_API_URL = aiApiUrl;
-    } else {
-      finalConfig.CUSTOM_BASE_URL = aiApiUrl;
-      finalConfig.CUSTOM_API_KEY = aiToken;
-      finalConfig.CUSTOM_MODEL = aiModel;
-    }
+    const finalConfig = settingsService.buildInitialSetupConfig({
+      paperlessUrl,
+      paperlessToken,
+      paperlessUsername,
+      aiProvider,
+      aiApiUrl,
+      aiToken,
+      aiModel,
+      aiAzureApiVersion,
+      scanInterval,
+      scanAllDocuments,
+      tagsForProcessing,
+      excludeTags: effectiveExcludeTags,
+      processedTag,
+      removeInboxTagsAfterProcessing,
+      automaticScanEnabled,
+      mistralOcrEnabled,
+      ocrProvider,
+      ocrApiUrl,
+      ocrApiKey,
+      mistralOcrModel,
+      setupValidationTimeoutMs,
+      setupOcrValidationTimeoutMs,
+      apiKey: apiToken,
+      jwtSecret: jwtToken,
+    });
 
     let mfaSecretToPersist = null;
     if (enableMfa) {
@@ -7253,209 +6790,16 @@ router.get('/api/dashboard/stats', isAuthenticated, async (req, res) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/settings', isAuthenticated, async (req, res) => {
-  const normalizeArray = (value) => {
-    if (!value) return [];
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string')
-      return value
-        .split(',')
-        .filter(Boolean)
-        .map((item) => item.trim());
-    return [];
-  };
-
-  let showErrorCheckSettings = false;
   const isConfigured = await setupService.isConfigured();
   // An incomplete configuration now always lands here rather than reopening the
   // setup wizard, so say why - not only in the PAPERLESS_AI_INITIAL_SETUP case.
-  if (!isConfigured) {
-    showErrorCheckSettings = true;
-  }
-  let config = {
-    PAPERLESS_API_URL: (
-      process.env.PAPERLESS_API_URL || 'http://localhost:8000'
-    ).replace(/\/api$/, ''),
-    PAPERLESS_PUBLIC_URL: process.env.PAPERLESS_PUBLIC_URL || '',
-    PAPERLESS_API_TOKEN: process.env.PAPERLESS_API_TOKEN || '',
-    PAPERLESS_USERNAME: process.env.PAPERLESS_USERNAME || '',
-    AI_PROVIDER: process.env.AI_PROVIDER || 'openai',
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-    OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
-    OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
-    OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
-    OLLAMA_THINK: process.env.OLLAMA_THINK || 'false',
-    SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
-    RECONCILIATION_INTERVAL: process.env.RECONCILIATION_INTERVAL || '0 * * * *',
-    RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
-    SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
-    PROCESS_PREDEFINED_DOCUMENTS:
-      process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
-
-    TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
-    RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
-    AI_TEMPERATURE_ANALYSIS: process.env.AI_TEMPERATURE_ANALYSIS || '0.3',
-    AI_TEMPERATURE_GENERATION: process.env.AI_TEMPERATURE_GENERATION || '0.7',
-    TAGS: normalizeArray(process.env.TAGS),
-    IGNORE_TAGS: normalizeArray(process.env.IGNORE_TAGS),
-    REMOVE_INBOX_TAGS_AFTER_PROCESSING:
-      process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
-    REMOVE_TAGS_AFTER_PROCESSING: normalizeArray(
-      process.env.REMOVE_TAGS_AFTER_PROCESSING
-    ),
-    ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
-    AI_PROCESSED_TAG_NAME: process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
-    USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
-    PROMPT_TAGS: normalizeArray(process.env.PROMPT_TAGS),
-    PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
-    PROCESS_ONLY_NEW_DOCUMENTS: process.env.PROCESS_ONLY_NEW_DOCUMENTS || ' ',
-    USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
-    CUSTOM_API_KEY: process.env.CUSTOM_API_KEY || '',
-    CUSTOM_BASE_URL: process.env.CUSTOM_BASE_URL || '',
-    CUSTOM_MODEL: process.env.CUSTOM_MODEL || '',
-    AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
-    AZURE_API_KEY: process.env.AZURE_API_KEY || '',
-    AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
-    AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
-    // Same defaults as config.anthropic, so a fresh instance shows the values
-    // the provider would actually run with. The key is blanked below and only
-    // reported through configuredSecrets.
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-    ANTHROPIC_API_URL: process.env.ANTHROPIC_API_URL || '',
-    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || ANTHROPIC_DEFAULT_MODEL,
-    ANTHROPIC_EFFORT: process.env.ANTHROPIC_EFFORT || '',
-    ANTHROPIC_MAX_TOKENS:
-      process.env.ANTHROPIC_MAX_TOKENS || String(ANTHROPIC_DEFAULT_MAX_TOKENS),
-    ANTHROPIC_STRUCTURED_OUTPUT:
-      process.env.ANTHROPIC_STRUCTURED_OUTPUT || 'yes',
-    ANTHROPIC_PROMPT_CACHING: process.env.ANTHROPIC_PROMPT_CACHING || 'yes',
-    RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
-    RESTRICT_TO_EXISTING_CORRESPONDENTS:
-      process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
-    RESTRICT_TO_EXISTING_DOCUMENT_TYPES:
-      process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
-    EXTERNAL_API_ENABLED: process.env.EXTERNAL_API_ENABLED || 'no',
-    EXTERNAL_API_URL: process.env.EXTERNAL_API_URL || '',
-    EXTERNAL_API_METHOD: process.env.EXTERNAL_API_METHOD || 'GET',
-    EXTERNAL_API_HEADERS: process.env.EXTERNAL_API_HEADERS || '{}',
-    EXTERNAL_API_BODY: process.env.EXTERNAL_API_BODY || '{}',
-    EXTERNAL_API_TIMEOUT: process.env.EXTERNAL_API_TIMEOUT || '5000',
-    EXTERNAL_API_TRANSFORM: process.env.EXTERNAL_API_TRANSFORM || '',
-    EXTERNAL_API_ALLOW_PRIVATE_IPS:
-      process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS || 'no',
-    TAG_CACHE_TTL_SECONDS: process.env.TAG_CACHE_TTL_SECONDS || '300',
-    ACTIVATE_TAGGING: process.env.ACTIVATE_TAGGING || 'yes',
-    ACTIVATE_CORRESPONDENTS: process.env.ACTIVATE_CORRESPONDENTS || 'yes',
-    ACTIVATE_DOCUMENT_TYPE: process.env.ACTIVATE_DOCUMENT_TYPE || 'yes',
-    ACTIVATE_TITLE: process.env.ACTIVATE_TITLE || 'yes',
-    ACTIVATE_CUSTOM_FIELDS: process.env.ACTIVATE_CUSTOM_FIELDS || 'yes',
-    CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}',
-    DISABLE_AUTOMATIC_PROCESSING:
-      process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
-    // Duplicates page. The defaults repeat config/config.js so the fields are
-    // never blank on a fresh instance that has none of these set.
-    DUPLICATES_AI_REVIEW: process.env.DUPLICATES_AI_REVIEW || 'yes',
-    DUPLICATES_AI_MODEL: process.env.DUPLICATES_AI_MODEL || '',
-    DUPLICATES_AI_REVIEW_BATCH_SIZE:
-      process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
-    DUPLICATES_AI_CANDIDATE_FLOOR:
-      process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6',
-    DUPLICATES_AI_EXCERPTS: process.env.DUPLICATES_AI_EXCERPTS || 'yes',
-    DUPLICATES_AI_EXCERPT_CHARS:
-      process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
-    DUPLICATES_AI_EXCERPT_DOCUMENTS:
-      process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
-    DUPLICATES_AI_TOKEN_BUDGET:
-      process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
-    DUPLICATES_AI_IDLE_STOP_SECONDS:
-      process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
-    DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
-    DUPLICATES_AI_REQUEST_SECONDS:
-      process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
-    DUPLICATES_AI_CONCURRENCY: process.env.DUPLICATES_AI_CONCURRENCY || '0',
-    DUPLICATES_AI_VERDICT_MEMORY_DAYS:
-      process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS || '90',
-    DUPLICATES_GUARD_NEW_NAMES: process.env.DUPLICATES_GUARD_NEW_NAMES || 'yes',
-    DUPLICATES_AI_SWEEP_NAMES: process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
-    // Simplify tags — same defaults as config/config.js.
-    SIMPLIFY_TAGS_PER_REQUEST: process.env.SIMPLIFY_TAGS_PER_REQUEST || '50',
-    SIMPLIFY_VOCABULARY_SIZE: process.env.SIMPLIFY_VOCABULARY_SIZE || '25',
-    MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
-    OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
-    OCR_API_URL: process.env.OCR_API_URL || '',
-    OCR_API_KEY: process.env.OCR_API_KEY || '',
-    MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
-    MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
-    OCR_PDF_RENDER_ENABLED: process.env.OCR_PDF_RENDER_ENABLED || 'yes',
-    OCR_PDF_RENDER_MAX_PAGES: process.env.OCR_PDF_RENDER_MAX_PAGES || '10',
-    OCR_PDF_RENDER_DPI: process.env.OCR_PDF_RENDER_DPI || '150',
-    OCR_AUTO_PROCESS_ENABLED: process.env.OCR_AUTO_PROCESS_ENABLED || 'no',
-    OCR_AUTO_PROCESS_INTERVAL:
-      process.env.OCR_AUTO_PROCESS_INTERVAL || '*/15 * * * *',
-    OCR_AUTO_PROCESS_BATCH_SIZE:
-      process.env.OCR_AUTO_PROCESS_BATCH_SIZE || '10',
-    OCR_AUTO_ANALYZE: process.env.OCR_AUTO_ANALYZE || 'yes',
-    SETUP_OCR_VALIDATION_TIMEOUT_MS:
-      process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
-      process.env.SETUP_VALIDATION_TIMEOUT_MS ||
-      '30000',
-    GLOBAL_RATE_LIMIT_WINDOW_MS:
-      process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
-    GLOBAL_RATE_LIMIT_MAX: process.env.GLOBAL_RATE_LIMIT_MAX || '1000',
-    TRUST_PROXY:
-      typeof process.env.TRUST_PROXY === 'undefined'
-        ? ''
-        : process.env.TRUST_PROXY,
-    COOKIE_SECURE_MODE: process.env.COOKIE_SECURE_MODE || 'auto',
-    MIN_CONTENT_LENGTH: process.env.MIN_CONTENT_LENGTH || '10',
-    MAX_PAGE_COUNT: process.env.MAX_PAGE_COUNT || '0',
-    IGNORE_TITLE_PATTERNS: normalizeArray(process.env.IGNORE_TITLE_PATTERNS),
-    IGNORE_REPEATED_CONTENT: process.env.IGNORE_REPEATED_CONTENT || 'yes',
-    PAPERLESS_AI_PORT: process.env.PAPERLESS_AI_PORT || '3000',
-    LOG_LEVEL: process.env.LOG_LEVEL || 'info',
-    DATE_FORMAT: process.env.DATE_FORMAT || 'DD.MM.YYYY',
-    // Single sign-on. Defaults mirror config.getOidcConfig(); the settings
-    // page lists them so values injected by the container show as locked.
-    OIDC_ENABLED: process.env.OIDC_ENABLED || 'no',
-    OIDC_ISSUER_URL: process.env.OIDC_ISSUER_URL || '',
-    OIDC_CLIENT_ID: process.env.OIDC_CLIENT_ID || '',
-    OIDC_CLIENT_SECRET: process.env.OIDC_CLIENT_SECRET || '',
-    OIDC_ADMIN_EMAIL: process.env.OIDC_ADMIN_EMAIL || '',
-    OIDC_REDIRECT_URI: process.env.OIDC_REDIRECT_URI || '',
-    OIDC_SCOPES: process.env.OIDC_SCOPES || 'openid profile email',
-    OIDC_EMAIL_CLAIM: process.env.OIDC_EMAIL_CLAIM || 'email',
-    OIDC_ALLOW_UNVERIFIED_EMAIL:
-      process.env.OIDC_ALLOW_UNVERIFIED_EMAIL || 'no',
-    OIDC_TOKEN_AUTH_METHOD: process.env.OIDC_TOKEN_AUTH_METHOD || '',
-    OIDC_BUTTON_TEXT: process.env.OIDC_BUTTON_TEXT || '',
-    OIDC_BUTTON_ICON: process.env.OIDC_BUTTON_ICON || '',
-    OIDC_BUTTON_COLOR: process.env.OIDC_BUTTON_COLOR || '',
-    OIDC_BUTTON_TEXT_COLOR: process.env.OIDC_BUTTON_TEXT_COLOR || '',
-  };
-
-  if (isConfigured) {
-    const savedConfig = await setupService.loadConfig();
-    if (savedConfig) {
-      if (savedConfig.PAPERLESS_API_URL) {
-        savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(
-          /\/api$/,
-          ''
-        );
-      }
-
-      savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
-      savedConfig.IGNORE_TAGS = normalizeArray(savedConfig.IGNORE_TAGS);
-      savedConfig.REMOVE_TAGS_AFTER_PROCESSING = normalizeArray(
-        savedConfig.REMOVE_TAGS_AFTER_PROCESSING
-      );
-      savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
-      savedConfig.IGNORE_TITLE_PATTERNS = normalizeArray(
-        savedConfig.IGNORE_TITLE_PATTERNS
-      );
-
-      config = { ...config, ...savedConfig };
-    }
-  }
+  const showErrorCheckSettings = !isConfigured;
+  const config = settingsService.pageConfig(
+    'page',
+    process.env,
+    isConfigured ? await setupService.loadConfig() : null,
+    configFile.PAPERLESS_AI_VERSION
+  );
 
   // Debug-output
   console.log('Current config TAGS:', config.TAGS);
@@ -7473,7 +6817,7 @@ router.get('/settings', isAuthenticated, async (req, res) => {
   ].filter((key) => configFile.isProtectedRuntimeEnvKey(key));
 
   const configuredSecrets = {};
-  SETTINGS_SECRET_FIELDS.forEach((key) => {
+  settingsCatalog.secretKeys().forEach((key) => {
     configuredSecrets[key] = Boolean(config[key]);
     config[key] = '';
   });
@@ -9066,1227 +8410,84 @@ router.get('/health', async (req, res) => {
  */
 router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
   try {
-    const {
-      paperlessUrl,
-      paperlessPublicUrl,
-      paperlessToken,
-      aiProvider,
-      openaiKey,
-      openaiModel,
-      ollamaUrl,
-      ollamaApiKey,
-      ollamaModel,
-      scanInterval,
-      reconciliationEnabled,
-      reconciliationInterval,
-      systemPrompt,
-      showTags,
-      tokenLimit,
-      responseTokens,
-      aiTemperatureAnalysis,
-      aiTemperatureGeneration,
-      tags,
-      ignoreTags,
-      removeInboxTagsAfterProcessing,
-      removeTags,
-      aiProcessedTag,
-      aiTagName,
-      usePromptTags,
-      promptTags,
-      paperlessUsername,
-      useExistingData,
-      customApiKey,
-      customBaseUrl,
-      customModel,
-      activateTagging,
-      activateCorrespondents,
-      activateDocumentType,
-      activateTitle,
-      activateCustomFields,
-      customFields, // Added parameter
-      disableAutomaticProcessing,
-      duplicatesAiReview,
-      duplicatesAiModel,
-      duplicatesAiReviewBatchSize,
-      duplicatesAiCandidateFloor,
-      duplicatesAiExcerpts,
-      duplicatesAiExcerptChars,
-      duplicatesAiExcerptDocuments,
-      duplicatesAiTokenBudget,
-      duplicatesAiIdleStopSeconds,
-      duplicatesAiThinking,
-      duplicatesAiRequestSeconds,
-      duplicatesAiConcurrency,
-      duplicatesAiVerdictMemoryDays,
-      duplicatesGuardNewNames,
-      duplicatesAiSweepNames,
-      simplifyTagsPerRequest,
-      simplifyVocabularySize,
-      azureEndpoint,
-      azureApiKey,
-      azureDeploymentName,
-      azureApiVersion,
-      anthropicApiKey,
-      anthropicModel,
-      anthropicEffort,
-      anthropicMaxTokens,
-      anthropicStructuredOutput,
-      anthropicPromptCaching,
-      anthropicApiUrl,
-      tagCacheTTL,
-      mistralOcrEnabled,
-      ocrProvider,
-      ocrApiUrl,
-      ocrApiKey,
-      mistralApiKey,
-      mistralOcrModel,
-      ocrValidationTimeout,
-      ocrPdfRenderEnabled,
-      ocrPdfRenderMaxPages,
-      ocrPdfRenderDpi,
-      ocrAutoProcessEnabled,
-      ocrAutoProcessInterval,
-      ocrAutoProcessBatchSize,
-      ocrAutoAnalyze,
-      globalRateLimitWindowMs,
-      globalRateLimitMax,
-      trustProxy,
-      cookieSecureMode,
-      minContentLength,
-      maxPageCount,
-      ignoreTitlePatterns,
-      ignoreRepeatedContent,
-      paperlessAiPort,
-      externalApiAllowPrivateIps,
-      logLevel,
-      dateFormat,
-    } = req.body;
+    const body = req.body;
+    // The values in effect: what the form's empty fields fall back to.
+    const current = settingsService.currentSettings(process.env);
 
-    //replace equal char in system prompt
-    const processedPrompt = systemPrompt
-      ? systemPrompt.replace(/\r\n/g, '\n').replace(/=/g, '')
-      : '';
-
-    const currentConfig = {
-      PAPERLESS_API_URL: process.env.PAPERLESS_API_URL || '',
-      PAPERLESS_PUBLIC_URL: process.env.PAPERLESS_PUBLIC_URL || '',
-      PAPERLESS_API_TOKEN: process.env.PAPERLESS_API_TOKEN || '',
-      PAPERLESS_USERNAME: process.env.PAPERLESS_USERNAME || '',
-      AI_PROVIDER: process.env.AI_PROVIDER || '',
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-      OPENAI_MODEL: process.env.OPENAI_MODEL || '',
-      OLLAMA_API_URL: process.env.OLLAMA_API_URL || '',
-      OLLAMA_API_KEY: process.env.OLLAMA_API_KEY || '',
-      OLLAMA_MODEL: process.env.OLLAMA_MODEL || '',
-      SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
-      RECONCILIATION_INTERVAL:
-        process.env.RECONCILIATION_INTERVAL || '0 * * * *',
-      RECONCILIATION_ENABLED: process.env.RECONCILIATION_ENABLED || 'yes',
-      SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
-      PROCESS_PREDEFINED_DOCUMENTS:
-        process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
-      TOKEN_LIMIT: process.env.TOKEN_LIMIT || 128000,
-      RESPONSE_TOKENS: process.env.RESPONSE_TOKENS || 1000,
-      AI_TEMPERATURE_ANALYSIS: process.env.AI_TEMPERATURE_ANALYSIS || '0.3',
-      AI_TEMPERATURE_GENERATION: process.env.AI_TEMPERATURE_GENERATION || '0.7',
-      TAGS: process.env.TAGS || '',
-      IGNORE_TAGS: process.env.IGNORE_TAGS || '',
-      REMOVE_INBOX_TAGS_AFTER_PROCESSING:
-        process.env.REMOVE_INBOX_TAGS_AFTER_PROCESSING || 'no',
-      REMOVE_TAGS_AFTER_PROCESSING:
-        process.env.REMOVE_TAGS_AFTER_PROCESSING || '',
-      ADD_AI_PROCESSED_TAG: process.env.ADD_AI_PROCESSED_TAG || 'no',
-      AI_PROCESSED_TAG_NAME:
-        process.env.AI_PROCESSED_TAG_NAME || 'ai-processed',
-      USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
-      PROMPT_TAGS: process.env.PROMPT_TAGS || '',
-      USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
-      API_KEY: process.env.API_KEY || '',
-      CUSTOM_API_KEY: process.env.CUSTOM_API_KEY || '',
-      CUSTOM_BASE_URL: process.env.CUSTOM_BASE_URL || '',
-      CUSTOM_MODEL: process.env.CUSTOM_MODEL || '',
-      ACTIVATE_TAGGING: process.env.ACTIVATE_TAGGING || 'yes',
-      ACTIVATE_CORRESPONDENTS: process.env.ACTIVATE_CORRESPONDENTS || 'yes',
-      ACTIVATE_DOCUMENT_TYPE: process.env.ACTIVATE_DOCUMENT_TYPE || 'yes',
-      ACTIVATE_TITLE: process.env.ACTIVATE_TITLE || 'yes',
-      ACTIVATE_CUSTOM_FIELDS: process.env.ACTIVATE_CUSTOM_FIELDS || 'yes',
-      CUSTOM_FIELDS: process.env.CUSTOM_FIELDS || '{"custom_fields":[]}', // Added default
-      DISABLE_AUTOMATIC_PROCESSING:
-        process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
-      // Duplicates page — same defaults as config/config.js, so a submitted
-      // value that fails its range check falls back to what is configured now.
-      DUPLICATES_AI_REVIEW: process.env.DUPLICATES_AI_REVIEW || 'yes',
-      DUPLICATES_AI_MODEL: process.env.DUPLICATES_AI_MODEL || '',
-      DUPLICATES_AI_REVIEW_BATCH_SIZE:
-        process.env.DUPLICATES_AI_REVIEW_BATCH_SIZE || '25',
-      DUPLICATES_AI_CANDIDATE_FLOOR:
-        process.env.DUPLICATES_AI_CANDIDATE_FLOOR || '0.6',
-      DUPLICATES_AI_EXCERPTS: process.env.DUPLICATES_AI_EXCERPTS || 'yes',
-      DUPLICATES_AI_EXCERPT_CHARS:
-        process.env.DUPLICATES_AI_EXCERPT_CHARS || '300',
-      DUPLICATES_AI_EXCERPT_DOCUMENTS:
-        process.env.DUPLICATES_AI_EXCERPT_DOCUMENTS || '2',
-      DUPLICATES_AI_TOKEN_BUDGET:
-        process.env.DUPLICATES_AI_TOKEN_BUDGET || '200000',
-      DUPLICATES_AI_IDLE_STOP_SECONDS:
-        process.env.DUPLICATES_AI_IDLE_STOP_SECONDS || '60',
-      DUPLICATES_AI_THINKING: process.env.DUPLICATES_AI_THINKING || 'no',
-      DUPLICATES_AI_REQUEST_SECONDS:
-        process.env.DUPLICATES_AI_REQUEST_SECONDS || '30',
-      DUPLICATES_AI_CONCURRENCY: process.env.DUPLICATES_AI_CONCURRENCY || '0',
-      DUPLICATES_AI_VERDICT_MEMORY_DAYS:
-        process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS || '90',
-      DUPLICATES_GUARD_NEW_NAMES:
-        process.env.DUPLICATES_GUARD_NEW_NAMES || 'yes',
-      DUPLICATES_AI_SWEEP_NAMES: process.env.DUPLICATES_AI_SWEEP_NAMES || '300',
-      // Simplify tags — same defaults as config/config.js.
-      SIMPLIFY_TAGS_PER_REQUEST: process.env.SIMPLIFY_TAGS_PER_REQUEST || '50',
-      SIMPLIFY_VOCABULARY_SIZE: process.env.SIMPLIFY_VOCABULARY_SIZE || '25',
-      AZURE_ENDPOINT: process.env.AZURE_ENDPOINT || '',
-      AZURE_API_KEY: process.env.AZURE_API_KEY || '',
-      AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
-      AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-      ANTHROPIC_API_URL: process.env.ANTHROPIC_API_URL || '',
-      ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || ANTHROPIC_DEFAULT_MODEL,
-      ANTHROPIC_EFFORT: process.env.ANTHROPIC_EFFORT || '',
-      ANTHROPIC_MAX_TOKENS:
-        process.env.ANTHROPIC_MAX_TOKENS ||
-        String(ANTHROPIC_DEFAULT_MAX_TOKENS),
-      ANTHROPIC_STRUCTURED_OUTPUT:
-        process.env.ANTHROPIC_STRUCTURED_OUTPUT || 'yes',
-      ANTHROPIC_PROMPT_CACHING: process.env.ANTHROPIC_PROMPT_CACHING || 'yes',
-      RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
-      RESTRICT_TO_EXISTING_CORRESPONDENTS:
-        process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
-      RESTRICT_TO_EXISTING_DOCUMENT_TYPES:
-        process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
-      EXTERNAL_API_ENABLED: process.env.EXTERNAL_API_ENABLED || 'no',
-      EXTERNAL_API_URL: process.env.EXTERNAL_API_URL || '',
-      EXTERNAL_API_METHOD: process.env.EXTERNAL_API_METHOD || 'GET',
-      EXTERNAL_API_HEADERS: process.env.EXTERNAL_API_HEADERS || '{}',
-      EXTERNAL_API_BODY: process.env.EXTERNAL_API_BODY || '{}',
-      EXTERNAL_API_TIMEOUT: process.env.EXTERNAL_API_TIMEOUT || '5000',
-      EXTERNAL_API_TRANSFORM: process.env.EXTERNAL_API_TRANSFORM || '',
-      EXTERNAL_API_ALLOW_PRIVATE_IPS:
-        process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS || 'no',
-      TAG_CACHE_TTL_SECONDS: process.env.TAG_CACHE_TTL_SECONDS || '300',
-      MISTRAL_OCR_ENABLED: process.env.MISTRAL_OCR_ENABLED || 'no',
-      OCR_PROVIDER: process.env.OCR_PROVIDER || 'mistral',
-      OCR_API_URL: process.env.OCR_API_URL || '',
-      OCR_API_KEY: process.env.OCR_API_KEY || '',
-      MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
-      MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
-      SETUP_OCR_VALIDATION_TIMEOUT_MS:
-        process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
-        process.env.SETUP_VALIDATION_TIMEOUT_MS ||
-        '30000',
-      OCR_PDF_RENDER_ENABLED: process.env.OCR_PDF_RENDER_ENABLED || 'yes',
-      OCR_PDF_RENDER_MAX_PAGES: process.env.OCR_PDF_RENDER_MAX_PAGES || '10',
-      OCR_PDF_RENDER_DPI: process.env.OCR_PDF_RENDER_DPI || '150',
-      OCR_AUTO_PROCESS_ENABLED: process.env.OCR_AUTO_PROCESS_ENABLED || 'no',
-      OCR_AUTO_PROCESS_INTERVAL:
-        process.env.OCR_AUTO_PROCESS_INTERVAL || '*/15 * * * *',
-      OCR_AUTO_PROCESS_BATCH_SIZE:
-        process.env.OCR_AUTO_PROCESS_BATCH_SIZE || '10',
-      OCR_AUTO_ANALYZE: process.env.OCR_AUTO_ANALYZE || 'yes',
-      GLOBAL_RATE_LIMIT_WINDOW_MS:
-        process.env.GLOBAL_RATE_LIMIT_WINDOW_MS || '900000',
-      GLOBAL_RATE_LIMIT_MAX: process.env.GLOBAL_RATE_LIMIT_MAX || '1000',
-      TRUST_PROXY:
-        typeof process.env.TRUST_PROXY === 'undefined'
-          ? ''
-          : process.env.TRUST_PROXY,
-      COOKIE_SECURE_MODE: process.env.COOKIE_SECURE_MODE || 'auto',
-      MIN_CONTENT_LENGTH: process.env.MIN_CONTENT_LENGTH || '10',
-      MAX_PAGE_COUNT: process.env.MAX_PAGE_COUNT || '0',
-      IGNORE_TITLE_PATTERNS: process.env.IGNORE_TITLE_PATTERNS || '',
-      IGNORE_REPEATED_CONTENT: process.env.IGNORE_REPEATED_CONTENT || 'yes',
-      PAPERLESS_AI_PORT: process.env.PAPERLESS_AI_PORT || '3000',
-      LOG_LEVEL: process.env.LOG_LEVEL || 'info',
-      DATE_FORMAT: process.env.DATE_FORMAT || 'DD.MM.YYYY',
-    };
-
-    const hasValue = (value) =>
-      typeof value === 'string' && value.trim() !== '';
-
-    const hasPaperlessTokenInput = hasValue(paperlessToken);
-    const hasPaperlessUrlInput = hasValue(paperlessUrl);
-    const normalizedCurrentPaperlessUrl = (
-      currentConfig.PAPERLESS_API_URL || ''
-    ).replace(/\/api$/, '');
-    const effectivePaperlessUrl = hasPaperlessUrlInput
-      ? paperlessUrl
-      : normalizedCurrentPaperlessUrl;
-    const effectivePaperlessToken = hasPaperlessTokenInput
-      ? paperlessToken.trim()
-      : currentConfig.PAPERLESS_API_TOKEN;
-    const hasOpenAiKeyInput = hasValue(openaiKey);
-    const effectiveOpenAiKey = hasOpenAiKeyInput
-      ? openaiKey.trim()
-      : currentConfig.OPENAI_API_KEY;
-    const hasOllamaApiKeyInput = hasValue(ollamaApiKey);
-    const effectiveOllamaApiKey = hasOllamaApiKeyInput
-      ? ollamaApiKey.trim()
-      : currentConfig.OLLAMA_API_KEY;
-    const hasCustomApiKeyInput = hasValue(customApiKey);
-    const effectiveCustomApiKey = hasCustomApiKeyInput
-      ? customApiKey.trim()
-      : currentConfig.CUSTOM_API_KEY;
-    const hasAzureApiKeyInput = hasValue(azureApiKey);
-    const effectiveAzureApiKey = hasAzureApiKeyInput
-      ? azureApiKey.trim()
-      : currentConfig.AZURE_API_KEY;
-    const hasAnthropicApiKeyInput = hasValue(anthropicApiKey);
-    const effectiveAnthropicApiKey = hasAnthropicApiKeyInput
-      ? anthropicApiKey.trim()
-      : currentConfig.ANTHROPIC_API_KEY;
-    const normalizedOcrApiKeyInput = hasValue(ocrApiKey)
-      ? String(ocrApiKey).trim()
-      : String(mistralApiKey || '').trim();
-    const hasOcrApiKeyInput = hasValue(normalizedOcrApiKeyInput);
-    const normalizedOcrProvider = String(
-      ocrProvider || currentConfig.OCR_PROVIDER || 'mistral'
-    )
-      .trim()
-      .toLowerCase();
-    // A stored OCR key belongs to the provider it was saved for. Claude OCR
-    // reads OCR_API_KEY before the Anthropic AI key, and Mistral OCR reads it
-    // before MISTRAL_API_KEY, so a key left behind when the provider crosses
-    // to or from Claude would be sent to the wrong vendor (a 401 at best).
-    // Such a key is cleared below unless a new one is typed; the same goes
-    // for a URL that would turn into a Claude proxy.
-    const ocrCrossesClaude =
-      (normalizedOcrProvider === 'anthropic') !==
-      (String(currentConfig.OCR_PROVIDER || 'mistral')
-        .trim()
-        .toLowerCase() ===
-        'anthropic');
-    let storedOcrApiKey;
-    if (normalizedOcrProvider === 'anthropic') {
-      storedOcrApiKey = ocrCrossesClaude ? '' : currentConfig.OCR_API_KEY;
-    } else {
-      storedOcrApiKey = ocrCrossesClaude
-        ? currentConfig.MISTRAL_API_KEY
-        : currentConfig.OCR_API_KEY || currentConfig.MISTRAL_API_KEY;
-    }
-    const effectiveOcrApiKey = hasOcrApiKeyInput
-      ? normalizedOcrApiKeyInput
-      : storedOcrApiKey || '';
-    const effectiveOcrEnabled = hasValue(mistralOcrEnabled)
-      ? String(mistralOcrEnabled).trim().toLowerCase()
-      : String(currentConfig.MISTRAL_OCR_ENABLED || 'no')
-          .trim()
-          .toLowerCase();
-    const effectiveOcrValidationTimeoutMs =
-      setupService.normalizeValidationTimeoutMs(
-        hasValue(ocrValidationTimeout)
-          ? Number.parseInt(String(ocrValidationTimeout).trim(), 10) * 1000
-          : currentConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS,
-        30000
-      );
-
-    if (
-      !['mistral', 'custom', 'ollama', 'anthropic'].includes(
-        normalizedOcrProvider
-      )
-    ) {
-      return res.status(400).json({
-        error:
-          'Invalid OCR provider. Allowed values are mistral, custom and anthropic.',
-      });
+    // OCR provider and key come first. Saving deliberately runs no live OCR
+    // test; the "Test OCR Connection" button (/api/settings/ocr/test) does.
+    const ocr = settingsService.resolveOcrSettings(body, current);
+    if (ocr.error) {
+      return res.status(400).json({ error: ocr.error });
     }
 
-    if (
-      effectiveOcrEnabled === 'yes' &&
-      normalizedOcrProvider === 'mistral' &&
-      !effectiveOcrApiKey
-    ) {
-      return res.status(400).json({
-        error:
-          'Mistral API key is required when OCR fallback is enabled with provider mistral.',
-      });
+    // A custom field Paperless-ngx already has under another type is refused
+    // when it is new here, and only warned about when it was configured.
+    const customFields = settingsService.parseCustomFields(body.customFields);
+    if (customFields.parseError) {
+      console.error('Error processing custom fields:', customFields.parseError);
     }
-
-    // Claude OCR may borrow the Anthropic AI key, but only one that is saved:
-    // a key typed into the hidden Anthropic block while another AI provider is
-    // selected is not persisted (see the provider branch below).
-    const anthropicAiKeyForOcr =
-      String(aiProvider || currentConfig.AI_PROVIDER)
-        .trim()
-        .toLowerCase() === 'anthropic'
-        ? effectiveAnthropicApiKey
-        : currentConfig.ANTHROPIC_API_KEY;
-    if (
-      effectiveOcrEnabled === 'yes' &&
-      normalizedOcrProvider === 'anthropic' &&
-      !effectiveOcrApiKey &&
-      !anthropicAiKeyForOcr
-    ) {
-      return res.status(400).json({
-        error:
-          'Claude OCR needs an Anthropic API key: enter one for OCR, or configure the Anthropic AI provider.',
-      });
-    }
-
-    // Saving deliberately runs no live OCR connection test — only the value
-    // checks above. Use the "Test OCR Connection" button (/api/settings/ocr/test)
-    // to verify connectivity on demand.
-
-    // Process custom fields
-    let processedCustomFields = [];
-    if (customFields) {
-      try {
-        const parsedFields =
-          typeof customFields === 'string'
-            ? JSON.parse(customFields)
-            : customFields;
-
-        processedCustomFields = parsedFields.custom_fields.map((field) => ({
-          value: field.value,
-          data_type: field.data_type,
-          ...(field.currency && { currency: field.currency }),
-        }));
-      } catch (error) {
-        console.error('Error processing custom fields:', error);
-        processedCustomFields = [];
-      }
-    }
-
-    // A field Paperless-ngx already has under another type is never created;
-    // the existing one is used, and every value its type cannot hold is
-    // dropped during processing. Refuse such fields when they are added or
-    // changed here. Entries that were configured before only warn, so a
-    // mismatch in an operator-injected CUSTOM_FIELDS cannot lock the page.
-    const typeConflicts = await paperlessService.findCustomFieldTypeConflicts(
-      processedCustomFields
+    const conflictCheck = settingsService.checkCustomFieldConflicts(
+      await paperlessService.findCustomFieldTypeConflicts(customFields.fields),
+      current.CUSTOM_FIELDS
     );
-    if (typeConflicts === null) {
-      console.warn(
-        '[WARN] Could not compare custom field types with Paperless-ngx; saving without the check'
-      );
-    } else if (typeConflicts.length > 0) {
-      const customFieldKey = (name, type) =>
-        `${String(name || '').toLowerCase()}\u0000${type}`;
-      let previousKeys = new Set();
-      try {
-        const previous = JSON.parse(currentConfig.CUSTOM_FIELDS);
-        previousKeys = new Set(
-          (previous.custom_fields || []).map((field) =>
-            customFieldKey(field.value, field.data_type)
-          )
-        );
-      } catch {
-        // An unreadable previous value makes every entry count as new.
-      }
-
-      const refused = [];
-      for (const conflict of typeConflicts) {
-        const describe = `Custom field "${conflict.name}" exists in Paperless-ngx with the type "${conflict.paperlessType}", not "${conflict.configuredType}".`;
-        if (
-          previousKeys.has(
-            customFieldKey(conflict.name, conflict.configuredType)
-          )
-        ) {
-          console.warn(`[WARN] ${describe}`);
-        } else {
-          refused.push(describe);
-        }
-      }
-
-      if (refused.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: `${refused.join(' ')} Remove ${refused.length === 1 ? 'it' : 'them'} and add ${refused.length === 1 ? 'it' : 'them'} again with the type Paperless-ngx has, or use another name.`,
-        });
-      }
+    conflictCheck.warnings.forEach((warning) => console.warn(warning));
+    if (conflictCheck.error) {
+      return res
+        .status(400)
+        .json({ success: false, error: conflictCheck.error });
     }
 
-    const normalizeArray = (value) => {
-      if (!value) return [];
-      if (Array.isArray(value)) return value;
-      if (typeof value === 'string')
-        return value
-          .split(',')
-          .filter(Boolean)
-          .map((item) => item.trim());
-      return [];
-    };
-
-    const sanitizeTemperatureValue = (rawValue, fallbackValue, envKey) => {
-      const normalizedValue = String(rawValue ?? '').trim();
-      if (!normalizedValue) {
-        return fallbackValue;
-      }
-
-      const parsed = Number.parseFloat(normalizedValue);
-      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 2) {
-        console.warn(
-          `[WARN] Invalid ${envKey} value: ${normalizedValue}. Using fallback: ${fallbackValue}`
-        );
-        return fallbackValue;
-      }
-
-      return String(parsed);
-    };
-
-    // Extract tag and correspondent restriction settings with defaults
-    const restrictToExistingTags =
-      req.body.restrictToExistingTags === 'on' ||
-      req.body.restrictToExistingTags === 'yes';
-    const restrictToExistingCorrespondents =
-      req.body.restrictToExistingCorrespondents === 'on' ||
-      req.body.restrictToExistingCorrespondents === 'yes';
-    const restrictToExistingDocumentTypes =
-      req.body.restrictToExistingDocumentTypes === 'on' ||
-      req.body.restrictToExistingDocumentTypes === 'yes';
-
-    // Extract external API settings with defaults
-    const externalApiEnabled =
-      req.body.externalApiEnabled === 'on' ||
-      req.body.externalApiEnabled === 'yes';
-    const externalApiUrl = req.body.externalApiUrl || '';
-    const externalApiMethod = req.body.externalApiMethod || 'GET';
-    const externalApiHeaders = req.body.externalApiHeaders || '{}';
-    const externalApiBody = req.body.externalApiBody || '{}';
-    const externalApiTimeout = req.body.externalApiTimeout || '5000';
-    const externalApiTransform = req.body.externalApiTransform || '';
-
+    // A new Paperless-ngx URL or a typed token is tested before it is saved.
+    const paperless = settingsService.resolvePaperlessConnection(body, current);
     if (
-      (effectivePaperlessUrl &&
-        effectivePaperlessUrl !== normalizedCurrentPaperlessUrl) ||
-      hasPaperlessTokenInput
+      paperless.needsValidation &&
+      !(await setupService.validatePaperlessConfig(
+        paperless.url,
+        paperless.token
+      ))
     ) {
-      const isPaperlessValid = await setupService.validatePaperlessConfig(
-        effectivePaperlessUrl,
-        effectivePaperlessToken
-      );
-      if (!isPaperlessValid) {
-        return res.status(400).json({
-          error: 'Paperless-ngx connection failed. Please check URL and Token.',
-        });
-      }
-    }
-
-    const updatedConfig = {};
-
-    if (hasPaperlessUrlInput)
-      updatedConfig.PAPERLESS_API_URL = effectivePaperlessUrl;
-    if (typeof paperlessPublicUrl === 'string')
-      updatedConfig.PAPERLESS_PUBLIC_URL = paperlessPublicUrl.trim();
-    if (hasPaperlessTokenInput)
-      updatedConfig.PAPERLESS_API_TOKEN = effectivePaperlessToken;
-    if (paperlessUsername) updatedConfig.PAPERLESS_USERNAME = paperlessUsername;
-
-    // Handle AI provider configuration. Saving deliberately runs no live AI
-    // connection tests — only required-field checks. Use the explicit test
-    // buttons/endpoints to verify connectivity on demand.
-    if (aiProvider) {
-      const selectedAiProvider = String(aiProvider).trim().toLowerCase();
-
-      updatedConfig.AI_PROVIDER = selectedAiProvider;
-
-      if (selectedAiProvider === 'openai') {
-        if (!effectiveOpenAiKey) {
-          return res.status(400).json({
-            error:
-              'OpenAI API key is required when OpenAI provider is selected.',
-          });
-        }
-
-        if (hasOpenAiKeyInput) {
-          updatedConfig.OPENAI_API_KEY = effectiveOpenAiKey;
-        }
-        if (openaiModel) updatedConfig.OPENAI_MODEL = openaiModel;
-      } else if (selectedAiProvider === 'ollama') {
-        const effectiveOllamaUrl = ollamaUrl || currentConfig.OLLAMA_API_URL;
-        const effectiveOllamaModel = ollamaModel || currentConfig.OLLAMA_MODEL;
-
-        if (!effectiveOllamaUrl || !effectiveOllamaModel) {
-          return res.status(400).json({
-            error:
-              'Ollama URL and model are required when Ollama provider is selected.',
-          });
-        }
-
-        if (ollamaUrl) updatedConfig.OLLAMA_API_URL = ollamaUrl;
-        if (hasOllamaApiKeyInput)
-          updatedConfig.OLLAMA_API_KEY = effectiveOllamaApiKey;
-        if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
-        // The switch arrives as the settings-switch partial's yes/no;
-        // config.ollama.think only counts the literal 'true'.
-        if (req.body.ollamaThink !== undefined) {
-          const ollamaThinkValue = String(req.body.ollamaThink ?? '')
-            .trim()
-            .toLowerCase();
-          updatedConfig.OLLAMA_THINK = ['yes', 'on', 'true', '1'].includes(
-            ollamaThinkValue
-          )
-            ? 'true'
-            : 'false';
-        }
-      } else if (selectedAiProvider === 'custom') {
-        const effectiveCustomBaseUrl =
-          customBaseUrl || currentConfig.CUSTOM_BASE_URL;
-        const effectiveCustomModel = customModel || currentConfig.CUSTOM_MODEL;
-
-        if (!effectiveCustomBaseUrl || !effectiveCustomModel) {
-          return res.status(400).json({
-            error:
-              'Custom provider URL and model are required when custom provider is selected.',
-          });
-        }
-
-        if (hasCustomApiKeyInput)
-          updatedConfig.CUSTOM_API_KEY = effectiveCustomApiKey;
-        if (customBaseUrl) updatedConfig.CUSTOM_BASE_URL = customBaseUrl;
-        if (customModel) updatedConfig.CUSTOM_MODEL = customModel;
-      } else if (selectedAiProvider === 'azure') {
-        const effectiveAzureEndpoint =
-          azureEndpoint || currentConfig.AZURE_ENDPOINT;
-        const effectiveAzureDeployment =
-          azureDeploymentName || currentConfig.AZURE_DEPLOYMENT_NAME;
-
-        if (
-          !effectiveAzureEndpoint ||
-          !effectiveAzureApiKey ||
-          !effectiveAzureDeployment
-        ) {
-          return res.status(400).json({
-            error:
-              'Azure endpoint, API key and deployment name are required when Azure provider is selected.',
-          });
-        }
-
-        if (azureEndpoint) updatedConfig.AZURE_ENDPOINT = azureEndpoint;
-        if (hasAzureApiKeyInput)
-          updatedConfig.AZURE_API_KEY = effectiveAzureApiKey;
-        if (azureDeploymentName)
-          updatedConfig.AZURE_DEPLOYMENT_NAME = azureDeploymentName;
-        if (azureApiVersion) updatedConfig.AZURE_API_VERSION = azureApiVersion;
-      } else if (selectedAiProvider === 'anthropic') {
-        if (!effectiveAnthropicApiKey) {
-          return res.status(400).json({
-            error:
-              'Anthropic API key is required when the Anthropic provider is selected.',
-          });
-        }
-
-        // Empty is a value of its own here: it leaves the effort to the
-        // model. Anything else must be a level the provider knows, because
-        // the API rejects unknown ones on every request of a scan.
-        const normalizedAnthropicEffort =
-          anthropicEffort === undefined
-            ? currentConfig.ANTHROPIC_EFFORT
-            : String(anthropicEffort ?? '')
-                .trim()
-                .toLowerCase();
-        if (
-          normalizedAnthropicEffort &&
-          !ANTHROPIC_EFFORT_LEVELS.includes(normalizedAnthropicEffort)
-        ) {
-          return res.status(400).json({
-            error: `Invalid Anthropic effort. Allowed values are ${ANTHROPIC_EFFORT_LEVELS.join(', ')}, or empty for the model default.`,
-          });
-        }
-
-        // Same strictness as Token Limit: "16k" must not be read as 16.
-        const normalizedAnthropicMaxTokens = String(
-          anthropicMaxTokens ?? ''
-        ).trim();
-        if (
-          normalizedAnthropicMaxTokens &&
-          (!/^\d+$/.test(normalizedAnthropicMaxTokens) ||
-            Number(normalizedAnthropicMaxTokens) < 1)
-        ) {
-          return res.status(400).json({
-            error:
-              'Invalid Anthropic max tokens. Expected a positive whole number.',
-          });
-        }
-
-        const normalizedAnthropicApiUrl =
-          typeof anthropicApiUrl === 'string' ? anthropicApiUrl.trim() : null;
-        if (normalizedAnthropicApiUrl) {
-          let parsedAnthropicApiUrl = null;
-          try {
-            parsedAnthropicApiUrl = new URL(normalizedAnthropicApiUrl);
-          } catch {
-            parsedAnthropicApiUrl = null;
-          }
-          if (
-            !parsedAnthropicApiUrl ||
-            !['http:', 'https:'].includes(parsedAnthropicApiUrl.protocol)
-          ) {
-            return res.status(400).json({
-              error:
-                'Invalid Anthropic API URL. Expected an http(s) URL, or leave it empty for api.anthropic.com.',
-            });
-          }
-        }
-
-        // The switches arrive as the hidden yes/no inputs of the
-        // settings-switch partial; anything else keeps the stored value.
-        const anthropicSwitch = (rawValue, fallbackValue) => {
-          const normalizedValue = String(rawValue ?? '')
-            .trim()
-            .toLowerCase();
-          return ['yes', 'no'].includes(normalizedValue)
-            ? normalizedValue
-            : String(fallbackValue);
-        };
-
-        if (hasAnthropicApiKeyInput)
-          updatedConfig.ANTHROPIC_API_KEY = effectiveAnthropicApiKey;
-        updatedConfig.ANTHROPIC_MODEL =
-          String(anthropicModel || '').trim() ||
-          currentConfig.ANTHROPIC_MODEL ||
-          ANTHROPIC_DEFAULT_MODEL;
-        updatedConfig.ANTHROPIC_EFFORT = normalizedAnthropicEffort;
-        if (normalizedAnthropicMaxTokens)
-          updatedConfig.ANTHROPIC_MAX_TOKENS = String(
-            Number(normalizedAnthropicMaxTokens)
-          );
-        updatedConfig.ANTHROPIC_STRUCTURED_OUTPUT = anthropicSwitch(
-          anthropicStructuredOutput,
-          currentConfig.ANTHROPIC_STRUCTURED_OUTPUT
-        );
-        updatedConfig.ANTHROPIC_PROMPT_CACHING = anthropicSwitch(
-          anthropicPromptCaching,
-          currentConfig.ANTHROPIC_PROMPT_CACHING
-        );
-        if (normalizedAnthropicApiUrl !== null)
-          updatedConfig.ANTHROPIC_API_URL = normalizedAnthropicApiUrl;
-      }
-    }
-
-    // Update general settings
-    if (scanInterval) updatedConfig.SCAN_INTERVAL = scanInterval;
-    if (typeof reconciliationEnabled === 'string') {
-      const normalizedReconciliationEnabled = reconciliationEnabled
-        .trim()
-        .toLowerCase();
-      if (['yes', 'no'].includes(normalizedReconciliationEnabled)) {
-        updatedConfig.RECONCILIATION_ENABLED = normalizedReconciliationEnabled;
-      }
-    }
-    if (
-      typeof reconciliationInterval === 'string' &&
-      reconciliationInterval.trim()
-    ) {
-      updatedConfig.RECONCILIATION_INTERVAL = reconciliationInterval.trim();
-    }
-    if (systemPrompt)
-      updatedConfig.SYSTEM_PROMPT = processedPrompt
-        .replace(/\r\n/g, '\n')
-        .replace(/\n/g, '\\n');
-    if (showTags) updatedConfig.PROCESS_PREDEFINED_DOCUMENTS = showTags;
-    if (tokenLimit) {
-      // Same reason as Response Tokens below: an unparsable value used to be
-      // stored verbatim and reached the AI services as NaN, which truncated
-      // every document to an empty prompt instead of failing.
-      // Stricter than Number.parseInt() on purpose - the value that motivated
-      // this check is "128k", and parseInt() would happily read that as 128
-      // and cap every prompt at 128 tokens.
-      const normalizedTokenLimit = String(tokenLimit).trim();
-      if (
-        !/^\d+$/.test(normalizedTokenLimit) ||
-        Number(normalizedTokenLimit) < 1
-      ) {
-        return res.status(400).json({
-          error: 'Invalid Token Limit. Expected a positive whole number.',
-        });
-      }
-      updatedConfig.TOKEN_LIMIT = String(Number(normalizedTokenLimit));
-    }
-    if (responseTokens) {
-      // Validated here rather than left to the loader's fallback: the value is
-      // a generation limit now, and an operator who mistypes it should be told
-      // so while the form is still on screen.
-      const parsedResponseTokens = Number.parseInt(
-        String(responseTokens).trim(),
-        10
-      );
-      if (!Number.isFinite(parsedResponseTokens) || parsedResponseTokens < 1) {
-        return res.status(400).json({
-          error: 'Invalid Response Tokens. Expected a positive whole number.',
-        });
-      }
-      updatedConfig.RESPONSE_TOKENS = String(parsedResponseTokens);
-    }
-    if (aiTemperatureAnalysis !== undefined) {
-      updatedConfig.AI_TEMPERATURE_ANALYSIS = sanitizeTemperatureValue(
-        aiTemperatureAnalysis,
-        currentConfig.AI_TEMPERATURE_ANALYSIS,
-        'AI_TEMPERATURE_ANALYSIS'
-      );
-    }
-    if (aiTemperatureGeneration !== undefined) {
-      updatedConfig.AI_TEMPERATURE_GENERATION = sanitizeTemperatureValue(
-        aiTemperatureGeneration,
-        currentConfig.AI_TEMPERATURE_GENERATION,
-        'AI_TEMPERATURE_GENERATION'
-      );
-    }
-    if (tags !== undefined) updatedConfig.TAGS = normalizeArray(tags);
-    if (ignoreTags !== undefined)
-      updatedConfig.IGNORE_TAGS = normalizeArray(ignoreTags);
-    if (removeInboxTagsAfterProcessing !== undefined) {
-      updatedConfig.REMOVE_INBOX_TAGS_AFTER_PROCESSING = [
-        'yes',
-        'true',
-        '1',
-        'on',
-      ].includes(String(removeInboxTagsAfterProcessing).trim().toLowerCase())
-        ? 'yes'
-        : 'no';
-    }
-    if (removeTags !== undefined)
-      updatedConfig.REMOVE_TAGS_AFTER_PROCESSING = normalizeArray(removeTags);
-    if (aiProcessedTag) updatedConfig.ADD_AI_PROCESSED_TAG = aiProcessedTag;
-    if (aiTagName) updatedConfig.AI_PROCESSED_TAG_NAME = aiTagName;
-    if (usePromptTags) updatedConfig.USE_PROMPT_TAGS = usePromptTags;
-    if (promptTags) updatedConfig.PROMPT_TAGS = normalizeArray(promptTags);
-    if (useExistingData) updatedConfig.USE_EXISTING_DATA = useExistingData;
-    if (disableAutomaticProcessing)
-      updatedConfig.DISABLE_AUTOMATIC_PROCESSING = disableAutomaticProcessing;
-
-    // Duplicates page. The switches arrive as the hidden yes/no inputs the
-    // settings-switch partial writes, the numbers as strings from the number
-    // fields. Out-of-range numbers are clamped rather than rejected — the
-    // ranges are guard rails, not a reason to throw the whole form away — but
-    // a value that is not a number at all keeps what is configured now, so a
-    // cleared field cannot silently reset the setting to its default.
-    const sanitizeDuplicatesSwitch = (rawValue, fallbackValue) => {
-      const normalizedValue = String(rawValue ?? '')
-        .trim()
-        .toLowerCase();
-      if (['yes', 'on', 'true', '1'].includes(normalizedValue)) return 'yes';
-      if (['no', 'off', 'false', '0'].includes(normalizedValue)) return 'no';
-      return String(fallbackValue);
-    };
-
-    const sanitizeDuplicatesNumber = (rawValue, fallbackValue, range) => {
-      const normalizedValue = String(rawValue ?? '').trim();
-      const parsed = Number.parseFloat(normalizedValue);
-      if (!normalizedValue || !Number.isFinite(parsed)) {
-        return String(fallbackValue);
-      }
-      const clamped = Math.min(Math.max(parsed, range.min), range.max);
-      return range.decimals
-        ? String(Number(clamped.toFixed(range.decimals)))
-        : String(Math.round(clamped));
-    };
-
-    if (duplicatesAiReview !== undefined) {
-      updatedConfig.DUPLICATES_AI_REVIEW = sanitizeDuplicatesSwitch(
-        duplicatesAiReview,
-        currentConfig.DUPLICATES_AI_REVIEW
-      );
-    }
-    if (typeof duplicatesAiModel === 'string') {
-      // Empty is meaningful here: it hands the judge back to the provider's
-      // configured model.
-      updatedConfig.DUPLICATES_AI_MODEL = duplicatesAiModel.trim();
-    }
-    if (duplicatesAiReviewBatchSize !== undefined) {
-      updatedConfig.DUPLICATES_AI_REVIEW_BATCH_SIZE = sanitizeDuplicatesNumber(
-        duplicatesAiReviewBatchSize,
-        currentConfig.DUPLICATES_AI_REVIEW_BATCH_SIZE,
-        { min: 1, max: 100 }
-      );
-    }
-    if (duplicatesAiCandidateFloor !== undefined) {
-      updatedConfig.DUPLICATES_AI_CANDIDATE_FLOOR = sanitizeDuplicatesNumber(
-        duplicatesAiCandidateFloor,
-        currentConfig.DUPLICATES_AI_CANDIDATE_FLOOR,
-        { min: 0.5, max: 0.95, decimals: 2 }
-      );
-    }
-    if (duplicatesAiExcerpts !== undefined) {
-      updatedConfig.DUPLICATES_AI_EXCERPTS = sanitizeDuplicatesSwitch(
-        duplicatesAiExcerpts,
-        currentConfig.DUPLICATES_AI_EXCERPTS
-      );
-    }
-    if (duplicatesAiExcerptChars !== undefined) {
-      updatedConfig.DUPLICATES_AI_EXCERPT_CHARS = sanitizeDuplicatesNumber(
-        duplicatesAiExcerptChars,
-        currentConfig.DUPLICATES_AI_EXCERPT_CHARS,
-        { min: 50, max: 500 }
-      );
-    }
-    if (duplicatesAiExcerptDocuments !== undefined) {
-      updatedConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS = sanitizeDuplicatesNumber(
-        duplicatesAiExcerptDocuments,
-        currentConfig.DUPLICATES_AI_EXCERPT_DOCUMENTS,
-        { min: 1, max: 5 }
-      );
-    }
-    // The two brakes of a running review. Zero is a meaningful value for both
-    // (no token limit, never stop an unwatched review), so the ranges start
-    // there instead of at one.
-    if (duplicatesAiTokenBudget !== undefined) {
-      updatedConfig.DUPLICATES_AI_TOKEN_BUDGET = sanitizeDuplicatesNumber(
-        duplicatesAiTokenBudget,
-        currentConfig.DUPLICATES_AI_TOKEN_BUDGET,
-        { min: 0, max: 10000000 }
-      );
-    }
-    if (duplicatesAiIdleStopSeconds !== undefined) {
-      updatedConfig.DUPLICATES_AI_IDLE_STOP_SECONDS = sanitizeDuplicatesNumber(
-        duplicatesAiIdleStopSeconds,
-        currentConfig.DUPLICATES_AI_IDLE_STOP_SECONDS,
-        { min: 0, max: 3600 }
-      );
-    }
-    // How the judge talks to the model: whether it may think before it
-    // answers, and how long one request should take. The seconds are what the
-    // judge sizes its batches against after it measured the model.
-    if (duplicatesAiThinking !== undefined) {
-      updatedConfig.DUPLICATES_AI_THINKING = sanitizeDuplicatesSwitch(
-        duplicatesAiThinking,
-        currentConfig.DUPLICATES_AI_THINKING
-      );
-    }
-    if (duplicatesAiRequestSeconds !== undefined) {
-      updatedConfig.DUPLICATES_AI_REQUEST_SECONDS = sanitizeDuplicatesNumber(
-        duplicatesAiRequestSeconds,
-        currentConfig.DUPLICATES_AI_REQUEST_SECONDS,
-        { min: 5, max: 300 }
-      );
-    }
-    // How many requests may wait for an answer at once, and how long a
-    // verdict about a pair of names is remembered. Zero is meaningful for
-    // both: the judge picks the lane count itself, and no memory at all.
-    if (duplicatesAiConcurrency !== undefined) {
-      updatedConfig.DUPLICATES_AI_CONCURRENCY = sanitizeDuplicatesNumber(
-        duplicatesAiConcurrency,
-        currentConfig.DUPLICATES_AI_CONCURRENCY,
-        { min: 0, max: 8 }
-      );
-    }
-    if (duplicatesAiVerdictMemoryDays !== undefined) {
-      updatedConfig.DUPLICATES_AI_VERDICT_MEMORY_DAYS =
-        sanitizeDuplicatesNumber(
-          duplicatesAiVerdictMemoryDays,
-          currentConfig.DUPLICATES_AI_VERDICT_MEMORY_DAYS,
-          { min: 0, max: 365 }
-        );
-    }
-    // The last two belong to the archive rather than to one review: whether
-    // document analysis may map a proposed name onto an existing object, and
-    // how many names the semantic sweep shows the model per request.
-    if (duplicatesGuardNewNames !== undefined) {
-      updatedConfig.DUPLICATES_GUARD_NEW_NAMES = sanitizeDuplicatesSwitch(
-        duplicatesGuardNewNames,
-        currentConfig.DUPLICATES_GUARD_NEW_NAMES
-      );
-    }
-    if (duplicatesAiSweepNames !== undefined) {
-      updatedConfig.DUPLICATES_AI_SWEEP_NAMES = sanitizeDuplicatesNumber(
-        duplicatesAiSweepNames,
-        currentConfig.DUPLICATES_AI_SWEEP_NAMES,
-        { min: 50, max: 1000 }
-      );
-    }
-
-    // Simplify tags. Same clamping rule as the Duplicates numbers above: out
-    // of range is pulled into it, not a number keeps what is configured now.
-    if (simplifyTagsPerRequest !== undefined) {
-      updatedConfig.SIMPLIFY_TAGS_PER_REQUEST = sanitizeDuplicatesNumber(
-        simplifyTagsPerRequest,
-        currentConfig.SIMPLIFY_TAGS_PER_REQUEST,
-        { min: 10, max: 200 }
-      );
-    }
-    if (simplifyVocabularySize !== undefined) {
-      updatedConfig.SIMPLIFY_VOCABULARY_SIZE = sanitizeDuplicatesNumber(
-        simplifyVocabularySize,
-        currentConfig.SIMPLIFY_VOCABULARY_SIZE,
-        { min: 5, max: 100 }
-      );
-    }
-
-    // Update custom fields
-    if (processedCustomFields.length > 0 || customFields) {
-      updatedConfig.CUSTOM_FIELDS = JSON.stringify({
-        custom_fields: processedCustomFields,
+      return res.status(400).json({
+        error: 'Paperless-ngx connection failed. Please check URL and Token.',
       });
     }
 
-    // Handle limit functions
-    updatedConfig.ACTIVATE_TAGGING = activateTagging ? 'yes' : 'no';
-    updatedConfig.ACTIVATE_CORRESPONDENTS = activateCorrespondents
-      ? 'yes'
-      : 'no';
-    updatedConfig.ACTIVATE_DOCUMENT_TYPE = activateDocumentType ? 'yes' : 'no';
-    updatedConfig.ACTIVATE_TITLE = activateTitle ? 'yes' : 'no';
-    updatedConfig.ACTIVATE_CUSTOM_FIELDS = activateCustomFields ? 'yes' : 'no';
-
-    // Handle tag and correspondent restrictions
-    updatedConfig.RESTRICT_TO_EXISTING_TAGS = restrictToExistingTags
-      ? 'yes'
-      : 'no';
-    updatedConfig.RESTRICT_TO_EXISTING_CORRESPONDENTS =
-      restrictToExistingCorrespondents ? 'yes' : 'no';
-    updatedConfig.RESTRICT_TO_EXISTING_DOCUMENT_TYPES =
-      restrictToExistingDocumentTypes ? 'yes' : 'no';
-
-    // Handle external API integration
-    updatedConfig.EXTERNAL_API_ENABLED = externalApiEnabled ? 'yes' : 'no';
-    updatedConfig.EXTERNAL_API_URL = externalApiUrl || '';
-    updatedConfig.EXTERNAL_API_METHOD = externalApiMethod || 'GET';
-    updatedConfig.EXTERNAL_API_HEADERS = externalApiHeaders || '{}';
-    updatedConfig.EXTERNAL_API_BODY = externalApiBody || '{}';
-    updatedConfig.EXTERNAL_API_TIMEOUT = externalApiTimeout || '5000';
-    updatedConfig.EXTERNAL_API_TRANSFORM = externalApiTransform || '';
-    updatedConfig.EXTERNAL_API_ALLOW_PRIVATE_IPS =
-      externalApiAllowPrivateIps || 'no';
-
-    if (mistralOcrEnabled)
-      updatedConfig.MISTRAL_OCR_ENABLED = mistralOcrEnabled;
-    if (ocrProvider)
-      updatedConfig.OCR_PROVIDER = String(ocrProvider).trim().toLowerCase();
-    const submittedOcrApiUrl =
-      typeof ocrApiUrl === 'string' ? ocrApiUrl.trim() : null;
-    if (normalizedOcrProvider === 'mistral') {
-      updatedConfig.OCR_API_URL = '';
-    } else if (normalizedOcrProvider === 'anthropic' && ocrCrossesClaude) {
-      // For Claude OCR the URL is an optional proxy. The one stored for the
-      // previous provider (an auto-detected Ollama URL, say) would be used as
-      // one, so only a URL that differs from it counts as typed for Claude;
-      // empty falls back to ANTHROPIC_API_URL.
-      updatedConfig.OCR_API_URL =
-        submittedOcrApiUrl && submittedOcrApiUrl !== currentConfig.OCR_API_URL
-          ? submittedOcrApiUrl
-          : '';
-    } else if (submittedOcrApiUrl !== null) {
-      updatedConfig.OCR_API_URL = submittedOcrApiUrl;
-    }
-    if (hasOcrApiKeyInput) {
-      updatedConfig.OCR_API_KEY = effectiveOcrApiKey;
-      // An Anthropic key must not land where Mistral OCR would read it.
-      if (normalizedOcrProvider !== 'anthropic') {
-        updatedConfig.MISTRAL_API_KEY = effectiveOcrApiKey;
-      }
-    } else if (ocrCrossesClaude) {
-      updatedConfig.OCR_API_KEY = '';
-    }
-    if (normalizedOcrProvider === 'anthropic') {
-      // Stored as the model Claude OCR will run with, so the page shows it
-      // instead of a leftover Mistral model name.
-      if (mistralOcrModel || ocrCrossesClaude) {
-        updatedConfig.MISTRAL_OCR_MODEL = setupService.resolveAnthropicOcrModel(
-          mistralOcrModel,
-          updatedConfig.ANTHROPIC_MODEL || currentConfig.ANTHROPIC_MODEL
-        );
-      }
-    } else if (mistralOcrModel) {
-      updatedConfig.MISTRAL_OCR_MODEL = mistralOcrModel;
-    }
-    if (typeof ocrPdfRenderEnabled === 'string') {
-      const normalizedPdfRenderEnabled = ocrPdfRenderEnabled
-        .trim()
-        .toLowerCase();
-      if (['yes', 'no'].includes(normalizedPdfRenderEnabled)) {
-        updatedConfig.OCR_PDF_RENDER_ENABLED = normalizedPdfRenderEnabled;
-      }
-    }
-    if (ocrPdfRenderMaxPages !== undefined) {
-      const pdfRenderMaxPages = parseInt(ocrPdfRenderMaxPages, 10);
-      if (
-        !isNaN(pdfRenderMaxPages) &&
-        pdfRenderMaxPages >= 1 &&
-        pdfRenderMaxPages <= 50
-      ) {
-        updatedConfig.OCR_PDF_RENDER_MAX_PAGES = pdfRenderMaxPages.toString();
-      } else {
-        console.warn(
-          `[WARN] Invalid OCR_PDF_RENDER_MAX_PAGES value: ${ocrPdfRenderMaxPages}. Using default: 10`
-        );
-        updatedConfig.OCR_PDF_RENDER_MAX_PAGES = '10';
-      }
-    }
-    if (ocrPdfRenderDpi !== undefined) {
-      const pdfRenderDpi = parseInt(ocrPdfRenderDpi, 10);
-      if (!isNaN(pdfRenderDpi) && pdfRenderDpi >= 72 && pdfRenderDpi <= 300) {
-        updatedConfig.OCR_PDF_RENDER_DPI = pdfRenderDpi.toString();
-      } else {
-        console.warn(
-          `[WARN] Invalid OCR_PDF_RENDER_DPI value: ${ocrPdfRenderDpi}. Using default: 150`
-        );
-        updatedConfig.OCR_PDF_RENDER_DPI = '150';
-      }
-    }
-    if (typeof ocrAutoProcessEnabled === 'string') {
-      const normalizedAutoProcessEnabled = ocrAutoProcessEnabled
-        .trim()
-        .toLowerCase();
-      if (['yes', 'no'].includes(normalizedAutoProcessEnabled)) {
-        updatedConfig.OCR_AUTO_PROCESS_ENABLED = normalizedAutoProcessEnabled;
-      }
-    }
-    if (typeof ocrAutoAnalyze === 'string') {
-      const normalizedAutoAnalyze = ocrAutoAnalyze.trim().toLowerCase();
-      if (['yes', 'no'].includes(normalizedAutoAnalyze)) {
-        updatedConfig.OCR_AUTO_ANALYZE = normalizedAutoAnalyze;
-      }
-    }
-    if (
-      typeof ocrAutoProcessInterval === 'string' &&
-      ocrAutoProcessInterval.trim()
-    ) {
-      // An invalid cron pattern makes cron.schedule() throw during startup,
-      // so it is rejected here instead of taking the app down on restart.
-      const normalizedAutoProcessInterval = ocrAutoProcessInterval.trim();
-      if (!cron.validate(normalizedAutoProcessInterval)) {
-        return res.status(400).json({
-          error:
-            'Invalid OCR Processing Interval. Use cron syntax, for example */15 * * * *.',
-        });
-      }
-      updatedConfig.OCR_AUTO_PROCESS_INTERVAL = normalizedAutoProcessInterval;
-    }
-    if (ocrAutoProcessBatchSize !== undefined) {
-      const autoProcessBatchSize = parseInt(ocrAutoProcessBatchSize, 10);
-      if (
-        !isNaN(autoProcessBatchSize) &&
-        autoProcessBatchSize >= 1 &&
-        autoProcessBatchSize <= 100
-      ) {
-        updatedConfig.OCR_AUTO_PROCESS_BATCH_SIZE =
-          autoProcessBatchSize.toString();
-      } else {
-        console.warn(
-          `[WARN] Invalid OCR_AUTO_PROCESS_BATCH_SIZE value: ${ocrAutoProcessBatchSize}. Using default: 10`
-        );
-        updatedConfig.OCR_AUTO_PROCESS_BATCH_SIZE = '10';
-      }
-    }
-    updatedConfig.SETUP_OCR_VALIDATION_TIMEOUT_MS = String(
-      effectiveOcrValidationTimeoutMs
-    );
-    if (globalRateLimitWindowMs)
-      updatedConfig.GLOBAL_RATE_LIMIT_WINDOW_MS = globalRateLimitWindowMs;
-    if (globalRateLimitMax)
-      updatedConfig.GLOBAL_RATE_LIMIT_MAX = globalRateLimitMax;
-    if (typeof trustProxy === 'string')
-      updatedConfig.TRUST_PROXY = trustProxy.trim();
-    if (typeof cookieSecureMode === 'string') {
-      const normalizedCookieSecureMode = cookieSecureMode.trim().toLowerCase();
-      if (['auto', 'always', 'never'].includes(normalizedCookieSecureMode)) {
-        updatedConfig.COOKIE_SECURE_MODE = normalizedCookieSecureMode;
-      } else {
-        return res.status(400).json({
-          error:
-            'Invalid Cookie Secure Mode. Allowed values: auto, always, never.',
-        });
-      }
-    }
-    if (minContentLength) updatedConfig.MIN_CONTENT_LENGTH = minContentLength;
-    if (maxPageCount !== undefined) {
-      const pages = String(maxPageCount).trim();
-      if (pages === '') {
-        updatedConfig.MAX_PAGE_COUNT = '0';
-      } else if (/^\d+$/.test(pages)) {
-        updatedConfig.MAX_PAGE_COUNT = String(parseInt(pages, 10));
-      } else {
-        return res.status(400).json({
-          error:
-            'Invalid page limit. Use a whole number of pages, or 0 for no limit.',
-        });
-      }
-    }
-    if (ignoreTitlePatterns !== undefined)
-      updatedConfig.IGNORE_TITLE_PATTERNS =
-        normalizeArray(ignoreTitlePatterns).join(',');
-    if (ignoreRepeatedContent !== undefined)
-      updatedConfig.IGNORE_REPEATED_CONTENT =
-        ignoreRepeatedContent === 'no' ? 'no' : 'yes';
-    if (paperlessAiPort) updatedConfig.PAPERLESS_AI_PORT = paperlessAiPort;
-    if (typeof logLevel === 'string') {
-      const normalizedLogLevel = logLevel.trim().toLowerCase();
-      if (['debug', 'info', 'warn', 'error'].includes(normalizedLogLevel)) {
-        updatedConfig.LOG_LEVEL = normalizedLogLevel;
-      } else {
-        return res.status(400).json({
-          error: 'Invalid Log Level. Allowed values: debug, info, warn, error.',
-        });
-      }
-    }
-    if (typeof dateFormat === 'string') {
-      // Upper-cased before the comparison because the value doubles as the
-      // pattern it describes — an operator typing dd.mm.yyyy into the .env file
-      // means the same thing the select does.
-      const normalizedDateFormat = dateFormat.trim().toUpperCase();
-      if (['DD.MM.YYYY', 'YYYY-MM-DD'].includes(normalizedDateFormat)) {
-        updatedConfig.DATE_FORMAT = normalizedDateFormat;
-      } else {
-        return res.status(400).json({
-          error: 'Invalid Date Format. Allowed values: DD.MM.YYYY, YYYY-MM-DD.',
-        });
-      }
-    }
-
-    // Update tag cache TTL (validate range: 60-3600 seconds)
-    if (tagCacheTTL !== undefined) {
-      const ttl = parseInt(tagCacheTTL, 10);
-      if (!isNaN(ttl) && ttl >= 60 && ttl <= 3600) {
-        updatedConfig.TAG_CACHE_TTL_SECONDS = ttl.toString();
-      } else {
-        console.warn(
-          `[WARN] Invalid TAG_CACHE_TTL_SECONDS value: ${tagCacheTTL}. Using default: 300`
-        );
-        updatedConfig.TAG_CACHE_TTL_SECONDS = '300';
-      }
-    }
-
-    // Single sign-on. Checked last among the fields so an incomplete provider
-    // is reported only when everything else on the page is fine.
-    const oidcUpdate = buildOidcSettingsUpdate(req.body);
-    if (oidcUpdate.error) {
-      return res.status(400).json({ success: false, error: oidcUpdate.error });
-    }
-    Object.assign(updatedConfig, oidcUpdate.updates);
-
-    // Handle API key
-    let apiToken = configFile.getApiKey
-      ? configFile.getApiKey()
-      : process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || '';
-    if (!apiToken) {
-      console.log('Generating new API key');
-      apiToken = require('crypto').randomBytes(64).toString('hex');
-      updatedConfig.API_KEY = apiToken;
-    }
-
-    const mergedConfig = {
-      ...currentConfig,
-      ...updatedConfig,
-    };
-
-    // Compared before saveConfig() writes the values onto process.env, and
-    // against the values in effect: currentConfig fills in the defaults the
-    // form submits for keys nobody has set. Only a changed key that something
-    // reads once at boot ends in a restart; every other value is read live
-    // and applies with the save.
-    const changedKeys = setupService.changedConfigKeys(mergedConfig, {
-      ...process.env,
-      ...currentConfig,
+    // Everything else: the AI provider (required fields only, no live test),
+    // every simple field, custom fields, OCR and single sign-on.
+    const result = settingsService.buildSettingsUpdate(body, current, {
+      ocr,
+      paperless,
+      customFields: customFields.fields,
     });
-    const restartKeys = restartRequiredAmong(changedKeys);
+    result.warnings.forEach((warning) => console.warn(warning));
+    if (result.error) {
+      return res.status(400).json(result.error);
+    }
+    const updates = result.updates;
 
-    // The route has already validated the submitted values (and Paperless
-    // reachability when its settings changed). Skip saveConfig's built-in
-    // validateConfig so saving does not live-test Paperless/AI on every save.
-    await setupService.saveConfig(mergedConfig, { skipValidation: true });
+    if (!configFile.getApiKey()) {
+      console.log('Generating new API key');
+      updates.API_KEY = crypto.randomBytes(64).toString('hex');
+    }
+
+    // Compared before saveConfig() writes the values onto process.env. Only a
+    // changed key that something reads once at boot ends in a restart.
+    const { merged, changedKeys, restartKeys } = settingsService.planSave(
+      current,
+      updates
+    );
+
+    // The values are validated above (and Paperless reachability when its
+    // settings changed); saveConfig's own validateConfig would live-test
+    // Paperless and the AI provider on every save.
+    await setupService.saveConfig(merged, { skipValidation: true });
 
     // The tag cache keeps its lifetime once it has read it.
     if (changedKeys.includes('TAG_CACHE_TTL_SECONDS')) {
       paperlessService._cacheTTL = null;
     }
     try {
-      for (const field of processedCustomFields) {
+      for (const field of customFields.fields) {
         await paperlessService.createCustomFieldSafely(
           field.value,
           field.data_type,
@@ -15732,7 +13933,7 @@ router.post('/api/changelog/mark-seen', isAuthenticated, async (req, res) => {
  */
 router.get('/api/settings/env-file', isAuthenticated, async (req, res) => {
   try {
-    const { env, count } = buildEnvExport();
+    const { env, count } = settingsService.buildEnvExport();
     return res.json({
       success: true,
       data: { env, count, generatedAt: new Date().toISOString() },

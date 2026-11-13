@@ -3310,7 +3310,7 @@
             "TOKEN_LIMIT": "64000",
             "RESPONSE_TOKENS": 1000,
             "USE_PROMPT_TAGS": "no",
-            "PROMPT_TAGS": ["p1", "p2"],
+            "PROMPT_TAGS": ["p1", "", "p2"],
             "USE_EXISTING_DATA": "no",
             "API_KEY": "test-api-key",
             "JWT_SECRET": "test-jwt-secret-for-router-harness",

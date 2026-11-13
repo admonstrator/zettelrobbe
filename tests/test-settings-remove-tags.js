@@ -17,7 +17,6 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { readRouteSources } = require('./helpers/route-sources');
 const { mountRouter, REPO_ROOT } = require('./helpers/mount-router');
 
 const API_KEY = 'test-api-key';
@@ -263,18 +262,16 @@ function sliceBetween(source, from, to) {
         )
       );
 
-      const setupSource = readRouteSources();
-      const group = sliceBetween(
-        setupSource,
-        "title: 'Document processing'",
-        ']'
-      );
+      const group = require('../services/settingsCatalog')
+        .exportGroups()
+        .find((entry) => entry.title === 'Document processing');
+      assert.ok(group, 'the Document processing export group exists');
       [
         'IGNORE_TAGS',
         'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
         'REMOVE_TAGS_AFTER_PROCESSING',
       ].forEach((key) =>
-        assert.ok(group.includes(`'${key}'`), `${key} in the export group`)
+        assert.ok(group.keys.includes(key), `${key} in the export group`)
       );
     });
 
