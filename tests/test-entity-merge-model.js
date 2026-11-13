@@ -23,6 +23,11 @@ const fs = require('fs').promises;
 const os = require('os');
 const path = require('path');
 
+const {
+  listEntityNameMappings,
+  clearEntityNameMappings,
+} = require('./helpers/entity-name-mappings');
+
 let passed = 0;
 let failed = 0;
 
@@ -42,6 +47,7 @@ async function main() {
   const originalCwd = process.cwd();
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'zr-merge-model-'));
   process.chdir(tempRoot);
+  const dataDir = path.join(tempRoot, 'data');
   const documentModel = require('../models/document');
 
   try {
@@ -368,7 +374,7 @@ async function main() {
     });
 
     await test('Name mappings are listed newest first and pruned to the newest 200', async () => {
-      assert.strictEqual(await documentModel.clearEntityNameMappings(), 0);
+      assert.strictEqual(clearEntityNameMappings(dataDir), 0);
       for (let i = 1; i <= 205; i += 1) {
         const id = await documentModel.addEntityNameMapping({
           kind: i % 2 ? 'tags' : 'correspondents',
@@ -381,7 +387,7 @@ async function main() {
         });
         assert.ok(Number.isInteger(id) && id > 0);
       }
-      const rows = await documentModel.listEntityNameMappings();
+      const rows = listEntityNameMappings(dataDir);
       assert.strictEqual(rows.length, 200, 'older rows are pruned');
       assert.strictEqual(
         rows[0].proposedName,
@@ -407,7 +413,7 @@ async function main() {
           documentId: 205,
         }
       );
-      const few = await documentModel.listEntityNameMappings({ limit: 3 });
+      const few = listEntityNameMappings(dataDir, { limit: 3 });
       assert.strictEqual(few.length, 3);
       const withoutDocument = await documentModel.addEntityNameMapping({
         kind: 'tags',
@@ -418,12 +424,11 @@ async function main() {
       });
       assert.ok(withoutDocument > 0);
       assert.strictEqual(
-        (await documentModel.listEntityNameMappings({ limit: 1 }))[0]
-          .documentId,
+        listEntityNameMappings(dataDir, { limit: 1 })[0].documentId,
         null
       );
-      assert.strictEqual(await documentModel.clearEntityNameMappings(), 200);
-      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.strictEqual(clearEntityNameMappings(dataDir), 200);
+      assert.deepStrictEqual(listEntityNameMappings(dataDir), []);
     });
 
     await test('The AI calibration is stored per model and thinking switch and replaced on save', async () => {

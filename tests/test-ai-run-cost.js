@@ -602,7 +602,6 @@ async function main() {
       });
 
       jobs.reset();
-      tagSimplifyService.forgetEstimateTags();
       const job = jobs.start(
         { task: 'order', vocabulary: 'keep' },
         (options, control) =>

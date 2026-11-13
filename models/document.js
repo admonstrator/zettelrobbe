@@ -748,20 +748,6 @@ function parseAiPairVerdictRow(row) {
   };
 }
 
-function parseEntityNameMappingRow(row) {
-  return {
-    id: row.id,
-    kind: row.kind,
-    proposedName: row.proposed_name,
-    targetId: row.target_id,
-    targetName: row.target_name,
-    reason: row.reason,
-    score: Number(row.score) || 0,
-    documentId: row.document_id ?? null,
-    createdAt: row.created_at,
-  };
-}
-
 module.exports = {
   async addProcessedDocument(documentId, title) {
     try {
@@ -1583,29 +1569,6 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] recording entity name mapping:', error);
       return null;
-    }
-  },
-
-  /** The newest mappings first, at most `limit` (default: everything kept). */
-  async listEntityNameMappings({ limit = ENTITY_NAME_MAPPINGS_KEEP } = {}) {
-    try {
-      return db
-        .prepare('SELECT * FROM entity_name_mappings ORDER BY id DESC LIMIT ?')
-        .all(Math.max(1, Number(limit) || ENTITY_NAME_MAPPINGS_KEEP))
-        .map(parseEntityNameMappingRow);
-    } catch (error) {
-      console.error('[ERROR] listing entity name mappings:', error);
-      return [];
-    }
-  },
-
-  /** Forgets every mapping. @returns {Promise<number>} rows removed */
-  async clearEntityNameMappings() {
-    try {
-      return db.prepare('DELETE FROM entity_name_mappings').run().changes;
-    } catch (error) {
-      console.error('[ERROR] clearing entity name mappings:', error);
-      return 0;
     }
   },
 
@@ -2708,35 +2671,6 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] updating a split proposal:', error);
       return false;
-    }
-  },
-
-  /**
-   * Sets one status on many proposals in one transaction: a group accepted,
-   * skipped or reopened on the page.
-   *
-   * @param {number[]} tagIds
-   * @param {string} status
-   * @returns {Promise<number>} rows changed
-   */
-  async setTagSplitProposalStatus(tagIds, status) {
-    const ids = (Array.isArray(tagIds) ? tagIds : [])
-      .map(Number)
-      .filter((id) => Number.isInteger(id) && id > 0);
-    if (ids.length === 0) return 0;
-    try {
-      const update = db.prepare(
-        'UPDATE tag_split_proposals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE tag_id = ?'
-      );
-      const run = db.transaction(() => {
-        let changed = 0;
-        for (const id of ids) changed += update.run(String(status), id).changes;
-        return changed;
-      });
-      return run();
-    } catch (error) {
-      console.error('[ERROR] setting the status of split proposals:', error);
-      return 0;
     }
   },
 
