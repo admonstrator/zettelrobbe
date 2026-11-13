@@ -2636,58 +2636,6 @@
         }
       }
     },
-    "/dashboard": {
-      "get": {
-        "summary": "Main dashboard page",
-        "description": "Renders the main dashboard page of the application with summary statistics and visualizations.\nThe dashboard provides an overview of processed documents, system metrics, and important statistics\nabout document processing including tag counts, correspondent counts, and token usage.\n\nThe page displays visualizations for document processing status, token distribution,\nprocessing time statistics, and document type categorization to help administrators\nunderstand system performance and document processing patterns.\n",
-        "tags": [
-          "Navigation",
-          "System"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Dashboard page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string",
-                  "description": "HTML content of the dashboard page"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - user not authenticated",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/login"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/settings/mfa/status": {
       "get": {
         "summary": "Get MFA status for current user",
@@ -4530,201 +4478,6 @@
         "responses": {
           "200": {
             "description": "Marked as seen"
-          },
-          "401": {
-            "description": "Not authenticated"
-          }
-        }
-      }
-    },
-    "/api/dashboard/layout": {
-      "get": {
-        "summary": "Read the authenticated user's dashboard configuration",
-        "description": "Returns the stored configuration in storage format v1: the named dashboards the user arranged, each with its widgets in display order, and the slug of the active one. An empty dashboards list means nothing has been customised and every board renders in its default order — the same answer a user without a stored configuration gets.\n",
-        "tags": [
-          "Dashboard"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The stored configuration",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "version": {
-                          "type": "integer",
-                          "example": 1
-                        },
-                        "active": {
-                          "type": "string",
-                          "description": "Slug of the dashboard currently shown",
-                          "example": "default"
-                        },
-                        "dashboards": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "slug": {
-                                "type": "string",
-                                "example": "default"
-                              },
-                              "name": {
-                                "type": "string",
-                                "example": "Dashboard"
-                              },
-                              "widgets": {
-                                "type": "array",
-                                "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "id": {
-                                      "type": "string",
-                                      "example": "task-runner"
-                                    },
-                                    "span": {
-                                      "type": "integer",
-                                      "description": "Width in grid columns, 3 to 12",
-                                      "example": 12
-                                    },
-                                    "rows": {
-                                      "type": "integer",
-                                      "description": "Height in tile rows, 3 to 24, or 0 for as tall as the content",
-                                      "example": 0
-                                    },
-                                    "hidden": {
-                                      "type": "boolean",
-                                      "example": false
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated"
-          }
-        }
-      },
-      "put": {
-        "summary": "Store or reset the authenticated user's dashboard configuration",
-        "description": "Takes a complete configuration in storage format v1 and replaces the stored one; there is no partial update. Up to 10 dashboards, each with a slug, a name of 1 to 60 characters and up to 50 widgets in display order. Widget spans are 3 to 12 grid columns; rows are 3 to 24 tile rows, or 0 for a card that is as tall as its content. A dashboard without widgets shows the default arrangement under its own name.\nTwo payloads reset instead of storing: an empty dashboards array, and a single dashboard whose widgets array is empty. Both clear the stored configuration, so every board returns to its default order. Emptying one board out of several does not reset — that board simply shows the defaults and keeps its name.\nIf active names a dashboard that is not in the payload it is replaced with the first dashboard's slug rather than rejecting the write.\n",
-        "tags": [
-          "Dashboard"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "version": {
-                    "type": "integer",
-                    "enum": [
-                      1
-                    ],
-                    "example": 1
-                  },
-                  "active": {
-                    "type": "string",
-                    "description": "Slug of the dashboard to show",
-                    "example": "default"
-                  },
-                  "dashboards": {
-                    "type": "array",
-                    "maxItems": 10,
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "slug",
-                        "name"
-                      ],
-                      "properties": {
-                        "slug": {
-                          "type": "string",
-                          "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
-                          "example": "default"
-                        },
-                        "name": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 60,
-                          "example": "Dashboard"
-                        },
-                        "widgets": {
-                          "type": "array",
-                          "maxItems": 50,
-                          "items": {
-                            "type": "object",
-                            "required": [
-                              "id",
-                              "span"
-                            ],
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
-                                "example": "task-runner"
-                              },
-                              "span": {
-                                "type": "integer",
-                                "minimum": 3,
-                                "maximum": 12,
-                                "example": 12
-                              },
-                              "rows": {
-                                "type": "integer",
-                                "description": "3 to 24 tile rows, or 0 for as tall as the content",
-                                "example": 0
-                              },
-                              "hidden": {
-                                "type": "boolean",
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Configuration stored or reset"
-          },
-          "400": {
-            "description": "Malformed configuration"
           },
           "401": {
             "description": "Not authenticated"
@@ -8643,6 +8396,253 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/dashboard": {
+      "get": {
+        "summary": "Main dashboard page",
+        "description": "Renders the main dashboard page of the application with summary statistics and visualizations.\nThe dashboard provides an overview of processed documents, system metrics, and important statistics\nabout document processing including tag counts, correspondent counts, and token usage.\n\nThe page displays visualizations for document processing status, token distribution,\nprocessing time statistics, and document type categorization to help administrators\nunderstand system performance and document processing patterns.\n",
+        "tags": [
+          "Navigation",
+          "System"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dashboard page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTML content of the dashboard page"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - user not authenticated",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/login"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/layout": {
+      "get": {
+        "summary": "Read the authenticated user's dashboard configuration",
+        "description": "Returns the stored configuration in storage format v1: the named dashboards the user arranged, each with its widgets in display order, and the slug of the active one. An empty dashboards list means nothing has been customised and every board renders in its default order — the same answer a user without a stored configuration gets.\n",
+        "tags": [
+          "Dashboard"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "active": {
+                          "type": "string",
+                          "description": "Slug of the dashboard currently shown",
+                          "example": "default"
+                        },
+                        "dashboards": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "slug": {
+                                "type": "string",
+                                "example": "default"
+                              },
+                              "name": {
+                                "type": "string",
+                                "example": "Dashboard"
+                              },
+                              "widgets": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "example": "task-runner"
+                                    },
+                                    "span": {
+                                      "type": "integer",
+                                      "description": "Width in grid columns, 3 to 12",
+                                      "example": 12
+                                    },
+                                    "rows": {
+                                      "type": "integer",
+                                      "description": "Height in tile rows, 3 to 24, or 0 for as tall as the content",
+                                      "example": 0
+                                    },
+                                    "hidden": {
+                                      "type": "boolean",
+                                      "example": false
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      },
+      "put": {
+        "summary": "Store or reset the authenticated user's dashboard configuration",
+        "description": "Takes a complete configuration in storage format v1 and replaces the stored one; there is no partial update. Up to 10 dashboards, each with a slug, a name of 1 to 60 characters and up to 50 widgets in display order. Widget spans are 3 to 12 grid columns; rows are 3 to 24 tile rows, or 0 for a card that is as tall as its content. A dashboard without widgets shows the default arrangement under its own name.\nTwo payloads reset instead of storing: an empty dashboards array, and a single dashboard whose widgets array is empty. Both clear the stored configuration, so every board returns to its default order. Emptying one board out of several does not reset — that board simply shows the defaults and keeps its name.\nIf active names a dashboard that is not in the payload it is replaced with the first dashboard's slug rather than rejecting the write.\n",
+        "tags": [
+          "Dashboard"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "enum": [
+                      1
+                    ],
+                    "example": 1
+                  },
+                  "active": {
+                    "type": "string",
+                    "description": "Slug of the dashboard to show",
+                    "example": "default"
+                  },
+                  "dashboards": {
+                    "type": "array",
+                    "maxItems": 10,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "slug",
+                        "name"
+                      ],
+                      "properties": {
+                        "slug": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+                          "example": "default"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 60,
+                          "example": "Dashboard"
+                        },
+                        "widgets": {
+                          "type": "array",
+                          "maxItems": 50,
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "span"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+                                "example": "task-runner"
+                              },
+                              "span": {
+                                "type": "integer",
+                                "minimum": 3,
+                                "maximum": 12,
+                                "example": 12
+                              },
+                              "rows": {
+                                "type": "integer",
+                                "description": "3 to 24 tile rows, or 0 for as tall as the content",
+                                "example": 0
+                              },
+                              "hidden": {
+                                "type": "boolean",
+                                "default": false
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuration stored or reset"
+          },
+          "400": {
+            "description": "Malformed configuration"
+          },
+          "401": {
+            "description": "Not authenticated"
           }
         }
       }
