@@ -1175,9 +1175,10 @@ app.get('/', async (req, res) => {
   }
 });
 
-// /health is served through routes/index.js, which is mounted above this file's
-// routes. A second handler here was never reachable and has been removed so the
-// OpenAPI spec documents the handler that actually answers.
+// /health is served by routes/system.js (through routes/index.js), which is
+// mounted above this file's routes. A second handler here was never reachable
+// and has been removed so the OpenAPI spec documents the handler that actually
+// answers.
 
 // Error handler
 // Express detects error middleware by its four-argument signature, so `next`

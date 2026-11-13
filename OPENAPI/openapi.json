@@ -2341,6 +2341,194 @@
         }
       }
     },
+    "/health": {
+      "get": {
+        "summary": "System health check endpoint",
+        "description": "Reports database connectivity **and** whether the document scanner is\nactually able to work. Used by the Docker healthcheck and monitoring.\n\n`status` is `healthy` when the database is reachable and the scanner is\noperational, `degraded` when automatic processing is enabled but the\nscan loop is not armed or has failed `failureThreshold` runs in a row\n(for example because Paperless-ngx is unreachable), and `database_error`\nwhen the local database cannot be queried.\n\nA `degraded` state answers with HTTP 503 unless `HEALTHCHECK_STRICT=no`\nis configured, in which case the details are reported with HTTP 200.\nWhen automatic processing is switched off via\n`DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and\nnever reported as degraded.\n\nWithout authentication the response carries only `status`,\n`database`, `bootId` and `startedAt`, with the same HTTP status codes.\n`message`, `scanner` and `paperless` hold raw error messages with\ninternal host names and ports, so they are returned only with a\nsession (cookie or bearer token) or the `x-api-key` header.\n\n`bootId` is a random id the process draws when it starts. A client\nthat waits for a restart polls until it sees an id other than the one\nit had before; the old process answers healthy until it exits.\n",
+        "tags": [
+          "System"
+        ],
+        "responses": {
+          "200": {
+            "description": "System is healthy and operational",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "description": "Status indicating an error",
+                      "example": "error"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Error message details",
+                      "example": "Internal server error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable — either the database check failed\n(`database_error`) or the scanner is degraded (`degraded`).\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ignored": {
+      "get": {
+        "summary": "Permanently ignored documents page",
+        "tags": [
+          "Navigation"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ignored queue page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/update-check": {
+      "get": {
+        "summary": "Report whether a newer release is available",
+        "description": "Compares the running version against the latest GitHub release tag.\n\nThe lookup happens on the server and its result is cached for 24 hours,\nso browsers never contact GitHub themselves and a busy instance makes at\nmost one outbound request per day. Set `UPDATE_CHECK_ENABLED=no` to turn\nthe outbound call off; the endpoint then reports `enabled: false`.\n",
+        "tags": [
+          "System",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "currentVersion": {
+                          "type": "string"
+                        },
+                        "latestVersion": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "updateAvailable": {
+                          "type": "boolean"
+                        },
+                        "checkedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/changelog/status": {
+      "get": {
+        "summary": "Check whether the What's New modal should be shown",
+        "description": "Returns show=true when the authenticated user has not yet seen the current release changelog.",
+        "tags": [
+          "Changelog"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changelog status"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/changelog/mark-seen": {
+      "post": {
+        "summary": "Mark the current changelog as seen for the authenticated user",
+        "tags": [
+          "Changelog"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Marked as seen"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
     "/setup": {
       "get": {
         "summary": "Application setup page",
@@ -2636,59 +2824,6 @@
         }
       }
     },
-    "/health": {
-      "get": {
-        "summary": "System health check endpoint",
-        "description": "Reports database connectivity **and** whether the document scanner is\nactually able to work. Used by the Docker healthcheck and monitoring.\n\n`status` is `healthy` when the database is reachable and the scanner is\noperational, `degraded` when automatic processing is enabled but the\nscan loop is not armed or has failed `failureThreshold` runs in a row\n(for example because Paperless-ngx is unreachable), and `database_error`\nwhen the local database cannot be queried.\n\nA `degraded` state answers with HTTP 503 unless `HEALTHCHECK_STRICT=no`\nis configured, in which case the details are reported with HTTP 200.\nWhen automatic processing is switched off via\n`DISABLE_AUTOMATIC_PROCESSING=yes`, a missing scan loop is expected and\nnever reported as degraded.\n\nWithout authentication the response carries only `status`,\n`database`, `bootId` and `startedAt`, with the same HTTP status codes.\n`message`, `scanner` and `paperless` hold raw error messages with\ninternal host names and ports, so they are returned only with a\nsession (cookie or bearer token) or the `x-api-key` header.\n\n`bootId` is a random id the process draws when it starts. A client\nthat waits for a restart polls until it sees an id other than the one\nit had before; the old process answers healthy until it exits.\n",
-        "tags": [
-          "System"
-        ],
-        "responses": {
-          "200": {
-            "description": "System is healthy and operational",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "description": "Status indicating an error",
-                      "example": "error"
-                    },
-                    "message": {
-                      "type": "string",
-                      "description": "Error message details",
-                      "example": "Internal server error"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service unavailable — either the database check failed\n(`database_error`) or the scanner is degraded (`degraded`).\n",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/dashboard/doc/{id}": {
       "get": {
         "summary": "Redirect to Paperless document details",
@@ -2777,37 +2912,6 @@
         "responses": {
           "200": {
             "description": "Failed queue page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/ignored": {
-      "get": {
-        "summary": "Permanently ignored documents page",
-        "tags": [
-          "Navigation"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Ignored queue page rendered successfully",
             "content": {
               "text/html": {
                 "schema": {
@@ -4217,110 +4321,6 @@
           },
           "502": {
             "description": "Paperless-ngx could not be reached"
-          }
-        }
-      }
-    },
-    "/api/update-check": {
-      "get": {
-        "summary": "Report whether a newer release is available",
-        "description": "Compares the running version against the latest GitHub release tag.\n\nThe lookup happens on the server and its result is cached for 24 hours,\nso browsers never contact GitHub themselves and a busy instance makes at\nmost one outbound request per day. Set `UPDATE_CHECK_ENABLED=no` to turn\nthe outbound call off; the endpoint then reports `enabled: false`.\n",
-        "tags": [
-          "System",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Update status",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "enabled": {
-                          "type": "boolean"
-                        },
-                        "currentVersion": {
-                          "type": "string"
-                        },
-                        "latestVersion": {
-                          "type": "string",
-                          "nullable": true
-                        },
-                        "updateAvailable": {
-                          "type": "boolean"
-                        },
-                        "checkedAt": {
-                          "type": "string",
-                          "format": "date-time",
-                          "nullable": true
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated"
-          }
-        }
-      }
-    },
-    "/api/changelog/status": {
-      "get": {
-        "summary": "Check whether the What's New modal should be shown",
-        "description": "Returns show=true when the authenticated user has not yet seen the current release changelog.",
-        "tags": [
-          "Changelog"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changelog status"
-          },
-          "401": {
-            "description": "Not authenticated"
-          }
-        }
-      }
-    },
-    "/api/changelog/mark-seen": {
-      "post": {
-        "summary": "Mark the current changelog as seen for the authenticated user",
-        "tags": [
-          "Changelog"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Marked as seen"
-          },
-          "401": {
-            "description": "Not authenticated"
           }
         }
       }
