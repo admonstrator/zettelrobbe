@@ -35,6 +35,7 @@ router.use(require('./maintenance')); // caches, reconcile, resets
 router.use(require('./settings')); // settings page and save
 router.use(require('./scan')); // scan, status, webhook
 router.use(require('./setupWizard')); // setup wizard
+router.use(require('./settingsConnections')); // settings connection tests
 router.use(require('./setup')); // not split yet
 
 // Carried over from routes/setup.js, which ran it once its modules had loaded:

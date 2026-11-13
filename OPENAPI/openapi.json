@@ -2636,446 +2636,6 @@
         }
       }
     },
-    "/api/settings/ai/test": {
-      "post": {
-        "summary": "Test AI provider connectivity from the settings page",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "aiProvider"
-                ],
-                "properties": {
-                  "aiProvider": {
-                    "type": "string",
-                    "enum": [
-                      "openai",
-                      "ollama",
-                      "custom",
-                      "azure",
-                      "anthropic"
-                    ]
-                  },
-                  "apiUrl": {
-                    "type": "string",
-                    "description": "Not needed for anthropic unless a proxy sits in front of api.anthropic.com"
-                  },
-                  "token": {
-                    "type": "string",
-                    "description": "Omit or leave empty to use the stored key of the selected provider"
-                  },
-                  "model": {
-                    "type": "string",
-                    "description": "For anthropic, checked with a models lookup that spends no tokens"
-                  },
-                  "setupValidationTimeoutMs": {
-                    "type": "integer"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "AI connectivity result returned"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/settings/ocr/test": {
-      "post": {
-        "summary": "Test OCR provider connectivity from the settings page",
-        "description": "Runs one OCR request on a generated test image. For `anthropic` the\nkey is the OCR key when one is given or stored for Claude OCR, and\notherwise the Anthropic AI provider's key (`anthropicApiKey`, then\nthe stored ANTHROPIC_API_KEY).\n",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "enabled": {
-                    "type": "string",
-                    "enum": [
-                      "yes",
-                      "no"
-                    ]
-                  },
-                  "provider": {
-                    "type": "string",
-                    "enum": [
-                      "mistral",
-                      "custom",
-                      "ollama",
-                      "anthropic"
-                    ]
-                  },
-                  "apiUrl": {
-                    "type": "string",
-                    "description": "Ignored for mistral. For anthropic an optional proxy URL; empty uses the Anthropic AI provider's URL, then api.anthropic.com"
-                  },
-                  "apiKey": {
-                    "type": "string",
-                    "description": "Omit or leave empty to use the stored key"
-                  },
-                  "model": {
-                    "type": "string",
-                    "description": "For anthropic, a Claude model; anything else falls back to the AI model"
-                  },
-                  "setupOcrValidationTimeoutMs": {
-                    "type": "integer"
-                  },
-                  "anthropicApiKey": {
-                    "type": "string",
-                    "description": "Anthropic AI key typed but not saved yet; Claude OCR falls back to it"
-                  },
-                  "anthropicApiUrl": {
-                    "type": "string",
-                    "description": "Anthropic AI proxy URL typed but not saved yet"
-                  },
-                  "anthropicModel": {
-                    "type": "string",
-                    "description": "Anthropic AI model typed but not saved yet"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OCR connectivity result returned"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/settings/oidc/test": {
-      "post": {
-        "summary": "Test a single sign-on provider from the settings page",
-        "description": "Reads the provider's discovery document, picks the token endpoint auth\nmethod the login would use, and checks the client credentials by\nredeeming an authorization code that cannot exist: the provider\nanswers invalid_client for wrong credentials and invalid_grant for\nright ones. Nobody is signed in and nothing is saved.\n\nAn empty `clientSecret` uses the stored OIDC_CLIENT_SECRET, but only\nwhen the issuer has the same origin (scheme, host, port) as the\nconfigured OIDC_ISSUER_URL; for any other issuer the test runs\nwithout a secret. Private network addresses are allowed, since\nidentity providers usually run next to the application.\n",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "issuerUrl",
-                  "clientId"
-                ],
-                "properties": {
-                  "issuerUrl": {
-                    "type": "string",
-                    "description": "Issuer URL (http or https); a pasted discovery URL is accepted",
-                    "example": "https://auth.example.com/application/o/zettelrobbe/"
-                  },
-                  "clientId": {
-                    "type": "string",
-                    "example": "zettelrobbe"
-                  },
-                  "clientSecret": {
-                    "type": "string",
-                    "description": "Omit or leave empty to use the stored secret (same issuer origin only)",
-                    "example": ""
-                  },
-                  "tokenAuthMethod": {
-                    "type": "string",
-                    "description": "Empty picks the method automatically",
-                    "enum": [
-                      "",
-                      "client_secret_basic",
-                      "client_secret_post",
-                      "none"
-                    ],
-                    "example": ""
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Test result. success is false (still HTTP 200) when the provider\ncould not be reached, sent no usable discovery document, or refused\nthe client credentials; error then says which.\n",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "oneOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "success": {
-                          "type": "boolean",
-                          "example": true
-                        },
-                        "data": {
-                          "type": "object",
-                          "properties": {
-                            "issuer": {
-                              "type": "string",
-                              "description": "The issuer the provider advertises",
-                              "example": "https://auth.example.com/application/o/zettelrobbe/"
-                            },
-                            "tokenAuthMethods": {
-                              "type": "array",
-                              "description": "Token endpoint auth methods the provider advertises (empty when it lists none)",
-                              "items": {
-                                "type": "string"
-                              },
-                              "example": [
-                                "client_secret_basic",
-                                "client_secret_post"
-                              ]
-                            },
-                            "chosenAuthMethod": {
-                              "type": "string",
-                              "description": "The method a login would use",
-                              "example": "client_secret_basic"
-                            },
-                            "pkce": {
-                              "type": "boolean",
-                              "description": "Whether the provider advertises PKCE with S256",
-                              "example": true
-                            }
-                          }
-                        },
-                        "message": {
-                          "type": "string",
-                          "example": "The provider answered and accepted the client."
-                        }
-                      }
-                    },
-                    {
-                      "$ref": "#/components/schemas/Error"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "302": {
-            "description": "Not signed in; redirected to /login like every other route behind the authentication guard"
-          },
-          "400": {
-            "description": "Invalid input (issuer not an http(s) URL, empty client ID, unknown auth method, or a method that needs a secret without one)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/settings/ocr/models": {
-      "post": {
-        "summary": "Discover available OCR models from the settings page",
-        "description": "Returns every discovered model that is not embedding-only. Vision\nsupport is detected from the model name, which recognizes families\nsuch as llava or pixtral and misses OCR-capable models with\nunremarkable names, so it ranks the list instead of filtering it:\n`visionModels` and `suggestedModel` are hints for the UI, not a\nrestriction on what may be selected.\n",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "provider": {
-                    "type": "string",
-                    "enum": [
-                      "mistral",
-                      "custom",
-                      "ollama",
-                      "anthropic"
-                    ]
-                  },
-                  "apiUrl": {
-                    "type": "string"
-                  },
-                  "apiKey": {
-                    "type": "string",
-                    "description": "Omit or leave empty to use the stored OCR_API_KEY / MISTRAL_API_KEY (for anthropic, the stored Claude OCR key, then the Anthropic AI key)"
-                  },
-                  "setupOcrValidationTimeoutMs": {
-                    "type": "integer"
-                  },
-                  "anthropicApiKey": {
-                    "type": "string",
-                    "description": "Anthropic AI key typed but not saved yet; used by anthropic when no OCR key is set"
-                  },
-                  "anthropicApiUrl": {
-                    "type": "string",
-                    "description": "Anthropic AI proxy URL typed but not saved yet"
-                  },
-                  "anthropicModel": {
-                    "type": "string",
-                    "description": "Anthropic AI model; anthropic returns it as suggestedModel"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OCR model list returned",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "models": {
-                      "type": "array",
-                      "description": "Every selectable OCR model (embedding-only models excluded)",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "visionModels": {
-                      "type": "array",
-                      "description": "Subset of models whose name indicates vision support; absent for providers without model classification",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "suggestedModel": {
-                      "type": "string",
-                      "nullable": true,
-                      "description": "Recommended default; absent for providers without model classification"
-                    },
-                    "live": {
-                      "type": "boolean",
-                      "description": "anthropic only — false when the live list failed and the suggested Claude models are returned instead"
-                    },
-                    "resolvedApiUrl": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Model discovery failed"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/settings/quickstart/detect": {
-      "post": {
-        "summary": "Auto-detect API flavor and classify models from a single base URL",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "baseUrl"
-                ],
-                "properties": {
-                  "baseUrl": {
-                    "type": "string",
-                    "example": "http://192.168.1.5:1234"
-                  },
-                  "apiKey": {
-                    "type": "string",
-                    "description": "Omit or leave empty to use the stored CUSTOM_API_KEY / OLLAMA_API_KEY"
-                  },
-                  "setupValidationTimeoutMs": {
-                    "type": "integer"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Detection result with classified models and suggestions"
-          },
-          "400": {
-            "description": "Detection failed (unreachable URL, blocked URL, or no compatible API)"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        }
-      }
-    },
     "/manual/preview/{id}": {
       "get": {
         "summary": "Document preview",
@@ -5876,6 +5436,446 @@
           },
           "401": {
             "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/settings/ai/test": {
+      "post": {
+        "summary": "Test AI provider connectivity from the settings page",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "aiProvider"
+                ],
+                "properties": {
+                  "aiProvider": {
+                    "type": "string",
+                    "enum": [
+                      "openai",
+                      "ollama",
+                      "custom",
+                      "azure",
+                      "anthropic"
+                    ]
+                  },
+                  "apiUrl": {
+                    "type": "string",
+                    "description": "Not needed for anthropic unless a proxy sits in front of api.anthropic.com"
+                  },
+                  "token": {
+                    "type": "string",
+                    "description": "Omit or leave empty to use the stored key of the selected provider"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "For anthropic, checked with a models lookup that spends no tokens"
+                  },
+                  "setupValidationTimeoutMs": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AI connectivity result returned"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/settings/ocr/test": {
+      "post": {
+        "summary": "Test OCR provider connectivity from the settings page",
+        "description": "Runs one OCR request on a generated test image. For `anthropic` the\nkey is the OCR key when one is given or stored for Claude OCR, and\notherwise the Anthropic AI provider's key (`anthropicApiKey`, then\nthe stored ANTHROPIC_API_KEY).\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ]
+                  },
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "mistral",
+                      "custom",
+                      "ollama",
+                      "anthropic"
+                    ]
+                  },
+                  "apiUrl": {
+                    "type": "string",
+                    "description": "Ignored for mistral. For anthropic an optional proxy URL; empty uses the Anthropic AI provider's URL, then api.anthropic.com"
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "description": "Omit or leave empty to use the stored key"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "For anthropic, a Claude model; anything else falls back to the AI model"
+                  },
+                  "setupOcrValidationTimeoutMs": {
+                    "type": "integer"
+                  },
+                  "anthropicApiKey": {
+                    "type": "string",
+                    "description": "Anthropic AI key typed but not saved yet; Claude OCR falls back to it"
+                  },
+                  "anthropicApiUrl": {
+                    "type": "string",
+                    "description": "Anthropic AI proxy URL typed but not saved yet"
+                  },
+                  "anthropicModel": {
+                    "type": "string",
+                    "description": "Anthropic AI model typed but not saved yet"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OCR connectivity result returned"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/settings/oidc/test": {
+      "post": {
+        "summary": "Test a single sign-on provider from the settings page",
+        "description": "Reads the provider's discovery document, picks the token endpoint auth\nmethod the login would use, and checks the client credentials by\nredeeming an authorization code that cannot exist: the provider\nanswers invalid_client for wrong credentials and invalid_grant for\nright ones. Nobody is signed in and nothing is saved.\n\nAn empty `clientSecret` uses the stored OIDC_CLIENT_SECRET, but only\nwhen the issuer has the same origin (scheme, host, port) as the\nconfigured OIDC_ISSUER_URL; for any other issuer the test runs\nwithout a secret. Private network addresses are allowed, since\nidentity providers usually run next to the application.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "issuerUrl",
+                  "clientId"
+                ],
+                "properties": {
+                  "issuerUrl": {
+                    "type": "string",
+                    "description": "Issuer URL (http or https); a pasted discovery URL is accepted",
+                    "example": "https://auth.example.com/application/o/zettelrobbe/"
+                  },
+                  "clientId": {
+                    "type": "string",
+                    "example": "zettelrobbe"
+                  },
+                  "clientSecret": {
+                    "type": "string",
+                    "description": "Omit or leave empty to use the stored secret (same issuer origin only)",
+                    "example": ""
+                  },
+                  "tokenAuthMethod": {
+                    "type": "string",
+                    "description": "Empty picks the method automatically",
+                    "enum": [
+                      "",
+                      "client_secret_basic",
+                      "client_secret_post",
+                      "none"
+                    ],
+                    "example": ""
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Test result. success is false (still HTTP 200) when the provider\ncould not be reached, sent no usable discovery document, or refused\nthe client credentials; error then says which.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "example": true
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "issuer": {
+                              "type": "string",
+                              "description": "The issuer the provider advertises",
+                              "example": "https://auth.example.com/application/o/zettelrobbe/"
+                            },
+                            "tokenAuthMethods": {
+                              "type": "array",
+                              "description": "Token endpoint auth methods the provider advertises (empty when it lists none)",
+                              "items": {
+                                "type": "string"
+                              },
+                              "example": [
+                                "client_secret_basic",
+                                "client_secret_post"
+                              ]
+                            },
+                            "chosenAuthMethod": {
+                              "type": "string",
+                              "description": "The method a login would use",
+                              "example": "client_secret_basic"
+                            },
+                            "pkce": {
+                              "type": "boolean",
+                              "description": "Whether the provider advertises PKCE with S256",
+                              "example": true
+                            }
+                          }
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "The provider answered and accepted the client."
+                        }
+                      }
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "302": {
+            "description": "Not signed in; redirected to /login like every other route behind the authentication guard"
+          },
+          "400": {
+            "description": "Invalid input (issuer not an http(s) URL, empty client ID, unknown auth method, or a method that needs a secret without one)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/ocr/models": {
+      "post": {
+        "summary": "Discover available OCR models from the settings page",
+        "description": "Returns every discovered model that is not embedding-only. Vision\nsupport is detected from the model name, which recognizes families\nsuch as llava or pixtral and misses OCR-capable models with\nunremarkable names, so it ranks the list instead of filtering it:\n`visionModels` and `suggestedModel` are hints for the UI, not a\nrestriction on what may be selected.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "mistral",
+                      "custom",
+                      "ollama",
+                      "anthropic"
+                    ]
+                  },
+                  "apiUrl": {
+                    "type": "string"
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "description": "Omit or leave empty to use the stored OCR_API_KEY / MISTRAL_API_KEY (for anthropic, the stored Claude OCR key, then the Anthropic AI key)"
+                  },
+                  "setupOcrValidationTimeoutMs": {
+                    "type": "integer"
+                  },
+                  "anthropicApiKey": {
+                    "type": "string",
+                    "description": "Anthropic AI key typed but not saved yet; used by anthropic when no OCR key is set"
+                  },
+                  "anthropicApiUrl": {
+                    "type": "string",
+                    "description": "Anthropic AI proxy URL typed but not saved yet"
+                  },
+                  "anthropicModel": {
+                    "type": "string",
+                    "description": "Anthropic AI model; anthropic returns it as suggestedModel"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OCR model list returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "models": {
+                      "type": "array",
+                      "description": "Every selectable OCR model (embedding-only models excluded)",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "visionModels": {
+                      "type": "array",
+                      "description": "Subset of models whose name indicates vision support; absent for providers without model classification",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "suggestedModel": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Recommended default; absent for providers without model classification"
+                    },
+                    "live": {
+                      "type": "boolean",
+                      "description": "anthropic only — false when the live list failed and the suggested Claude models are returned instead"
+                    },
+                    "resolvedApiUrl": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Model discovery failed"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/settings/quickstart/detect": {
+      "post": {
+        "summary": "Auto-detect API flavor and classify models from a single base URL",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "baseUrl"
+                ],
+                "properties": {
+                  "baseUrl": {
+                    "type": "string",
+                    "example": "http://192.168.1.5:1234"
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "description": "Omit or leave empty to use the stored CUSTOM_API_KEY / OLLAMA_API_KEY"
+                  },
+                  "setupValidationTimeoutMs": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Detection result with classified models and suggestions"
+          },
+          "400": {
+            "description": "Detection failed (unreachable URL, blocked URL, or no compatible API)"
+          },
+          "401": {
+            "description": "Unauthorized"
           }
         }
       }
