@@ -2824,484 +2824,6 @@
         }
       }
     },
-    "/ocr": {
-      "get": {
-        "summary": "OCR queue page",
-        "tags": [
-          "Navigation",
-          "OCR"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OCR page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/failed": {
-      "get": {
-        "summary": "Permanently failed queue page",
-        "tags": [
-          "Navigation",
-          "OCR"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Failed queue page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/ocr/stats": {
-      "get": {
-        "summary": "Get OCR queue statistics",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OCR statistics returned successfully"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/failed/queue": {
-      "get": {
-        "summary": "Get permanently failed document queue",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Failed queue returned successfully"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/failed/reset/{documentId}": {
-      "post": {
-        "summary": "Reset permanently failed document",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "documentId",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Reset operation result"
-          },
-          "400": {
-            "description": "Invalid document ID"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/failed/reset-all": {
-      "post": {
-        "summary": "Reset all permanently failed documents",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Reset operation result"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/ignored/add": {
-      "post": {
-        "summary": "Add one or more documents to the ignored list",
-        "description": "Ignored documents are skipped by every future scan. Accepts a single\nid from the history row menu or a selection from its bulk menu; a\ndocument that was already ignored counts as skipped rather than an\nerror.\n",
-        "tags": [
-          "Documents"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "description": "One of documentId or documentIds is required.",
-                "properties": {
-                  "documentId": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "documentIds": {
-                    "type": "array",
-                    "items": {
-                      "type": "integer",
-                      "minimum": 1
-                    }
-                  },
-                  "title": {
-                    "type": "string",
-                    "description": "Stored with a single document; ignored for a selection."
-                  },
-                  "reason": {
-                    "type": "string",
-                    "default": "manual"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "How many were added and how many were already ignored",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "added": {
-                      "type": "integer"
-                    },
-                    "skipped": {
-                      "type": "integer"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "No usable document id in the payload"
-          }
-        }
-      }
-    },
-    "/api/ignored/suggest/{documentId}": {
-      "get": {
-        "summary": "Propose skip rules built from one document",
-        "description": "Reads the document from Paperless-ngx and proposes what skipping it by\nhand could also cover: copies with the same text, a part of its title\nor file name (with how many history entries contain it), and a page\nlimit for long documents. Changes nothing.\n",
-        "tags": [
-          "Documents"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "documentId",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "minimum": 1
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The document's facts and a proposal per rule",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "document": {
-                          "type": "object",
-                          "properties": {
-                            "id": {
-                              "type": "integer"
-                            },
-                            "title": {
-                              "type": "string"
-                            },
-                            "fileName": {
-                              "type": "string"
-                            },
-                            "pageCount": {
-                              "type": "integer",
-                              "nullable": true
-                            },
-                            "correspondent": {
-                              "type": "string",
-                              "nullable": true
-                            },
-                            "characters": {
-                              "type": "integer"
-                            }
-                          }
-                        },
-                        "sameText": {
-                          "type": "object",
-                          "properties": {
-                            "available": {
-                              "type": "boolean",
-                              "description": "False when the text is too short to compare."
-                            },
-                            "enabled": {
-                              "type": "boolean",
-                              "description": "IGNORE_REPEATED_CONTENT"
-                            }
-                          }
-                        },
-                        "title": {
-                          "type": "object",
-                          "properties": {
-                            "suggestions": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "pattern": {
-                                    "type": "string"
-                                  },
-                                  "historyMatches": {
-                                    "type": "integer"
-                                  }
-                                }
-                              }
-                            },
-                            "existing": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        },
-                        "pageLimit": {
-                          "type": "object",
-                          "properties": {
-                            "current": {
-                              "type": "integer"
-                            },
-                            "suggested": {
-                              "type": "integer",
-                              "nullable": true
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document id"
-          },
-          "404": {
-            "description": "Document not found in Paperless-ngx"
-          }
-        }
-      }
-    },
-    "/api/ignored/skip": {
-      "post": {
-        "summary": "Skip one document and store rules for documents like it",
-        "description": "Puts the document on the ignored list and, as chosen, keeps its text\nfingerprint (so copies are skipped), adds a title part to\nIGNORE_TITLE_PATTERNS and sets MAX_PAGE_COUNT. A value the container\ninjects is not changed and is listed in notSaved.\n",
-        "tags": [
-          "Documents"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "documentId"
-                ],
-                "properties": {
-                  "documentId": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "sameText": {
-                    "type": "boolean",
-                    "default": true
-                  },
-                  "titlePattern": {
-                    "type": "string",
-                    "nullable": true
-                  },
-                  "pageLimit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "nullable": true
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The document is ignored and the rules are stored",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "rules": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
-                        "notSaved": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document id or page limit"
-          },
-          "404": {
-            "description": "Document not found in Paperless-ngx"
-          }
-        }
-      }
-    },
     "/duplicates": {
       "get": {
         "summary": "Former Duplicates page, now part of Tidy up",
@@ -5838,6 +5360,484 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/ocr": {
+      "get": {
+        "summary": "OCR queue page",
+        "tags": [
+          "Navigation",
+          "OCR"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/failed": {
+      "get": {
+        "summary": "Permanently failed queue page",
+        "tags": [
+          "Navigation",
+          "OCR"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Failed queue page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/stats": {
+      "get": {
+        "summary": "Get OCR queue statistics",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR statistics returned successfully"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/failed/queue": {
+      "get": {
+        "summary": "Get permanently failed document queue",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Failed queue returned successfully"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/failed/reset/{documentId}": {
+      "post": {
+        "summary": "Reset permanently failed document",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reset operation result"
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/failed/reset-all": {
+      "post": {
+        "summary": "Reset all permanently failed documents",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reset operation result"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ignored/add": {
+      "post": {
+        "summary": "Add one or more documents to the ignored list",
+        "description": "Ignored documents are skipped by every future scan. Accepts a single\nid from the history row menu or a selection from its bulk menu; a\ndocument that was already ignored counts as skipped rather than an\nerror.\n",
+        "tags": [
+          "Documents"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "One of documentId or documentIds is required.",
+                "properties": {
+                  "documentId": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "documentIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "Stored with a single document; ignored for a selection."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "default": "manual"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "How many were added and how many were already ignored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "added": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No usable document id in the payload"
+          }
+        }
+      }
+    },
+    "/api/ignored/suggest/{documentId}": {
+      "get": {
+        "summary": "Propose skip rules built from one document",
+        "description": "Reads the document from Paperless-ngx and proposes what skipping it by\nhand could also cover: copies with the same text, a part of its title\nor file name (with how many history entries contain it), and a page\nlimit for long documents. Changes nothing.\n",
+        "tags": [
+          "Documents"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document's facts and a proposal per rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "document": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "fileName": {
+                              "type": "string"
+                            },
+                            "pageCount": {
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "correspondent": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "characters": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "sameText": {
+                          "type": "object",
+                          "properties": {
+                            "available": {
+                              "type": "boolean",
+                              "description": "False when the text is too short to compare."
+                            },
+                            "enabled": {
+                              "type": "boolean",
+                              "description": "IGNORE_REPEATED_CONTENT"
+                            }
+                          }
+                        },
+                        "title": {
+                          "type": "object",
+                          "properties": {
+                            "suggestions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "pattern": {
+                                    "type": "string"
+                                  },
+                                  "historyMatches": {
+                                    "type": "integer"
+                                  }
+                                }
+                              }
+                            },
+                            "existing": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "pageLimit": {
+                          "type": "object",
+                          "properties": {
+                            "current": {
+                              "type": "integer"
+                            },
+                            "suggested": {
+                              "type": "integer",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document id"
+          },
+          "404": {
+            "description": "Document not found in Paperless-ngx"
+          }
+        }
+      }
+    },
+    "/api/ignored/skip": {
+      "post": {
+        "summary": "Skip one document and store rules for documents like it",
+        "description": "Puts the document on the ignored list and, as chosen, keeps its text\nfingerprint (so copies are skipped), adds a title part to\nIGNORE_TITLE_PATTERNS and sets MAX_PAGE_COUNT. A value the container\ninjects is not changed and is listed in notSaved.\n",
+        "tags": [
+          "Documents"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "documentId"
+                ],
+                "properties": {
+                  "documentId": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "sameText": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "titlePattern": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "pageLimit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The document is ignored and the rules are stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "rules": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "notSaved": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document id or page limit"
+          },
+          "404": {
+            "description": "Document not found in Paperless-ngx"
           }
         }
       }
