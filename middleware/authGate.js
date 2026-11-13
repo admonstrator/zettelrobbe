@@ -20,6 +20,8 @@ const { hasAnyUser, isInitialSetupOpen } = require('../services/userPresence');
  * Routes that don't require authentication. /auth/oidc is served by
  * routes/oidc.js, mounted ahead of this router; it is listed so the sign-in
  * callback stays reachable whatever the mount order.
+ *
+ * Each entry covers itself and everything below it (see isPublicPath()).
  */
 const PUBLIC_ROUTES = Object.freeze([
   '/health',
@@ -31,14 +33,18 @@ const PUBLIC_ROUTES = Object.freeze([
 ]);
 
 /**
- * True when the path starts with one of PUBLIC_ROUTES.
+ * True when the path is one of PUBLIC_ROUTES or lies below one of them.
+ * Matches whole path segments: /setup and /setup/step are public, /setupfoo
+ * and /login-history are not.
  *
  * @param {string} requestPath - req.path
  * @returns {boolean}
  */
 function isPublicPath(requestPath) {
   const value = String(requestPath || '');
-  return PUBLIC_ROUTES.some((route) => value.startsWith(route));
+  return PUBLIC_ROUTES.some(
+    (route) => value === route || value.startsWith(`${route}/`)
+  );
 }
 
 /**

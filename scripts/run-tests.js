@@ -176,6 +176,7 @@ const TESTS = {
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
+  'auth-gate-public-paths': 'test-auth-gate-public-paths.js',
   'mfa-service': 'test-mfa-service.js',
   'session-cookie': 'test-session-cookie.js',
   'scan-control': 'test-scan-control.js',
@@ -309,6 +310,7 @@ const AREAS = {
     'login-username-timing',
     'oidc-sso',
     'setup-complete-guard',
+    'auth-gate-public-paths',
   ],
   duplicates: [
     'entity-merge-model',
