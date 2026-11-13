@@ -29,6 +29,7 @@ node scripts/run-tests.js --test ssrf-url-validation   # single test by name
 npx eslint .                       # flat config: eslint.config.mjs
 npx prettier --check .             # .prettierrc.json + .prettierignore
 npm run lint:css                   # stylelint over public/css/**/*.css
+npm run typecheck                  # tsc --noEmit over the files listed in tsconfig.json
 
 # Production (what Docker runs)
 pm2-runtime ecosystem.config.js    # via start-services.sh
@@ -36,6 +37,8 @@ pm2-runtime ecosystem.config.js    # via start-services.sh
 # Maintenance
 npm run mfa:reset                  # reset MFA for a user
 node scripts/regen-openapi.js      # regenerate OPENAPI/openapi.json from @swagger JSDoc
+node scripts/route-proof.js snapshot|compare|openapi   # prove a route move changed nothing (see its header)
+node tests/test-route-table.js --update                # regenerate the route table fixture after a deliberate route change
 ```
 
 **Test gotcha:** several tests self-skip unless a server is reachable at `BASE_URL`
@@ -46,9 +49,9 @@ the full server-dependent suite, start the server first, then run the tests agai
 
 ## Architecture
 
-**Entry point:** `server.js` (~1200 lines) — Express app, all middleware/routes/CSRF/rate-limiting,
-the cron-driven `scanDocuments()` processing loop, and SSE progress streams. Most logic lives here plus
-the `services/` singletons.
+**Entry point:** `server.js` — Express app, global middleware, CSRF, the cron-driven
+`scanDocuments()` loop and SSE progress streams. Routes live in `routes/`, request guards and limiters in
+`middleware/`, everything else in the `services/` singletons.
 
 **Service layer** (`services/`): every service is a singleton —
 `class Foo { ... }; module.exports = new Foo();`. Import and call directly; do not `new` them.
@@ -101,7 +104,7 @@ Schema migrations run at startup via `services/startupMigrations.js`.
 cleans up records for documents deleted in Paperless-ngx.
 
 **Tidy up (tags and correspondents):** one page, `/tidy-up` (`routes/tidyUp.js`, mounted before
-`routes/setup.js`; `/duplicates` and `/simplify` redirect to it), shows _suggestions_ a person accepts or
+`routes/index.js`; `/duplicates` and `/simplify` redirect to it), shows _suggestions_ a person accepts or
 declines: merge two names, split a compound tag into a document type and topics, delete unused names.
 `services/tidyUpRunService.js` runs one job (task `tidy-up` in `duplicateReviewJobService`) over the
 existing machinery — `entityNameMatcher` (spelling tiers), `entityMatchAiService.reviewScan()` (the
@@ -113,13 +116,25 @@ Every sentence the page says lives in `services/tidyUpWording.js`; model failure
 `services/modelFailure.js` (unreadable, budget, unreachable, thinking, rejected, paperless) at the
 place they happen, and the page tells what happened, what it means and what to do. Percentages and
 rule names appear only inside a card's Details. The page (`views/tidy-up.ejs`,
-`public/js/modules/tidy-up*.js`) talks to `/api/tidy-up/*` only; the `/api/duplicates/*` and
-`/api/simplify/*` routes remain for the API and the Advanced links. Decisions are carried out at once
+`public/js/modules/tidy-up*.js`) talks to `/api/tidy-up/*` plus the few `/api/duplicates/*` and
+`/api/simplify/*` endpoints it still calls (vocabulary, dismissals, AI review memory, undo), which live in
+`routes/tidyUpSupport.js`; the rest of that legacy API was removed. Decisions are carried out at once
 (Accept = merge/split/delete now, one Undo per batch); a run's suggestions live in memory until the
 next run.
 
-**Routes:** `routes/auth.js` (JWT-in-cookie + `x-api-key` auth, `isAuthenticated` middleware) and
-`routes/setup.js` (setup wizard + history/api endpoints). `schemas.js` holds shared swagger schemas.
+**Routes:** one router per feature, flat in `routes/` (swagger-jsdoc reads `./routes/*.js`, not
+subfolders). `server.js` mounts `routes/oidc.js`, `routes/tidyUp.js`, then `routes/index.js`, which runs
+the two router-wide guards from `middleware/authGate.js` once — `remoteSetupGuard` (setup only from
+localhost while it is open) and `authGate` (no session → /login, except the frozen `PUBLIC_ROUTES`,
+matched on whole path segments) — and then mounts the feature routers at `/` in a fixed order: login,
+documents, history, maintenance, settings, scan, setupWizard, settingsConnections, manual, dashboard,
+settingsMfa, system, ocr, queues, tidyUpSupport. Rules: mount at `/` with full paths (a mount path
+strips `req.path` and breaks `isPublicPath`); no pathless `router.use` in a feature router; every
+non-public route also carries its own guard (`isAuthenticated` or `protectApiRoute`), enforced by
+`tests/test-route-guard-coverage.js`; a helper used by one feature lives at the top of its file, a
+helper shared by several goes to `services/`. `tests/test-route-table.js` pins every route with its
+guard chain, `tests/test-route-shadowing.js` the cross-router order. `schemas.js` holds shared swagger
+schemas.
 
 ### UI layer ("zr")
 
@@ -145,8 +160,13 @@ build their own toast host.
 **Settings page:** the AI provider and Tidy up sections render their fields from `AI_OPTIONS`
 (`aiOptions` local); each section has one closed "Advanced options" disclosure
 (`public/js/modules/settings-advanced.js` remembers the choice per browser), and options carry
-`data-providers` so they follow the provider switch. A new AI setting is a catalogue entry plus a
-`fieldMappings` line in `public/js/settings.js` and its line in `POST /settings`, not hand-written markup.
+`data-providers` so they follow the provider switch. Every settings key has one entry in
+`services/settingsCatalog.js` (page, save, wizard prefill, .env export group, secret, restart, its
+`parse`); `services/settingsService.js` turns a form body into an update with it, and `POST /settings`
+is a thin route over that. A new setting is a catalogue entry plus its `fieldMappings` line in
+`public/js/settings.js` (and an `AI_OPTIONS` entry for an AI option), not hand-written markup;
+`tests/test-settings-catalog.js` checks the lists agree, `tests/test-settings-save-golden.js` pins the
+save for ~100 form bodies (`GOLDEN_RECORD=1` re-records after a deliberate change).
 
 **Conventions that bite if missed:** icons are `<symbol>`s in `public/icons.svg`, referenced with
 `<use href="/icons.svg#i-name">` — there is no icon font, so `querySelector('i')` finds nothing;
@@ -162,14 +182,16 @@ because they were only ever looked at empty.
 
 1. `node-cron` fires on `config.scanInterval` (cron syntax, default `*/30 * * * *`).
 2. `scanDocuments()` pulls candidates from Paperless-ngx.
-3. A `retryTracker` Map caps attempts (max 3) to prevent infinite loops.
+3. Each document goes through `services/documentPipeline.js` `processDocument()`, which the webhook
+   queue and a manual rescan (`services/webhookQueueService.js`) share; their differences are named
+   switches in `CALLER_PROFILES`. Its `retryTracker` caps attempts (max 3) to prevent infinite loops.
 4. Skip rules (`services/skipRuleService.js`: `MAX_PAGE_COUNT`, `IGNORE_TITLE_PATTERNS`, text fingerprint of
    ignored docs) move a doc to the ignored list before any OCR or AI call; the webhook applies them too,
    a manual rescan does not. Unignoring a doc exempts it from the rules.
 5. Docs below `MIN_CONTENT_LENGTH` (default 10) are skipped or routed to OCR.
 6. If `PROCESS_PREDEFINED_DOCUMENTS=yes`, only docs whose tags match the `TAGS` env var are processed.
 7. The factory's AI service analyzes; results are written back via `paperlessService.updateDocument()`.
-   A global `__paperlessAiScanControl` object supports stop-requests mid-scan.
+   `services/scanControl.js` holds the scan state and the start/stop levers routes use mid-scan.
 
 ## Configuration system (important)
 
@@ -187,22 +209,31 @@ a restart. Do not cache a config value in a module constant or a service constru
   (`NODE_ENV`, `LOG_LEVEL`, `ANONYMIZED_TELEMETRY`, `PAPERLESS_AI_COMMIT_SHA`). The settings page does not
   explain this; a pinned field is simply disabled with "Set by the environment (KEY)." and the `.env`
   export under System → Export is the one expert surface.
-- **Restarts:** `config/restartRequiredKeys.js` lists the keys something reads once at boot (port, proxy
+- **Restarts:** the catalogue entries marked `restart: true` (read through
+  `config/restartRequiredKeys.js`) are the keys something reads once at boot (port, proxy
   and cookie flags, rate limiter, cron schedules and their switches, the Paperless client, log level).
   `POST /settings` answers `{ restart, restartKeys }` and exits only when one of them changed; the page
   shows its restart note from the same list (`data-restart-keys` on `#setupForm`, `data-env-key` on
   each field). `GET /health` carries a per-process `bootId`; the restart overlay reloads only when it
-  sees a new one. When you make a boot-time consumer read live, remove its key from the list.
+  sees a new one. When you make a boot-time consumer read live, set its entry to `restart: false`.
 - Booleans use `parseEnvBoolean()` — accepts `yes/no`, `true/false`, `1/0`.
 - Feature toggles: `activate*` (tagging/correspondents/documentType/title/customFields).
   AI restrictions: `restrictToExisting*`.
 - App version string lives in `PAPERLESS_AI_VERSION` in `config/config.js`.
 
+## Type checking
+
+No build step and no `.ts` sources: types are JSDoc, checked by `tsc --noEmit` (`npm run typecheck`).
+A file is checked only when it starts with `// @ts-check` **and** is listed in `tsconfig.json` `files`
+(strict mode); new modules join that way, legacy files stay out until someone types them. The same list
+drives an `eslint-plugin-jsdoc` block, so malformed JSDoc in a typed file fails lint. Settings parsing
+uses zod.
+
 ## CI
 
 Every PR runs `.github/workflows/ci.yml`: ESLint, Prettier and stylelint on the **files changed in
-the PR** (the legacy codebase is not fully clean yet — anything you touch must pass), the offline
-test suite (`node scripts/run-tests.js --all`), and an OpenAPI drift check
+the PR** (the legacy codebase is not fully clean yet — anything you touch must pass), the type check,
+the offline test suite (`node scripts/run-tests.js --all`), and an OpenAPI drift check
 (`regen-openapi.js` + `git diff`).
 PRs touching Docker/dependency manifests additionally trigger `docker-check.yml` (build-only).
 `security-audit.yml` runs `npm audit` weekly on a schedule.
