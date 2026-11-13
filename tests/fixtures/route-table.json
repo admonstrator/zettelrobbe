@@ -161,11 +161,11 @@
   },
   {
     "route": "GET /auth/oidc/callback",
-    "guards": ["<anonymous>"]
+    "guards": ["oidcLimiter"]
   },
   {
     "route": "GET /auth/oidc/login",
-    "guards": ["<anonymous>"]
+    "guards": ["oidcLimiter"]
   },
   {
     "route": "GET /dashboard",
@@ -273,7 +273,12 @@
   },
   {
     "route": "POST /api/history/clear-cache",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
+    "guards": [
+      "remoteSetupGuard",
+      "authGate",
+      "isAuthenticated",
+      "cacheClearLimiter"
+    ]
   },
   {
     "route": "POST /api/history/rescan",
@@ -313,11 +318,21 @@
   },
   {
     "route": "POST /api/reset-all-documents",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
+    "guards": [
+      "remoteSetupGuard",
+      "authGate",
+      "isAuthenticated",
+      "cacheClearLimiter"
+    ]
   },
   {
     "route": "POST /api/reset-documents",
-    "guards": ["remoteSetupGuard", "authGate", "<anonymous>", "isAuthenticated"]
+    "guards": [
+      "remoteSetupGuard",
+      "authGate",
+      "cacheClearLimiter",
+      "isAuthenticated"
+    ]
   },
   {
     "route": "POST /api/scan/now",
@@ -337,7 +352,12 @@
   },
   {
     "route": "POST /api/settings/clear-tag-cache",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
+    "guards": [
+      "remoteSetupGuard",
+      "authGate",
+      "isAuthenticated",
+      "cacheClearLimiter"
+    ]
   },
   {
     "route": "POST /api/settings/mfa/disable",
@@ -373,7 +393,12 @@
   },
   {
     "route": "POST /api/settings/reconcile-history",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
+    "guards": [
+      "remoteSetupGuard",
+      "authGate",
+      "isAuthenticated",
+      "cacheClearLimiter"
+    ]
   },
   {
     "route": "POST /api/settings/reset-local-overrides",
@@ -381,13 +406,18 @@
       "remoteSetupGuard",
       "authGate",
       "isAuthenticated",
-      "<anonymous>",
+      "cacheClearLimiter",
       "jsonParser"
     ]
   },
   {
     "route": "POST /api/settings/thumbnail-cache/clear",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
+    "guards": [
+      "remoteSetupGuard",
+      "authGate",
+      "isAuthenticated",
+      "cacheClearLimiter"
+    ]
   },
   {
     "route": "POST /api/setup/ai/models",
@@ -451,7 +481,7 @@
   },
   {
     "route": "POST /login",
-    "guards": ["remoteSetupGuard", "authGate", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate", "loginLimiter"]
   },
   {
     "route": "POST /manual/analyze",

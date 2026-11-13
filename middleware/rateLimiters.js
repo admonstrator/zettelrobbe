@@ -51,4 +51,13 @@ const loginLimiter = rateLimit({
   },
 });
 
+// express-rate-limit returns an anonymous function. The route table fixture
+// (tests/fixtures/route-table.json) lists middleware by function name, so an
+// anonymous limiter could be swapped for any other middleware unnoticed. The
+// name is set on the very same function: the options and the counter stay single.
+Object.defineProperty(cacheClearLimiter, 'name', {
+  value: 'cacheClearLimiter',
+});
+Object.defineProperty(loginLimiter, 'name', { value: 'loginLimiter' });
+
 module.exports = { cacheClearLimiter, loginLimiter };
