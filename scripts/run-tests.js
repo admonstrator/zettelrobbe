@@ -187,6 +187,7 @@ const TESTS = {
   'settings-catalog': 'test-settings-catalog.js',
   'document-pipeline-callers': 'test-document-pipeline-callers.js',
   'route-shadowing': 'test-route-shadowing.js',
+  'scan-service': 'test-scan-service.js',
 };
 
 const AREAS = {
@@ -274,6 +275,7 @@ const AREAS = {
     'rescan-fetch-before-delete',
     'scan-control',
     'document-pipeline-callers',
+    'scan-service',
   ],
   prompts: [
     'restriction-service',
