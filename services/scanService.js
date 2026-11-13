@@ -274,6 +274,16 @@ class ScanService {
           break;
         }
 
+        // The webhook queue may be on this document right now; it comes back
+        // on the next run.
+        if (!documentPipeline.claim(doc.id)) {
+          scanStats.skipped += 1;
+          console.info(
+            `Document ${doc.id} is being processed by another run, skipping it this scan`
+          );
+          continue;
+        }
+
         try {
           const result = await documentPipeline.processDocument(
             doc,
@@ -318,6 +328,8 @@ class ScanService {
             `[ERROR] processing document ${doc.id}: ${messageOf(error)}`
           );
           console.debug(error);
+        } finally {
+          documentPipeline.release(doc.id);
         }
       }
 

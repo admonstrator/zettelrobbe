@@ -122,6 +122,15 @@ class WebhookQueueService {
           this.documentQueue.shift()
         );
 
+        // The scan may be on this document right now and writes its result
+        // back itself; a second analysis would be paid twice.
+        if (!documentPipeline.claim(doc.id)) {
+          console.info(
+            `Document ${doc.id} is being processed by another run, skipping this queue entry`
+          );
+          continue;
+        }
+
         try {
           const result = await documentPipeline.processDocument(
             doc,
@@ -157,6 +166,8 @@ class WebhookQueueService {
           // A failed analysis or write-back leaves no "processing" mark behind.
           await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
           console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
+        } finally {
+          documentPipeline.release(doc.id);
         }
       }
     } catch (error) {

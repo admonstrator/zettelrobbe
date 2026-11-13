@@ -34,11 +34,15 @@ const modulePaths = {
   duplicateMergeService: require.resolve('../services/duplicateMergeService'),
   scanHealthService: require.resolve('../services/scanHealthService'),
   dashboardStatsService: require.resolve('../services/dashboardStatsService'),
+  setupService: require.resolve('../services/setupService'),
+  thumbnailCache: require.resolve('../services/thumbnailCache'),
 };
 const SCAN_SERVICE = path.join(ROOT, 'services', 'scanService.js');
+const WEBHOOK_QUEUE = path.join(ROOT, 'services', 'webhookQueueService.js');
 const underTest = [
   path.join(ROOT, 'services', 'documentPipeline.js'),
   SCAN_SERVICE,
+  WEBHOOK_QUEUE,
 ];
 
 let passed = 0;
@@ -207,8 +211,8 @@ function makeWorld(scenario = {}) {
     skipRuleService: { apply: record('skipRules.apply', () => s.skipMatch) },
     documentProcessingService: {
       buildUpdateData: record('buildUpdateData', { title: 'Phone bill' }),
-      saveDocumentChanges: record('saveDocumentChanges', (id) => {
-        if (s.onSave) s.onSave(id);
+      saveDocumentChanges: record('saveDocumentChanges', async (id) => {
+        if (s.onSave) await s.onSave(id);
         if (s.saveFails) throw new Error(s.saveFails);
       }),
     },
@@ -236,6 +240,8 @@ function makeWorld(scenario = {}) {
       invalidate: recordSync('dashboard.invalidate'),
       refresh: record('dashboard.refresh'),
     },
+    setupService: { isConfigured: record('isConfigured', true) },
+    thumbnailCache: { removeThumbnailCacheForDocumentIds: async () => {} },
   };
 
   for (const key of Object.keys(modulePaths)) {
@@ -637,6 +643,90 @@ async function main() {
       ...RUN_OK,
     ]);
     assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
+  });
+
+  console.log('Scan and webhook side by side');
+
+  await test('a webhook for the document the scan is writing back leaves it alone', async () => {
+    let during = null;
+    const { calls, summaries, logs } = await runScan(
+      {},
+      {
+        before: (world) => {
+          world.s.onSave = async (id) => {
+            // Once: without the claim the webhook writes 7 back as well.
+            if (id !== 7 || during) return;
+            during = [];
+            const webhookQueueService = require(WEBHOOK_QUEUE);
+            const mark = world.calls.length;
+            webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+            await webhookQueueService.processQueue();
+            during = world.calls.slice(mark);
+          };
+        },
+      }
+    );
+    assert.deepStrictEqual(during, [
+      'isConfigured()',
+      'getTags()',
+      'listCorrespondentsNames()',
+      'listDocumentTypesNames()',
+    ]);
+    assert.strictEqual(
+      calls.filter((call) => call.startsWith('analyzeDocument(')).length,
+      1
+    );
+    assert.deepStrictEqual(summaries, [summary({ processed: 1 })]);
+    assert.ok(
+      logs.includes(
+        'info Document 7 is being processed by another run, skipping this queue entry'
+      ),
+      logs
+    );
+  });
+
+  await test('a scan reaching the document the webhook is writing back skips it this run', async () => {
+    const world = makeWorld({ documents: [DOC, DOC_8] });
+    const scan = loadScan();
+    const webhookQueueService = require(WEBHOOK_QUEUE);
+    let scanCalls = null;
+    world.s.onSave = async (id) => {
+      if (id !== 7 || scanCalls) return;
+      scanCalls = [];
+      const mark = world.calls.length;
+      await scan.scanDocuments();
+      scanCalls = world.calls.slice(mark);
+    };
+    webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+    const { logs } = await captured(() => webhookQueueService.processQueue());
+    assert.ok(
+      !scanCalls.includes('isDocumentProcessed(7)'),
+      scanCalls.join('\n')
+    );
+    assert.ok(scanCalls.includes(analyze(8)), scanCalls.join('\n'));
+    assert.strictEqual(
+      world.calls.filter((call) => call === analyze(7)).length,
+      1
+    );
+    assert.ok(
+      logs.includes('info ' + summary({ total: 2, processed: 1, skipped: 1 })),
+      logs
+    );
+    assert.ok(
+      logs.includes(
+        'info Document 7 is being processed by another run, skipping it this scan'
+      ),
+      logs
+    );
+  });
+
+  await test('a claim is released after success, failure and skip', async () => {
+    const cases = [{}, { saveFails: 'Paperless said no' }, { processed: true }];
+    for (const scenario of cases) {
+      await runScan(scenario);
+      const documentPipeline = require('../services/documentPipeline');
+      assert.deepStrictEqual([...documentPipeline.inFlight], []);
+    }
   });
 
   console.log('Run guards');

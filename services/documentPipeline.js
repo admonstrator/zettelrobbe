@@ -123,6 +123,42 @@ class DocumentPipeline {
     this.retryTracker = new Map();
     /** The switches per caller, for tests and for reading. */
     this.CALLER_PROFILES = CALLER_PROFILES;
+    /**
+     * Documents a caller is working on right now, from its first check to
+     * the status after the write-back. Process-wide: the scan and the
+     * webhook queue run side by side, and without a claim both pass
+     * isDocumentProcessed() for the same document and pay for two analyses
+     * and two write-backs.
+     *
+     * @type {Set<number>}
+     */
+    this.inFlight = new Set();
+  }
+
+  /**
+   * Claims a document for the calling run. A caller claims before its first
+   * check and releases in its finally, after the write-back and the status;
+   * a caller that cannot claim leaves the document alone (the scan finds it
+   * again on its next run).
+   *
+   * @param {number} documentId
+   * @returns {boolean} false when another run holds the document
+   */
+  claim(documentId) {
+    const id = Number(documentId);
+    if (this.inFlight.has(id)) {
+      return false;
+    }
+    this.inFlight.add(id);
+    return true;
+  }
+
+  /**
+   * @param {number} documentId
+   * @returns {void}
+   */
+  release(documentId) {
+    this.inFlight.delete(Number(documentId));
   }
 
   /**
