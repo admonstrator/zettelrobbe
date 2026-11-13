@@ -22,7 +22,7 @@ node server.js                     # plain run
 # Tests (custom runner — plain node scripts, no jest/mocha)
 npm run test:all                   # all tests          (node scripts/run-tests.js --all)
 npm run test:list                  # list areas + tests
-npm run test:area:security         # an area (auth|ocr|observability|processing|prompts|quickstart|security)
+npm run test:area:security         # an area (auth|security|processing|routes|settings|tooling|…; --list shows all)
 node scripts/run-tests.js --test ssrf-url-validation   # single test by name
 
 # Lint / format
@@ -49,8 +49,8 @@ the full server-dependent suite, start the server first, then run the tests agai
 
 ## Architecture
 
-**Entry point:** `server.js` — Express app, global middleware, CSRF, the cron-driven
-`scanDocuments()` loop and SSE progress streams. Routes live in `routes/`, request guards and limiters in
+**Entry point:** `server.js` — Express app, global middleware, CSRF, the cron wiring of the scan
+(`services/scanService.js` holds the loop) and SSE progress streams. Routes live in `routes/`, request guards and limiters in
 `middleware/`, everything else in the `services/` singletons.
 
 **Service layer** (`services/`): every service with state or dependencies is a singleton —
@@ -133,7 +133,10 @@ documents, history, maintenance, settings, scan, setupWizard, settingsConnection
 settingsMfa, system, ocr, queues, tidyUpSupport. Rules: mount at `/` with full paths (a mount path
 strips `req.path` and breaks `isPublicPath`); no pathless `router.use` in a feature router; every
 non-public route also carries its own guard (`isAuthenticated` or `protectApiRoute`), enforced by
-`tests/test-route-guard-coverage.js`; a helper used by one feature lives at the top of its file, a
+identity in `tests/test-route-guard-coverage.js`. Who is calling is decided only in
+`middleware/caller.js` (`resolveCaller()`: apiKey, session, none, invalid, misconfigured; constant-time
+API key comparison); every guard, limiter key and CSRF hook is built from it with a declared policy
+(`POLICIES` in `middleware/authGate.js`), and `tests/test-caller-resolver.js` fails on any other copy; a helper used by one feature lives at the top of its file, a
 helper shared by several goes to `services/`. `tests/test-route-table.js` pins every route with its
 guard chain, `tests/test-route-shadowing.js` the cross-router order. `schemas.js` holds shared swagger
 schemas.
@@ -180,13 +183,14 @@ UI changes are reviewed with a throwaway Express server that renders the EJS vie
 and mock API endpoints. Review list pages _with rows_ — a migration bug once hid in the queue tables
 because they were only ever looked at empty.
 
-### Document processing flow (the core loop in server.js)
+### Document processing flow (services/scanService.js)
 
 1. `node-cron` fires on `config.scanInterval` (cron syntax, default `*/30 * * * *`).
-2. `scanDocuments()` pulls candidates from Paperless-ngx.
+2. `scanService.scanDocuments()` pulls candidates from Paperless-ngx.
 3. Each document goes through `services/documentPipeline.js` `processDocument()`, which the webhook
-   queue and a manual rescan (`services/webhookQueueService.js`) share; their differences are named
-   switches in `CALLER_PROFILES`. Its `retryTracker` caps attempts (max 3) to prevent infinite loops.
+   queue and a manual rescan (`services/webhookQueueService.js`) share. They protect a document the
+   same way (OCR guards, ignore list first, "complete" only after write-back); the few deliberate
+   differences are named in `CALLER_PROFILES`. Its `retryTracker` caps scan attempts (max 3).
 4. Skip rules (`services/skipRuleService.js`: `MAX_PAGE_COUNT`, `IGNORE_TITLE_PATTERNS`, text fingerprint of
    ignored docs) move a doc to the ignored list before any OCR or AI call; the webhook applies them too,
    a manual rescan does not. Unignoring a doc exempts it from the rules.
