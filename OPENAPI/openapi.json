@@ -2636,423 +2636,6 @@
         }
       }
     },
-    "/manual/preview/{id}": {
-      "get": {
-        "summary": "Document preview",
-        "description": "Fetches and returns the content of a specific document from Paperless-ngx\nfor preview in the manual document review interface.\n\nThis endpoint retrieves document details including content, title, ID, and tags,\nallowing users to view the document text before applying changes or processing\nit with AI tools. The document content is retrieved directly from Paperless-ngx\nusing the system's configured API credentials.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            },
-            "description": "The document ID from Paperless-ngx",
-            "example": 123
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Document content retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "content": {
-                      "type": "string",
-                      "description": "The document content",
-                      "example": "Invoice from ACME Corp. Amount: $1,234.56"
-                    },
-                    "title": {
-                      "type": "string",
-                      "description": "The document title",
-                      "example": "ACME Corp Invoice #12345"
-                    },
-                    "id": {
-                      "type": "integer",
-                      "description": "The document ID",
-                      "example": 123
-                    },
-                    "tags": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Array of tag names assigned to the document",
-                      "example": [
-                        "Invoice",
-                        "ACME Corp",
-                        "2023"
-                      ]
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - user not authenticated",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/login"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Document not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error or Paperless connection error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/manual": {
-      "get": {
-        "summary": "Document review page",
-        "description": "Renders the manual document review page that allows users to browse,\nview and manually process documents from Paperless-ngx.\n\nThis interface enables users to review documents, view their content, and\nmanage tags, correspondents, and document metadata without AI assistance.\nUsers can apply manual changes to documents based on their own judgment,\nwhich is particularly useful for correction or verification of AI-processed documents.\n",
-        "tags": [
-          "Navigation",
-          "Documents"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Manual document review page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string",
-                  "description": "HTML content of the manual document review interface"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - user not authenticated",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/login"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/manual/tags": {
-      "get": {
-        "summary": "Get all tags",
-        "description": "Retrieves all tags from Paperless-ngx for use in the manual document review interface.\n\nThis endpoint returns a complete list of all available tags that can be applied to documents,\nincluding their IDs, names, and colors. The tags are retrieved directly from Paperless-ngx\nand used for tag selection in the UI when manually updating document metadata.\n",
-        "tags": [
-          "Documents",
-          "API",
-          "Metadata"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Tags retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Tag"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - user not authenticated",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/login"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error or Paperless connection error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/manual/documents": {
-      "get": {
-        "summary": "Get all documents",
-        "description": "Retrieves all documents from Paperless-ngx for display in the manual document review interface.\n\nThis endpoint returns a list of all available documents that can be manually reviewed,\nincluding their basic metadata such as ID, title, and creation date. The documents are\nretrieved directly from Paperless-ngx and presented in the UI for selection and processing.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Documents retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Document"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - user not authenticated",
-            "headers": {
-              "Location": {
-                "schema": {
-                  "type": "string",
-                  "example": "/login"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error or Paperless connection error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/correspondentsCount": {
-      "get": {
-        "summary": "Get count of correspondents",
-        "description": "Retrieves the list of correspondents with their document counts.\nThis endpoint returns all correspondents in the system along with\nthe number of documents associated with each correspondent.\n",
-        "tags": [
-          "API",
-          "Metadata"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of correspondents with document counts retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "integer",
-                        "description": "ID of the correspondent",
-                        "example": 1
-                      },
-                      "name": {
-                        "type": "string",
-                        "description": "Name of the correspondent",
-                        "example": "ACME Corp"
-                      },
-                      "count": {
-                        "type": "integer",
-                        "description": "Number of documents associated with this correspondent",
-                        "example": 5
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Invalid or expired token",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/tagsCount": {
-      "get": {
-        "summary": "Get count of tags",
-        "description": "Retrieves the list of tags with their document counts.\nThis endpoint returns all tags in the system along with\nthe number of documents associated with each tag.\n",
-        "tags": [
-          "API",
-          "Metadata"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of tags with document counts retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "integer",
-                        "description": "ID of the tag",
-                        "example": 1
-                      },
-                      "name": {
-                        "type": "string",
-                        "description": "Name of the tag",
-                        "example": "Invoice"
-                      },
-                      "count": {
-                        "type": "integer",
-                        "description": "Number of documents associated with this tag",
-                        "example": 12
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Invalid or expired token",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/dashboard": {
       "get": {
         "summary": "Main dashboard page",
@@ -3261,297 +2844,6 @@
           },
           "500": {
             "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/paperless-public-url": {
-      "get": {
-        "summary": "Detect Paperless public URL",
-        "description": "Detects and returns the public base URL used for document links.",
-        "tags": [
-          "Settings",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Public URL resolved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "publicUrl": {
-                      "type": "string"
-                    },
-                    "source": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/manual/analyze": {
-      "post": {
-        "summary": "Analyze document content manually",
-        "description": "Analyzes document content using the configured AI provider and returns structured metadata.\nThis endpoint processes the document text to extract relevant information such as tags,\ncorrespondent, and document type based on content analysis.\n\nThe analysis is performed using the AI provider configured in the application settings.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "content"
-                ],
-                "properties": {
-                  "content": {
-                    "type": "string",
-                    "description": "The document text content to analyze",
-                    "example": "Invoice from Acme Corp. Total amount: $125.00, Due date: 2023-08-15"
-                  },
-                  "existingTags": {
-                    "type": "array",
-                    "description": "List of existing tags in the system to help with tag matching",
-                    "items": {
-                      "type": "string"
-                    },
-                    "example": [
-                      "Invoice",
-                      "Finance",
-                      "Acme Corp"
-                    ]
-                  },
-                  "id": {
-                    "type": "string",
-                    "description": "Optional document ID for tracking metrics",
-                    "example": "doc_123"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Document analysis results",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "correspondent": {
-                      "type": "string",
-                      "description": "Detected correspondent name",
-                      "example": "Acme Corp"
-                    },
-                    "title": {
-                      "type": "string",
-                      "description": "Suggested document title",
-                      "example": "Acme Corp Invoice - August 2023"
-                    },
-                    "tags": {
-                      "type": "array",
-                      "description": "Suggested tags for the document",
-                      "items": {
-                        "type": "string"
-                      },
-                      "example": [
-                        "Invoice",
-                        "Finance"
-                      ]
-                    },
-                    "documentType": {
-                      "type": "string",
-                      "description": "Detected document type",
-                      "example": "Invoice"
-                    },
-                    "metrics": {
-                      "type": "object",
-                      "description": "Token usage metrics (when using OpenAI)",
-                      "properties": {
-                        "promptTokens": {
-                          "type": "number",
-                          "example": 350
-                        },
-                        "completionTokens": {
-                          "type": "number",
-                          "example": 120
-                        },
-                        "totalTokens": {
-                          "type": "number",
-                          "example": 470
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request parameters",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error or AI provider not configured",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/manual/updateDocument": {
-      "post": {
-        "summary": "Update document metadata in Paperless-ngx",
-        "description": "Updates document metadata such as tags, correspondent and title in the Paperless-ngx system.\nThis endpoint handles the translation between tag names and IDs, and manages the creation of\nnew tags or correspondents if they don't exist in the system.\n\nThe endpoint also removes any unused tags from the document to keep the metadata clean.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "documentId"
-                ],
-                "properties": {
-                  "documentId": {
-                    "type": "number",
-                    "description": "ID of the document to update in Paperless-ngx",
-                    "example": 123
-                  },
-                  "tags": {
-                    "type": "array",
-                    "description": "List of tags to apply (can be tag IDs or names)",
-                    "items": {
-                      "oneOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string"
-                        }
-                      ]
-                    },
-                    "example": [
-                      "Invoice",
-                      42,
-                      "Finance"
-                    ]
-                  },
-                  "correspondent": {
-                    "type": "string",
-                    "description": "Correspondent name to assign to the document",
-                    "example": "Acme Corp"
-                  },
-                  "title": {
-                    "type": "string",
-                    "description": "New title for the document",
-                    "example": "Acme Corp Invoice - August 2023"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Document successfully updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Document updated successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request parameters or tag processing errors",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "errors": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "example": [
-                        "Failed to create tag: Invalid tag name"
-                      ]
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         }
       }
@@ -7289,6 +6581,714 @@
           },
           "404": {
             "description": "Single sign-on is not enabled"
+          }
+        }
+      }
+    },
+    "/manual/preview/{id}": {
+      "get": {
+        "summary": "Document preview",
+        "description": "Fetches and returns the content of a specific document from Paperless-ngx\nfor preview in the manual document review interface.\n\nThis endpoint retrieves document details including content, title, ID, and tags,\nallowing users to view the document text before applying changes or processing\nit with AI tools. The document content is retrieved directly from Paperless-ngx\nusing the system's configured API credentials.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The document ID from Paperless-ngx",
+            "example": 123
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document content retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "string",
+                      "description": "The document content",
+                      "example": "Invoice from ACME Corp. Amount: $1,234.56"
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "The document title",
+                      "example": "ACME Corp Invoice #12345"
+                    },
+                    "id": {
+                      "type": "integer",
+                      "description": "The document ID",
+                      "example": 123
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Array of tag names assigned to the document",
+                      "example": [
+                        "Invoice",
+                        "ACME Corp",
+                        "2023"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - user not authenticated",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/login"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Document not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error or Paperless connection error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual": {
+      "get": {
+        "summary": "Document review page",
+        "description": "Renders the manual document review page that allows users to browse,\nview and manually process documents from Paperless-ngx.\n\nThis interface enables users to review documents, view their content, and\nmanage tags, correspondents, and document metadata without AI assistance.\nUsers can apply manual changes to documents based on their own judgment,\nwhich is particularly useful for correction or verification of AI-processed documents.\n",
+        "tags": [
+          "Navigation",
+          "Documents"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Manual document review page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTML content of the manual document review interface"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - user not authenticated",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/login"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual/tags": {
+      "get": {
+        "summary": "Get all tags",
+        "description": "Retrieves all tags from Paperless-ngx for use in the manual document review interface.\n\nThis endpoint returns a complete list of all available tags that can be applied to documents,\nincluding their IDs, names, and colors. The tags are retrieved directly from Paperless-ngx\nand used for tag selection in the UI when manually updating document metadata.\n",
+        "tags": [
+          "Documents",
+          "API",
+          "Metadata"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tags retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Tag"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - user not authenticated",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/login"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error or Paperless connection error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual/documents": {
+      "get": {
+        "summary": "Get all documents",
+        "description": "Retrieves all documents from Paperless-ngx for display in the manual document review interface.\n\nThis endpoint returns a list of all available documents that can be manually reviewed,\nincluding their basic metadata such as ID, title, and creation date. The documents are\nretrieved directly from Paperless-ngx and presented in the UI for selection and processing.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documents retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Document"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - user not authenticated",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/login"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error or Paperless connection error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/correspondentsCount": {
+      "get": {
+        "summary": "Get count of correspondents",
+        "description": "Retrieves the list of correspondents with their document counts.\nThis endpoint returns all correspondents in the system along with\nthe number of documents associated with each correspondent.\n",
+        "tags": [
+          "API",
+          "Metadata"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of correspondents with document counts retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "integer",
+                        "description": "ID of the correspondent",
+                        "example": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Name of the correspondent",
+                        "example": "ACME Corp"
+                      },
+                      "count": {
+                        "type": "integer",
+                        "description": "Number of documents associated with this correspondent",
+                        "example": 5
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid or expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tagsCount": {
+      "get": {
+        "summary": "Get count of tags",
+        "description": "Retrieves the list of tags with their document counts.\nThis endpoint returns all tags in the system along with\nthe number of documents associated with each tag.\n",
+        "tags": [
+          "API",
+          "Metadata"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of tags with document counts retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "integer",
+                        "description": "ID of the tag",
+                        "example": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Name of the tag",
+                        "example": "Invoice"
+                      },
+                      "count": {
+                        "type": "integer",
+                        "description": "Number of documents associated with this tag",
+                        "example": 12
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Invalid or expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/paperless-public-url": {
+      "get": {
+        "summary": "Detect Paperless public URL",
+        "description": "Detects and returns the public base URL used for document links.",
+        "tags": [
+          "Settings",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public URL resolved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "publicUrl": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/manual/analyze": {
+      "post": {
+        "summary": "Analyze document content manually",
+        "description": "Analyzes document content using the configured AI provider and returns structured metadata.\nThis endpoint processes the document text to extract relevant information such as tags,\ncorrespondent, and document type based on content analysis.\n\nThe analysis is performed using the AI provider configured in the application settings.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "The document text content to analyze",
+                    "example": "Invoice from Acme Corp. Total amount: $125.00, Due date: 2023-08-15"
+                  },
+                  "existingTags": {
+                    "type": "array",
+                    "description": "List of existing tags in the system to help with tag matching",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "Invoice",
+                      "Finance",
+                      "Acme Corp"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "description": "Optional document ID for tracking metrics",
+                    "example": "doc_123"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Document analysis results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "correspondent": {
+                      "type": "string",
+                      "description": "Detected correspondent name",
+                      "example": "Acme Corp"
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "Suggested document title",
+                      "example": "Acme Corp Invoice - August 2023"
+                    },
+                    "tags": {
+                      "type": "array",
+                      "description": "Suggested tags for the document",
+                      "items": {
+                        "type": "string"
+                      },
+                      "example": [
+                        "Invoice",
+                        "Finance"
+                      ]
+                    },
+                    "documentType": {
+                      "type": "string",
+                      "description": "Detected document type",
+                      "example": "Invoice"
+                    },
+                    "metrics": {
+                      "type": "object",
+                      "description": "Token usage metrics (when using OpenAI)",
+                      "properties": {
+                        "promptTokens": {
+                          "type": "number",
+                          "example": 350
+                        },
+                        "completionTokens": {
+                          "type": "number",
+                          "example": 120
+                        },
+                        "totalTokens": {
+                          "type": "number",
+                          "example": 470
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error or AI provider not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual/updateDocument": {
+      "post": {
+        "summary": "Update document metadata in Paperless-ngx",
+        "description": "Updates document metadata such as tags, correspondent and title in the Paperless-ngx system.\nThis endpoint handles the translation between tag names and IDs, and manages the creation of\nnew tags or correspondents if they don't exist in the system.\n\nThe endpoint also removes any unused tags from the document to keep the metadata clean.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "documentId"
+                ],
+                "properties": {
+                  "documentId": {
+                    "type": "number",
+                    "description": "ID of the document to update in Paperless-ngx",
+                    "example": 123
+                  },
+                  "tags": {
+                    "type": "array",
+                    "description": "List of tags to apply (can be tag IDs or names)",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "example": [
+                      "Invoice",
+                      42,
+                      "Finance"
+                    ]
+                  },
+                  "correspondent": {
+                    "type": "string",
+                    "description": "Correspondent name to assign to the document",
+                    "example": "Acme Corp"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "New title for the document",
+                    "example": "Acme Corp Invoice - August 2023"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Document successfully updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Document updated successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters or tag processing errors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "example": [
+                        "Failed to create tag: Invalid tag name"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
