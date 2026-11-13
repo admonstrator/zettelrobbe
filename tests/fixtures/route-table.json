@@ -1,195 +1,195 @@
 [
   {
     "route": "DELETE /api/duplicates/ai-review/memory",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "DELETE /api/duplicates/dismissals/:id",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "DELETE /api/duplicates/mappings",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "DELETE /api/ignored/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "DELETE /api/ocr/queue/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "DELETE /api/simplify/groups/:key/members/:tagId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /about",
-    "guards": ["<anonymous>", "<anonymous>", "protectApiRoute"]
+    "guards": ["remoteSetupGuard", "authGate", "protectApiRoute"]
   },
   {
     "route": "GET /api/changelog/status",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/chat/documents",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/correspondentsCount",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/dashboard/layout",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/dashboard/stats",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/ai-review/estimate",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/ai-review/jobs/:id",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/ai-review/jobs/:id/events",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/ai-review/jobs/:id/result",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/ai-review/jobs/current",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/dismissals",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/entities",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/log",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/mappings",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/duplicates/scan",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/failed/queue",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/history",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/history/:id/detail",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/history/load-progress",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/history/validate",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/ignored/queue",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/ignored/suggest/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/ocr/queue",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/ocr/queue/:documentId/text",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/ocr/queue/ids",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/ocr/stats",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/processing-status",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/settings/ai/presets",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/settings/api-key",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/settings/env-file",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/settings/mfa/status",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/settings/paperless-public-url",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/settings/thumbnail-cache",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/setup/presets",
-    "guards": ["<anonymous>", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate"]
   },
   {
     "route": "GET /api/simplify/document-types",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/simplify/groups",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/simplify/order/estimate",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/simplify/proposals",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/simplify/proposals/:tagId/impact",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/simplify/vocabulary",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/tagsCount",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /api/tidy-up/recent",
@@ -213,7 +213,7 @@
   },
   {
     "route": "GET /api/update-check",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /auth/oidc/callback",
@@ -225,75 +225,75 @@
   },
   {
     "route": "GET /dashboard",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /dashboard/doc/:id",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /duplicates",
-    "guards": ["<anonymous>", "<anonymous>", "protectApiRoute"]
+    "guards": ["remoteSetupGuard", "authGate", "protectApiRoute"]
   },
   {
     "route": "GET /failed",
-    "guards": ["<anonymous>", "<anonymous>", "protectApiRoute"]
+    "guards": ["remoteSetupGuard", "authGate", "protectApiRoute"]
   },
   {
     "route": "GET /health",
-    "guards": ["<anonymous>", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate"]
   },
   {
     "route": "GET /history",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /ignored",
-    "guards": ["<anonymous>", "<anonymous>", "protectApiRoute"]
+    "guards": ["remoteSetupGuard", "authGate", "protectApiRoute"]
   },
   {
     "route": "GET /login",
-    "guards": ["<anonymous>", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate"]
   },
   {
     "route": "GET /logout",
-    "guards": ["<anonymous>", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate"]
   },
   {
     "route": "GET /manual",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /manual/documents",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /manual/preview/:id",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /manual/tags",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /ocr",
-    "guards": ["<anonymous>", "<anonymous>", "protectApiRoute"]
+    "guards": ["remoteSetupGuard", "authGate", "protectApiRoute"]
   },
   {
     "route": "GET /settings",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /setup",
-    "guards": ["<anonymous>", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate"]
   },
   {
     "route": "GET /simplify",
-    "guards": ["<anonymous>", "<anonymous>", "protectApiRoute"]
+    "guards": ["remoteSetupGuard", "authGate", "protectApiRoute"]
   },
   {
     "route": "GET /thumb/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /tidy-up",
@@ -301,169 +301,169 @@
   },
   {
     "route": "PATCH /api/simplify/proposals/:tagId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/changelog/mark-seen",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/duplicates/ai-review",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/duplicates/ai-review/jobs",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/duplicates/ai-review/jobs/:id/stop",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/duplicates/delete",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/duplicates/dismiss",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/duplicates/log/:id/undo",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/duplicates/merge",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/failed/ignore/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/failed/reset-all",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/failed/reset/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/history/:id/rescan",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/history/:id/restore",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/history/clear-cache",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
   },
   {
     "route": "POST /api/history/rescan",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/ignored/add",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/ignored/clear-all",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/ignored/skip",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/key-regenerate",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/ocr/analyze/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/ocr/process-all",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/ocr/process/:documentId",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/ocr/queue/add",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/reset-all-documents",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
   },
   {
     "route": "POST /api/reset-documents",
-    "guards": ["<anonymous>", "<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "<anonymous>", "isAuthenticated"]
   },
   {
     "route": "POST /api/scan/now",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/scan/stop",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/settings/ai/models",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/ai/test",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/clear-tag-cache",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
   },
   {
     "route": "POST /api/settings/mfa/disable",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/mfa/enable",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/mfa/setup",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/mfa/verify",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/ocr/models",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/ocr/test",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/oidc/test",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/quickstart/detect",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /api/settings/reconcile-history",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
   },
   {
     "route": "POST /api/settings/reset-local-overrides",
     "guards": [
-      "<anonymous>",
-      "<anonymous>",
+      "remoteSetupGuard",
+      "authGate",
       "isAuthenticated",
       "<anonymous>",
       "jsonParser"
@@ -471,71 +471,71 @@
   },
   {
     "route": "POST /api/settings/thumbnail-cache/clear",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "<anonymous>"]
   },
   {
     "route": "POST /api/setup/ai/models",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/ai/test",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/complete",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/mfa/confirm",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/mfa/setup",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/ocr/models",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/ocr/test",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/paperless/metadata",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/paperless/test",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/setup/quickstart/detect",
-    "guards": ["<anonymous>", "<anonymous>", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
   },
   {
     "route": "POST /api/simplify/apply",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/simplify/groups/:key/decision",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/simplify/order/apply",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/simplify/order/propose",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/simplify/proposals/run",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/simplify/vocabulary/propose",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/tidy-up/runs",
@@ -555,30 +555,30 @@
   },
   {
     "route": "POST /api/webhook/document",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /login",
-    "guards": ["<anonymous>", "<anonymous>", "<anonymous>"]
+    "guards": ["remoteSetupGuard", "authGate", "<anonymous>"]
   },
   {
     "route": "POST /manual/analyze",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /manual/updateDocument",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "POST /settings",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "PUT /api/dashboard/layout",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated", "jsonParser"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },
   {
     "route": "PUT /api/simplify/vocabulary",
-    "guards": ["<anonymous>", "<anonymous>", "isAuthenticated"]
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   }
 ]

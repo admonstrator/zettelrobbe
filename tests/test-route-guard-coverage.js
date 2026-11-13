@@ -16,9 +16,9 @@
  * covered by test-session-token-type and the endpoint-protection tests; this
  * test is the net that catches a route nobody thought about.
  *
- * What counts as public: exactly the prefixes the router-wide guard lets
- * through (PUBLIC_ROUTES in routes/setup.js, matched with startsWith), plus
- * the explicit, commented ALLOWLIST below.
+ * What counts as public: exactly the paths the router-wide guard lets
+ * through (PUBLIC_ROUTES in middleware/authGate.js, matched on whole path
+ * segments), plus the explicit, commented ALLOWLIST below.
  *
  * What is walked: everything the harness mounts, recursing into nested
  * routers (a layer whose handle has a `stack` is a router), plus every module
@@ -42,8 +42,9 @@ const GUARD_NAMES = new Set([
 ]);
 
 /**
- * Public on purpose: the prefixes the router-wide guard waves through
- * (PUBLIC_ROUTES in routes/setup.js; the app treats them as public today).
+ * Public on purpose: the paths the router-wide guard waves through
+ * (PUBLIC_ROUTES in middleware/authGate.js). Pinned here on purpose: widening
+ * the public list must fail this test until it is updated deliberately.
  */
 const PUBLIC_PREFIXES = [
   '/health',
@@ -109,8 +110,9 @@ function collectRoutes(stack, prefix = '') {
 
 function isPublic(route) {
   return (
-    PUBLIC_PREFIXES.some((p) => route.path.startsWith(p)) ||
-    ALLOWLIST.has(`${route.method} ${route.path}`)
+    PUBLIC_PREFIXES.some(
+      (p) => route.path === p || route.path.startsWith(`${p}/`)
+    ) || ALLOWLIST.has(`${route.method} ${route.path}`)
   );
 }
 
@@ -212,15 +214,14 @@ function mountedRouters(app) {
     );
   });
 
-  await test('the public prefixes match what routes/setup.js lets through', () => {
-    // PUBLIC_ROUTES is a module-private let; read it from source so this list
-    // cannot drift away from the guard it describes.
-    const { readRouteSources } = require('./helpers/route-sources');
-    const source = readRouteSources();
-    const block = source.match(/(?:let|const) PUBLIC_ROUTES = \[([\s\S]*?)\];/);
-    assert.ok(block, 'PUBLIC_ROUTES declaration found');
-    const declared = [...block[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    assert.deepStrictEqual([...declared].sort(), [...PUBLIC_PREFIXES].sort());
+  await test('the public paths match what the auth gate lets through', () => {
+    const { PUBLIC_ROUTES } = require(
+      path.join(REPO_ROOT, 'middleware', 'authGate.js')
+    );
+    assert.deepStrictEqual(
+      [...PUBLIC_ROUTES].sort(),
+      [...PUBLIC_PREFIXES].sort()
+    );
   });
 
   await test('the allowlist has no stale entries', () => {
