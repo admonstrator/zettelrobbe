@@ -12,5 +12,17 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "files": ["services/restartService.js"]
+  "files": [
+    "services/restartService.js",
+    "middleware/authGate.js",
+    "middleware/rateLimiters.js",
+    "services/loginView.js",
+    "services/mfaService.js",
+    "services/scanControl.js",
+    "services/sessionCookie.js",
+    "services/thumbnailCache.js",
+    "services/userPresence.js",
+    "services/webhookQueueService.js",
+    "types/jsonwebtoken.d.ts"
+  ]
 }

@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const setupService = require('../services/setupService.js');
 const paperlessService = require('../services/paperlessService.js');
@@ -20,19 +19,52 @@ const path = require('path');
 const crypto = require('crypto');
 const {
   validateApiUrl,
-  shouldQueueForOcrOnAiError,
-  classifyOcrQueueReasonFromAiError,
   stripTrailingSlashes,
   toNameList,
 } = require('../services/serviceUtils');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const QRCode = require('qrcode');
+const { isAuthenticated } = require('./auth.js');
 const {
-  isAuthenticated,
-  verifySessionToken,
-  SESSION_TOKEN_TYPE,
-} = require('./auth.js');
+  remoteSetupGuard,
+  authGate,
+  protectApiRoute,
+  hasValidSession,
+  isAuthenticatedCaller,
+  getAuthenticatedSettingsUsername,
+} = require('../middleware/authGate');
+const {
+  cacheClearLimiter,
+  loginLimiter,
+} = require('../middleware/rateLimiters');
+const {
+  MFA_CHALLENGE_COOKIE,
+  MFA_SETUP_COOKIE,
+  SETUP_MFA_CHALLENGE_TTL_MS,
+  setupMfaChallenges,
+  cleanupExpiredSetupMfaChallenges,
+  generateBase32Secret,
+  buildOtpAuthUri,
+  verifyTotpToken,
+  consumeTotpToken,
+  isMfaEnabledForUser,
+  spendPasswordCheckTime,
+} = require('../services/mfaService');
+const {
+  shouldUseSecureCookies,
+  issueSessionCookie,
+  clearSessionCookie,
+} = require('../services/sessionCookie');
+const { renderLoginView } = require('../services/loginView');
+const { hasAnyUser, isInitialSetupOpen } = require('../services/userPresence');
+const scanControl = require('../services/scanControl');
+const webhookQueueService = require('../services/webhookQueueService');
+const {
+  getThumbnailCacheStats,
+  clearThumbnailCache,
+  removeThumbnailCacheForDocumentIds,
+} = require('../services/thumbnailCache');
 const mistralOcrService = require('../services/mistralOcrService');
 const skipRuleService = require('../services/skipRuleService');
 const quickstartService = require('../services/quickstartService');
@@ -41,7 +73,6 @@ const restartService = require('../services/restartService');
 const scanHealthService = require('../services/scanHealthService');
 const updateCheckService = require('../services/updateCheckService');
 const dashboardStatsService = require('../services/dashboardStatsService');
-const documentProcessingService = require('../services/documentProcessingService');
 const duplicateMergeService = require('../services/duplicateMergeService');
 const entityNameMatcher = require('../services/entityNameMatcher');
 const entityMatchAiService = require('../services/entityMatchAiService');
@@ -65,32 +96,6 @@ const {
 const config = require('../config/config.js');
 require('dotenv').config({ path: '../data/.env' });
 
-function getCookieSecureMode() {
-  return typeof config.getCookieSecureMode === 'function'
-    ? config.getCookieSecureMode()
-    : String(process.env.COOKIE_SECURE_MODE || 'auto')
-        .trim()
-        .toLowerCase();
-}
-
-function shouldUseSecureCookies(req) {
-  const mode = getCookieSecureMode();
-
-  if (mode === 'always') {
-    return true;
-  }
-
-  if (mode === 'never') {
-    return false;
-  }
-
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    .split(',')[0]
-    .trim()
-    .toLowerCase();
-  return Boolean(req.secure || forwardedProto === 'https');
-}
-
 const SETTINGS_SECRET_FIELDS = [
   'PAPERLESS_API_TOKEN',
   'OPENAI_API_KEY',
@@ -104,516 +109,8 @@ const SETTINGS_SECRET_FIELDS = [
   'OIDC_CLIENT_SECRET',
 ];
 
-function formatBytes(bytes) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const safeBytes = Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
-  if (safeBytes === 0) {
-    return '0 B';
-  }
-
-  const unitIndex = Math.min(
-    Math.floor(Math.log(safeBytes) / Math.log(1024)),
-    units.length - 1
-  );
-  const value = safeBytes / 1024 ** unitIndex;
-  const decimals = unitIndex === 0 ? 0 : 2;
-  return `${value.toFixed(decimals)} ${units[unitIndex]}`;
-}
-
-async function getThumbnailCacheStats() {
-  try {
-    const entries = await fs.readdir(THUMBNAIL_CACHE_DIR, {
-      withFileTypes: true,
-    });
-    let fileCount = 0;
-    let totalBytes = 0;
-
-    for (const entry of entries) {
-      if (!entry.isFile()) {
-        continue;
-      }
-
-      if (!/^\d+\.png$/i.test(entry.name)) {
-        continue;
-      }
-
-      const filePath = path.join(THUMBNAIL_CACHE_DIR, entry.name);
-      try {
-        const stat = await fs.stat(filePath);
-        totalBytes += stat.size;
-        fileCount += 1;
-      } catch (statError) {
-        console.warn(
-          `[WARN] Failed to read thumbnail cache file stats for ${filePath}:`,
-          statError.message
-        );
-      }
-    }
-
-    return {
-      fileCount,
-      totalBytes,
-      totalSizeHuman: formatBytes(totalBytes),
-    };
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return {
-        fileCount: 0,
-        totalBytes: 0,
-        totalSizeHuman: '0 B',
-      };
-    }
-    throw error;
-  }
-}
-
-async function clearThumbnailCache() {
-  try {
-    const entries = await fs.readdir(THUMBNAIL_CACHE_DIR, {
-      withFileTypes: true,
-    });
-    let removedFiles = 0;
-    let freedBytes = 0;
-
-    for (const entry of entries) {
-      if (!entry.isFile() || !/^\d+\.png$/i.test(entry.name)) {
-        continue;
-      }
-
-      const filePath = path.join(THUMBNAIL_CACHE_DIR, entry.name);
-      let fileSize = 0;
-
-      try {
-        const stat = await fs.stat(filePath);
-        fileSize = stat.size;
-      } catch (statError) {
-        if (statError.code !== 'ENOENT') {
-          console.warn(
-            `[WARN] Failed to stat thumbnail file before delete ${filePath}:`,
-            statError.message
-          );
-        }
-      }
-
-      try {
-        await fs.unlink(filePath);
-        removedFiles += 1;
-        freedBytes += fileSize;
-      } catch (unlinkError) {
-        if (unlinkError.code !== 'ENOENT') {
-          console.warn(
-            `[WARN] Failed to delete thumbnail cache file ${filePath}:`,
-            unlinkError.message
-          );
-        }
-      }
-    }
-
-    return {
-      removedFiles,
-      freedBytes,
-      freedSizeHuman: formatBytes(freedBytes),
-    };
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return {
-        removedFiles: 0,
-        freedBytes: 0,
-        freedSizeHuman: '0 B',
-      };
-    }
-    throw error;
-  }
-}
-
-async function removeThumbnailCacheForDocumentIds(ids) {
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return { removedFiles: 0, removedIds: [] };
-  }
-
-  const normalizedIds = ids
-    .map((id) => String(id).trim())
-    .filter((id) => /^\d+$/.test(id));
-
-  if (normalizedIds.length === 0) {
-    return { removedFiles: 0, removedIds: [] };
-  }
-
-  let removedFiles = 0;
-  const removedIds = [];
-
-  await fs.mkdir(THUMBNAIL_CACHE_DIR, { recursive: true });
-
-  for (const id of normalizedIds) {
-    const thumbnailPath = path.join(THUMBNAIL_CACHE_DIR, `${id}.png`);
-    try {
-      await fs.unlink(thumbnailPath);
-      removedFiles += 1;
-      removedIds.push(id);
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        console.warn(
-          '[WARN] Failed to delete cached thumbnail %s:',
-          thumbnailPath,
-          error.message
-        );
-      }
-    }
-  }
-
-  return { removedFiles, removedIds };
-}
-
-/**
- * Rate limiter for cache clearing operations
- * Prevents abuse of cache invalidation endpoints by limiting requests to 10 per 15 minutes per IP
- *
- * @see https://github.com/admonstrator/zettelrobbe/security/code-scanning/143
- */
-const cacheClearLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 requests per windowMs
-  message: {
-    success: false,
-    error: 'Too many cache clear requests. Please try again later.',
-    retryAfter: '15 minutes',
-  },
-  standardHeaders: true, // Return rate limit info in RateLimit-* headers
-  legacyHeaders: false, // Disable X-RateLimit-* headers
-  // Skip rate limiting for API key authenticated requests (trusted clients)
-  skip: (req) => {
-    const apiKey = req.headers['x-api-key'];
-    const currentApiKey = config.getApiKey();
-    return currentApiKey && apiKey && apiKey === currentApiKey;
-  },
-});
-
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '10', 10),
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (_req, res) => {
-    return renderLoginView(res, {
-      error:
-        'Too many login attempts. Please wait a few minutes and try again.',
-    });
-  },
-});
-
-/**
- * @swagger
- * tags:
- *   - name: Authentication
- *     description: User authentication and authorization endpoints, including login, logout, and token management
- *   - name: Documents
- *     description: Document management and processing endpoints for interacting with Paperless-ngx documents
- *   - name: History
- *     description: Document processing history and tracking of AI-generated metadata
- *   - name: Navigation
- *     description: General navigation endpoints for the web interface
- *   - name: System
- *     description: System configuration, health checks, and administrative functions
- *   - name: Setup
- *     description: Application setup and configuration endpoints
- *   - name: Metadata
- *     description: Endpoints for managing document metadata like tags, correspondents, and document types
- */
-
-/**
- * @swagger
- * components:
- *   schemas:
- *     Error:
- *       type: object
- *       properties:
- *         error:
- *           type: string
- *           description: Error message
- *           example: Error resetting documents
- *     User:
- *       type: object
- *       required:
- *         - username
- *         - password
- *       properties:
- *         username:
- *           type: string
- *           description: User's username
- *         password:
- *           type: string
- *           format: password
- *           description: User's password (will be hashed)
- *     Document:
- *       type: object
- *       properties:
- *         id:
- *           type: integer
- *           description: Document ID
- *           example: 123
- *         title:
- *           type: string
- *           description: Document title
- *           example: Invoice #12345
- *         tags:
- *           type: array
- *           items:
- *             type: integer
- *           description: Array of tag IDs
- *           example: [1, 4, 7]
- *         correspondent:
- *           type: integer
- *           description: Correspondent ID
- *           example: 5
- *     HistoryItem:
- *       type: object
- *       properties:
- *         document_id:
- *           type: integer
- *           description: Document ID
- *           example: 123
- *         title:
- *           type: string
- *           description: Document title
- *           example: Invoice #12345
- *         created_at:
- *           type: string
- *           format: date-time
- *           description: Date and time when the processing occurred
- *         tags:
- *           type: array
- *           items:
- *             $ref: '#/components/schemas/Tag'
- *         correspondent:
- *           type: string
- *           description: Document correspondent name
- *           example: Acme Corp
- *         link:
- *           type: string
- *           description: Link to the document in Paperless-ngx
- *     Tag:
- *       type: object
- *       properties:
- *         id:
- *           type: integer
- *           description: Tag ID
- *           example: 5
- *         name:
- *           type: string
- *           description: Tag name
- *           example: Invoice
- *         color:
- *           type: string
- *           description: Tag color (hex code)
- *           example: "#FF5733"
- */
-
-// Routes that don't require authentication. /auth/oidc is served by
-// routes/oidc.js, mounted ahead of this router; it is listed so the sign-in
-// callback stays reachable whatever the mount order.
-let PUBLIC_ROUTES = [
-  '/health',
-  '/login',
-  '/logout',
-  '/setup',
-  '/api/setup',
-  '/auth/oidc',
-];
-
-/**
- * Returns true if the incoming request originates from localhost.
- * Uses req.socket.remoteAddress (direct TCP connection IP) rather than
- * req.ip to remain resistant to X-Forwarded-For spoofing even when
- * trust proxy is enabled.
- */
-function isLocalRequest(req) {
-  const remoteAddr = req.socket?.remoteAddress;
-  if (!remoteAddr) {
-    return false;
-  }
-
-  return (
-    remoteAddr === '127.0.0.1' ||
-    remoteAddr === '::1' ||
-    remoteAddr === '::ffff:127.0.0.1'
-  );
-}
-
-/**
- * SECURITY GUARD: Blocks remote access to setup endpoints while the
- * initial setup is still pending (CWE-306 / GHSA-v4jq-65q5-wgjp).
- *
- * Rules (evaluated in order):
- *  1. Non-setup paths pass through unconditionally.
- *  2. Once setup is complete, the guard is lifted unconditionally.
- *  3. ALLOW_REMOTE_SETUP=yes grants explicit opt-in for remote access.
- *  4. Requests from localhost are always allowed.
- *  5. All other remote requests receive HTTP 403.
- */
-router.use(async (req, res, next) => {
-  const isSetupPath =
-    req.path === '/setup' ||
-    req.path.startsWith('/setup/') ||
-    req.path.startsWith('/api/setup');
-
-  if (!isSetupPath) {
-    return next();
-  }
-
-  try {
-    const setupOpen = await isInitialSetupOpen();
-    if (!setupOpen) {
-      // Setup already complete — no restriction needed
-      return next();
-    }
-  } catch {
-    // Fail-open here: let the next middleware handle setup-state errors
-    return next();
-  }
-
-  if (process.env.ALLOW_REMOTE_SETUP === 'yes') {
-    return next();
-  }
-
-  if (isLocalRequest(req)) {
-    return next();
-  }
-
-  // Remote client on an open fresh instance — block
-  const isApiPath = req.path.startsWith('/api/setup');
-  if (isApiPath) {
-    return res.status(403).json({
-      success: false,
-      error:
-        'Remote access to the setup API is disabled. ' +
-        'Set ALLOW_REMOTE_SETUP=yes to enable it, or complete setup from localhost.',
-    });
-  }
-
-  return res
-    .status(403)
-    .type('text/html')
-    .send(
-      '<html><head><title>Setup Restricted</title></head><body>' +
-        '<h1>403 – Remote Setup Access Denied</h1>' +
-        '<p>Initial setup is only accessible from localhost by default.</p>' +
-        '<p>Set <code>ALLOW_REMOTE_SETUP=yes</code> to enable remote access, ' +
-        'or connect from the machine running zettelrobbe.</p>' +
-        '</body></html>'
-    );
-});
-
-// Combined middleware to check authentication and setup
-router.use(async (req, res, next) => {
-  const token = req.cookies.jwt || req.headers.authorization?.split(' ')[1];
-  const apiKey = req.headers['x-api-key'];
-  const currentApiKey = config.getApiKey();
-  const jwtSecret = config.getJwtSecret();
-
-  // Public route check
-  if (PUBLIC_ROUTES.some((route) => req.path.startsWith(route))) {
-    return next();
-  }
-
-  // API key authentication
-  if (currentApiKey && apiKey && apiKey === currentApiKey) {
-    req.user = { apiKey: true };
-  } else {
-    // Fallback to JWT authentication
-    if (!jwtSecret) {
-      return res
-        .status(500)
-        .send('Server misconfiguration: JWT secret missing');
-    }
-
-    if (!token) {
-      return res.redirect('/login');
-    }
-
-    const decoded = verifySessionToken(token, jwtSecret);
-    if (!decoded) {
-      res.clearCookie('jwt');
-      return res.redirect('/login');
-    }
-    req.user = decoded;
-  }
-
-  // Setup check
-  try {
-    const isConfigured = await setupService.isConfigured();
-
-    if (!isConfigured) {
-      // The wizard is only for an empty instance. Once an administrator
-      // exists, an incomplete configuration is an administration job, so send
-      // the signed-in user to /settings instead of to the closed wizard —
-      // PAPERLESS_AI_INITIAL_SETUP=yes has always done exactly that.
-      const hasUsers = await hasAnyUser();
-
-      if (hasUsers || process.env.PAPERLESS_AI_INITIAL_SETUP === 'yes') {
-        if (!req.path.startsWith('/settings')) {
-          return res.redirect('/settings');
-        }
-      } else if (!req.path.startsWith('/setup')) {
-        return res.redirect('/setup');
-      }
-    }
-  } catch (error) {
-    console.error('Error checking setup configuration:', error);
-    return res.status(500).send('Internal Server Error');
-  }
-
-  next();
-});
-
-// Protected route middleware for API endpoints
-const protectApiRoute = (req, res, next) => {
-  const token = req.cookies.jwt || req.headers.authorization?.split(' ')[1];
-  const jwtSecret = config.getJwtSecret();
-
-  if (!jwtSecret) {
-    return res
-      .status(500)
-      .json({ message: 'Server misconfiguration: JWT secret missing' });
-  }
-
-  if (!token) {
-    return res.status(401).json({ message: 'Authentication required' });
-  }
-
-  const decoded = verifySessionToken(token, jwtSecret);
-  if (!decoded) {
-    return res.status(403).json({ message: 'Invalid or expired token' });
-  }
-
-  req.user = decoded;
-  next();
-};
-
-/**
- * True when the request carries a usable session token. For public routes such
- * as /setup, which run before any guard has looked at the request and therefore
- * never see req.user.
- */
-function hasValidSession(req) {
-  const jwtSecret = config.getJwtSecret();
-  const token = req.cookies?.jwt || req.headers.authorization?.split(' ')[1];
-
-  return Boolean(jwtSecret && token && verifySessionToken(token, jwtSecret));
-}
-
-/**
- * True when a public route is called with a usable session or the API key.
- * Like hasValidSession(), for routes the authentication guard lets through.
- */
-function isAuthenticatedCaller(req) {
-  const currentApiKey = config.getApiKey();
-  const apiKey = req.headers['x-api-key'];
-  if (currentApiKey && apiKey && apiKey === currentApiKey) {
-    return true;
-  }
-
-  return hasValidSession(req);
-}
+router.use(remoteSetupGuard);
+router.use(authGate);
 
 /**
  * @swagger
@@ -652,228 +149,6 @@ function isAuthenticatedCaller(req) {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-const MFA_CHALLENGE_COOKIE = 'mfa_challenge';
-const MFA_SETUP_COOKIE = 'mfa_setup';
-const TOTP_STEP_SECONDS = 30;
-const TOTP_DIGITS = 6;
-const TOTP_WINDOW = 1;
-
-function decodeBase32Secret(secret) {
-  const normalized = String(secret || '')
-    .toUpperCase()
-    .replace(/=+$/g, '')
-    .replace(/[^A-Z2-7]/g, '');
-
-  if (!normalized) {
-    return null;
-  }
-
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = '';
-
-  for (const char of normalized) {
-    const value = alphabet.indexOf(char);
-    if (value === -1) {
-      return null;
-    }
-    bits += value.toString(2).padStart(5, '0');
-  }
-
-  const bytes = [];
-  for (let i = 0; i + 8 <= bits.length; i += 8) {
-    bytes.push(parseInt(bits.slice(i, i + 8), 2));
-  }
-
-  return bytes.length > 0 ? Buffer.from(bytes) : null;
-}
-
-function generateTotpToken(secret, unixTimeSeconds) {
-  const key = decodeBase32Secret(secret);
-  if (!key) {
-    return null;
-  }
-
-  const counter = Math.floor(unixTimeSeconds / TOTP_STEP_SECONDS);
-  const buffer = Buffer.alloc(8);
-  buffer.writeBigUInt64BE(BigInt(counter));
-
-  const hmac = crypto.createHmac('sha1', key).update(buffer).digest();
-  const offset = hmac[hmac.length - 1] & 0x0f;
-  const code =
-    ((hmac[offset] & 0x7f) << 24) |
-    ((hmac[offset + 1] & 0xff) << 16) |
-    ((hmac[offset + 2] & 0xff) << 8) |
-    (hmac[offset + 3] & 0xff);
-
-  return String(code % 10 ** TOTP_DIGITS).padStart(TOTP_DIGITS, '0');
-}
-
-function generateBase32Secret(length = 32) {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const bytes = crypto.randomBytes(length);
-  let output = '';
-
-  for (let i = 0; i < length; i += 1) {
-    // The alphabet holds exactly 32 characters, so masking the low 5 bits maps
-    // each random byte onto it uniformly instead of relying on a biased modulo.
-    output += alphabet[bytes[i] & 0x1f];
-  }
-
-  return output;
-}
-
-function buildOtpAuthUri(secret, username) {
-  const issuer = 'Zettelrobbe';
-  const accountLabel = `${issuer}:${username}`;
-  const params = new URLSearchParams({
-    secret,
-    issuer,
-    algorithm: 'SHA1',
-    digits: String(TOTP_DIGITS),
-    period: String(TOTP_STEP_SECONDS),
-  });
-
-  return `otpauth://totp/${encodeURIComponent(accountLabel)}?${params.toString()}`;
-}
-
-function getAuthenticatedSettingsUsername(req) {
-  if (!req.user || req.user.apiKey) {
-    return null;
-  }
-
-  if (typeof req.user.username === 'string' && req.user.username.trim()) {
-    return req.user.username.trim();
-  }
-
-  return null;
-}
-
-/**
- * Returns the TOTP time step the code belongs to, or null when the code does
- * not match any step inside the accepted window.
- *
- * @param {string} secret - base32 TOTP secret
- * @param {string} inputToken - the code the user typed
- * @returns {number|null}
- */
-function findTotpStep(secret, inputToken) {
-  const normalizedInput = String(inputToken || '').replace(/\s+/g, '');
-  if (!/^\d{6,8}$/.test(normalizedInput)) {
-    return null;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  for (let offset = -TOTP_WINDOW; offset <= TOTP_WINDOW; offset += 1) {
-    const unixTimeSeconds = now + offset * TOTP_STEP_SECONDS;
-    const expected = generateTotpToken(secret, unixTimeSeconds);
-    if (!expected || expected.length !== normalizedInput.length) {
-      continue;
-    }
-
-    if (
-      crypto.timingSafeEqual(
-        Buffer.from(expected),
-        Buffer.from(normalizedInput)
-      )
-    ) {
-      return Math.floor(unixTimeSeconds / TOTP_STEP_SECONDS);
-    }
-  }
-
-  return null;
-}
-
-function verifyTotpToken(secret, inputToken) {
-  return findTotpStep(secret, inputToken) !== null;
-}
-
-// Last accepted TOTP time step per username. RFC 6238 section 5.2: once a
-// code has been accepted, the verifier must not accept it again. Kept in
-// memory: a restart forgets it, and the window it protects is 90 seconds.
-const lastAcceptedTotpSteps = new Map();
-
-/**
- * Verifies a TOTP code and consumes it, so the same code (or an older one)
- * is refused for that user until a newer time step comes up. For actions a
- * captured code must not be able to repeat: signing in, enabling and
- * disabling MFA.
- *
- * @param {string} username - the account the code is for
- * @param {string} secret - base32 TOTP secret
- * @param {string} inputToken - the code the user typed
- * @returns {boolean}
- */
-function consumeTotpToken(username, secret, inputToken) {
-  const step = findTotpStep(secret, inputToken);
-  if (step === null) {
-    return false;
-  }
-
-  const key = String(username || '').toLowerCase();
-  const lastStep = lastAcceptedTotpSteps.get(key);
-  if (lastStep !== undefined && step <= lastStep) {
-    return false;
-  }
-
-  lastAcceptedTotpSteps.set(key, step);
-  return true;
-}
-
-function renderLoginView(res, options = {}) {
-  return res.render('login', {
-    error: options.error || null,
-    mfaRequired: Boolean(options.mfaRequired),
-    username: options.username || '',
-    sso: oidcService.getLoginButton(),
-  });
-}
-
-function isMfaEnabledForUser(user) {
-  return Boolean(user && (user.mfa_enabled || user.mfaEnabled));
-}
-
-/* Cost the setup wizard hashes the administrator password with. */
-const ADMIN_PASSWORD_BCRYPT_ROUNDS = 15;
-const dummyPasswordHashes = new Map();
-
-/**
- * Spends the same bcrypt work on a failed username lookup as on a real
- * password check, so the response time no longer tells an attacker whether
- * the username exists (CWE-208). The dummy hash uses the cost of the stored
- * account when there is one, because the comparison time grows with it.
- *
- * @param {*} password - the submitted password
- * @returns {Promise<void>}
- */
-async function spendPasswordCheckTime(password) {
-  let rounds = ADMIN_PASSWORD_BCRYPT_ROUNDS;
-  try {
-    const users = await documentModel.getUsers();
-    const storedHash = users?.[0]?.password;
-    if (storedHash) {
-      rounds = bcrypt.getRounds(storedHash);
-    }
-  } catch {
-    // Keep the default cost.
-  }
-
-  if (!dummyPasswordHashes.has(rounds)) {
-    dummyPasswordHashes.set(
-      rounds,
-      bcrypt.hash(crypto.randomBytes(32).toString('hex'), rounds)
-    );
-  }
-
-  try {
-    await bcrypt.compare(
-      String(password ?? ''),
-      await dummyPasswordHashes.get(rounds)
-    );
-  } catch {
-    // Only the elapsed time matters here.
-  }
-}
-
 router.get('/login', (req, res) => {
   //check if a user exists beforehand
   documentModel.getUsers().then((users) => {
@@ -1004,22 +279,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         });
       }
 
-      const token = jwt.sign(
-        {
-          id: user.id,
-          username: user.username,
-          typ: SESSION_TOKEN_TYPE,
-        },
-        jwtSecret,
-        { expiresIn: '24h' }
-      );
-      res.cookie('jwt', token, {
-        httpOnly: true,
-        secure: shouldUseSecureCookies(req),
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 24 * 60 * 60 * 1000,
-      });
+      issueSessionCookie(req, res, user, jwtSecret);
       res.clearCookie(MFA_CHALLENGE_COOKIE);
       return res.redirect('/dashboard');
     }
@@ -1060,22 +320,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         });
       }
 
-      const token = jwt.sign(
-        {
-          id: user.id,
-          username: user.username,
-          typ: SESSION_TOKEN_TYPE,
-        },
-        jwtSecret,
-        { expiresIn: '24h' }
-      );
-      res.cookie('jwt', token, {
-        httpOnly: true,
-        secure: shouldUseSecureCookies(req),
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 24 * 60 * 60 * 1000,
-      });
+      issueSessionCookie(req, res, user, jwtSecret);
 
       return res.redirect('/dashboard');
     } else {
@@ -1124,7 +369,7 @@ router.post('/login', loginLimiter, async (req, res) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/logout', (req, res) => {
-  res.clearCookie('jwt');
+  clearSessionCookie(res);
   res.clearCookie(MFA_CHALLENGE_COOKIE);
   res.clearCookie(MFA_SETUP_COOKIE);
   res.redirect('/login');
@@ -2164,7 +1409,9 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
         .json({ success: false, error: 'Invalid document ID' });
     }
 
-    const { queued } = await rescanDocumentsByIds([documentId]);
+    const { queued } = await webhookQueueService.rescanDocumentsByIds([
+      documentId,
+    ]);
 
     // Not queued means the document could not be resolved in Paperless-ngx.
     // Nothing was deleted in that case, so this is an honest 404 rather than
@@ -2253,7 +1500,8 @@ router.post('/api/history/rescan', isAuthenticated, async (req, res) => {
         .json({ success: false, error: 'Invalid document IDs' });
     }
 
-    const { queued, notFound } = await rescanDocumentsByIds(ids);
+    const { queued, notFound } =
+      await webhookQueueService.rescanDocumentsByIds(ids);
     res.json({ success: true, queued, notFound });
   } catch (error) {
     console.error('[ERROR] /api/history/rescan:', error);
@@ -2976,8 +2224,7 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
     // token and never needs the numeric user ID. The guard that used to sit
     // here failed a scan with an unlogged 500 whenever PAPERLESS_USERNAME did
     // not match a name in /api/users/ (issue #305).
-    const triggerScanNow = global.__paperlessAiTriggerScanNow;
-    if (typeof triggerScanNow !== 'function') {
+    if (!scanControl.canTriggerScan()) {
       return res.status(503).json({
         success: false,
         error:
@@ -2985,7 +2232,7 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
       });
     }
 
-    const result = await triggerScanNow('api-manual');
+    const result = await scanControl.triggerScanNow('api-manual');
     return res.json({
       success: true,
       ...result,
@@ -3034,13 +2281,7 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
  */
 router.post('/api/scan/stop', isAuthenticated, async (req, res) => {
   try {
-    const requestScanStop = global.__paperlessAiRequestScanStop;
-    const scanState = global.__paperlessAiScanControl || {
-      running: false,
-      stopRequested: false,
-    };
-
-    if (typeof requestScanStop !== 'function') {
+    if (!scanControl.canRequestStop()) {
       return res.status(503).json({
         success: false,
         error:
@@ -3048,7 +2289,8 @@ router.post('/api/scan/stop', isAuthenticated, async (req, res) => {
       });
     }
 
-    const requested = requestScanStop();
+    const requested = scanControl.requestScanStop();
+    const scanState = scanControl.getState();
     return res.json({
       success: true,
       running: Boolean(scanState.running),
@@ -3065,194 +2307,6 @@ router.post('/api/scan/stop', isAuthenticated, async (req, res) => {
     });
   }
 });
-
-async function processDocument(
-  doc,
-  existingTags,
-  existingCorrespondentList,
-  existingDocumentTypesList,
-  customPrompt = null,
-  { applySkipRules = false } = {}
-) {
-  const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-  if (isProcessed) {
-    console.log(
-      `[DEBUG] Document ${doc.id} already in processed_documents — skipping. Remove via Rescan to reprocess.`
-    );
-    return null;
-  }
-
-  const isFailed = await documentModel.isDocumentFailed(doc.id);
-  if (isFailed) {
-    console.log(
-      `[DEBUG] Document ${doc.id} is marked as permanently failed, skipping until reset`
-    );
-    return null;
-  }
-
-  await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
-
-  const documentEditable = await paperlessService.getPermissionOfDocument(
-    doc.id
-  );
-  if (!documentEditable) {
-    console.log(
-      `[DEBUG] Document belongs to: ${documentEditable}, skipping analysis`
-    );
-    console.log(
-      `[DEBUG] Document ${doc.id} Not Editable by Paper-Ai User, skipping analysis`
-    );
-    return null;
-  } else {
-    console.log(`[DEBUG] Document ${doc.id} rights for AI User - processed`);
-  }
-
-  let [content, originalData] = await Promise.all([
-    paperlessService.getDocumentContent(doc.id),
-    paperlessService.getDocument(doc.id),
-  ]);
-
-  // A webhook delivers what Paperless-ngx just consumed, so the ignored list
-  // and the skip rules hold here as in the scan. A rescan asked for by hand
-  // passes both.
-  if (applySkipRules) {
-    if (await documentModel.isDocumentIgnored(doc.id)) {
-      await documentModel.clearProcessingStatusByDocumentId(doc.id);
-      console.log(
-        `[DEBUG] Document ${doc.id} is on the ignored list, skipping`
-      );
-      return null;
-    }
-    if (await skipRuleService.apply(originalData || doc, content)) {
-      return null;
-    }
-  }
-
-  const minContentLength = config.minContentLength;
-  if (!content || content.length < minContentLength) {
-    console.log(
-      `[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${minContentLength}), skipping analysis`
-    );
-    if (mistralOcrService.isEnabled()) {
-      const added = await documentModel.addToOcrQueue(
-        doc.id,
-        doc.title,
-        `short_content_lt_${minContentLength}`
-      );
-      if (added) {
-        console.log(
-          `[OCR] Document ${doc.id} queued for Mistral OCR (short_content)`
-        );
-      }
-    } else {
-      await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(
-        doc.id,
-        doc.title,
-        `insufficient_content_lt_${minContentLength}`,
-        'ai'
-      );
-    }
-    return null;
-  }
-
-  if (content.length > 50000) {
-    content = content.substring(0, 50000);
-  }
-
-  // Prepare options for AI service
-  const options = {
-    restrictToExistingTags: config.restrictToExistingTags === 'yes',
-    restrictToExistingCorrespondents:
-      config.restrictToExistingCorrespondents === 'yes',
-  };
-
-  // Get external API data if enabled
-  if (config.externalApiConfig.enabled === 'yes') {
-    try {
-      const externalApiService = require('../services/externalApiService');
-      const externalData = await externalApiService.fetchData();
-      if (externalData) {
-        options.externalApiData = externalData;
-        console.log(
-          '[DEBUG] Retrieved external API data for prompt enrichment'
-        );
-      }
-    } catch (error) {
-      console.error(
-        '[ERROR] Failed to fetch external API data:',
-        error.message
-      );
-    }
-  }
-
-  const aiService = AIServiceFactory.getService();
-  let analysis;
-  if (customPrompt) {
-    console.log('[DEBUG] Starting document analysis with custom prompt');
-    analysis = await aiService.analyzeDocument(
-      content,
-      existingTags,
-      existingCorrespondentList,
-      existingDocumentTypesList,
-      doc.id,
-      customPrompt,
-      options
-    );
-  } else {
-    analysis = await aiService.analyzeDocument(
-      content,
-      existingTags,
-      existingCorrespondentList,
-      existingDocumentTypesList,
-      doc.id,
-      null,
-      options
-    );
-  }
-  console.log('Repsonse from AI service:', analysis);
-  if (analysis.error) {
-    let queuedForOcr = false;
-    if (
-      mistralOcrService.isEnabled() &&
-      shouldQueueForOcrOnAiError(analysis.error)
-    ) {
-      const queueReason = classifyOcrQueueReasonFromAiError(analysis.error);
-      const added = await documentModel.addToOcrQueue(
-        doc.id,
-        doc.title,
-        queueReason
-      );
-      if (added) {
-        console.log(
-          `[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${analysis.error})`
-        );
-      }
-      queuedForOcr = true;
-    }
-
-    if (!mistralOcrService.isEnabled()) {
-      await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(
-        doc.id,
-        doc.title,
-        'ai_failed_ocr_disabled',
-        'ai'
-      );
-    } else if (!queuedForOcr) {
-      await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(
-        doc.id,
-        doc.title,
-        'ai_failed_without_ocr_fallback',
-        'ai'
-      );
-    }
-    throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
-  }
-  await documentModel.setProcessingStatus(doc.id, doc.title, 'complete');
-  return { analysis, originalData };
-}
 
 /**
  * @swagger
@@ -3365,9 +2419,6 @@ const normalizeArray = (value) => {
   return [];
 };
 
-const SETUP_MFA_CHALLENGE_TTL_MS = 10 * 60 * 1000;
-const setupMfaChallenges = new Map();
-
 const DEFAULT_AI_PROVIDER_PRESETS = [
   {
     id: 'openai-default',
@@ -3428,15 +2479,6 @@ function getAnthropicFormOptions() {
   };
 }
 
-function cleanupExpiredSetupMfaChallenges() {
-  const now = Date.now();
-  for (const [challengeId, challenge] of setupMfaChallenges.entries()) {
-    if (now - challenge.createdAt > SETUP_MFA_CHALLENGE_TTL_MS) {
-      setupMfaChallenges.delete(challengeId);
-    }
-  }
-}
-
 function normalizeSetupBaseUrl(url) {
   return stripTrailingSlashes(String(url || '').trim()).replace(/\/api$/, '');
 }
@@ -3486,38 +2528,6 @@ function normalizeTagListInput(value) {
 
 function getDefaultScanInterval() {
   return process.env.SCAN_INTERVAL || '*/30 * * * *';
-}
-
-/* The answer only ever flips once, from "no users" to "users exist": the setup
-   wizard is the only thing that creates the first account, and addUser() never
-   leaves the table empty. Caching the positive answer keeps the global guard,
-   which asks on every single request, from hitting SQLite each time. The
-   negative answer is not cached, so a fresh instance still notices the moment
-   the wizard finishes. */
-let cachedUsersExist = false;
-
-async function hasAnyUser() {
-  if (cachedUsersExist) {
-    return true;
-  }
-
-  const users = await documentModel.getUsers();
-  cachedUsersExist = Array.isArray(users) && users.length > 0;
-  return cachedUsersExist;
-}
-
-/**
- * True only while the instance has no administrator account.
- *
- * Deliberately independent of setupService.isConfigured(): an incomplete
- * configuration used to reopen the wizard on an instance that already had an
- * admin, and an unauthenticated POST /api/setup/complete then replaced that
- * admin (addUser() runs DELETE FROM users first) and repointed the
- * Paperless-ngx connection. Missing configuration is now an administration
- * job, handled in /settings by a signed-in user.
- */
-async function isInitialSetupOpen() {
-  return !(await hasAnyUser());
 }
 
 async function ensureSetupOpenOrRespond(
@@ -6770,164 +5780,6 @@ router.get('/api/tagsCount', isAuthenticated, async (req, res) => {
   res.json(tags);
 });
 
-const documentQueue = [];
-let isProcessing = false;
-
-function extractDocumentId(url) {
-  const match = url.match(/\/documents\/(\d+)\//);
-  if (match && match[1]) {
-    return parseInt(match[1], 10);
-  }
-  throw new Error('Could not extract document ID from URL');
-}
-
-async function processQueue(customPrompt) {
-  if (customPrompt) {
-    console.log('Using custom prompt:', customPrompt);
-  }
-
-  if (isProcessing || documentQueue.length === 0) return;
-
-  isProcessing = true;
-
-  try {
-    const isConfigured = await setupService.isConfigured();
-    if (!isConfigured) {
-      console.log(
-        `Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`
-      );
-      return;
-    }
-
-    // No own-user-ID lookup here: it was resolved, threaded through two call
-    // frames and dropped, since processDocument() never reads it. It also used
-    // to gate the queue — an unresolvable ID aborted manual processing
-    // outright (issue #305) — so this drops the guard, the request and the
-    // warning it would now log once per run.
-    const [existingTags, existingCorrespondentList, existingDocumentTypes] =
-      await Promise.all([
-        paperlessService.getTags(),
-        paperlessService.listCorrespondentsNames(),
-        paperlessService.listDocumentTypesNames(),
-      ]);
-
-    // The paperlessService helpers return entity objects, so every list has to
-    // be reduced to plain names before it reaches the AI services — otherwise
-    // the "Pre-existing ..." prompt blocks render as "[object Object]".
-    const existingTagNames = toNameList(existingTags);
-    const existingCorrespondentNames = toNameList(existingCorrespondentList);
-    const existingDocumentTypesList = toNameList(existingDocumentTypes);
-
-    while (documentQueue.length > 0) {
-      const { document: doc, applySkipRules } = documentQueue.shift();
-
-      try {
-        const result = await processDocument(
-          doc,
-          existingTagNames,
-          existingCorrespondentNames,
-          existingDocumentTypesList,
-          customPrompt,
-          { applySkipRules }
-        );
-        if (!result) continue;
-
-        const { analysis, originalData } = result;
-        const updateData = await documentProcessingService.buildUpdateData(
-          analysis,
-          doc
-        );
-        await documentProcessingService.saveDocumentChanges(
-          doc.id,
-          updateData,
-          analysis,
-          originalData
-        );
-      } catch (error) {
-        console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('[ERROR] Error during queue processing:', error);
-  } finally {
-    isProcessing = false;
-
-    if (documentQueue.length > 0) {
-      processQueue();
-    }
-  }
-}
-
-/**
- * Reprocess specific documents by ID, bypassing the scan tag/filter rules.
- *
- * Clears the local processed_documents record (so the processDocument() gate
- * lets them through) and enqueues each document for direct AI processing via
- * the shared documentQueue — regardless of whether it still carries the
- * configured trigger tag. Processing runs in the background (fire-and-forget)
- * so callers get a fast response.
- *
- * Fetch first, delete second. deleteDocumentsIdList() also clears
- * original_documents, which holds the only copy of a document's pre-AI title,
- * tags and correspondent — the thing "restore original" restores from. Deleting
- * it before knowing whether the document can be fetched meant a rescan started
- * during a Paperless-ngx restart destroyed that snapshot for every selected
- * document and then reported success. Now a document that cannot be resolved
- * costs nothing: its records stay untouched and it comes back in `notFound`.
- *
- * @param {Array<number|string>} ids - Document IDs to reprocess.
- * @returns {Promise<{queued: number, notFound: number[]}>}
- */
-async function rescanDocumentsByIds(ids) {
-  const numericIds = (Array.isArray(ids) ? ids : [])
-    .map((id) => parseInt(id, 10))
-    .filter((id) => Number.isInteger(id) && id > 0);
-
-  if (numericIds.length === 0) {
-    return { queued: 0, notFound: [] };
-  }
-
-  const notFound = [];
-  const resolvedDocuments = [];
-
-  for (const id of numericIds) {
-    try {
-      const document = await paperlessService.getDocument(id);
-      if (!document) {
-        notFound.push(id);
-        continue;
-      }
-      resolvedDocuments.push({ id, document });
-    } catch (error) {
-      console.error(
-        `[ERROR] Failed to fetch document ${id} for rescan:`,
-        error.message
-      );
-      notFound.push(id);
-    }
-  }
-
-  if (resolvedDocuments.length === 0) {
-    return { queued: 0, notFound };
-  }
-
-  // Drop the local "already processed" record so the gate in processDocument()
-  // no longer skips these documents — only for the ones that really exist.
-  const resolvedIds = resolvedDocuments.map((entry) => entry.id);
-  await documentModel.deleteDocumentsIdList(resolvedIds);
-  await removeThumbnailCacheForDocumentIds(resolvedIds);
-
-  for (const entry of resolvedDocuments) {
-    documentQueue.push({ document: entry.document, applySkipRules: false });
-  }
-  const queued = resolvedDocuments.length;
-
-  // Fire-and-forget: the HTTP response should not wait for AI processing.
-  processQueue();
-
-  return { queued, notFound };
-}
-
 /**
  * @swagger
  * /api/webhook/document:
@@ -7028,25 +5880,25 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
     }
 
     try {
-      const documentId = extractDocumentId(url);
+      const documentId = webhookQueueService.extractDocumentId(url);
       const document = await paperlessService.getDocument(documentId);
 
       if (!document) {
         return res.status(404).send(`Document with ID ${documentId} not found`);
       }
 
-      documentQueue.push({ document, applySkipRules: true });
+      webhookQueueService.enqueue(document, { applySkipRules: true });
       if (prompt) {
         console.log('[DEBUG] Using custom prompt:', prompt);
-        await processQueue(prompt);
+        await webhookQueueService.processQueue(prompt);
       } else {
-        await processQueue();
+        await webhookQueueService.processQueue();
       }
 
       res.status(202).send({
         message: 'Document accepted for processing',
         documentId: documentId,
-        queuePosition: documentQueue.length,
+        queuePosition: webhookQueueService.getQueueLength(),
       });
     } catch (error) {
       console.error(
@@ -8451,7 +7303,7 @@ router.post(
  */
 function buildScannerHealthSnapshot() {
   const scanner = scanHealthService.getState();
-  const scanState = global.__paperlessAiScanControl || {};
+  const scanState = scanControl.getState();
 
   return {
     scanner: {
@@ -10404,7 +9256,7 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
 router.get('/api/processing-status', isAuthenticated, async (req, res) => {
   try {
     const status = await documentModel.getCurrentProcessingStatus();
-    const scanState = global.__paperlessAiScanControl || {};
+    const scanState = scanControl.getState();
     res.json({
       ...status,
       isScanning: Boolean(scanState.running),
@@ -14371,37 +13223,6 @@ router.put('/api/simplify/vocabulary', isAuthenticated, async (req, res) => {
     return respondDuplicatesError(res, 'PUT /api/simplify/vocabulary', error);
   }
 });
-
-/**
- * @swagger
- * components:
- *   schemas:
- *     TagVocabularyDocumentType:
- *       type: object
- *       description: |
- *         One document type of the Paperless-ngx instance, as the picker on
- *         the "Simplify tags" page offers it.
- *       properties:
- *         id:
- *           type: integer
- *           description: The id in Paperless-ngx
- *           example: 7
- *         name:
- *           type: string
- *           description: The name, exactly as Paperless-ngx spells it
- *           example: Rechnung
- *         documentCount:
- *           type: integer
- *           description: How many documents carry this type
- *           example: 128
- *         inVocabulary:
- *           type: boolean
- *           description: |
- *             True when the saved vocabulary holds a document type of exactly
- *             this name. Names in Paperless-ngx are case sensitive, so the
- *             comparison is too.
- *           example: true
- */
 
 /**
  * @swagger

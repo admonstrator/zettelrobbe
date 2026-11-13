@@ -322,7 +322,7 @@ async function main() {
   await test('scan loop, queue and OCR call the shared write-back', async () => {
     const files = [
       'server.js',
-      path.join('routes', 'setup.js'),
+      path.join('services', 'webhookQueueService.js'),
       path.join('services', 'mistralOcrService.js'),
     ];
     files.forEach((file) => {

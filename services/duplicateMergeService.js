@@ -47,6 +47,7 @@ const paperlessService = require('./paperlessService');
 const documentModel = require('../models/document');
 const dashboardStatsService = require('./dashboardStatsService');
 const entityNameMatcher = require('./entityNameMatcher');
+const scanControl = require('./scanControl');
 
 const { KINDS, KIND_LIST, DEFAULT_THRESHOLD, MATCHING_ALGORITHM_NONE } =
   entityNameMatcher;
@@ -181,12 +182,13 @@ function createPayloadFrom(kind, snapshot) {
 
 /**
  * True while the document scan of server.js runs. The scan keeps its state
- * on the global so its stop button can reach it; here it is only read.
+ * in services/scanControl.js so its stop button can reach it; here it is
+ * only read.
  *
  * @returns {boolean}
  */
 function scanRunning() {
-  return global.__paperlessAiScanControl?.running === true;
+  return scanControl.isRunning();
 }
 
 class DuplicateMergeService {
@@ -266,7 +268,7 @@ class DuplicateMergeService {
    * @returns {boolean}
    */
   _isScanRunning() {
-    return Boolean(global.__paperlessAiScanControl?.running);
+    return scanControl.isRunning();
   }
 
   _assertScanIdle() {

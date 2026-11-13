@@ -24,6 +24,7 @@ const reconciliationService = require('./services/reconciliationService');
 const scanHealthService = require('./services/scanHealthService');
 const dashboardStatsService = require('./services/dashboardStatsService');
 const documentProcessingService = require('./services/documentProcessingService');
+const scanControlService = require('./services/scanControl');
 const { RUN_STATUS } = scanHealthService;
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -65,14 +66,9 @@ const app = express();
 // DataTables server-side processing. Restore the Express 4 "extended" (qs)
 // parser so req.query.order/columns are objects again and table sorting works.
 app.set('query parser', 'extended');
-const scanControl = global.__paperlessAiScanControl || {
-  running: false,
-  stopRequested: false,
-  source: null,
-  startedAt: null,
-  stopRequestedAt: null,
-};
-global.__paperlessAiScanControl = scanControl;
+// The one scan state, owned by services/scanControl.js: the loop below writes
+// to it, routes and services read it from there.
+const scanControl = scanControlService.getState();
 
 function requestScanStop() {
   if (!scanControl.running) {
@@ -139,8 +135,7 @@ async function triggerScanNow(source = 'manual') {
   };
 }
 
-global.__paperlessAiTriggerScanNow = triggerScanNow;
-global.__paperlessAiRequestScanStop = requestScanStop;
+scanControlService.register({ triggerScanNow, requestScanStop });
 
 function persistJwtSecret(secret) {
   const runtimeDataDir = path.join(process.cwd(), 'data');

@@ -176,6 +176,9 @@ const TESTS = {
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
+  'mfa-service': 'test-mfa-service.js',
+  'session-cookie': 'test-session-cookie.js',
+  'scan-control': 'test-scan-control.js',
 };
 
 const AREAS = {
@@ -187,6 +190,8 @@ const AREAS = {
     'session-guard',
     'oidc-sso',
     'settings-oidc',
+    'mfa-service',
+    'session-cookie',
   ],
   ocr: [
     'ocr-fallback-ai-errors',
@@ -259,6 +264,7 @@ const AREAS = {
     'reconciliation-service',
     'settings-paperless-url-fallback',
     'rescan-fetch-before-delete',
+    'scan-control',
   ],
   prompts: [
     'restriction-service',

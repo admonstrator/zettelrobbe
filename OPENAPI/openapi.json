@@ -71,6 +71,41 @@
           }
         }
       },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "User's username",
+            "example": "admin"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "User's password",
+            "example": "securePassword123"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT token for authentication",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          },
+          "expiresIn": {
+            "type": "string",
+            "description": "Token expiration time",
+            "example": "24h"
+          }
+        }
+      },
       "Document": {
         "type": "object",
         "properties": {
@@ -128,135 +163,6 @@
               "$ref": "#/components/schemas/CustomField"
             },
             "description": "Custom field values for the document"
-          }
-        }
-      },
-      "HistoryItem": {
-        "type": "object",
-        "properties": {
-          "document_id": {
-            "type": "integer",
-            "description": "Document ID",
-            "example": 123
-          },
-          "title": {
-            "type": "string",
-            "description": "Document title",
-            "example": "Invoice"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Date and time when the processing occurred",
-            "example": "2023-12-15T10:30:00Z"
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Tag"
-            }
-          },
-          "correspondent": {
-            "type": "string",
-            "description": "Document correspondent name",
-            "example": "Acme Corp"
-          },
-          "link": {
-            "type": "string",
-            "description": "Link to the document in Paperless-ngx",
-            "example": "http://paperless.example.com/documents/123/"
-          }
-        }
-      },
-      "Tag": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer",
-            "description": "Tag ID",
-            "example": 5
-          },
-          "name": {
-            "type": "string",
-            "description": "Tag name",
-            "example": "Invoice"
-          },
-          "color": {
-            "type": "string",
-            "description": "Tag color (hex code)",
-            "example": "#FF5733"
-          },
-          "match": {
-            "type": "string",
-            "enum": [
-              "ANY",
-              "ALL",
-              "LITERAL",
-              "REGEX"
-            ],
-            "description": "Tag matching algorithm",
-            "example": "ANY"
-          }
-        }
-      },
-      "TagVocabularyDocumentType": {
-        "type": "object",
-        "description": "One document type of the Paperless-ngx instance, as the picker on\nthe \"Simplify tags\" page offers it.\n",
-        "properties": {
-          "id": {
-            "type": "integer",
-            "description": "The id in Paperless-ngx",
-            "example": 7
-          },
-          "name": {
-            "type": "string",
-            "description": "The name, exactly as Paperless-ngx spells it",
-            "example": "Rechnung"
-          },
-          "documentCount": {
-            "type": "integer",
-            "description": "How many documents carry this type",
-            "example": 128
-          },
-          "inVocabulary": {
-            "type": "boolean",
-            "description": "True when the saved vocabulary holds a document type of exactly\nthis name. Names in Paperless-ngx are case sensitive, so the\ncomparison is too.\n",
-            "example": true
-          }
-        }
-      },
-      "LoginRequest": {
-        "type": "object",
-        "required": [
-          "username",
-          "password"
-        ],
-        "properties": {
-          "username": {
-            "type": "string",
-            "description": "User's username",
-            "example": "admin"
-          },
-          "password": {
-            "type": "string",
-            "format": "password",
-            "description": "User's password",
-            "example": "securePassword123"
-          }
-        }
-      },
-      "LoginResponse": {
-        "type": "object",
-        "properties": {
-          "token": {
-            "type": "string",
-            "description": "JWT token for authentication",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-          },
-          "expiresIn": {
-            "type": "string",
-            "description": "Token expiration time",
-            "example": "24h"
           }
         }
       },
@@ -411,6 +317,74 @@
             "type": "string",
             "description": "Error message if analysis failed",
             "example": null
+          }
+        }
+      },
+      "Tag": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Tag ID",
+            "example": 5
+          },
+          "name": {
+            "type": "string",
+            "description": "Tag name",
+            "example": "Invoice"
+          },
+          "color": {
+            "type": "string",
+            "description": "Tag color (hex code)",
+            "example": "#FF5733"
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "ANY",
+              "ALL",
+              "LITERAL",
+              "REGEX"
+            ],
+            "description": "Tag matching algorithm",
+            "example": "ANY"
+          }
+        }
+      },
+      "HistoryItem": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "integer",
+            "description": "Document ID",
+            "example": 123
+          },
+          "title": {
+            "type": "string",
+            "description": "Document title",
+            "example": "Invoice"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Date and time when the processing occurred",
+            "example": "2023-12-15T10:30:00Z"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tag"
+            }
+          },
+          "correspondent": {
+            "type": "string",
+            "description": "Document correspondent name",
+            "example": "Acme Corp"
+          },
+          "link": {
+            "type": "string",
+            "description": "Link to the document in Paperless-ngx",
+            "example": "http://paperless.example.com/documents/123/"
           }
         }
       },
@@ -1937,6 +1911,32 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "TagVocabularyDocumentType": {
+        "type": "object",
+        "description": "One document type of the Paperless-ngx instance, as the picker on\nthe \"Simplify tags\" page offers it.\n",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The id in Paperless-ngx",
+            "example": 7
+          },
+          "name": {
+            "type": "string",
+            "description": "The name, exactly as Paperless-ngx spells it",
+            "example": "Rechnung"
+          },
+          "documentCount": {
+            "type": "integer",
+            "description": "How many documents carry this type",
+            "example": 128
+          },
+          "inVocabulary": {
+            "type": "boolean",
+            "description": "True when the saved vocabulary holds a document type of exactly\nthis name. Names in Paperless-ngx are case sensitive, so the\ncomparison is too.\n",
+            "example": true
           }
         }
       },

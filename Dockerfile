@@ -10,6 +10,7 @@ COPY --chown=node:node server.js ecosystem.config.js ./
 COPY --chown=node:node config ./config/
 COPY --chown=node:node models ./models/
 COPY --chown=node:node routes ./routes/
+COPY --chown=node:node middleware ./middleware/
 COPY --chown=node:node services ./services/
 COPY --chown=node:node views ./views/
 COPY --chown=node:node public ./public/
