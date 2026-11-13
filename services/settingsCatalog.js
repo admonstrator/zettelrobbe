@@ -174,10 +174,18 @@ const switchWhenPresent = (raw, current) =>
 const clampedWhenPresent = (range) => (raw, current) =>
   raw !== undefined ? { value: clampNumber(raw, current, range) } : {};
 
-/** A checkbox: anything truthy is yes, a missing field is no. @type {SettingParser} */
+/**
+ * A checkbox: anything truthy is yes, a missing field is no.
+ *
+ * @type {SettingParser}
+ */
 const checkbox = (raw) => ({ value: raw ? 'yes' : 'no' });
 
-/** Only the literal 'on' or 'yes' is yes; a missing field is no. @type {SettingParser} */
+/**
+ * Only the literal 'on' or 'yes' is yes; a missing field is no.
+ *
+ * @type {SettingParser}
+ */
 const onOrYes = (raw) => ({
   value: raw === 'on' || raw === 'yes' ? 'yes' : 'no',
 });

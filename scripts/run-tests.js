@@ -185,6 +185,7 @@ const TESTS = {
   'scan-control': 'test-scan-control.js',
   'settings-save-golden': 'test-settings-save-golden.js',
   'settings-catalog': 'test-settings-catalog.js',
+  'document-pipeline-callers': 'test-document-pipeline-callers.js',
 };
 
 const AREAS = {
@@ -271,6 +272,7 @@ const AREAS = {
     'settings-paperless-url-fallback',
     'rescan-fetch-before-delete',
     'scan-control',
+    'document-pipeline-callers',
   ],
   prompts: [
     'restriction-service',

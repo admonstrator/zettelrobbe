@@ -6,7 +6,6 @@ const fsSync = require('fs');
 const crypto = require('crypto');
 const config = require('./config/config');
 const paperlessService = require('./services/paperlessService');
-const AIServiceFactory = require('./services/aiServiceFactory');
 const documentModel = require('./models/document');
 const setupService = require('./services/setupService');
 const { runStartupMigrations } = require('./services/startupMigrations');
@@ -15,8 +14,11 @@ const tidyUpRoutes = require('./routes/tidyUp');
 const oidcRoutes = require('./routes/oidc');
 const oidcService = require('./services/oidcService');
 const { isAuthenticated } = require('./routes/auth');
+const {
+  isHttpsRequest,
+  shouldUseSecureCookies,
+} = require('./services/sessionCookie');
 const mistralOcrService = require('./services/mistralOcrService');
-const skipRuleService = require('./services/skipRuleService');
 const ocrAutoProcessService = require('./services/ocrAutoProcessService');
 const duplicateReviewJobService = require('./services/duplicateReviewJobService');
 const duplicateMergeService = require('./services/duplicateMergeService');
@@ -24,6 +26,7 @@ const reconciliationService = require('./services/reconciliationService');
 const scanHealthService = require('./services/scanHealthService');
 const dashboardStatsService = require('./services/dashboardStatsService');
 const documentProcessingService = require('./services/documentProcessingService');
+const documentPipeline = require('./services/documentPipeline');
 const scanControlService = require('./services/scanControl');
 const { RUN_STATUS } = scanHealthService;
 const cors = require('cors');
@@ -33,12 +36,6 @@ const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const Logger = require('./services/loggerService');
-const {
-  shouldQueueForOcrOnAiError,
-  classifyOcrQueueReasonFromAiError,
-  isTimeoutError,
-  buildTimeoutErrorMessage,
-} = require('./services/serviceUtils');
 const dataDir = path.join(process.cwd(), 'data');
 const openApiDir = path.join(dataDir, 'OPENAPI');
 const openApiPath = path.join(openApiDir, 'openapi.json');
@@ -230,50 +227,12 @@ if (trustProxy !== false) {
   app.set('trust proxy', trustProxy);
 }
 
-function getCookieSecureMode() {
-  return typeof config.getCookieSecureMode === 'function'
-    ? config.getCookieSecureMode()
-    : String(process.env.COOKIE_SECURE_MODE || 'auto')
-        .trim()
-        .toLowerCase();
-}
-
-function shouldUseSecureCookies(req) {
-  const mode = getCookieSecureMode();
-
-  if (mode === 'always') {
-    return true;
-  }
-
-  if (mode === 'never') {
-    return false;
-  }
-
-  if (req) {
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-      .split(',')[0]
-      .trim()
-      .toLowerCase();
-    return Boolean(req.secure || forwardedProto === 'https');
-  }
-
-  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-}
-
-function isHttpsRequest(req) {
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    .split(',')[0]
-    .trim()
-    .toLowerCase();
-  return Boolean(req.secure || forwardedProto === 'https');
-}
-
+// The CSRF cookie is configured once, without a request: Secure follows
+// COOKIE_SECURE_MODE, and in auto mode NODE_ENV=production.
 const csrfCookieSecure = shouldUseSecureCookies();
 
-// Retry tracking to prevent infinite retry loops
-const retryTracker = new Map();
-
-// Configurable minimum content length (default: 10 characters)
+// Minimum content length, read once at boot: MIN_CONTENT_LENGTH restarts the
+// server when it is saved (services/settingsCatalog.js).
 const MIN_CONTENT_LENGTH = config.minContentLength;
 
 const corsOptions = {
@@ -651,233 +610,6 @@ async function saveOpenApiSpec() {
   }
 }
 
-// Document processing functions
-async function processDocument(
-  doc,
-  existingTags,
-  existingCorrespondentList,
-  existingDocumentTypesList,
-  context = {}
-) {
-  const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-  if (isProcessed) return null;
-
-  // A document that waits in the OCR queue, or sits inside an OCR run right
-  // now, gets both its text and its analysis from that path. Analysing it here
-  // would work on the very text the OCR run is about to replace, and the three
-  // Paperless-ngx calls below would be spent for nothing.
-  const queuedForOcrIds = context.ocrQueuedDocumentIds;
-  if (
-    (queuedForOcrIds && queuedForOcrIds.has(Number(doc.id))) ||
-    mistralOcrService.isDocumentActivelyProcessing(doc.id)
-  ) {
-    console.debug(
-      `Document ${doc.id} is waiting for Mistral OCR, skipping analysis this round`
-    );
-    return null;
-  }
-
-  const isIgnored = await documentModel.isDocumentIgnored(doc.id);
-  if (isIgnored) {
-    console.debug(
-      `Document ${doc.id} is marked as ignored, skipping permanently`
-    );
-    return null;
-  }
-
-  const isFailed = await documentModel.isDocumentFailed(doc.id);
-  if (isFailed) {
-    console.debug(
-      `Document ${doc.id} is marked as permanently failed, skipping until reset`
-    );
-    return null;
-  }
-
-  await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
-
-  // Check if the document can be edited.
-  const documentEditable = await paperlessService.getPermissionOfDocument(
-    doc.id
-  );
-  if (!documentEditable) {
-    console.debug(
-      `Document ${doc.id} is not editable by the Zettelrobbe user, skipping analysis`
-    );
-    return null;
-  }
-
-  console.debug(`Document ${doc.id} is editable by the Paperless-AI user`);
-
-  let [content, originalData] = await Promise.all([
-    paperlessService.getDocumentContent(doc.id),
-    paperlessService.getDocument(doc.id),
-  ]);
-
-  // Both automatic queue points share this helper. The Paperless-ngx calls
-  // above take long enough for a running OCR job to finish in between, delete
-  // its queue row and put the document into processed_documents — the scan
-  // then used to insert a fresh pending row and buy a second paid OCR run
-  // (issue #322). The checks here keep that out of the log and off the wire;
-  // skipIfProcessed is the atomic safety net inside the insert itself.
-  const queueForOcr = async (queueReason) => {
-    if (await documentModel.isDocumentProcessed(doc.id)) {
-      console.debug(
-        `Document ${doc.id} was processed while this scan was running, not queued for Mistral OCR (already processed)`
-      );
-      return false;
-    }
-
-    if (mistralOcrService.isDocumentActivelyProcessing(doc.id)) {
-      console.debug(
-        `Document ${doc.id} is inside an OCR run, not queued for Mistral OCR (currently processing)`
-      );
-      return false;
-    }
-
-    const queued = await documentModel.addToOcrQueue(
-      doc.id,
-      doc.title,
-      queueReason,
-      { skipIfProcessed: true }
-    );
-
-    if (!queued) {
-      const queueItem = await documentModel.getOcrQueueItem(doc.id);
-      let state = 'already processed';
-      if (queueItem?.status === 'done') {
-        state = 'already done';
-      } else if (queueItem?.status === 'processing') {
-        state = 'currently processing';
-      }
-      console.debug(
-        `Document ${doc.id} was not queued for Mistral OCR (${state})`
-      );
-    }
-
-    return queued;
-  };
-
-  // Skip rules come before both OCR and AI: a hundred pages of terms and
-  // conditions should cost neither.
-  if (await skipRuleService.apply(originalData || doc, content)) {
-    retryTracker.delete(doc.id);
-    return null;
-  }
-
-  if (!content || content.length < MIN_CONTENT_LENGTH) {
-    console.debug(
-      `Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${MIN_CONTENT_LENGTH}), skipping analysis`
-    );
-    // Queue for Mistral OCR if enabled.
-    if (mistralOcrService.isEnabled()) {
-      const added = await queueForOcr(`short_content_lt_${MIN_CONTENT_LENGTH}`);
-      if (added) {
-        console.info(
-          `Document ${doc.id} queued for Mistral OCR (short_content)`
-        );
-      }
-    } else {
-      await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(
-        doc.id,
-        doc.title,
-        `insufficient_content_lt_${MIN_CONTENT_LENGTH}`,
-        'ai'
-      );
-      retryTracker.delete(doc.id);
-    }
-    return null;
-  }
-
-  // Check retry limit to prevent infinite retry loops
-  const docRetries = retryTracker.get(doc.id) || 0;
-  if (docRetries >= 3) {
-    console.warn(
-      `Document ${doc.id} has failed ${docRetries} times, skipping to prevent infinite retry loop`
-    );
-    await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-    retryTracker.delete(doc.id);
-    return null;
-  }
-
-  if (content.length > 50000) {
-    content = content.substring(0, 50000);
-  }
-
-  const aiService = AIServiceFactory.getService();
-  const analysis = await aiService.analyzeDocument(
-    content,
-    existingTags,
-    existingCorrespondentList,
-    existingDocumentTypesList,
-    doc.id
-  );
-  console.debug('Response from AI service:', analysis);
-  if (analysis.error) {
-    const aiErrorMessage = isTimeoutError(analysis.error)
-      ? `${buildTimeoutErrorMessage('AI')} Original error: ${analysis.error}`
-      : analysis.error;
-
-    if (isTimeoutError(analysis.error)) {
-      console.error(`[TIMEOUT][AI] Document ${doc.id}: ${analysis.error}`);
-    }
-
-    let queuedForOcr = false;
-    let markedTerminalFailed = false;
-    // Queue for Mistral OCR on OCR-relevant AI errors (e.g. low content, invalid response structure)
-    if (
-      mistralOcrService.isEnabled() &&
-      shouldQueueForOcrOnAiError(aiErrorMessage)
-    ) {
-      const queueReason = classifyOcrQueueReasonFromAiError(aiErrorMessage);
-      const added = await queueForOcr(queueReason);
-      if (added) {
-        console.log(
-          `[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${aiErrorMessage})`
-        );
-      }
-      // The OCR path stays responsible for this document even when nothing was
-      // queued: a refusal means it is already processed, already done or inside
-      // a run, and none of those is a terminal AI failure worth recording.
-      queuedForOcr = true;
-    }
-
-    if (!mistralOcrService.isEnabled()) {
-      await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(
-        doc.id,
-        doc.title,
-        // A service that knows exactly why it gave up says so; everything else
-        // keeps the generic reason this branch has always recorded.
-        analysis.errorCode || 'ai_failed_ocr_disabled',
-        'ai'
-      );
-      retryTracker.delete(doc.id);
-      markedTerminalFailed = true;
-    } else if (!queuedForOcr) {
-      await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
-      await documentModel.addFailedDocument(
-        doc.id,
-        doc.title,
-        analysis.errorCode || 'ai_failed_without_ocr_fallback',
-        'ai'
-      );
-      retryTracker.delete(doc.id);
-      markedTerminalFailed = true;
-    }
-
-    // Increment retry count on error
-    if (!markedTerminalFailed) {
-      retryTracker.set(doc.id, docRetries + 1);
-    }
-    throw new Error(`[ERROR] Document analysis failed: ${aiErrorMessage}`);
-  }
-
-  // Clear retry count on success
-  retryTracker.delete(doc.id);
-  return { analysis, originalData };
-}
-
 // Main scanning function
 // The initial scan runs through here as well (source='initial') so it shares the
 // concurrency guard, the stop support and the health reporting below.
@@ -987,7 +719,7 @@ async function scanDocuments(source = 'scheduler') {
     // Read once per run: every document that waits for OCR or is being OCR'd
     // is skipped below before the scan spends a single Paperless-ngx call on
     // it. Documents that enter the queue during this run are caught by the
-    // per-document checks in processDocument().
+    // per-document checks in documentPipeline.processDocument().
     const ocrQueuedDocumentIds = new Set(
       (await documentModel.getOcrQueueDocumentIds()).map((documentId) =>
         Number(documentId)
@@ -1004,12 +736,16 @@ async function scanDocuments(source = 'scheduler') {
       }
 
       try {
-        const result = await processDocument(
+        const result = await documentPipeline.processDocument(
           doc,
           existingTagNames,
           existingCorrespondentList,
           existingDocumentTypesList,
-          { ocrQueuedDocumentIds }
+          {
+            source: 'scan',
+            minContentLength: MIN_CONTENT_LENGTH,
+            ocrQueuedDocumentIds,
+          }
         );
         if (!result) {
           scanStats.skipped += 1;

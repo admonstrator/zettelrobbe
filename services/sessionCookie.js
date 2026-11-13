@@ -19,11 +19,29 @@ const SESSION_TTL = '24h';
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * True when cookies set on this response should carry the Secure flag.
- * COOKIE_SECURE_MODE=always|never forces it; auto (the default) follows the
- * request: a TLS connection or X-Forwarded-Proto: https from a proxy.
+ * True when the request arrived over HTTPS: a TLS connection, or
+ * X-Forwarded-Proto: https from a proxy (the first value counts).
  *
  * @param {import('express').Request} req
+ * @returns {boolean}
+ */
+function isHttpsRequest(req) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  return Boolean(req.secure || forwardedProto === 'https');
+}
+
+/**
+ * True when cookies should carry the Secure flag. The one cookie policy for
+ * the session cookie, the single sign-on cookies and the CSRF cookie.
+ * COOKIE_SECURE_MODE=always|never forces it; auto (the default, also for an
+ * unknown value) follows the request: see isHttpsRequest(). Without a
+ * request, as for the CSRF cookie that server.js configures once at startup,
+ * auto means Secure in production (NODE_ENV=production) only.
+ *
+ * @param {import('express').Request} [req]
  * @returns {boolean}
  */
 function shouldUseSecureCookies(req) {
@@ -37,11 +55,11 @@ function shouldUseSecureCookies(req) {
     return false;
   }
 
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    .split(',')[0]
-    .trim()
-    .toLowerCase();
-  return Boolean(req.secure || forwardedProto === 'https');
+  if (req) {
+    return isHttpsRequest(req);
+  }
+
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 }
 
 /**
@@ -86,6 +104,7 @@ function clearSessionCookie(res) {
 module.exports = {
   SESSION_COOKIE_NAME,
   SESSION_TTL_MS,
+  isHttpsRequest,
   shouldUseSecureCookies,
   issueSessionCookie,
   clearSessionCookie,

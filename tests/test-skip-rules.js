@@ -271,16 +271,9 @@ async function run() {
       null
     );
 
-    // Wiring: the scan checks the rules before the OCR fallback, the webhook
-    // applies them and a rescan by hand does not.
-    const server = await fs.readFile(path.join(repoRoot, 'server.js'), 'utf8');
-    const ruleAt = server.indexOf('skipRuleService.apply(');
-    const ocrAt = server.indexOf('content.length < MIN_CONTENT_LENGTH');
-    assert.ok(
-      ruleAt > 0 && ruleAt < ocrAt,
-      'scan should apply skip rules before the OCR fallback'
-    );
-
+    // Wiring: the webhook applies the rules and a rescan by hand does not.
+    // That every caller checks them before the OCR fallback is pinned per
+    // caller in test-document-pipeline-callers.js.
     const setup = readRouteSources();
     assert.ok(
       setup.includes(
