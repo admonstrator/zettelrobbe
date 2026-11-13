@@ -17,6 +17,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 const { mountRouter, REPO_ROOT } = require('./helpers/mount-router');
 
 const API_KEY = 'test-api-key';
@@ -262,10 +263,7 @@ function sliceBetween(source, from, to) {
         )
       );
 
-      const setupSource = fs.readFileSync(
-        path.join(__dirname, '..', 'routes', 'setup.js'),
-        'utf8'
-      );
+      const setupSource = readRouteSources();
       const group = sliceBetween(
         setupSource,
         "title: 'Document processing'",

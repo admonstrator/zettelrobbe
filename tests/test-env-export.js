@@ -12,17 +12,15 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
-const ROUTE_FILE = path.join(__dirname, '..', 'routes', 'setup.js');
-const source = fs.readFileSync(ROUTE_FILE, 'utf8');
+const source = readRouteSources();
 
 const start = source.indexOf('const ENV_EXPORT_GROUPS');
 const end = source.indexOf('\n}', source.indexOf('function buildEnvExport'));
 assert.ok(
   start !== -1 && end !== -1 && end > start,
-  'Could not find buildEnvExport in routes/setup.js — did it move or get renamed?'
+  'Could not find buildEnvExport in the route modules — did it move or get renamed?'
 );
 
 const buildEnvExport = new Function(

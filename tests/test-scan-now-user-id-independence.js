@@ -22,11 +22,9 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
-const ROUTE_FILE = path.join(__dirname, '..', 'routes', 'setup.js');
-const routeSource = fs.readFileSync(ROUTE_FILE, 'utf8');
+const routeSource = readRouteSources();
 
 // ── The scan trigger must not depend on the user ID ──────────────────────────
 
@@ -35,7 +33,7 @@ const handlerStart = routeSource.indexOf(
 );
 assert.ok(
   handlerStart !== -1,
-  'Could not find the POST /api/scan/now handler in routes/setup.js — did it move or get renamed?'
+  'Could not find the POST /api/scan/now handler in the route modules — did it move or get renamed?'
 );
 const handlerEnd = routeSource.indexOf('\n});', handlerStart);
 assert.ok(handlerEnd > handlerStart, 'Could not delimit the handler body');

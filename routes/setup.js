@@ -37,6 +37,7 @@ const mistralOcrService = require('../services/mistralOcrService');
 const skipRuleService = require('../services/skipRuleService');
 const quickstartService = require('../services/quickstartService');
 const reconciliationService = require('../services/reconciliationService');
+const restartService = require('../services/restartService');
 const scanHealthService = require('../services/scanHealthService');
 const updateCheckService = require('../services/updateCheckService');
 const dashboardStatsService = require('../services/dashboardStatsService');
@@ -1129,85 +1130,6 @@ router.get('/logout', (req, res) => {
   res.redirect('/login');
 });
 
-/**
- * @swagger
- * /sampleData/{id}:
- *   get:
- *     summary: Get sample data for a document
- *     description: |
- *       Retrieves sample data extracted from a document, including processed text content
- *       and any metadata that has been extracted or processed by the AI.
- *
- *       This endpoint is commonly used for previewing document data in the UI before
- *       completing document processing or updating metadata.
- *     tags:
- *       - Documents
- *       - API
- *     security:
- *       - BearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: Document ID to retrieve sample data for
- *         example: 123
- *     responses:
- *       200:
- *         description: Document sample data retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 content:
- *                   type: string
- *                   description: Extracted text content from the document
- *                   example: "Invoice from Acme Corp. Total amount: $125.00, Due date: 2023-08-15"
- *                 metadata:
- *                   type: object
- *                   description: Any metadata that has been extracted from the document
- *                   properties:
- *                     title:
- *                       type: string
- *                       example: "Acme Corp Invoice - August 2023"
- *                     tags:
- *                       type: array
- *                       items:
- *                         type: string
- *                       example: ["Invoice", "Finance"]
- *                     correspondent:
- *                       type: string
- *                       example: "Acme Corp"
- *       404:
- *         description: Document not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: "Document not found"
- *       500:
- *         description: Server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.get('/sampleData/:id', async (req, res) => {
-  try {
-    //get all correspondents from one document by id
-    const document = await paperlessService.getDocument(req.params.id);
-    await paperlessService.getCorrespondentsFromDocument(document.id);
-  } catch (error) {
-    console.error('[ERRO] loading sample data:', error);
-    res.status(500).json({ error: 'Error loading sample data' });
-  }
-});
-
 // Compatibility endpoint for omnibox document search used by Manual/OCR views.
 /**
  * @swagger
@@ -1471,7 +1393,7 @@ router.get('/thumb/:documentId', isAuthenticated, async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/history', async (req, res) => {
+router.get('/history', isAuthenticated, async (req, res) => {
   try {
     // Don't preload data - let the frontend load it with progress tracking
     // This allows the page to render immediately
@@ -2622,9 +2544,7 @@ router.post(
           : 'No local runtime overrides were found. Restarting service to reload injected environment values.',
       });
 
-      setTimeout(() => {
-        process.exit(0);
-      }, 5000);
+      restartService.requestRestart();
     } catch (error) {
       console.error('[ERROR] resetting local runtime overrides:', error);
       res.status(500).json({
@@ -6453,9 +6373,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       envPreview,
     });
 
-    setTimeout(() => {
-      process.exit(0);
-    }, 5000);
+    restartService.requestRestart();
   } catch (error) {
     console.error('[ERROR] POST /api/setup/complete:', error);
     return res.status(500).json({
@@ -6538,7 +6456,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/manual/preview/:id', async (req, res) => {
+router.get('/manual/preview/:id', isAuthenticated, async (req, res) => {
   try {
     const documentId = req.params.id;
 
@@ -6628,7 +6546,7 @@ router.get('/manual/preview/:id', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/manual', async (req, res) => {
+router.get('/manual', isAuthenticated, async (req, res) => {
   const version = configFile.PAPERLESS_AI_VERSION || ' ';
   res.render('manual', {
     title: 'Document Review',
@@ -6682,7 +6600,7 @@ router.get('/manual', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/manual/tags', async (req, res) => {
+router.get('/manual/tags', isAuthenticated, async (req, res) => {
   const getTags = await paperlessService.getTags();
   res.json(getTags);
 });
@@ -6727,7 +6645,7 @@ router.get('/manual/tags', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/manual/documents', async (req, res) => {
+router.get('/manual/documents', isAuthenticated, async (req, res) => {
   const getDocuments = await paperlessService.getDocuments();
   res.json(getDocuments);
 });
@@ -6787,7 +6705,7 @@ router.get('/manual/documents', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/api/correspondentsCount', async (req, res) => {
+router.get('/api/correspondentsCount', isAuthenticated, async (req, res) => {
   const correspondents = await paperlessService.listCorrespondentsNames();
   res.json(correspondents);
 });
@@ -6847,7 +6765,7 @@ router.get('/api/correspondentsCount', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/api/tagsCount', async (req, res) => {
+router.get('/api/tagsCount', isAuthenticated, async (req, res) => {
   const tags = await paperlessService.listTagNames();
   res.json(tags);
 });
@@ -7184,7 +7102,7 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', isAuthenticated, async (req, res) => {
   const version = configFile.PAPERLESS_AI_VERSION || ' ';
   let paperlessUrl = '';
 
@@ -7233,7 +7151,7 @@ router.get('/dashboard', async (req, res) => {
 // The payload itself is assembled in dashboardStatsService and cached there:
 // this endpoint is polled by every open dashboard, and rebuilding it per
 // request meant two Paperless-ngx round trips plus a dozen queries each time.
-router.get('/api/dashboard/stats', async (req, res) => {
+router.get('/api/dashboard/stats', isAuthenticated, async (req, res) => {
   try {
     const { payload, cachedAt } = await dashboardStatsService.getStats();
     res.json({ ...payload, cachedAt });
@@ -7334,7 +7252,7 @@ router.get('/api/dashboard/stats', async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/settings', async (req, res) => {
+router.get('/settings', isAuthenticated, async (req, res) => {
   const normalizeArray = (value) => {
     if (!value) return [];
     if (Array.isArray(value)) return value;
@@ -8311,51 +8229,59 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/manual/analyze', express.json(), async (req, res) => {
-  try {
-    const { content, id } = req.body;
-    const existingCorrespondentList = toNameList(
-      await paperlessService.listCorrespondentsNames()
-    );
-    const existingTagsList = toNameList(await paperlessService.listTagNames());
-    const existingDocumentTypesList = toNameList(
-      await paperlessService.listDocumentTypesNames()
-    );
-
-    if (!content || typeof content !== 'string') {
-      console.log('Invalid content received:', content);
-      return res
-        .status(400)
-        .json({ error: 'Valid content string is required' });
-    }
-
-    if (!aiProviderRules.PROVIDER_IDS.includes(process.env.AI_PROVIDER)) {
-      return res.status(500).json({ error: 'AI provider not configured' });
-    }
-
-    // Through the factory, which owns the provider service like every scan
-    // does. Every provider's tokens are recorded the same way.
-    const analyzeDocument = await AIServiceFactory.getService().analyzeDocument(
-      content,
-      existingTagsList,
-      existingCorrespondentList,
-      existingDocumentTypesList,
-      id || []
-    );
-    if (analyzeDocument.metrics && id) {
-      await documentModel.addOpenAIMetrics(
-        id,
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
+router.post(
+  '/manual/analyze',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const { content, id } = req.body;
+      const existingCorrespondentList = toNameList(
+        await paperlessService.listCorrespondentsNames()
       );
+      const existingTagsList = toNameList(
+        await paperlessService.listTagNames()
+      );
+      const existingDocumentTypesList = toNameList(
+        await paperlessService.listDocumentTypesNames()
+      );
+
+      if (!content || typeof content !== 'string') {
+        console.log('Invalid content received:', content);
+        return res
+          .status(400)
+          .json({ error: 'Valid content string is required' });
+      }
+
+      if (!aiProviderRules.PROVIDER_IDS.includes(process.env.AI_PROVIDER)) {
+        return res.status(500).json({ error: 'AI provider not configured' });
+      }
+
+      // Through the factory, which owns the provider service like every scan
+      // does. Every provider's tokens are recorded the same way.
+      const analyzeDocument =
+        await AIServiceFactory.getService().analyzeDocument(
+          content,
+          existingTagsList,
+          existingCorrespondentList,
+          existingDocumentTypesList,
+          id || []
+        );
+      if (analyzeDocument.metrics && id) {
+        await documentModel.addOpenAIMetrics(
+          id,
+          analyzeDocument.metrics.promptTokens,
+          analyzeDocument.metrics.completionTokens,
+          analyzeDocument.metrics.totalTokens
+        );
+      }
+      return res.json(analyzeDocument);
+    } catch (error) {
+      console.error('Analysis error:', error);
+      return res.status(500).json({ error: error.message });
     }
-    return res.json(analyzeDocument);
-  } catch (error) {
-    console.error('Analysis error:', error);
-    return res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * @swagger
@@ -8435,79 +8361,89 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/manual/updateDocument', express.json(), async (req, res) => {
-  try {
-    var { documentId, tags, correspondent, title } = req.body;
-    const options = {
-      restrictToExistingTags: config.restrictToExistingTags === 'yes',
-      restrictToExistingCorrespondents:
-        config.restrictToExistingCorrespondents === 'yes',
-      restrictToExistingDocumentTypes:
-        config.restrictToExistingDocumentTypes === 'yes',
-    };
+router.post(
+  '/manual/updateDocument',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      var { documentId, tags, correspondent, title } = req.body;
+      const options = {
+        restrictToExistingTags: config.restrictToExistingTags === 'yes',
+        restrictToExistingCorrespondents:
+          config.restrictToExistingCorrespondents === 'yes',
+        restrictToExistingDocumentTypes:
+          config.restrictToExistingDocumentTypes === 'yes',
+      };
 
-    console.log('TITLE: ', title);
-    // Convert all tags to names if they are IDs
-    tags = await Promise.all(
-      tags.map(async (tag) => {
-        console.log('Processing tag:', tag);
-        if (!isNaN(tag)) {
-          const tagName = await paperlessService.getTagTextFromId(Number(tag));
-          console.log('Converted tag ID:', tag, 'to name:', tagName);
-          return tagName;
-        }
-        return tag;
-      })
-    );
+      console.log('TITLE: ', title);
+      // Convert all tags to names if they are IDs
+      tags = await Promise.all(
+        tags.map(async (tag) => {
+          console.log('Processing tag:', tag);
+          if (!isNaN(tag)) {
+            const tagName = await paperlessService.getTagTextFromId(
+              Number(tag)
+            );
+            console.log('Converted tag ID:', tag, 'to name:', tagName);
+            return tagName;
+          }
+          return tag;
+        })
+      );
 
-    // Filter out any null or undefined tags
-    tags = tags.filter((tag) => tag != null);
+      // Filter out any null or undefined tags
+      tags = tags.filter((tag) => tag != null);
 
-    // Process new tags to get their IDs
-    const { tagIds, errors } = await paperlessService.processTags(
-      tags,
-      options
-    );
-    if (errors.length > 0) {
-      return res.status(400).json({ errors });
+      // Process new tags to get their IDs
+      const { tagIds, errors } = await paperlessService.processTags(
+        tags,
+        options
+      );
+      if (errors.length > 0) {
+        return res.status(400).json({ errors });
+      }
+
+      // Process correspondent if provided
+      const correspondentData = correspondent
+        ? await paperlessService.getOrCreateCorrespondent(
+            correspondent,
+            options
+          )
+        : null;
+
+      await paperlessService.removeUnusedTagsFromDocument(documentId, tagIds);
+
+      // Then update with new tags (this will only add new ones since we already removed unused ones)
+      const updateData = {
+        tags: tagIds,
+        correspondent: correspondentData ? correspondentData.id : null,
+        title: title ? title : null,
+      };
+
+      if (
+        updateData.tags === null &&
+        updateData.correspondent === null &&
+        updateData.title === null
+      ) {
+        return res.status(400).json({ error: 'No changes provided' });
+      }
+      const updateDocument = await paperlessService.updateDocument(
+        documentId,
+        updateData
+      );
+
+      // Mark document as processed
+      await documentModel.addProcessedDocument(documentId, updateData.title);
+      dashboardStatsService.invalidate();
+
+      res.json(updateDocument);
+    } catch (error) {
+      console.error('Update error:', error);
+      res.status(500).json({ error: error.message });
     }
-
-    // Process correspondent if provided
-    const correspondentData = correspondent
-      ? await paperlessService.getOrCreateCorrespondent(correspondent, options)
-      : null;
-
-    await paperlessService.removeUnusedTagsFromDocument(documentId, tagIds);
-
-    // Then update with new tags (this will only add new ones since we already removed unused ones)
-    const updateData = {
-      tags: tagIds,
-      correspondent: correspondentData ? correspondentData.id : null,
-      title: title ? title : null,
-    };
-
-    if (
-      updateData.tags === null &&
-      updateData.correspondent === null &&
-      updateData.title === null
-    ) {
-      return res.status(400).json({ error: 'No changes provided' });
-    }
-    const updateDocument = await paperlessService.updateDocument(
-      documentId,
-      updateData
-    );
-
-    // Mark document as processed
-    await documentModel.addProcessedDocument(documentId, updateData.title);
-    dashboardStatsService.invalidate();
-
-    res.json(updateDocument);
-  } catch (error) {
-    console.error('Update error:', error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * Builds the scanner/Paperless section of the health payload.
@@ -9128,7 +9064,7 @@ router.get('/health', async (req, res) => {
  *                   type: string
  *                   example: "Failed to update settings: Database error"
  */
-router.post('/settings', express.json(), async (req, res) => {
+router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
   try {
     const {
       paperlessUrl,
@@ -10375,9 +10311,7 @@ router.post('/settings', express.json(), async (req, res) => {
       console.log(
         `[INFO] Settings saved; restarting for ${restartKeys.join(', ')}.`
       );
-      setTimeout(() => {
-        process.exit(0);
-      }, 5000);
+      restartService.requestRestart();
     }
   } catch (error) {
     console.error('Settings update error:', error);
@@ -10482,7 +10416,7 @@ router.get('/api/processing-status', isAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/dashboard/doc/:id', async (req, res) => {
+router.get('/dashboard/doc/:id', isAuthenticated, async (req, res) => {
   const docId = req.params.id;
   if (!docId) {
     return res.status(400).json({ error: 'Document ID is required' });

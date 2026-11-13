@@ -20,14 +20,14 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
-const ROUTE_FILE = path.join(__dirname, '..', 'routes', 'setup.js');
-const source = fs.readFileSync(ROUTE_FILE, 'utf8');
+const source = readRouteSources();
 
 const start = source.indexOf('async function discoverOcrModelsForSetup');
 assert.ok(
   start !== -1,
-  'Could not find discoverOcrModelsForSetup in routes/setup.js — did it move or get renamed?'
+  'Could not find discoverOcrModelsForSetup in the route modules — did it move or get renamed?'
 );
 const end = source.indexOf('\n}\n', start);
 assert.ok(end > start, 'Could not delimit discoverOcrModelsForSetup');

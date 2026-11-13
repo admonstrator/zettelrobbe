@@ -20,6 +20,7 @@ process.env.HEALTH_SCAN_FAILURE_THRESHOLD = '3';
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
 const {
   ScanHealthService,
@@ -372,10 +373,7 @@ test('RECONCILIATION_ENABLED=no actually disables reconciliation', () => {
 // 4. /health reporting
 // ──────────────────────────────────────────────────────────────────────────────
 
-const setupRouteSource = fs.readFileSync(
-  path.join(process.cwd(), 'routes', 'setup.js'),
-  'utf8'
-);
+const setupRouteSource = readRouteSources();
 
 test('/health reports the scanner state', () => {
   assert.ok(

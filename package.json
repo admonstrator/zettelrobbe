@@ -6,6 +6,7 @@
   "scripts": {
     "test": "nodemon server.js",
     "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
     "lint:css": "stylelint \"public/css/**/*.css\"",
     "format:check": "prettier --check .",
     "test:all": "node scripts/run-tests.js --all",
@@ -77,10 +78,13 @@
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
-    "tiktoken": "^1.0.20"
+    "tiktoken": "^1.0.20",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-jsdoc": "^65.4.4",
@@ -88,7 +92,8 @@
     "nodemon": "^3.1.9",
     "prettier": "^3.9.10",
     "stylelint": "^17.15.0",
-    "stylelint-config-standard": "^40.0.0"
+    "stylelint-config-standard": "^40.0.0",
+    "typescript": "^7.0.2"
   },
   "allowScripts": {
     "better-sqlite3": true,

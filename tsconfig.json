@@ -1,0 +1,16 @@
+{
+  "//": "Type checking only, no build: the app runs as plain JavaScript. A file is checked when it starts with // @ts-check AND is listed under files. New and extracted modules join the list; legacy files stay out until they are cleaned up.",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2024",
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "files": ["services/restartService.js"]
+}

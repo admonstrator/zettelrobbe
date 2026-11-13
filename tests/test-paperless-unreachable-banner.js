@@ -19,6 +19,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 const vm = require('vm');
 
 let passed = 0;
@@ -416,10 +417,7 @@ test('The dashboard banner is a status region, not an assertive alert', () => {
 // 2. API payload
 // ──────────────────────────────────────────────────────────────────────────────
 
-const setupRouteSource = fs.readFileSync(
-  path.join(process.cwd(), 'routes', 'setup.js'),
-  'utf8'
-);
+const setupRouteSource = readRouteSources();
 
 test('The health snapshot exposes the fields the banner needs', () => {
   const snapshot = setupRouteSource.slice(

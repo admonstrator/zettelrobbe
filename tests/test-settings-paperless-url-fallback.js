@@ -1,10 +1,8 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
 function main() {
-  const setupRoutePath = path.join(process.cwd(), 'routes', 'setup.js');
-  const source = fs.readFileSync(setupRoutePath, 'utf8');
+  const source = readRouteSources();
 
   assert.ok(
     source.includes('const hasPaperlessUrlInput = hasValue(paperlessUrl);'),

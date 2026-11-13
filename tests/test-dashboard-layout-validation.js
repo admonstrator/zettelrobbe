@@ -1,5 +1,5 @@
 /**
- * Guards the dashboard configuration validator in routes/setup.js.
+ * Guards the dashboard configuration validator in the route modules.
  *
  * PUT /api/dashboard/layout takes a set of named dashboards straight from the
  * browser and stores it as JSON on the user row, so normalizeDashboardConfig()
@@ -15,11 +15,9 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
-const ROUTE_FILE = path.join(__dirname, '..', 'routes', 'setup.js');
-const source = fs.readFileSync(ROUTE_FILE, 'utf8');
+const source = readRouteSources();
 
 const start = source.indexOf('const DASHBOARD_WIDGET_ID');
 const end = source.indexOf(
@@ -28,7 +26,7 @@ const end = source.indexOf(
 );
 assert.ok(
   start !== -1 && end !== -1 && end > start,
-  'Could not find normalizeDashboardConfig in routes/setup.js — did it move or get renamed?'
+  'Could not find normalizeDashboardConfig in the route modules — did it move or get renamed?'
 );
 
 const {

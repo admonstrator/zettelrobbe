@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs').promises;
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 const os = require('os');
 
 const repoRoot = path.join(__dirname, '..');
@@ -280,10 +281,7 @@ async function run() {
       'scan should apply skip rules before the OCR fallback'
     );
 
-    const setup = await fs.readFile(
-      path.join(repoRoot, 'routes', 'setup.js'),
-      'utf8'
-    );
+    const setup = readRouteSources();
     assert.ok(
       setup.includes('documentQueue.push({ document, applySkipRules: true })'),
       'webhook documents should go through the skip rules'
