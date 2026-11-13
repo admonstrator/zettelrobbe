@@ -78,8 +78,7 @@
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
-    "tiktoken": "^1.0.20",
-    "zod": "^4.6.7"
+    "tiktoken": "^1.0.20"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
