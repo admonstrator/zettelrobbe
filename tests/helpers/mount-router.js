@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Test harness that mounts routes/setup.js on an Express app backed by a
+ * Test harness that mounts the route layer (routes/tidyUp.js, then
+ * routes/index.js with its feature routers) on an Express app backed by a
  * throwaway SQLite database, with every Paperless-ngx network call stubbed.
  *
  * Why this exists: the route modules read process.cwd() and process.env at
@@ -111,7 +112,8 @@ const DEFAULT_ENV = {
  *   apiKeyHeaders: (extra?: Record<string, string>) => Record<string, string>,
  *   anonymousHeaders: (extra?: Record<string, string>) => Record<string, string>,
  *   close: () => Promise<void>}>}
- *   routers lists every router the harness mounted, in mount order. sessionToken / sessionCookie are
+ *   router is routes/index.js (the guards, then the feature routers nested in it); routers lists
+ *   every router the harness mounted directly, in mount order. sessionToken / sessionCookie are
  *   null unless options.user was given; authHeaders() then throws, so a test cannot silently run
  *   anonymous when it meant to be signed in.
  */
@@ -154,7 +156,7 @@ async function mountRouter(options = {}) {
     options.stub({ paperlessService, setupService, documentModel });
   }
 
-  const router = require(path.join(REPO_ROOT, 'routes', 'setup.js'));
+  const router = require(path.join(REPO_ROOT, 'routes', 'index.js'));
   const tidyUpRouter = require(path.join(REPO_ROOT, 'routes', 'tidyUp.js'));
 
   const app = express();

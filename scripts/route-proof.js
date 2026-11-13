@@ -18,7 +18,7 @@
  *
  * Commands:
  *   snapshot <out.json>             Build the route layer in-process (routes/oidc.js, routes/tidyUp.js and
- *                                   routes/setup.js on a throwaway database, no network) and write one
+ *                                   routes/index.js on a throwaway database, no network) and write one
  *                                   record per route: method, full path, guards, middleware, final handler
  *                                   name, SHA-256 and source text of the final handler.
  *   compare <a.json> <b.json>       Diff two snapshots: routes added, routes removed, guards or middleware
@@ -275,7 +275,7 @@ function byMethodAndPath(a, b) {
 
 /**
  * Builds the route layer in-process and returns its route table. Mounts
- * routes/oidc.js, routes/tidyUp.js and routes/setup.js on the throwaway
+ * routes/oidc.js, routes/tidyUp.js and routes/index.js on the throwaway
  * database of tests/helpers/mount-router.js; nothing leaves the machine.
  * Console output of the application modules is muted while it builds.
  *
@@ -296,7 +296,7 @@ async function buildSnapshot() {
   try {
     /** @type {RouteRecord[]} */
     const routes = [];
-    // server.js mounts oidc before tidyUp and setup; the harness mounts the latter two.
+    // server.js mounts oidc before tidyUp and index; the harness mounts the latter two.
     const oidcRouter = require(path.join(REPO_ROOT, 'routes', 'oidc.js'));
     walkRouter(oidcRouter, '', [], routes, true);
     walkRouter(harness.app.router, '', [], routes, false);

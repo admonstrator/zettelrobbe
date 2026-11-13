@@ -185,6 +185,7 @@ const TESTS = {
   'scan-control': 'test-scan-control.js',
   'settings-save-golden': 'test-settings-save-golden.js',
   'settings-catalog': 'test-settings-catalog.js',
+  'route-shadowing': 'test-route-shadowing.js',
 };
 
 const AREAS = {
@@ -349,7 +350,7 @@ const AREAS = {
     'anthropic-settings',
     'ocr-provider-anthropic',
   ],
-  routes: ['route-table'],
+  routes: ['route-table', 'route-shadowing'],
   settings: ['settings-save-golden', 'settings-catalog'],
 };
 

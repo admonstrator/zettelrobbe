@@ -197,9 +197,16 @@ async function main() {
       assert.strictEqual(response.status, 301);
       assert.strictEqual(response.headers.get('location'), '/tidy-up');
 
-      const routes = harness.router.stack
-        .filter((layer) => layer.route)
-        .map((layer) => layer.route.path);
+      // The feature routers are nested in routes/index.js.
+      const routePaths = (stack) =>
+        stack.flatMap((layer) =>
+          layer.route
+            ? [layer.route.path]
+            : Array.isArray(layer.handle?.stack)
+              ? routePaths(layer.handle.stack)
+              : []
+        );
+      const routes = routePaths(harness.router.stack);
       assert.ok(routes.includes('/simplify'), 'the page route is mounted');
       assert.ok(
         routes.includes('/api/simplify/vocabulary') &&

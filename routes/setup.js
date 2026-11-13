@@ -25,8 +25,6 @@ const bcrypt = require('bcryptjs');
 const QRCode = require('qrcode');
 const { isAuthenticated } = require('./auth.js');
 const {
-  remoteSetupGuard,
-  authGate,
   protectApiRoute,
   hasValidSession,
   isAuthenticatedCaller,
@@ -91,11 +89,6 @@ const {
   isConfiguredAnthropicHost,
 } = require('../services/anthropicSupport');
 const config = require('../config/config.js');
-require('dotenv').config({ path: '../data/.env' });
-
-router.use(remoteSetupGuard);
-router.use(authGate);
-
 /**
  * @swagger
  * /login:
