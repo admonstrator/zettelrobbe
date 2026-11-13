@@ -190,7 +190,10 @@ because they were only ever looked at empty.
 3. Each document goes through `services/documentPipeline.js` `processDocument()`, which the webhook
    queue and a manual rescan (`services/webhookQueueService.js`) share. They protect a document the
    same way (OCR guards, ignore list first, "complete" only after write-back); the few deliberate
-   differences are named in `CALLER_PROFILES`. Its `retryTracker` caps scan attempts (max 3).
+   differences are named in `CALLER_PROFILES`. A document is analysed by one caller at a time
+   (`claim()`/`release()`), is left alone while OCR reads it (`isWaitingForOcr()`, only while OCR is
+   on), and the external API is asked once per run. Its `retryTracker` caps scan attempts (max 3);
+   the limit puts the document on the failed list.
 4. Skip rules (`services/skipRuleService.js`: `MAX_PAGE_COUNT`, `IGNORE_TITLE_PATTERNS`, text fingerprint of
    ignored docs) move a doc to the ignored list before any OCR or AI call; the webhook applies them too,
    a manual rescan does not. Unignoring a doc exempts it from the rules.
