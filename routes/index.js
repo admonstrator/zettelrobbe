@@ -40,6 +40,7 @@ router.use(require('./manual')); // manual processing
 router.use(require('./dashboard')); // dashboard
 router.use(require('./settingsMfa')); // settings MFA
 router.use(require('./system')); // health, about, updates
+router.use(require('./ocr')); // OCR queue
 router.use(require('./setup')); // not split yet
 
 // Carried over from routes/setup.js, which ran it once its modules had loaded:

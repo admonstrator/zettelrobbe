@@ -2824,44 +2824,6 @@
         }
       }
     },
-    "/dashboard/doc/{id}": {
-      "get": {
-        "summary": "Redirect to Paperless document details",
-        "tags": [
-          "Navigation",
-          "Documents"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirect to Paperless document page"
-          },
-          "400": {
-            "description": "Missing document ID"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
     "/ocr": {
       "get": {
         "summary": "OCR queue page",
@@ -2919,395 +2881,6 @@
                 }
               }
             }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/about": {
-      "get": {
-        "summary": "About and support information page",
-        "tags": [
-          "Navigation",
-          "System"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "About page rendered successfully",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/ocr/queue": {
-      "get": {
-        "summary": "Get paginated OCR queue",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OCR queue returned successfully"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/ocr/queue/ids": {
-      "get": {
-        "summary": "Get document IDs currently waiting in the OCR queue",
-        "description": "Returns the Paperless-ngx document IDs with status pending or processing. Used by the OCR view to hide already queued documents from search results.",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Queued document IDs returned successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "ids": {
-                          "type": "array",
-                          "items": {
-                            "type": "integer"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/ocr/queue/add": {
-      "post": {
-        "summary": "Add document to OCR queue",
-        "description": "Queues documents for OCR on explicit request. A document that has already been through OCR, and one that has already been analysed, is queued again, because the request itself is the user asking for a re-run; a completed queue row goes back to pending and its stored OCR text is cleared. Only a document the OCR worker is busy with is left alone. added counts the documents that really are pending afterwards, skipped the ones that were left alone, and missing lists the ids Paperless-ngx no longer has.",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "description": "One of documentId or documentIds is required.",
-                "properties": {
-                  "documentId": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "A single document, as the row menu sends it."
-                  },
-                  "documentIds": {
-                    "type": "array",
-                    "description": "A selection, as the bulk menu sends it. Documents that are\nbeing processed are counted as skipped and ones missing from\nPaperless-ngx are listed, rather than failing the batch.\n",
-                    "items": {
-                      "type": "integer",
-                      "minimum": 1
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Add operation result. success is false when a single document was not queued; the counters are present either way.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "added": {
-                      "type": "integer",
-                      "description": "Documents that are pending because of this request."
-                    },
-                    "skipped": {
-                      "type": "integer",
-                      "description": "Documents the OCR worker is busy with."
-                    },
-                    "missing": {
-                      "type": "array",
-                      "description": "Ids Paperless-ngx did not resolve.",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid payload"
-          },
-          "404": {
-            "description": "Document not found in Paperless-ngx"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/ocr/queue/{documentId}": {
-      "delete": {
-        "summary": "Remove document from OCR queue",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "documentId",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Remove operation result"
-          },
-          "400": {
-            "description": "Invalid document ID"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/ocr/process/{documentId}": {
-      "post": {
-        "summary": "Process one OCR queue item",
-        "description": "Starts OCR processing for one document and streams progress via SSE.",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "documentId",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SSE stream started",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document ID"
-          }
-        }
-      }
-    },
-    "/api/ocr/process-all": {
-      "post": {
-        "summary": "Process all pending OCR queue items",
-        "description": "Starts batch OCR processing and streams progress via SSE.",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SSE stream started",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ocr/analyze/{documentId}": {
-      "post": {
-        "summary": "Analyze existing OCR text with AI",
-        "description": "Uses existing OCR text and streams analysis progress via SSE.",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "documentId",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SSE stream started",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid document ID"
-          }
-        }
-      }
-    },
-    "/api/ocr/queue/{documentId}/text": {
-      "get": {
-        "summary": "Get OCR text for one queue item",
-        "tags": [
-          "OCR",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "documentId",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OCR text payload returned"
-          },
-          "400": {
-            "description": "Invalid document ID"
-          },
-          "404": {
-            "description": "Queue item not found"
           },
           "500": {
             "description": "Server error"
@@ -6334,6 +5907,433 @@
           },
           "404": {
             "description": "Single sign-on is not enabled"
+          }
+        }
+      }
+    },
+    "/dashboard/doc/{id}": {
+      "get": {
+        "summary": "Redirect to Paperless document details",
+        "tags": [
+          "Navigation",
+          "Documents"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to Paperless document page"
+          },
+          "400": {
+            "description": "Missing document ID"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/about": {
+      "get": {
+        "summary": "About and support information page",
+        "tags": [
+          "Navigation",
+          "System"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "About page rendered successfully",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/queue": {
+      "get": {
+        "summary": "Get paginated OCR queue",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR queue returned successfully"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/queue/ids": {
+      "get": {
+        "summary": "Get document IDs currently waiting in the OCR queue",
+        "description": "Returns the Paperless-ngx document IDs with status pending or processing. Used by the OCR view to hide already queued documents from search results.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queued document IDs returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/queue/add": {
+      "post": {
+        "summary": "Add document to OCR queue",
+        "description": "Queues documents for OCR on explicit request. A document that has already been through OCR, and one that has already been analysed, is queued again, because the request itself is the user asking for a re-run; a completed queue row goes back to pending and its stored OCR text is cleared. Only a document the OCR worker is busy with is left alone. added counts the documents that really are pending afterwards, skipped the ones that were left alone, and missing lists the ids Paperless-ngx no longer has.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "One of documentId or documentIds is required.",
+                "properties": {
+                  "documentId": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "A single document, as the row menu sends it."
+                  },
+                  "documentIds": {
+                    "type": "array",
+                    "description": "A selection, as the bulk menu sends it. Documents that are\nbeing processed are counted as skipped and ones missing from\nPaperless-ngx are listed, rather than failing the batch.\n",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Add operation result. success is false when a single document was not queued; the counters are present either way.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "added": {
+                      "type": "integer",
+                      "description": "Documents that are pending because of this request."
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "description": "Documents the OCR worker is busy with."
+                    },
+                    "missing": {
+                      "type": "array",
+                      "description": "Ids Paperless-ngx did not resolve.",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload"
+          },
+          "404": {
+            "description": "Document not found in Paperless-ngx"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/queue/{documentId}": {
+      "delete": {
+        "summary": "Remove document from OCR queue",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Remove operation result"
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/process/{documentId}": {
+      "post": {
+        "summary": "Process one OCR queue item",
+        "description": "Starts OCR processing for one document and streams progress via SSE.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream started",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID"
+          }
+        }
+      }
+    },
+    "/api/ocr/process-all": {
+      "post": {
+        "summary": "Process all pending OCR queue items",
+        "description": "Starts batch OCR processing and streams progress via SSE.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream started",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ocr/analyze/{documentId}": {
+      "post": {
+        "summary": "Analyze existing OCR text with AI",
+        "description": "Uses existing OCR text and streams analysis progress via SSE.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream started",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID"
+          }
+        }
+      }
+    },
+    "/api/ocr/queue/{documentId}/text": {
+      "get": {
+        "summary": "Get OCR text for one queue item",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR text payload returned"
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "404": {
+            "description": "Queue item not found"
+          },
+          "500": {
+            "description": "Server error"
           }
         }
       }
