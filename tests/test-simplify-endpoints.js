@@ -1,5 +1,5 @@
 /**
- * Test: the /simplify routes in routes/setup.js
+ * Test: the /simplify routes in routes/tidyUpSupport.js
  *
  * The page and the simplify service only ever meet through these endpoints,
  * so this suite pins the wire format: what a refusal produces, where

@@ -10,7 +10,7 @@
  * A session token now carries an explicit `typ: 'session'` claim and all four
  * guards demand it:
  *   - authenticateJWT and isAuthenticated (routes/auth.js)
- *   - the global router.use guard and protectApiRoute (routes/setup.js)
+ *   - the global router.use guard and protectApiRoute (middleware/authGate.js)
  *
  * Covered here:
  *   1. Route level: an MFA challenge token and a legacy (pre-fix) token are

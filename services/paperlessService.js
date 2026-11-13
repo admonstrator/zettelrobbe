@@ -61,7 +61,7 @@ function switchedOn(value) {
 /**
  * AI_PROCESSED_TAG_NAME as a list of names.
  *
- * The settings hold one string, but server.js, routes/setup.js and the
+ * The settings hold one string, but server.js, the setup wizard and the
  * duplicates service have always read it as comma-separated. Reading it as a
  * single name here would turn "ai-processed,done" into one tag with a comma in
  * it. An unset or blank value yields an empty list, which is what switches the

@@ -1,3 +1,26 @@
+'use strict';
+
+/**
+ * What remains of the duplicates and simplify API: the endpoints the Tidy up
+ * page (routes/tidyUp.js) still calls, and the redirects from the former
+ * /duplicates and /simplify pages.
+ *
+ * Moved verbatim from routes/setup.js; routes/index.js mounts this router at
+ * / behind remoteSetupGuard and authGate, and every route keeps its own
+ * guard.
+ *
+ *   GET   /duplicates                          Former Duplicates page, now part of Tidy up
+ *   DELETE/api/duplicates/ai-review/memory     Forget every remembered verdict of the AI judge
+ *   GET   /api/duplicates/dismissals           List the pairs marked as "not a duplicate
+ *   DELETE/api/duplicates/dismissals/:id       Restore a pair marked as "not a duplicate
+ *   POST  /api/duplicates/log/:id/undo         Undo a logged merge
+ *   GET   /api/duplicates/ai-review/estimate   What the next AI review would cost, before it starts
+ *   GET   /simplify                            Former Simplify tags page, now part of Tidy up
+ *   GET   /api/simplify/vocabulary             The target vocabulary of document types and topic tags
+ *   PUT   /api/simplify/vocabulary
+ *   GET   /api/simplify/document-types         The document types Paperless-ngx already has
+ */
+
 const express = require('express');
 const paperlessService = require('../services/paperlessService.js');
 const documentModel = require('../models/document.js');
@@ -42,6 +65,101 @@ function readDuplicatesKind(value) {
     throw error;
   }
   return kind;
+}
+
+/**
+ * Why the estimate may not be answered, or null when it may.
+ *
+ * The page hides its model-backed buttons when the feature is off, so this
+ * is the belt rather than the braces — but it has to name which of the two it
+ * is, because "switch it on" and "configure a provider" are different things
+ * to do.
+ *
+ * @returns {string|null}
+ */
+function aiReviewRefusal() {
+  // The same reading the judge uses: `Boolean('no')` is true, which is the
+  // trap this spelling exists to avoid.
+  const on =
+    configFile.duplicatesAiReview === true ||
+    String(configFile.duplicatesAiReview ?? '')
+      .trim()
+      .toLowerCase() === 'yes';
+  if (!on) {
+    return 'The AI review is switched off (DUPLICATES_AI_REVIEW)';
+  }
+  if (!configFile.aiProvider) {
+    return 'No AI provider is configured';
+  }
+  return null;
+}
+
+/**
+ * Reads a `0`/`1` query flag the estimate endpoint uses for its
+ * switches. Absent is the default the caller names, not `false`: an estimate
+ * that quietly turned the excerpts off would promise a cheaper run than the
+ * one the button starts.
+ *
+ * @param {unknown} value
+ * @param {boolean} fallback
+ * @returns {boolean}
+ */
+function readQueryFlag(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const text = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off'].includes(text)) return false;
+  return fallback;
+}
+
+// ── Simplify tags: the vocabulary the Tidy up page edits ────────────────────
+
+/** Entries one dimension of the vocabulary may hold. */
+const MAX_VOCABULARY_ENTRIES = 200;
+
+/** A vocabulary name is a name; Paperless-ngx stops well before this. */
+const MAX_VOCABULARY_NAME_LENGTH = 128;
+
+/** The route's own 400, worded like the ones of the Duplicates block. */
+function simplifyBadRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+/**
+ * Reads one dimension of a TagVocabularyRequest: a list of names, trimmed,
+ * blanks dropped. Anything that is not a list of short strings is the route's
+ * own 400 rather than something the service has to guess about.
+ *
+ * @param {unknown} value
+ * @param {string} field  the name the refusal quotes
+ * @returns {string[]}
+ */
+function readVocabularyNames(value, field) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw simplifyBadRequest(`${field} must be an array of names`);
+  }
+  if (value.length > MAX_VOCABULARY_ENTRIES) {
+    throw simplifyBadRequest(
+      `${field} must not hold more than ${MAX_VOCABULARY_ENTRIES} names`
+    );
+  }
+  const names = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw simplifyBadRequest(`every entry of ${field} must be a string`);
+    }
+    const name = entry.trim();
+    if (name.length > MAX_VOCABULARY_NAME_LENGTH) {
+      throw simplifyBadRequest(
+        `every name of ${field} must be at most ${MAX_VOCABULARY_NAME_LENGTH} characters`
+      );
+    }
+    if (name !== '') names.push(name);
+  }
+  return names;
 }
 
 /**
@@ -509,101 +627,6 @@ router.get(
     }
   }
 );
-
-/**
- * Why the estimate may not be answered, or null when it may.
- *
- * The page hides its model-backed buttons when the feature is off, so this
- * is the belt rather than the braces — but it has to name which of the two it
- * is, because "switch it on" and "configure a provider" are different things
- * to do.
- *
- * @returns {string|null}
- */
-function aiReviewRefusal() {
-  // The same reading the judge uses: `Boolean('no')` is true, which is the
-  // trap this spelling exists to avoid.
-  const on =
-    configFile.duplicatesAiReview === true ||
-    String(configFile.duplicatesAiReview ?? '')
-      .trim()
-      .toLowerCase() === 'yes';
-  if (!on) {
-    return 'The AI review is switched off (DUPLICATES_AI_REVIEW)';
-  }
-  if (!configFile.aiProvider) {
-    return 'No AI provider is configured';
-  }
-  return null;
-}
-
-/**
- * Reads a `0`/`1` query flag the estimate endpoint uses for its
- * switches. Absent is the default the caller names, not `false`: an estimate
- * that quietly turned the excerpts off would promise a cheaper run than the
- * one the button starts.
- *
- * @param {unknown} value
- * @param {boolean} fallback
- * @returns {boolean}
- */
-function readQueryFlag(value, fallback) {
-  if (value === undefined || value === null || value === '') return fallback;
-  const text = String(value).trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
-  if (['0', 'false', 'no', 'off'].includes(text)) return false;
-  return fallback;
-}
-
-// ── Simplify tags: the vocabulary the Tidy up page edits ────────────────────
-
-/** Entries one dimension of the vocabulary may hold. */
-const MAX_VOCABULARY_ENTRIES = 200;
-
-/** A vocabulary name is a name; Paperless-ngx stops well before this. */
-const MAX_VOCABULARY_NAME_LENGTH = 128;
-
-/** The route's own 400, worded like the ones of the Duplicates block. */
-function simplifyBadRequest(message) {
-  const error = new Error(message);
-  error.status = 400;
-  return error;
-}
-
-/**
- * Reads one dimension of a TagVocabularyRequest: a list of names, trimmed,
- * blanks dropped. Anything that is not a list of short strings is the route's
- * own 400 rather than something the service has to guess about.
- *
- * @param {unknown} value
- * @param {string} field  the name the refusal quotes
- * @returns {string[]}
- */
-function readVocabularyNames(value, field) {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) {
-    throw simplifyBadRequest(`${field} must be an array of names`);
-  }
-  if (value.length > MAX_VOCABULARY_ENTRIES) {
-    throw simplifyBadRequest(
-      `${field} must not hold more than ${MAX_VOCABULARY_ENTRIES} names`
-    );
-  }
-  const names = [];
-  for (const entry of value) {
-    if (typeof entry !== 'string') {
-      throw simplifyBadRequest(`every entry of ${field} must be a string`);
-    }
-    const name = entry.trim();
-    if (name.length > MAX_VOCABULARY_NAME_LENGTH) {
-      throw simplifyBadRequest(
-        `every name of ${field} must be at most ${MAX_VOCABULARY_NAME_LENGTH} characters`
-      );
-    }
-    if (name !== '') names.push(name);
-  }
-  return names;
-}
 
 /**
  * @swagger

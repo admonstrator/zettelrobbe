@@ -1760,6 +1760,602 @@
         }
       }
     },
+    "/duplicates": {
+      "get": {
+        "summary": "Former Duplicates page, now part of Tidy up",
+        "description": "The Duplicates page was replaced by Tidy up (`/tidy-up`); this path\nredirects there permanently so bookmarks keep working.\n",
+        "tags": [
+          "Navigation",
+          "Duplicates"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "301": {
+            "description": "Moved permanently to /tidy-up"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/memory": {
+      "delete": {
+        "summary": "Forget every remembered verdict of the AI judge",
+        "description": "The judge remembers what it decided about a pair of names for\nDUPLICATES_AI_VERDICT_MEMORY_DAYS, so the next review only asks about\nwhat is new. This empties that memory, which makes the next review ask\nabout everything again — the thing to do after the model changed or\nafter a verdict turned out to be wrong.\n\nLocal only: nothing in Paperless-ngx is touched, and no merge is\nundone or repeated.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The memory is empty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "removed": {
+                          "type": "integer",
+                          "description": "verdicts that were forgotten"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismissals": {
+      "get": {
+        "summary": "List the pairs marked as \"not a duplicate\"",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dismissed pairs, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EntityMergeDismissal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/duplicates/dismissals/{id}": {
+      "delete": {
+        "summary": "Restore a pair marked as \"not a duplicate\"",
+        "description": "The pair is offered by the scan again from the next run on.",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pair restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Unknown pair"
+          }
+        }
+      }
+    },
+    "/api/duplicates/log/{id}/undo": {
+      "post": {
+        "summary": "Undo a logged merge",
+        "description": "Re-creates every source the merge deleted — a same-named object that\nexists again is adopted instead — and hands back the documents that\nstill carry the target. Documents that were changed since the merge\nare counted as skipped and left alone. The re-created objects get new\nids in Paperless-ngx.\n\nThe answer carries `success: false` with status 200 when at least one\nsource could not be restored.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "id of the merge log entry",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Undo finished (completely or partially)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EntityMergeUndoResult"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "404": {
+            "description": "Unknown merge"
+          },
+          "409": {
+            "description": "Already undone, or a document scan is running"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
+    "/api/duplicates/ai-review/estimate": {
+      "get": {
+        "summary": "What the next AI review would cost, before it starts",
+        "description": "Answers the question the page asks before it spends anything: how\nmany requests, how many tokens, how long. Nothing here asks a model\nand nothing scans — the page calls this again on every move of a\nlever, so it may only read what is already there.\n\nA scan is a walk over every tag and every correspondent of the\narchive, so this never starts one. It answers from the scan the merge\nservice still holds for these options, and when there is none it\nanswers `needsScan: true` with `items: 0` and `basis: \"guess\"` — the\npage then says \"scan first, then I can tell you\" instead of showing a\nnumber nobody measured.\n\n`basis` says where the numbers come from: `run` a finished review of\nthis archive, `model` what the judge measured about this model,\n`guess` neither. `requests` is the judging pass alone; `extra` names\nwhat comes on top — the requests a semantic sweep would add, and the\nentities whose documents would be read for excerpts, which are reads\nof Paperless-ngx rather than model requests.\n\n`items` counts the pairs of the scan's groups that the model would be\nasked about. A review that also asks about the candidate band asks\nabout more: the band needs the entity list, and reading it is exactly\nthe cost this endpoint exists to avoid.\n",
+        "tags": [
+          "Duplicates",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tags",
+                "correspondents",
+                "all"
+              ]
+            },
+            "description": "What the review would look at; `all` by default"
+          },
+          {
+            "in": "query",
+            "name": "threshold",
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "The sensitivity the scan was made with"
+          },
+          {
+            "in": "query",
+            "name": "sweep",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "The semantic sweep is on"
+          },
+          {
+            "in": "query",
+            "name": "excerpts",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "description": "Document excerpts are read as evidence"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the review would cost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/AiRunEstimate"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "model": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "thinking": {
+                              "type": "boolean"
+                            },
+                            "groups": {
+                              "type": "integer",
+                              "description": "scan groups the review would judge"
+                            },
+                            "pairs": {
+                              "type": "integer",
+                              "description": "every pair of those groups — what the model is\nasked about plus what a spelling rule settled\n"
+                            },
+                            "needsScan": {
+                              "type": "boolean",
+                              "description": "no cached scan answers for these options"
+                            },
+                            "extra": {
+                              "type": "object",
+                              "properties": {
+                                "sweepRequests": {
+                                  "type": "integer"
+                                },
+                                "excerptReads": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown kind, or a threshold outside [0, 1]"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "503": {
+            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW), or no AI\nprovider is configured; the message names which of the two\n"
+          }
+        }
+      }
+    },
+    "/simplify": {
+      "get": {
+        "summary": "Former Simplify tags page, now part of Tidy up",
+        "description": "The Simplify tags page was replaced by Tidy up (`/tidy-up`), where\nsplitting compound tags is one option of a run; this path redirects\nthere permanently.\n",
+        "tags": [
+          "Navigation",
+          "Simplify"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "301": {
+            "description": "Moved permanently to /tidy-up"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/simplify/vocabulary": {
+      "get": {
+        "summary": "The target vocabulary of document types and topic tags",
+        "description": "The couple of dozen concepts the archive should end up with, in the\norder the user put them in. Local only: these are names, not objects\nin Paperless-ngx — an entry gets its `paperlessId` when a split first\nneeds the object.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored vocabulary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagVocabulary"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace the target vocabulary",
+        "description": "Stores the vocabulary as the user edited it: names only, the order\nkept, blanks and repeats dropped. The ids a name already has in\nPaperless-ngx survive the save. A list that is not a list of at most\n200 names of at most 128 characters each is refused with 400.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagVocabularyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TagVocabulary"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A list is too long, or holds something that is not a name"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/simplify/document-types": {
+      "get": {
+        "summary": "The document types Paperless-ngx already has",
+        "description": "What the \"Document type\" field of the vocabulary offers. Read-only and\ncached: the list is refreshed when it is empty, when it is older than\nTAG_CACHE_TTL_SECONDS or when `fresh` asks for it, and every write\nthat creates or deletes a document type empties it, so a type a split\njust created is listed at once.\n\n`inVocabulary` says which of them the saved vocabulary already holds;\nthe page marks those rows and does not add them a second time.\n",
+        "tags": [
+          "Simplify",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "fresh",
+            "required": false,
+            "description": "1, true or yes reads past the cache",
+            "schema": {
+              "type": "string",
+              "example": "1"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document types, sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "types": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TagVocabularyDocumentType"
+                          }
+                        },
+                        "total": {
+                          "type": "integer",
+                          "example": 8
+                        },
+                        "cachedAt": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time",
+                          "description": "When the cached list was built; null while nothing was read yet"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "502": {
+            "description": "Paperless-ngx could not be reached"
+          }
+        }
+      }
+    },
     "/tidy-up": {
       "get": {
         "summary": "The Tidy up page",
@@ -2820,602 +3416,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/duplicates": {
-      "get": {
-        "summary": "Former Duplicates page, now part of Tidy up",
-        "description": "The Duplicates page was replaced by Tidy up (`/tidy-up`); this path\nredirects there permanently so bookmarks keep working.\n",
-        "tags": [
-          "Navigation",
-          "Duplicates"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "301": {
-            "description": "Moved permanently to /tidy-up"
-          },
-          "401": {
-            "description": "Not authenticated"
-          }
-        }
-      }
-    },
-    "/api/duplicates/ai-review/memory": {
-      "delete": {
-        "summary": "Forget every remembered verdict of the AI judge",
-        "description": "The judge remembers what it decided about a pair of names for\nDUPLICATES_AI_VERDICT_MEMORY_DAYS, so the next review only asks about\nwhat is new. This empties that memory, which makes the next review ask\nabout everything again — the thing to do after the model changed or\nafter a verdict turned out to be wrong.\n\nLocal only: nothing in Paperless-ngx is touched, and no merge is\nundone or repeated.\n",
-        "tags": [
-          "Duplicates",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The memory is empty",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "removed": {
-                          "type": "integer",
-                          "description": "verdicts that were forgotten"
-                        }
-                      }
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/duplicates/dismissals": {
-      "get": {
-        "summary": "List the pairs marked as \"not a duplicate\"",
-        "tags": [
-          "Duplicates",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "kind",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "tags",
-                "correspondents"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Dismissed pairs, newest first",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/EntityMergeDismissal"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unknown kind"
-          },
-          "401": {
-            "description": "Not authenticated"
-          }
-        }
-      }
-    },
-    "/api/duplicates/dismissals/{id}": {
-      "delete": {
-        "summary": "Restore a pair marked as \"not a duplicate\"",
-        "description": "The pair is offered by the scan again from the next run on.",
-        "tags": [
-          "Duplicates",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Pair restored",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid id"
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "404": {
-            "description": "Unknown pair"
-          }
-        }
-      }
-    },
-    "/api/duplicates/log/{id}/undo": {
-      "post": {
-        "summary": "Undo a logged merge",
-        "description": "Re-creates every source the merge deleted — a same-named object that\nexists again is adopted instead — and hands back the documents that\nstill carry the target. Documents that were changed since the merge\nare counted as skipped and left alone. The re-created objects get new\nids in Paperless-ngx.\n\nThe answer carries `success: false` with status 200 when at least one\nsource could not be restored.\n",
-        "tags": [
-          "Duplicates",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "description": "id of the merge log entry",
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Undo finished (completely or partially)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/EntityMergeUndoResult"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid id"
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "404": {
-            "description": "Unknown merge"
-          },
-          "409": {
-            "description": "Already undone, or a document scan is running"
-          },
-          "502": {
-            "description": "Paperless-ngx could not be reached"
-          }
-        }
-      }
-    },
-    "/api/duplicates/ai-review/estimate": {
-      "get": {
-        "summary": "What the next AI review would cost, before it starts",
-        "description": "Answers the question the page asks before it spends anything: how\nmany requests, how many tokens, how long. Nothing here asks a model\nand nothing scans — the page calls this again on every move of a\nlever, so it may only read what is already there.\n\nA scan is a walk over every tag and every correspondent of the\narchive, so this never starts one. It answers from the scan the merge\nservice still holds for these options, and when there is none it\nanswers `needsScan: true` with `items: 0` and `basis: \"guess\"` — the\npage then says \"scan first, then I can tell you\" instead of showing a\nnumber nobody measured.\n\n`basis` says where the numbers come from: `run` a finished review of\nthis archive, `model` what the judge measured about this model,\n`guess` neither. `requests` is the judging pass alone; `extra` names\nwhat comes on top — the requests a semantic sweep would add, and the\nentities whose documents would be read for excerpts, which are reads\nof Paperless-ngx rather than model requests.\n\n`items` counts the pairs of the scan's groups that the model would be\nasked about. A review that also asks about the candidate band asks\nabout more: the band needs the entity list, and reading it is exactly\nthe cost this endpoint exists to avoid.\n",
-        "tags": [
-          "Duplicates",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "kind",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "tags",
-                "correspondents",
-                "all"
-              ]
-            },
-            "description": "What the review would look at; `all` by default"
-          },
-          {
-            "in": "query",
-            "name": "threshold",
-            "schema": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "description": "The sensitivity the scan was made with"
-          },
-          {
-            "in": "query",
-            "name": "sweep",
-            "schema": {
-              "type": "integer",
-              "enum": [
-                0,
-                1
-              ]
-            },
-            "description": "The semantic sweep is on"
-          },
-          {
-            "in": "query",
-            "name": "excerpts",
-            "schema": {
-              "type": "integer",
-              "enum": [
-                0,
-                1
-              ]
-            },
-            "description": "Document excerpts are read as evidence"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "What the review would cost",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/AiRunEstimate"
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "model": {
-                              "type": "string",
-                              "nullable": true
-                            },
-                            "thinking": {
-                              "type": "boolean"
-                            },
-                            "groups": {
-                              "type": "integer",
-                              "description": "scan groups the review would judge"
-                            },
-                            "pairs": {
-                              "type": "integer",
-                              "description": "every pair of those groups — what the model is\nasked about plus what a spelling rule settled\n"
-                            },
-                            "needsScan": {
-                              "type": "boolean",
-                              "description": "no cached scan answers for these options"
-                            },
-                            "extra": {
-                              "type": "object",
-                              "properties": {
-                                "sweepRequests": {
-                                  "type": "integer"
-                                },
-                                "excerptReads": {
-                                  "type": "integer"
-                                }
-                              }
-                            }
-                          }
-                        }
-                      ]
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unknown kind, or a threshold outside [0, 1]"
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
-          },
-          "503": {
-            "description": "The AI review is switched off (DUPLICATES_AI_REVIEW), or no AI\nprovider is configured; the message names which of the two\n"
-          }
-        }
-      }
-    },
-    "/simplify": {
-      "get": {
-        "summary": "Former Simplify tags page, now part of Tidy up",
-        "description": "The Simplify tags page was replaced by Tidy up (`/tidy-up`), where\nsplitting compound tags is one option of a run; this path redirects\nthere permanently.\n",
-        "tags": [
-          "Navigation",
-          "Simplify"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "301": {
-            "description": "Moved permanently to /tidy-up"
-          },
-          "401": {
-            "description": "Not authenticated"
-          }
-        }
-      }
-    },
-    "/api/simplify/vocabulary": {
-      "get": {
-        "summary": "The target vocabulary of document types and topic tags",
-        "description": "The couple of dozen concepts the archive should end up with, in the\norder the user put them in. Local only: these are names, not objects\nin Paperless-ngx — an entry gets its `paperlessId` when a split first\nneeds the object.\n",
-        "tags": [
-          "Simplify",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The stored vocabulary",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/TagVocabulary"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      },
-      "put": {
-        "summary": "Replace the target vocabulary",
-        "description": "Stores the vocabulary as the user edited it: names only, the order\nkept, blanks and repeats dropped. The ids a name already has in\nPaperless-ngx survive the save. A list that is not a list of at most\n200 names of at most 128 characters each is refused with 400.\n",
-        "tags": [
-          "Simplify",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TagVocabularyRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "What was stored",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/TagVocabulary"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A list is too long, or holds something that is not a name"
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/simplify/document-types": {
-      "get": {
-        "summary": "The document types Paperless-ngx already has",
-        "description": "What the \"Document type\" field of the vocabulary offers. Read-only and\ncached: the list is refreshed when it is empty, when it is older than\nTAG_CACHE_TTL_SECONDS or when `fresh` asks for it, and every write\nthat creates or deletes a document type empties it, so a type a split\njust created is listed at once.\n\n`inVocabulary` says which of them the saved vocabulary already holds;\nthe page marks those rows and does not add them a second time.\n",
-        "tags": [
-          "Simplify",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "fresh",
-            "required": false,
-            "description": "1, true or yes reads past the cache",
-            "schema": {
-              "type": "string",
-              "example": "1"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The document types, sorted by name",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "types": {
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/TagVocabularyDocumentType"
-                          }
-                        },
-                        "total": {
-                          "type": "integer",
-                          "example": 8
-                        },
-                        "cachedAt": {
-                          "type": "string",
-                          "nullable": true,
-                          "format": "date-time",
-                          "description": "When the cached list was built; null while nothing was read yet"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "502": {
-            "description": "Paperless-ngx could not be reached"
           }
         }
       }

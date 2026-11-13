@@ -42,11 +42,11 @@ router.use(require('./settingsMfa')); // settings MFA
 router.use(require('./system')); // health, about, updates
 router.use(require('./ocr')); // OCR queue
 router.use(require('./queues')); // failed and ignored queues
-router.use(require('./setup')); // not split yet
+router.use(require('./tidyUpSupport')); // Tidy up support API
 
-// Carried over from routes/setup.js, which ran it once its modules had loaded:
-// reads ../data/.env relative to the working directory, and never overwrites
-// a variable that is already set.
+// Carried over from the former routes/setup.js, which ran it once its modules
+// had loaded: reads ../data/.env relative to the working directory, and never
+// overwrites a variable that is already set.
 require('dotenv').config({ path: '../data/.env' });
 
 module.exports = router;
