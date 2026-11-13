@@ -175,9 +175,15 @@ const SCENARIOS = [
     expect: row(SESSION_USER, SESSION_USER, SESSION_USER, true, true),
   },
   {
-    // The scheme is not checked: the second word of the header is the token.
+    // Only the Bearer scheme carries a session token (fixed: the second word
+    // of any header used to count, so "Basic <token>" opened a session).
     name: 'valid session under another Authorization scheme',
     headers: { authorization: `Basic ${tokens.session}` },
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
+  },
+  {
+    name: 'valid session as bearer header, scheme in lower case',
+    headers: { authorization: `bearer ${tokens.session}` },
     expect: row(SESSION_USER, SESSION_USER, SESSION_USER, true, true),
   },
   {

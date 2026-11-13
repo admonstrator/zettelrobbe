@@ -89,17 +89,20 @@ function verifySessionToken(token, jwtSecret) {
 }
 
 /**
- * The session token of the request: the session cookie, else the second word
- * of the Authorization header (the scheme is not checked).
+ * The session token of the request: the session cookie, else the token of an
+ * `Authorization: Bearer <token>` header. Any other scheme (Basic, Token, …)
+ * carries no session token.
  *
  * @param {import('express').Request} req
  * @returns {string|undefined}
  */
 function readSessionToken(req) {
-  return (
-    req.cookies?.[SESSION_COOKIE_NAME] ||
-    req.headers.authorization?.split(' ')[1]
-  );
+  const cookieToken = req.cookies?.[SESSION_COOKIE_NAME];
+  if (cookieToken) {
+    return cookieToken;
+  }
+  const match = /^Bearer\s+(\S+)\s*$/i.exec(req.headers.authorization || '');
+  return match ? match[1] : undefined;
 }
 
 /**
