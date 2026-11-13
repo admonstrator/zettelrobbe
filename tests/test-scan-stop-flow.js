@@ -13,13 +13,20 @@
  */
 
 const axios = require('axios');
+const { csrfHeaders, needsCsrf } = require('./helpers/csrf');
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const JWT_TOKEN = process.env.JWT_TOKEN || null;
 const API_KEY = process.env.API_KEY || process.env.PAPERLESS_AI_API_KEY || null;
 
-const POLL_INTERVAL_MS = parseInt(process.env.SCAN_STOP_POLL_INTERVAL_MS || '500', 10);
-const POLL_TIMEOUT_MS = parseInt(process.env.SCAN_STOP_TIMEOUT_MS || '120000', 10);
+const POLL_INTERVAL_MS = parseInt(
+  process.env.SCAN_STOP_POLL_INTERVAL_MS || '500',
+  10
+);
+const POLL_TIMEOUT_MS = parseInt(
+  process.env.SCAN_STOP_TIMEOUT_MS || '120000',
+  10
+);
 
 function authHeaders() {
   if (JWT_TOKEN) {
@@ -34,16 +41,19 @@ function authHeaders() {
 }
 
 async function apiRequest(method, path, body) {
+  const auth = authHeaders();
+  const csrf = needsCsrf(method, auth) ? await csrfHeaders(BASE_URL, auth) : {};
   return axios({
     method,
     url: `${BASE_URL}${path}`,
     data: body,
     headers: {
-      ...authHeaders(),
-      'Content-Type': 'application/json'
+      ...auth,
+      ...csrf,
+      'Content-Type': 'application/json',
     },
     validateStatus: () => true,
-    maxRedirects: 0
+    maxRedirects: 0,
   });
 }
 
@@ -73,7 +83,12 @@ async function startScan() {
   const response = await apiRequest('post', '/api/scan/now', {});
 
   // When setup is incomplete the endpoint intentionally rejects scan start.
-  if (response.status === 400 && String(response.data?.error || '').toLowerCase().includes('setup not completed')) {
+  if (
+    response.status === 400 &&
+    String(response.data?.error || '')
+      .toLowerCase()
+      .includes('setup not completed')
+  ) {
     return { skipped: true, reason: 'setup not completed' };
   }
 
@@ -115,10 +130,14 @@ async function runTests() {
     process.exit(0);
   }
 
-  console.log(`[INFO] First start response: started=${Boolean(startResult.data.started)} running=${Boolean(startResult.data.running)}`);
+  console.log(
+    `[INFO] First start response: started=${Boolean(startResult.data.started)} running=${Boolean(startResult.data.running)}`
+  );
 
   const stopResult = await stopScan();
-  console.log(`[INFO] Stop response: running=${Boolean(stopResult.running)} stopRequested=${Boolean(stopResult.stopRequested)}`);
+  console.log(
+    `[INFO] Stop response: running=${Boolean(stopResult.running)} stopRequested=${Boolean(stopResult.stopRequested)}`
+  );
 
   await waitForScanToBecomeIdle();
   console.log('[OK] Scan became idle after stop request');
@@ -129,7 +148,9 @@ async function runTests() {
     process.exit(0);
   }
 
-  console.log(`[INFO] Restart response: started=${Boolean(restartResult.data.started)} running=${Boolean(restartResult.data.running)}`);
+  console.log(
+    `[INFO] Restart response: started=${Boolean(restartResult.data.started)} running=${Boolean(restartResult.data.running)}`
+  );
 
   await stopScan();
   await waitForScanToBecomeIdle();
