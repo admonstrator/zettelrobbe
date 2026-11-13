@@ -2341,169 +2341,6 @@
         }
       }
     },
-    "/api/settings/clear-tag-cache": {
-      "post": {
-        "summary": "Manually clear the centralized tag cache",
-        "description": "Forces the tag cache to refresh on next access. Useful after external tag modifications.",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "ApiKeyAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Cache cleared successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required"
-          },
-          "429": {
-            "description": "Too many requests - rate limit exceeded (max 10 requests per 15 minutes)"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/thumbnail-cache": {
-      "get": {
-        "summary": "Get thumbnail cache statistics",
-        "description": "Returns current thumbnail cache count and total size from local cache storage.",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Thumbnail cache stats retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "fileCount": {
-                          "type": "integer"
-                        },
-                        "totalBytes": {
-                          "type": "integer"
-                        },
-                        "totalSizeHuman": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/thumbnail-cache/clear": {
-      "post": {
-        "summary": "Clear thumbnail cache",
-        "description": "Deletes all cached thumbnail PNG files from local cache storage and returns cleanup stats.",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Thumbnail cache cleared successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "removedFiles": {
-                      "type": "integer"
-                    },
-                    "freedBytes": {
-                      "type": "integer"
-                    },
-                    "freedSizeHuman": {
-                      "type": "string"
-                    },
-                    "remaining": {
-                      "type": "object",
-                      "properties": {
-                        "fileCount": {
-                          "type": "integer"
-                        },
-                        "totalBytes": {
-                          "type": "integer"
-                        },
-                        "totalSizeHuman": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests - rate limit exceeded"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
     "/api/settings/reset-local-overrides": {
       "post": {
         "summary": "Reset local runtime overrides",
@@ -2574,153 +2411,6 @@
           },
           "500": {
             "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/reconcile-history": {
-      "post": {
-        "summary": "Manually trigger history reconciliation (Server-Sent Events)",
-        "description": "Triggers an immediate reconciliation pass that removes stale entries from the\nlocal AI database for documents that have been deleted in Paperless-ngx.\nUses Server-Sent Events (SSE) to stream real-time progress.\nReturns a single result event with the number of removed entries.\n\nA pass that refused to delete anything — a scan is running, Paperless-ngx\nis unreachable or unauthorized, the document list came back incomplete or\nempty — carries `skipped: true`, `removed: 0` and a `message` naming the\nreason. Nothing was changed in that case.\n",
-        "tags": [
-          "Settings"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Reconciliation result (SSE stream)",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string",
-                  "example": "data: {\"type\":\"complete\",\"skipped\":false,\"removed\":3,\"durationMs\":120,\"message\":\"Removed 3 stale entries.\"}\ndata: {\"type\":\"complete\",\"skipped\":true,\"removed\":0,\"durationMs\":8,\"message\":\"Paperless-ngx is not reachable or the token was rejected; nothing was changed.\"}\n"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required"
-          },
-          "500": {
-            "description": "Server error during reconciliation"
-          }
-        }
-      }
-    },
-    "/api/reset-documents": {
-      "post": {
-        "summary": "Reset specific documents",
-        "description": "Deletes processing records for specific documents, allowing them to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.\n\nThis operation is useful when you want to reprocess only selected documents after changes to\nthe AI model, prompt, or document metadata configuration.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "ids"
-                ],
-                "properties": {
-                  "ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "integer"
-                    },
-                    "description": "Array of document IDs to reset",
-                    "example": [
-                      123,
-                      456,
-                      789
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Documents successfully reset",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Invalid document IDs"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Authentication required"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Error resetting documents"
-                    }
-                  }
-                }
-              }
-            }
           }
         }
       }
@@ -7599,6 +7289,316 @@
           },
           "404": {
             "description": "Single sign-on is not enabled"
+          }
+        }
+      }
+    },
+    "/api/settings/clear-tag-cache": {
+      "post": {
+        "summary": "Manually clear the centralized tag cache",
+        "description": "Forces the tag cache to refresh on next access. Useful after external tag modifications.",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cache cleared successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required"
+          },
+          "429": {
+            "description": "Too many requests - rate limit exceeded (max 10 requests per 15 minutes)"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/settings/thumbnail-cache": {
+      "get": {
+        "summary": "Get thumbnail cache statistics",
+        "description": "Returns current thumbnail cache count and total size from local cache storage.",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thumbnail cache stats retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "fileCount": {
+                          "type": "integer"
+                        },
+                        "totalBytes": {
+                          "type": "integer"
+                        },
+                        "totalSizeHuman": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/settings/thumbnail-cache/clear": {
+      "post": {
+        "summary": "Clear thumbnail cache",
+        "description": "Deletes all cached thumbnail PNG files from local cache storage and returns cleanup stats.",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thumbnail cache cleared successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "removedFiles": {
+                      "type": "integer"
+                    },
+                    "freedBytes": {
+                      "type": "integer"
+                    },
+                    "freedSizeHuman": {
+                      "type": "string"
+                    },
+                    "remaining": {
+                      "type": "object",
+                      "properties": {
+                        "fileCount": {
+                          "type": "integer"
+                        },
+                        "totalBytes": {
+                          "type": "integer"
+                        },
+                        "totalSizeHuman": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests - rate limit exceeded"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/settings/reconcile-history": {
+      "post": {
+        "summary": "Manually trigger history reconciliation (Server-Sent Events)",
+        "description": "Triggers an immediate reconciliation pass that removes stale entries from the\nlocal AI database for documents that have been deleted in Paperless-ngx.\nUses Server-Sent Events (SSE) to stream real-time progress.\nReturns a single result event with the number of removed entries.\n\nA pass that refused to delete anything — a scan is running, Paperless-ngx\nis unreachable or unauthorized, the document list came back incomplete or\nempty — carries `skipped: true`, `removed: 0` and a `message` naming the\nreason. Nothing was changed in that case.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reconciliation result (SSE stream)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "data: {\"type\":\"complete\",\"skipped\":false,\"removed\":3,\"durationMs\":120,\"message\":\"Removed 3 stale entries.\"}\ndata: {\"type\":\"complete\",\"skipped\":true,\"removed\":0,\"durationMs\":8,\"message\":\"Paperless-ngx is not reachable or the token was rejected; nothing was changed.\"}\n"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required"
+          },
+          "500": {
+            "description": "Server error during reconciliation"
+          }
+        }
+      }
+    },
+    "/api/reset-documents": {
+      "post": {
+        "summary": "Reset specific documents",
+        "description": "Deletes processing records for specific documents, allowing them to be processed again.\nThis doesn't delete the actual documents from Paperless-ngx, only their processing status in Zettelrobbe.\n\nThis operation is useful when you want to reprocess only selected documents after changes to\nthe AI model, prompt, or document metadata configuration.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Array of document IDs to reset",
+                    "example": [
+                      123,
+                      456,
+                      789
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documents successfully reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Invalid document IDs"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Authentication required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Error resetting documents"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
