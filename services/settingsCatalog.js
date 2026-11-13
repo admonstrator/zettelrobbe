@@ -448,13 +448,14 @@ const CATALOG = Object.freeze([
       parse: truthyAsIs,
       ...PSW,
     }),
-    // server.js keeps MIN_CONTENT_LENGTH in a module constant.
+    // Live: services/documentPipeline.js reads it for every document, so a
+    // saved value applies to the next one without a restart.
     setting('MIN_CONTENT_LENGTH', {
       type: 'integer',
       default: '10',
       field: 'minContentLength',
       parse: truthyAsIs,
-      restart: true,
+      restart: false,
       ...PS,
     }),
     setting('MAX_PAGE_COUNT', {

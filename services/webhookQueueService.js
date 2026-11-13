@@ -114,6 +114,15 @@ class WebhookQueueService {
       const existingCorrespondentNames = toNameList(existingCorrespondentList);
       const existingDocumentTypesList = toNameList(existingDocumentTypes);
 
+      // Read once per pass, as the scan does once per run: a document that
+      // waits for OCR or is being OCR'd gets its text and its analysis from
+      // that path (issue #322).
+      const ocrQueuedDocumentIds = new Set(
+        /** @type {Array<number|string>} */ (
+          await documentModel.getOcrQueueDocumentIds()
+        ).map((documentId) => Number(documentId))
+      );
+
       while (this.documentQueue.length > 0) {
         const { document: doc, applySkipRules } = /** @type {QueueEntry} */ (
           this.documentQueue.shift()
@@ -128,17 +137,11 @@ class WebhookQueueService {
             {
               source: applySkipRules ? 'webhook' : 'rescan',
               customPrompt: customPrompt || null,
+              ocrQueuedDocumentIds,
             }
           );
           if (!result) continue;
 
-          // The queue marks the document complete before the write-back; a
-          // write-back that fails afterwards is only logged below.
-          await documentModel.setProcessingStatus(
-            doc.id,
-            doc.title,
-            'complete'
-          );
           const { analysis, originalData } = result;
           const updateData = await documentProcessingService.buildUpdateData(
             analysis,
@@ -150,7 +153,15 @@ class WebhookQueueService {
             analysis,
             originalData
           );
+          // Complete only once the result is in Paperless-ngx, as the scan does.
+          await documentModel.setProcessingStatus(
+            doc.id,
+            doc.title,
+            'complete'
+          );
         } catch (error) {
+          // A failed analysis or write-back leaves no "processing" mark behind.
+          await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
           console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
         }
       }

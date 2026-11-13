@@ -7,8 +7,9 @@
  * webhook and the rescan another one in services/webhookQueueService.js; the
  * two drifted apart. Each scenario below lists, in order, every call the path
  * makes to the database, Paperless-ngx, the skip rules, the OCR queue and the
- * AI service, and what the path hands back. The lists are the behaviour each
- * caller had before the two were merged, so the merge cannot change it.
+ * AI service, and what the path hands back. The callers now protect a
+ * document the same way; the lists show where they still differ on purpose
+ * (CALLER_PROFILES says why).
  *
  * Runs offline: every collaborator is replaced through the require cache.
  */
@@ -88,7 +89,9 @@ function makeWorld(scenario) {
     ocrEnabled: false,
     ocrQueueAccepts: true,
     ocrQueueItem: null,
+    ocrQueueIds: [],
     activeOcr: false,
+    saveFails: null,
     analyses: [ANALYSIS],
     externalApi: false,
     minContentLength: 10,
@@ -120,13 +123,12 @@ function makeWorld(scenario) {
       isDocumentIgnored: record('isDocumentIgnored', () => s.ignored),
       isDocumentFailed: record('isDocumentFailed', () => s.failed),
       setProcessingStatus: record('setProcessingStatus'),
-      clearProcessingStatusByDocumentId: record(
-        'clearProcessingStatusByDocumentId'
-      ),
       addToOcrQueue: record('addToOcrQueue', () => s.ocrQueueAccepts),
       getOcrQueueItem: record('getOcrQueueItem', () => s.ocrQueueItem),
       addFailedDocument: record('addFailedDocument'),
-      getOcrQueueDocumentIds: record('getOcrQueueDocumentIds', []),
+      getOcrQueueDocumentIds: record('getOcrQueueDocumentIds', () =>
+        s.ocrQueueIds.map(String)
+      ),
       deleteDocumentsIdList: record('deleteDocumentsIdList'),
     },
     paperlessService: {
@@ -166,7 +168,9 @@ function makeWorld(scenario) {
     skipRuleService: { apply: record('skipRules.apply', () => s.skipMatch) },
     documentProcessingService: {
       buildUpdateData: record('buildUpdateData', { title: 'Phone bill' }),
-      saveDocumentChanges: record('saveDocumentChanges'),
+      saveDocumentChanges: record('saveDocumentChanges', () => {
+        if (s.saveFails) throw new Error(s.saveFails);
+      }),
     },
     thumbnailCache: { removeThumbnailCacheForDocumentIds: async () => {} },
     externalApiService: {
@@ -211,7 +215,7 @@ async function quietly(fn) {
  * scans). Each run reports null, the analysis, or the error it threw.
  */
 async function runScan(scenario, { runs = 1, ocrQueuedDocumentIds } = {}) {
-  const { calls, s } = makeWorld(scenario);
+  const { calls } = makeWorld(scenario);
   const documentPipeline = require('../services/documentPipeline');
   const outcomes = [];
   await quietly(async () => {
@@ -224,7 +228,6 @@ async function runScan(scenario, { runs = 1, ocrQueuedDocumentIds } = {}) {
           ['Invoice'],
           {
             source: 'scan',
-            minContentLength: s.minContentLength,
             ocrQueuedDocumentIds: ocrQueuedDocumentIds || new Set(),
           }
         );
@@ -259,13 +262,15 @@ const runRescan = (scenario, options = {}) =>
 
 // ── Expected call lists ─────────────────────────────────────────────────────
 
-/* The queue reads the three entity lists once per pass before the first
-   document; the scan loop does that outside processDocument(). */
+/* The queue reads the three entity lists and the OCR queue once per pass
+   before the first document; the scan loop does that outside
+   processDocument(). */
 const QUEUE_START = [
   'isConfigured()',
   'getTags()',
   'listCorrespondentsNames()',
   'listDocumentTypesNames()',
+  'getOcrQueueDocumentIds()',
 ];
 const FETCH = [
   'getPermissionOfDocument(7)',
@@ -280,13 +285,20 @@ const SKIP_RULES =
    restrict flags no AI service reads (they read config). */
 const SCAN_ANALYZE =
   'analyzeDocument("<156 chars>", ["Tax"], ["Bank"], ["Invoice"], 7, null, {"restrictToExistingTags":false,"restrictToExistingCorrespondents":true})';
+const GUARDED_OCR_INSERT = (reason) => [
+  'isDocumentProcessed(7)',
+  `addToOcrQueue(7, "Scan 0007", "${reason}", {"skipIfProcessed":true})`,
+];
 const queueAnalyze = (prompt = null, extra = '') =>
   `analyzeDocument("<156 chars>", ["Tax"], ["Bank"], ["Invoice"], 7, ${show(prompt)}, {"restrictToExistingTags":false,"restrictToExistingCorrespondents":true${extra}})`;
 const QUEUE_WRITE_BACK = [
-  'setProcessingStatus(7, "Scan 0007", "complete")',
   'buildUpdateData({"document":{"title":"Phone bill"}}, {"id":7,"title":"Scan 0007"})',
   'saveDocumentChanges(7, {"title":"Phone bill"}, {"document":{"title":"Phone bill"}}, {"id":7,"title":"Scan 0007","page_count":2})',
+  'setProcessingStatus(7, "Scan 0007", "complete")',
 ];
+/* The queue's catch: a failed analysis or write-back leaves no "processing"
+   mark behind. */
+const QUEUE_FAILED = 'setProcessingStatus(7, "Scan 0007", "failed")';
 const failedWith = (reason) => [
   'setProcessingStatus(7, "Scan 0007", "failed")',
   `addFailedDocument(7, "Scan 0007", "${reason}", "ai")`,
@@ -406,7 +418,7 @@ async function main() {
     assert.deepStrictEqual(outcomes, ['null']);
   });
 
-  await test('scan: the minimum content length is the one the caller passes', async () => {
+  await test('scan: the minimum content length is read from the settings', async () => {
     const { calls } = await runScan({ minContentLength: 500 });
     assert.deepStrictEqual(
       calls.slice(8),
@@ -436,9 +448,12 @@ async function main() {
     );
   });
 
-  await test('scan: external API data is not fetched', async () => {
+  await test('scan: external API data reaches the AI', async () => {
     const { calls } = await runScan({ externalApi: true });
-    assert.strictEqual(calls.at(-1), SCAN_ANALYZE);
+    assert.deepStrictEqual(calls.slice(-2), [
+      'externalApi.fetchData()',
+      SCAN_ANALYZE.replace(/\}\)$/, ',"externalApiData":{"rate":1.1}})'),
+    ]);
   });
 
   await test('scan: an OCR-relevant AI error queues OCR and throws', async () => {
@@ -525,33 +540,35 @@ async function main() {
     assert.deepStrictEqual(outcomes, []);
   });
 
+  await test('webhook: the ignored list is read before anything is written', async () => {
+    const { calls } = await runWebhook({ ignored: true });
+    assert.deepStrictEqual(calls, [
+      ...QUEUE_START,
+      'isDocumentProcessed(7)',
+      'isDocumentIgnored(7)',
+    ]);
+  });
+
   await test('webhook: a permanently failed document waits for a reset', async () => {
     const { calls } = await runWebhook({ failed: true });
     assert.deepStrictEqual(calls, [
       ...QUEUE_START,
       'isDocumentProcessed(7)',
+      'isDocumentIgnored(7)',
       'isDocumentFailed(7)',
     ]);
   });
 
-  await test('webhook: the ignored list is read after the fetch and clears the mark', async () => {
-    const { calls } = await runWebhook({ ignored: true });
-    assert.deepStrictEqual(calls, [
+  await test('webhook: a document waiting for OCR is not analysed', async () => {
+    const active = await runWebhook({ activeOcr: true });
+    assert.deepStrictEqual(active.calls, [
       ...QUEUE_START,
       'isDocumentProcessed(7)',
-      'isDocumentFailed(7)',
-      PROCESSING,
-      ...FETCH,
-      'isDocumentIgnored(7)',
-      'clearProcessingStatusByDocumentId(7)',
     ]);
-  });
-
-  await test('webhook: a document waiting for OCR is not checked for it', async () => {
-    const { calls } = await runWebhook({ activeOcr: true });
-    assert.deepStrictEqual(calls.slice(-4), [
-      queueAnalyze(),
-      ...QUEUE_WRITE_BACK,
+    const queued = await runWebhook({ ocrQueueIds: [7] });
+    assert.deepStrictEqual(queued.calls, [
+      ...QUEUE_START,
+      'isDocumentProcessed(7)',
     ]);
   });
 
@@ -560,6 +577,7 @@ async function main() {
     assert.deepStrictEqual(calls, [
       ...QUEUE_START,
       'isDocumentProcessed(7)',
+      'isDocumentIgnored(7)',
       'isDocumentFailed(7)',
       PROCESSING,
       'getPermissionOfDocument(7)',
@@ -573,23 +591,34 @@ async function main() {
       ocrEnabled: true,
     });
     assert.deepStrictEqual(calls.slice(-2), [
-      'isDocumentIgnored(7)',
+      'getDocument(7)',
       'skipRules.apply({"id":7,"title":"Scan 0007","page_count":2}, "x")',
     ]);
   });
 
-  await test('webhook: short content goes to OCR through the plain insert', async () => {
+  await test('webhook: short content goes to OCR through the guarded insert', async () => {
     const { calls } = await runWebhook({ content: 'x', ocrEnabled: true });
-    assert.deepStrictEqual(calls.slice(-1), [
-      'addToOcrQueue(7, "Scan 0007", "short_content_lt_10")',
-    ]);
+    assert.deepStrictEqual(
+      calls.slice(-2),
+      GUARDED_OCR_INSERT('short_content_lt_10')
+    );
     const refused = await runWebhook({
       content: 'x',
       ocrEnabled: true,
       ocrQueueAccepts: false,
     });
-    assert.deepStrictEqual(refused.calls.slice(-1), [
-      'addToOcrQueue(7, "Scan 0007", "short_content_lt_10")',
+    assert.deepStrictEqual(refused.calls.slice(-3), [
+      ...GUARDED_OCR_INSERT('short_content_lt_10'),
+      'getOcrQueueItem(7)',
+    ]);
+    const processedMeanwhile = await runWebhook({
+      content: 'x',
+      ocrEnabled: true,
+      processedOnRecheck: true,
+    });
+    assert.deepStrictEqual(processedMeanwhile.calls.slice(-2), [
+      'skipRules.apply({"id":7,"title":"Scan 0007","page_count":2}, "x")',
+      'isDocumentProcessed(7)',
     ]);
   });
 
@@ -609,20 +638,32 @@ async function main() {
     );
   });
 
-  await test('webhook: a good analysis completes the document before the write-back', async () => {
+  await test('webhook: a good analysis is written back, then completed', async () => {
     const { calls, outcomes } = await runWebhook({});
     assert.deepStrictEqual(calls, [
       ...QUEUE_START,
       'isDocumentProcessed(7)',
+      'isDocumentIgnored(7)',
       'isDocumentFailed(7)',
       PROCESSING,
       ...FETCH,
-      'isDocumentIgnored(7)',
       SKIP_RULES,
       queueAnalyze(),
       ...QUEUE_WRITE_BACK,
     ]);
     assert.deepStrictEqual(outcomes, []);
+  });
+
+  await test('webhook: a failed write-back fails the document, never completes it', async () => {
+    const { calls, outcomes } = await runWebhook({
+      saveFails: 'Paperless said no',
+    });
+    assert.deepStrictEqual(calls.slice(-4), [
+      queueAnalyze(),
+      ...QUEUE_WRITE_BACK.slice(0, 2),
+      QUEUE_FAILED,
+    ]);
+    assert.deepStrictEqual(outcomes, ['throw Paperless said no']);
   });
 
   await test('webhook: content is cut at 50000 characters', async () => {
@@ -653,45 +694,47 @@ async function main() {
       ocrEnabled: true,
       analyses: [OCR_ERROR],
     });
-    assert.deepStrictEqual(calls.slice(-2), [
+    assert.deepStrictEqual(calls.slice(-4), [
       queueAnalyze(),
-      'addToOcrQueue(7, "Scan 0007", "ai_invalid_json")',
+      ...GUARDED_OCR_INSERT('ai_invalid_json'),
+      QUEUE_FAILED,
     ]);
     assert.deepStrictEqual(outcomes, [
       'throw [ERROR] Document analysis failed: Invalid JSON response from API',
     ]);
   });
 
-  await test('webhook: the failure reason ignores the service error code', async () => {
+  await test('webhook: the service error code is the failure reason', async () => {
     const { calls } = await runWebhook({ analyses: [PLAIN_ERROR] });
-    assert.deepStrictEqual(
-      calls.slice(-2),
-      failedWith('ai_failed_ocr_disabled')
-    );
-    const withOcr = await runWebhook({
+    assert.deepStrictEqual(calls.slice(-3), [
+      ...failedWith('ai_refused'),
+      QUEUE_FAILED,
+    ]);
+    const generic = await runWebhook({
       ocrEnabled: true,
-      analyses: [PLAIN_ERROR],
+      analyses: [{ error: 'Model refused' }],
     });
-    assert.deepStrictEqual(
-      withOcr.calls.slice(-2),
-      failedWith('ai_failed_without_ocr_fallback')
-    );
+    assert.deepStrictEqual(generic.calls.slice(-3), [
+      ...failedWith('ai_failed_without_ocr_fallback'),
+      QUEUE_FAILED,
+    ]);
   });
 
-  await test('webhook: a timeout error is passed on unchanged', async () => {
+  await test('webhook: a timeout says so in the error', async () => {
     const { outcomes } = await runWebhook({ analyses: [TIMEOUT_ERROR] });
     assert.deepStrictEqual(outcomes, [
-      'throw [ERROR] Document analysis failed: Request timed out',
+      `throw [ERROR] Document analysis failed: ${TIMEOUT_TEXT}`,
     ]);
   });
 
   await test('webhook: no retry cap', async () => {
+    const { calls } = makeWorld({ ocrEnabled: true, analyses: [OCR_ERROR] });
+    const webhookQueueService = require('../services/webhookQueueService');
     for (let run = 0; run < 4; run += 1) {
-      const { calls } = await runWebhook({
-        ocrEnabled: true,
-        analyses: [OCR_ERROR],
-      });
-      assert.strictEqual(calls.at(-2), queueAnalyze());
+      calls.length = 0;
+      webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+      await quietly(() => webhookQueueService.processQueue());
+      assert.strictEqual(calls.at(-4), queueAnalyze());
     }
   });
 
@@ -713,19 +756,25 @@ async function main() {
     ]);
   });
 
-  await test('rescan: short content goes to OCR through the plain insert', async () => {
-    const { calls } = await runRescan({ content: 'x', ocrEnabled: true });
-    assert.deepStrictEqual(calls.slice(-1), [
-      'addToOcrQueue(7, "Scan 0007", "short_content_lt_10")',
-    ]);
+  await test('rescan: a document waiting for OCR is not analysed', async () => {
+    const { calls } = await runRescan({ ocrQueueIds: [7] });
+    assert.deepStrictEqual(calls, [...QUEUE_START, 'isDocumentProcessed(7)']);
   });
 
-  await test('rescan: an AI error without OCR is a failure with the generic reason', async () => {
-    const { calls, outcomes } = await runRescan({ analyses: [PLAIN_ERROR] });
+  await test('rescan: short content goes to OCR through the guarded insert', async () => {
+    const { calls } = await runRescan({ content: 'x', ocrEnabled: true });
     assert.deepStrictEqual(
       calls.slice(-2),
-      failedWith('ai_failed_ocr_disabled')
+      GUARDED_OCR_INSERT('short_content_lt_10')
     );
+  });
+
+  await test('rescan: an AI error without OCR is a failure with the service reason', async () => {
+    const { calls, outcomes } = await runRescan({ analyses: [PLAIN_ERROR] });
+    assert.deepStrictEqual(calls.slice(-3), [
+      ...failedWith('ai_refused'),
+      QUEUE_FAILED,
+    ]);
     assert.deepStrictEqual(outcomes, [
       'throw [ERROR] Document analysis failed: Model refused',
     ]);

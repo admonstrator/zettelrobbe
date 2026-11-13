@@ -189,6 +189,7 @@ const TESTS = {
   'route-shadowing': 'test-route-shadowing.js',
   'auth-guard-characterization': 'test-auth-guard-characterization.js',
   'caller-resolver': 'test-caller-resolver.js',
+  'scan-service': 'test-scan-service.js',
 };
 
 const AREAS = {
@@ -276,6 +277,7 @@ const AREAS = {
     'rescan-fetch-before-delete',
     'scan-control',
     'document-pipeline-callers',
+    'scan-service',
   ],
   prompts: [
     'restriction-service',

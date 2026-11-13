@@ -33,6 +33,7 @@
     "tests/test-route-shadowing.js",
     "services/bootIdentity.js",
     "middleware/caller.js",
-    "routes/auth.js"
+    "routes/auth.js",
+    "services/scanService.js"
   ]
 }
