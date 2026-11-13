@@ -274,17 +274,21 @@ test('values from the environment follow the surface', () => {
   assert.ok('API_KEY' in save);
 });
 
-test('lists: arrays as they are, strings split, filtered, then trimmed', () => {
+test('lists: arrays as they are, strings split, trimmed, then empties dropped', () => {
   assert.deepStrictEqual(catalog.normalizeList(undefined), []);
   assert.deepStrictEqual(catalog.normalizeList(''), []);
   assert.deepStrictEqual(catalog.normalizeList(42), []);
   assert.deepStrictEqual(catalog.normalizeList([' a ', '']), [' a ', '']);
-  assert.deepStrictEqual(catalog.normalizeList(' a , ,b,,c '), [
-    'a',
-    '',
-    'b',
-    'c',
-  ]);
+  assert.deepStrictEqual(catalog.normalizeList(' a , ,b,,c '), ['a', 'b', 'c']);
+  assert.deepStrictEqual(catalog.normalizeList('p1, ,p2'), ['p1', 'p2']);
+  assert.deepStrictEqual(catalog.normalizeList(' , ,'), []);
+  assert.deepStrictEqual(catalog.getEntry('PROMPT_TAGS').parse('p1, ,p2', ''), {
+    value: ['p1', 'p2'],
+  });
+  assert.deepStrictEqual(
+    catalog.getEntry('IGNORE_TITLE_PATTERNS').parse('a,  ,b', ''),
+    { value: 'a,b' }
+  );
 });
 
 test('the parsers of the simple fields', () => {

@@ -39,6 +39,8 @@ const oidcLimiter = rateLimit({
       'Too many login attempts. Please wait a few minutes and try again.'
     ),
 });
+// Named so the route table fixture shows which limiter guards a route.
+Object.defineProperty(oidcLimiter, 'name', { value: 'oidcLimiter' });
 
 /**
  * @swagger

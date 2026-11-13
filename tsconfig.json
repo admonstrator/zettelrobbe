@@ -34,6 +34,7 @@
     "services/bootIdentity.js",
     "middleware/caller.js",
     "routes/auth.js",
-    "services/scanService.js"
+    "services/scanService.js",
+    "tests/test-typecheck-config.js"
   ]
 }

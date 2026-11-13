@@ -190,6 +190,7 @@ const TESTS = {
   'auth-guard-characterization': 'test-auth-guard-characterization.js',
   'caller-resolver': 'test-caller-resolver.js',
   'scan-service': 'test-scan-service.js',
+  'typecheck-config': 'test-typecheck-config.js',
 };
 
 const AREAS = {
@@ -359,6 +360,7 @@ const AREAS = {
     'ocr-provider-anthropic',
   ],
   routes: ['route-table', 'route-shadowing'],
+  tooling: ['typecheck-config'],
   settings: ['settings-save-golden', 'settings-catalog'],
 };
 
