@@ -66,14 +66,6 @@ class ScanService {
      * @type {ScanState}
      */
     this.scanControl = scanControlService.getState();
-    /**
-     * Minimum content length, read once when the service is loaded at boot:
-     * MIN_CONTENT_LENGTH restarts the server when it is saved
-     * (services/settingsCatalog.js).
-     *
-     * @type {number}
-     */
-    this.minContentLength = config.minContentLength;
   }
 
   /**
@@ -297,7 +289,6 @@ class ScanService {
             existingDocumentTypesList,
             {
               source: 'scan',
-              minContentLength: this.minContentLength,
               ocrQueuedDocumentIds,
             }
           );

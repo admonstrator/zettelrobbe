@@ -81,7 +81,7 @@ function show(value) {
 
 /**
  * services/scanService.js, loaded fresh on top of the fakes of the current
- * world (it reads MIN_CONTENT_LENGTH when it is loaded, as at boot).
+ * world.
  */
 function loadScan() {
   delete require.cache[SCAN_SERVICE];
@@ -157,9 +157,6 @@ function makeWorld(scenario = {}) {
       isDocumentIgnored: record('isDocumentIgnored', () => s.ignored),
       isDocumentFailed: record('isDocumentFailed', () => s.failed),
       setProcessingStatus: record('setProcessingStatus'),
-      clearProcessingStatusByDocumentId: record(
-        'clearProcessingStatusByDocumentId'
-      ),
       addToOcrQueue: record('addToOcrQueue', () => s.ocrQueueAccepts),
       getOcrQueueItem: record('getOcrQueueItem', null),
       addFailedDocument: record('addFailedDocument'),
@@ -556,13 +553,20 @@ async function main() {
     assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
   });
 
-  await test('external API data is not fetched', async () => {
+  await test('external API data reaches the AI', async () => {
     const { calls } = await runScan({ externalApi: true });
-    assert.ok(!calls.includes('externalApi.fetchData()'), calls);
-    assert.ok(calls.includes(analyze(7)), calls);
+    assert.deepStrictEqual(calls, [
+      ...runStart(),
+      ...LISTS,
+      ...pipelineUpTo(7, 'Scan 0007'),
+      'externalApi.fetchData()',
+      analyze(7, ',"externalApiData":{"rate":1.1}'),
+      ...COMPLETE,
+      ...RUN_OK,
+    ]);
   });
 
-  await test('the minimum content length is the one read when the scan was loaded', async () => {
+  await test('a saved minimum content length applies without a restart', async () => {
     const { calls, summaries } = await runScan(
       {},
       {
@@ -571,8 +575,15 @@ async function main() {
         },
       }
     );
-    assert.ok(calls.includes(analyze(7)), calls);
-    assert.deepStrictEqual(summaries, [summary({ processed: 1 })]);
+    assert.deepStrictEqual(calls, [
+      ...runStart(),
+      ...LISTS,
+      ...pipelineUpTo(7, 'Scan 0007'),
+      'setProcessingStatus(7, "Scan 0007", "failed")',
+      'addFailedDocument(7, "Scan 0007", "insufficient_content_lt_500", "ai")',
+      ...RUN_OK,
+    ]);
+    assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
   });
 
   console.log('Run guards');

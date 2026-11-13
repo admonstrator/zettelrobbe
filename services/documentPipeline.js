@@ -9,11 +9,12 @@
  * Writing the result back to Paperless-ngx stays with the callers, which do it
  * through services/documentProcessingService.js.
  *
- * The three callers grew apart while each had its own copy, and they still do
- * not behave alike. Every difference is a named switch in CALLER_PROFILES, so
- * it can be read, and changed, in one place. Where a difference looks like an
- * oversight rather than a choice, the profile says so; the behaviour is kept
- * until someone decides otherwise.
+ * The three callers grew apart while each had its own copy. They now protect
+ * a document the same way: the OCR guards of issue #322, the ignored list
+ * before any Paperless-ngx call, the service's failure code and the timeout
+ * hint, the external API data, MIN_CONTENT_LENGTH read live. What still
+ * differs does so on purpose, and each difference is a named switch in
+ * CALLER_PROFILES that says why.
  */
 
 /* config/config.js builds most of its getters at runtime, which the type
@@ -42,75 +43,50 @@ const {
 /** @typedef {'scan'|'webhook'|'rescan'} PipelineSource */
 
 /**
- * How one caller treats a document. Each switch is a difference between the
- * callers that existed when their two implementations were merged.
+ * How one caller treats a document: only the differences that are meant.
  *
  * @typedef {object} CallerProfile
  * @property {boolean} logAlreadyProcessed - say so when a document is skipped
  *   because it is already processed. The scan walks every document on each
- *   run and stays quiet; a webhook or rescan names the one document it got.
- * @property {boolean} skipWhileOcrPending - leave a document alone while it
- *   waits in the OCR queue or is inside an OCR run (issue #322).
- * @property {'first'|'after-fetch'|'never'} ignoredList - when the ignored
- *   list is read: before anything is written, after the document was fetched
- *   (and its processing mark is then cleared again), or not at all.
+ *   run and would log one line per processed document; a webhook or rescan
+ *   names the one document it got, so the line explains a "nothing happened".
+ * @property {boolean} checkIgnoredList - leave an ignored document alone,
+ *   before anything is written or fetched. Off for a rescan: asking for a
+ *   document by hand exempts it, as unignoring it does.
  * @property {boolean} applySkipRules - run the skip rules (page limit, title
- *   patterns, repeated text) before OCR and AI.
- * @property {boolean} guardedOcrInsert - queue for OCR only after re-checking
- *   that the document is neither processed nor inside an OCR run, and with
- *   the insert's own skipIfProcessed guard (issue #322).
+ *   patterns, repeated text) before OCR and AI. Off for a rescan, for the
+ *   same reason.
  * @property {boolean} trackRetries - count non-terminal AI failures per
- *   document and give up after MAX_ATTEMPTS.
- * @property {boolean} timeoutHint - extend a timeout error with a hint to
- *   check the provider and the timeout settings.
- * @property {boolean} serviceFailureCode - record the AI service's own error
- *   code as the failure reason when it gives one.
- * @property {boolean} externalApiData - fetch the external API data and hand
- *   it to the AI service for the prompt.
+ *   document and give up after MAX_ATTEMPTS. Only the scan: it comes back to
+ *   every unprocessed document on every tick and would retry forever. A
+ *   webhook or a rescan is one delivery or one click for one document, and
+ *   no loop brings it back.
  */
 
 /**
  * The three callers. A rescan by hand is the webhook path without the ignored
- * list and the skip rules: unignoring a document, or asking for it by hand,
- * exempts it. The remaining differences between scan and webhook are listed
- * as suspected oversights in the commit that introduced this module; flipping
- * a switch here is how one is settled.
+ * list and the skip rules.
  *
  * @type {Readonly<Record<PipelineSource, Readonly<CallerProfile>>>}
  */
 const CALLER_PROFILES = Object.freeze({
   scan: Object.freeze({
     logAlreadyProcessed: false,
-    skipWhileOcrPending: true,
-    ignoredList: 'first',
+    checkIgnoredList: true,
     applySkipRules: true,
-    guardedOcrInsert: true,
     trackRetries: true,
-    timeoutHint: true,
-    serviceFailureCode: true,
-    externalApiData: false,
   }),
   webhook: Object.freeze({
     logAlreadyProcessed: true,
-    skipWhileOcrPending: false,
-    ignoredList: 'after-fetch',
+    checkIgnoredList: true,
     applySkipRules: true,
-    guardedOcrInsert: false,
     trackRetries: false,
-    timeoutHint: false,
-    serviceFailureCode: false,
-    externalApiData: true,
   }),
   rescan: Object.freeze({
     logAlreadyProcessed: true,
-    skipWhileOcrPending: false,
-    ignoredList: 'never',
+    checkIgnoredList: false,
     applySkipRules: false,
-    guardedOcrInsert: false,
     trackRetries: false,
-    timeoutHint: false,
-    serviceFailureCode: false,
-    externalApiData: true,
   }),
 });
 
@@ -124,11 +100,8 @@ const MAX_ATTEMPTS = 3;
  * @property {PipelineSource} source - which caller this is; picks the profile
  * @property {string|null} [customPrompt] - prompt to analyse with instead of
  *   the configured one (webhook and rescan)
- * @property {number} [minContentLength] - shortest text worth analysing;
- *   read from the settings when left out. The scan passes the value it read
- *   at boot (MIN_CONTENT_LENGTH restarts the server when it is saved).
  * @property {Set<number>} [ocrQueuedDocumentIds] - documents in the OCR queue
- *   when the scan run started, read once per run
+ *   when the scan run or the queue pass started, read once per run
  */
 
 /**
@@ -199,21 +172,19 @@ class DocumentPipeline {
     // now, gets both its text and its analysis from that path. Analysing it
     // here would work on the very text the OCR run is about to replace, and
     // the three Paperless-ngx calls below would be spent for nothing.
-    if (profile.skipWhileOcrPending) {
-      const queuedForOcrIds = options.ocrQueuedDocumentIds;
-      if (
-        (queuedForOcrIds && queuedForOcrIds.has(Number(doc.id))) ||
-        mistralOcrService.isDocumentActivelyProcessing(doc.id)
-      ) {
-        console.debug(
-          `Document ${doc.id} is waiting for Mistral OCR, skipping analysis this round`
-        );
-        return null;
-      }
+    const queuedForOcrIds = options.ocrQueuedDocumentIds;
+    if (
+      (queuedForOcrIds && queuedForOcrIds.has(Number(doc.id))) ||
+      mistralOcrService.isDocumentActivelyProcessing(doc.id)
+    ) {
+      console.debug(
+        `Document ${doc.id} is waiting for Mistral OCR, skipping analysis this round`
+      );
+      return null;
     }
 
     if (
-      profile.ignoredList === 'first' &&
+      profile.checkIgnoredList &&
       (await documentModel.isDocumentIgnored(doc.id))
     ) {
       console.debug(
@@ -249,17 +220,6 @@ class DocumentPipeline {
       paperlessService.getDocument(doc.id),
     ]);
 
-    if (
-      profile.ignoredList === 'after-fetch' &&
-      (await documentModel.isDocumentIgnored(doc.id))
-    ) {
-      await documentModel.clearProcessingStatusByDocumentId(doc.id);
-      console.debug(
-        `Document ${doc.id} is marked as ignored, skipping permanently`
-      );
-      return null;
-    }
-
     // Skip rules come before both OCR and AI: a hundred pages of terms and
     // conditions should cost neither.
     if (
@@ -270,15 +230,14 @@ class DocumentPipeline {
       return null;
     }
 
-    const minContentLength =
-      options.minContentLength ?? config.minContentLength;
+    // Read per document: a saved MIN_CONTENT_LENGTH applies to the next one.
+    const minContentLength = config.minContentLength;
     if (!content || content.length < minContentLength) {
       console.debug(
         `Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${minContentLength}), skipping analysis`
       );
       if (mistralOcrService.isEnabled()) {
         const added = await this.queueForOcr(
-          profile,
           doc,
           `short_content_lt_${minContentLength}`
         );
@@ -321,11 +280,9 @@ class DocumentPipeline {
       restrictToExistingCorrespondents:
         config.restrictToExistingCorrespondents === 'yes',
     };
-    if (profile.externalApiData) {
-      const externalApiData = await this.fetchExternalApiData();
-      if (externalApiData) {
-        analysisOptions.externalApiData = externalApiData;
-      }
+    const externalApiData = await this.fetchExternalApiData();
+    if (externalApiData) {
+      analysisOptions.externalApiData = externalApiData;
     }
 
     if (customPrompt) {
@@ -365,7 +322,7 @@ class DocumentPipeline {
    * @returns {Promise<never>}
    */
   async recordAnalysisFailure(profile, doc, analysis, attempts) {
-    const timedOut = profile.timeoutHint && isTimeoutError(analysis.error);
+    const timedOut = isTimeoutError(analysis.error);
     const aiErrorMessage = timedOut
       ? `${buildTimeoutErrorMessage('AI')} Original error: ${analysis.error}`
       : analysis.error;
@@ -383,7 +340,7 @@ class DocumentPipeline {
       shouldQueueForOcrOnAiError(aiErrorMessage)
     ) {
       const queueReason = classifyOcrQueueReasonFromAiError(aiErrorMessage);
-      const added = await this.queueForOcr(profile, doc, queueReason);
+      const added = await this.queueForOcr(doc, queueReason);
       if (added) {
         console.log(
           `[OCR] Document ${doc.id} queued for Mistral OCR (ai_failed: ${aiErrorMessage})`
@@ -396,9 +353,9 @@ class DocumentPipeline {
       queuedForOcr = true;
     }
 
-    // A service that knows exactly why it gave up says so (for callers that
-    // listen); everything else keeps the generic reason.
-    const serviceCode = profile.serviceFailureCode ? analysis.errorCode : null;
+    // A service that knows exactly why it gave up says so; everything else
+    // keeps the generic reason.
+    const serviceCode = analysis.errorCode || null;
     if (!mistralOcrService.isEnabled()) {
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
       await documentModel.addFailedDocument(
@@ -437,19 +394,14 @@ class DocumentPipeline {
    * of the log and off the wire; skipIfProcessed is the atomic safety net
    * inside the insert itself.
    *
-   * @param {Readonly<CallerProfile>} profile
    * @param {PipelineDocument} doc
    * @param {string} queueReason
    * @returns {Promise<boolean>} true when a queue row was written
    */
-  async queueForOcr(profile, doc, queueReason) {
-    if (!profile.guardedOcrInsert) {
-      return documentModel.addToOcrQueue(doc.id, doc.title, queueReason);
-    }
-
+  async queueForOcr(doc, queueReason) {
     if (await documentModel.isDocumentProcessed(doc.id)) {
       console.debug(
-        `Document ${doc.id} was processed while this scan was running, not queued for Mistral OCR (already processed)`
+        `Document ${doc.id} was processed while it was being analysed, not queued for Mistral OCR (already processed)`
       );
       return false;
     }
