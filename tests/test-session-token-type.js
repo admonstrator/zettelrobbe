@@ -7,18 +7,16 @@
  * session. A password alone therefore opened GET /api/settings/api-key and
  * GET /api/settings/env-file, which return every secret in clear text.
  *
- * A session token now carries an explicit `typ: 'session'` claim and all four
- * guards demand it:
- *   - authenticateJWT and isAuthenticated (routes/auth.js)
- *   - the global router.use guard and protectApiRoute (middleware/authGate.js)
+ * A session token now carries an explicit `typ: 'session'` claim and every
+ * guard demands it: authGate (the router-wide guard), isAuthenticated and
+ * protectApiRoute, all built on resolveCaller() in middleware/caller.js.
  *
  * Covered here:
  *   1. Route level: an MFA challenge token and a legacy (pre-fix) token are
  *      rejected on a protected page and a protected API route, as cookie and
  *      as bearer header; a session token is accepted.
- *   2. Middleware level: authenticateJWT / isAuthenticated called directly,
- *      because the router guard rejects first and the two would otherwise
- *      never see a bad token.
+ *   2. Middleware level: isAuthenticated called directly, because the router
+ *      guard rejects first and it would otherwise never see a bad token.
  *   3. POST /login actually stamps the claim on the token it issues.
  *   4. The MFA challenge verifier still refuses a session token, so the fix
  *      cannot be turned around and used the other way.
@@ -178,18 +176,9 @@ function sessionCookieValue(response) {
   });
 
   // ── 2. Middleware level ───────────────────────────────────────────────────
-  const { authenticateJWT, isAuthenticated } = require('../routes/auth.js');
+  const { isAuthenticated } = require('../routes/auth.js');
 
   for (const [label, token] of Object.entries(tokens)) {
-    await test(`authenticateJWT rejects a ${label}`, async () => {
-      const { seen, nextCalls } = runGuard(authenticateJWT, token);
-      assert.strictEqual(nextCalls, 0, 'next() must not run');
-      assert.strictEqual(seen.status, 403);
-      assert.deepStrictEqual(seen.body, {
-        message: 'Invalid or expired token',
-      });
-    });
-
     await test(`isAuthenticated rejects a ${label}`, async () => {
       const { seen, nextCalls } = runGuard(isAuthenticated, token);
       assert.strictEqual(nextCalls, 0, 'next() must not run');
@@ -200,12 +189,6 @@ function sessionCookieValue(response) {
       );
     });
   }
-
-  await test('authenticateJWT accepts a session token', async () => {
-    const { req, nextCalls } = runGuard(authenticateJWT, sessionToken);
-    assert.strictEqual(nextCalls, 1);
-    assert.strictEqual(req.user.username, 'admin');
-  });
 
   await test('isAuthenticated accepts a session token', async () => {
     const { req, nextCalls } = runGuard(isAuthenticated, sessionToken);

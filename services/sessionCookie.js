@@ -10,10 +10,15 @@
 
 const jwt = require('jsonwebtoken');
 const config = require('../config/config.js');
-const { SESSION_TOKEN_TYPE } = require('../routes/auth.js');
 
 /** Name of the cookie that carries the session JWT. */
 const SESSION_COOKIE_NAME = 'jwt';
+/**
+ * Claim that marks a JWT as a full session token. The MFA challenges are
+ * signed with the same secret, so every guard demands this claim
+ * (verifySessionToken() in middleware/caller.js).
+ */
+const SESSION_TOKEN_TYPE = 'session';
 /** Lifetime of a session, as the JWT expiry and as the cookie max-age. */
 const SESSION_TTL = '24h';
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -103,6 +108,7 @@ function clearSessionCookie(res) {
 
 module.exports = {
   SESSION_COOKIE_NAME,
+  SESSION_TOKEN_TYPE,
   SESSION_TTL_MS,
   isHttpsRequest,
   shouldUseSecureCookies,

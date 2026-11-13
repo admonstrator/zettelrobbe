@@ -8,13 +8,43 @@
  * remoteSetupGuard and authGate are pathless: routes/index.js applies them
  * with router.use(), so they run for every request that reaches that router,
  * including the server.js routes mounted after it.
+ *
+ * Who is calling is decided in one place, resolveCaller() in
+ * middleware/caller.js. Each guard below is that answer plus a declared
+ * policy (POLICIES): which callers it accepts and how it refuses the rest.
+ *
+ *   guard            API key  session  refusal
+ *   authGate         yes      yes      redirect /login, clears a bad cookie
+ *   isAuthenticated  yes      yes      redirect /login, clears a bad cookie
+ *   protectApiRoute  no       yes      JSON 401 / 403, cookie kept
+ *
+ * Without a JWT secret the redirect guards answer 500 text and the JSON guard
+ * 500 JSON; an accepted API key needs no secret.
  */
 
-const config = require('../config/config.js');
 const setupService = require('../services/setupService.js');
-const { verifySessionToken } = require('../routes/auth.js');
-const { clearSessionCookie } = require('../services/sessionCookie');
+const { admit, resolveCaller } = require('./caller');
 const { hasAnyUser, isInitialSetupOpen } = require('../services/userPresence');
+
+/**
+ * The declared policies of the guards (see the table above).
+ *
+ * @type {Readonly<Record<'page' | 'sessionApi', import('./caller').CallerPolicy>>}
+ */
+const POLICIES = Object.freeze({
+  /** A page or API route: the API key or a session; else to /login. */
+  page: Object.freeze({
+    acceptApiKey: true,
+    refuse: 'redirect',
+    clearInvalidSession: true,
+  }),
+  /** A session only, never the API key; refused with JSON. */
+  sessionApi: Object.freeze({
+    acceptApiKey: false,
+    refuse: 'json',
+    clearInvalidSession: false,
+  }),
+});
 
 /**
  * Routes that don't require authentication. /auth/oidc is served by
@@ -67,28 +97,6 @@ function isLocalRequest(req) {
     remoteAddr === '::1' ||
     remoteAddr === '::ffff:127.0.0.1'
   );
-}
-
-/**
- * The session token of the request: the jwt cookie, else a bearer header.
- *
- * @param {import('express').Request} req
- * @returns {string|undefined}
- */
-function readSessionToken(req) {
-  return req.cookies?.jwt || req.headers.authorization?.split(' ')[1];
-}
-
-/**
- * True when the request carries the configured API key.
- *
- * @param {import('express').Request} req
- * @returns {boolean}
- */
-function hasValidApiKey(req) {
-  const apiKey = req.headers['x-api-key'];
-  const currentApiKey = config.getApiKey();
-  return Boolean(currentApiKey && apiKey && apiKey === currentApiKey);
 }
 
 /**
@@ -172,34 +180,12 @@ async function remoteSetupGuard(req, res, next) {
  * @returns {Promise<void>}
  */
 async function authGate(req, res, next) {
-  const token = readSessionToken(req);
-  const jwtSecret = config.getJwtSecret();
-
-  // Public route check
   if (isPublicPath(req.path)) {
     return next();
   }
 
-  // API key authentication
-  if (hasValidApiKey(req)) {
-    /** @type {any} */ (req).user = { apiKey: true };
-  } else {
-    // Fallback to JWT authentication
-    if (!jwtSecret) {
-      res.status(500).send('Server misconfiguration: JWT secret missing');
-      return;
-    }
-
-    if (!token) {
-      return res.redirect('/login');
-    }
-
-    const decoded = verifySessionToken(token, jwtSecret);
-    if (!decoded) {
-      clearSessionCookie(res);
-      return res.redirect('/login');
-    }
-    /** @type {any} */ (req).user = decoded;
+  if (!admit(req, res, POLICIES.page)) {
+    return;
   }
 
   // Setup check
@@ -231,6 +217,21 @@ async function authGate(req, res, next) {
 }
 
 /**
+ * Route guard: the API key or a session; anyone else is sent to /login (the
+ * page policy). Re-exported by routes/auth.js, where routes import it from.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ * @returns {void}
+ */
+function isAuthenticated(req, res, next) {
+  if (admit(req, res, POLICIES.page)) {
+    next();
+  }
+}
+
+/**
  * Protected route middleware for API endpoints: a session token only (no API
  * key), answered with JSON 401/403 instead of a redirect.
  *
@@ -240,29 +241,9 @@ async function authGate(req, res, next) {
  * @returns {void}
  */
 function protectApiRoute(req, res, next) {
-  const token = readSessionToken(req);
-  const jwtSecret = config.getJwtSecret();
-
-  if (!jwtSecret) {
-    res
-      .status(500)
-      .json({ message: 'Server misconfiguration: JWT secret missing' });
-    return;
+  if (admit(req, res, POLICIES.sessionApi)) {
+    next();
   }
-
-  if (!token) {
-    res.status(401).json({ message: 'Authentication required' });
-    return;
-  }
-
-  const decoded = verifySessionToken(token, jwtSecret);
-  if (!decoded) {
-    res.status(403).json({ message: 'Invalid or expired token' });
-    return;
-  }
-
-  /** @type {any} */ (req).user = decoded;
-  next();
 }
 
 /**
@@ -274,10 +255,7 @@ function protectApiRoute(req, res, next) {
  * @returns {boolean}
  */
 function hasValidSession(req) {
-  const jwtSecret = config.getJwtSecret();
-  const token = readSessionToken(req);
-
-  return Boolean(jwtSecret && token && verifySessionToken(token, jwtSecret));
+  return resolveCaller(req, { apiKey: false }).kind === 'session';
 }
 
 /**
@@ -288,11 +266,8 @@ function hasValidSession(req) {
  * @returns {boolean}
  */
 function isAuthenticatedCaller(req) {
-  if (hasValidApiKey(req)) {
-    return true;
-  }
-
-  return hasValidSession(req);
+  const { kind } = resolveCaller(req);
+  return kind === 'apiKey' || kind === 'session';
 }
 
 /**
@@ -322,7 +297,9 @@ module.exports = {
   isLocalRequest,
   remoteSetupGuard,
   authGate,
+  isAuthenticated,
   protectApiRoute,
+  POLICIES,
   hasValidSession,
   isAuthenticatedCaller,
   getAuthenticatedSettingsUsername,

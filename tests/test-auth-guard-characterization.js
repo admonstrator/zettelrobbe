@@ -12,8 +12,8 @@
  * any cell is a change of behaviour and has to be deliberate.
  *
  * Probes:
- *   isAuthenticated    routes/auth.js, a route guard (redirect to /login)
- *   authenticateJWT    routes/auth.js, a route guard (JSON 401/403)
+ *   isAuthenticated    the route guard routes import from routes/auth.js
+ *                      (redirect to /login)
  *   protectApiRoute    middleware/authGate.js, session only (JSON 401/403)
  *   authGate:private   the router-wide guard on a path that is not public
  *   authGate:public    the router-wide guard on /health
@@ -87,10 +87,9 @@ const bearer = (token) => ({ authorization: `Bearer ${token}` });
  * One expected row. authGate on the public path /health passes every request
  * without looking at it, so that cell is the same in every row.
  */
-function row(isAuth, authJwt, protect, gatePrivate, session, caller) {
+function row(isAuth, protect, gatePrivate, session, caller) {
   return {
     isAuthenticated: isAuth,
-    authenticateJWT: authJwt,
     protectApiRoute: protect,
     'authGate:private': gatePrivate,
     'authGate:public': NO_USER,
@@ -103,7 +102,6 @@ function row(isAuth, authJwt, protect, gatePrivate, session, caller) {
 const REFUSED_TOKEN = row(
   TO_LOGIN_CLEARED,
   INVALID_JSON,
-  INVALID_JSON,
   TO_LOGIN_CLEARED,
   false,
   false
@@ -112,7 +110,6 @@ const REFUSED_TOKEN = row(
 /** No JWT secret: nothing but the API key can be checked. */
 const MISCONFIGURED = row(
   MISCONFIGURED_TEXT,
-  MISCONFIGURED_JSON,
   MISCONFIGURED_JSON,
   MISCONFIGURED_TEXT,
   false,
@@ -127,101 +124,66 @@ const SCENARIOS = [
   {
     name: 'no credentials',
     headers: {},
-    expect: row(TO_LOGIN, REQUIRED_JSON, REQUIRED_JSON, TO_LOGIN, false, false),
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
   },
   {
     name: 'valid API key',
     headers: { 'x-api-key': API_KEY },
-    expect: row(
-      API_KEY_USER,
-      API_KEY_USER,
-      REQUIRED_JSON,
-      API_KEY_USER,
-      false,
-      true
-    ),
+    expect: row(API_KEY_USER, REQUIRED_JSON, API_KEY_USER, false, true),
   },
   {
     name: 'valid API key from PAPERLESS_AI_API_KEY',
     env: { API_KEY: '', PAPERLESS_AI_API_KEY: API_KEY },
     headers: { 'x-api-key': API_KEY },
-    expect: row(
-      API_KEY_USER,
-      API_KEY_USER,
-      REQUIRED_JSON,
-      API_KEY_USER,
-      false,
-      true
-    ),
+    expect: row(API_KEY_USER, REQUIRED_JSON, API_KEY_USER, false, true),
   },
   {
     name: 'wrong API key',
     headers: { 'x-api-key': 'not-the-key' },
-    expect: row(TO_LOGIN, REQUIRED_JSON, REQUIRED_JSON, TO_LOGIN, false, false),
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
   },
   {
     name: 'wrong API key of the same length',
     headers: { 'x-api-key': API_KEY.replace(/.$/, 'X') },
-    expect: row(TO_LOGIN, REQUIRED_JSON, REQUIRED_JSON, TO_LOGIN, false, false),
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
   },
   {
     name: 'API key longer than the configured one',
     headers: { 'x-api-key': `${API_KEY}0` },
-    expect: row(TO_LOGIN, REQUIRED_JSON, REQUIRED_JSON, TO_LOGIN, false, false),
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
   },
   {
     name: 'API key not configured, any header',
     env: { API_KEY: '' },
     headers: { 'x-api-key': 'anything' },
-    expect: row(TO_LOGIN, REQUIRED_JSON, REQUIRED_JSON, TO_LOGIN, false, false),
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
   },
   {
     name: 'API key not configured, empty header',
     env: { API_KEY: '' },
     headers: { 'x-api-key': '' },
-    expect: row(TO_LOGIN, REQUIRED_JSON, REQUIRED_JSON, TO_LOGIN, false, false),
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
   },
   {
     name: 'valid session cookie',
     headers: cookie(tokens.session),
-    expect: row(
-      SESSION_USER,
-      SESSION_USER,
-      SESSION_USER,
-      SESSION_USER,
-      true,
-      true
-    ),
+    expect: row(SESSION_USER, SESSION_USER, SESSION_USER, true, true),
   },
   {
     name: 'valid session as bearer header',
     headers: bearer(tokens.session),
-    expect: row(
-      SESSION_USER,
-      SESSION_USER,
-      SESSION_USER,
-      SESSION_USER,
-      true,
-      true
-    ),
+    expect: row(SESSION_USER, SESSION_USER, SESSION_USER, true, true),
   },
   {
     // The scheme is not checked: the second word of the header is the token.
     name: 'valid session under another Authorization scheme',
     headers: { authorization: `Basic ${tokens.session}` },
-    expect: row(
-      SESSION_USER,
-      SESSION_USER,
-      SESSION_USER,
-      SESSION_USER,
-      true,
-      true
-    ),
+    expect: row(SESSION_USER, SESSION_USER, SESSION_USER, true, true),
   },
   {
     name: 'Authorization header without a scheme',
     headers: { authorization: tokens.session },
-    expect: row(TO_LOGIN, REQUIRED_JSON, REQUIRED_JSON, TO_LOGIN, false, false),
+    expect: row(TO_LOGIN, REQUIRED_JSON, TO_LOGIN, false, false),
   },
   {
     name: 'token signed with the wrong secret',
@@ -259,14 +221,7 @@ const SCENARIOS = [
     // The API key wins; only the session-only guard looks at the token.
     name: 'valid API key and an invalid cookie',
     headers: { 'x-api-key': API_KEY, ...cookie(tokens.wrongSecret) },
-    expect: row(
-      API_KEY_USER,
-      API_KEY_USER,
-      INVALID_JSON,
-      API_KEY_USER,
-      false,
-      true
-    ),
+    expect: row(API_KEY_USER, INVALID_JSON, API_KEY_USER, false, true),
   },
   {
     name: 'no JWT secret, no credentials',
@@ -285,20 +240,12 @@ const SCENARIOS = [
     name: 'no JWT secret, valid API key',
     env: { JWT_SECRET: '' },
     headers: { 'x-api-key': API_KEY },
-    expect: row(
-      API_KEY_USER,
-      API_KEY_USER,
-      MISCONFIGURED_JSON,
-      API_KEY_USER,
-      false,
-      true
-    ),
+    expect: row(API_KEY_USER, MISCONFIGURED_JSON, API_KEY_USER, false, true),
   },
 ];
 
 const PROBES = [
   'isAuthenticated',
-  'authenticateJWT',
   'protectApiRoute',
   'authGate:private',
   'authGate:public',
@@ -373,7 +320,7 @@ async function describe(response) {
   const harness = await mountRouter({ env: BASE_ENV });
   const express = require('express');
   const cookieParser = require('cookie-parser');
-  const { isAuthenticated, authenticateJWT } = require('../routes/auth');
+  const { isAuthenticated } = require('../routes/auth');
   const {
     authGate,
     protectApiRoute,
@@ -388,7 +335,6 @@ async function describe(response) {
   const direct = express();
   direct.use(cookieParser());
   direct.get('/isAuthenticated', isAuthenticated, probe);
-  direct.get('/authenticateJWT', authenticateJWT, probe);
   direct.get('/protectApiRoute', protectApiRoute, probe);
   direct.get('/helpers', (req, res) =>
     res.json({
@@ -418,11 +364,7 @@ async function describe(response) {
   /** Observes every probe for one scenario. */
   async function observe(headers) {
     const observed = {};
-    for (const name of [
-      'isAuthenticated',
-      'authenticateJWT',
-      'protectApiRoute',
-    ]) {
+    for (const name of ['isAuthenticated', 'protectApiRoute']) {
       observed[name] = await describe(
         await get(`${directBase}/${name}`, headers)
       );
