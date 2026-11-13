@@ -19,11 +19,11 @@
  *  6. recordRequest puts the newest first, caps the log and keeps the shape
  *  7. a stopped run, a failed run and an apply: two rows and no third
  *  8. the four outcomes reach the request log, newest first, and add up
- *  9. GET /api/simplify/order/estimate reuses the rule pass and the levers
- * 10. GET /api/duplicates/ai-review/estimate says needsScan until one is
+ *  9. GET /api/duplicates/ai-review/estimate says needsScan until one is
  *     cached, and answers from the cached scan after that
- * 11. both estimates refuse with 503, naming which of the two reasons it is
- * 12. a real order run over a fake Paperless-ngx and a fake provider writes
+ * 10. the review estimate refuses with 503, naming which of the two reasons
+ *     it is
+ * 11. a real order run over a fake Paperless-ngx and a fake provider writes
  *     down what it cost
  */
 
@@ -398,10 +398,10 @@ async function main() {
     jobs.reset();
   });
 
-  // ── The two estimates, over a fake Paperless-ngx ───────────────────────
-  // Both are asked again on every move of a lever, so what is tested here is
-  // as much what they do not do — no model request, no scan — as what they
-  // answer.
+  // ── The review estimate, over a fake Paperless-ngx ─────────────────────
+  // It is asked again on every move of a lever, so what is tested here is
+  // as much what it does not do — no model request, no scan — as what it
+  // answers.
 
   const { createFakePaperless } = require('./helpers/fake-paperless');
   const { createFakeOpenAI } = require('./helpers/fake-openai');
@@ -464,66 +464,6 @@ async function main() {
     await tagSimplifyService.saveVocabulary({
       types: ['Rechnung'],
       topics: ['Strom'],
-    });
-
-    await test('The order estimate reuses the rule pass, and the levers bite', async () => {
-      tagSimplifyService.forgetEstimateTags();
-      const plain = await askJson('/api/simplify/order/estimate');
-      assert.strictEqual(plain.status, 200);
-      const data = plain.body.data;
-      assert.strictEqual(data.tags, 6, 'every tag of the archive');
-      assert.strictEqual(
-        data.itemsByRule,
-        2,
-        'the empty tag and the inbox tag never reach the model'
-      );
-      assert.strictEqual(data.items, 4);
-      assert.strictEqual(data.batchSize, 2, 'SIMPLIFY_TAGS_PER_REQUEST');
-      assert.strictEqual(data.requests, 2);
-      assert.strictEqual(data.lanes, 3, 'DUPLICATES_AI_CONCURRENCY');
-      assert.strictEqual(data.model, 'fake-model');
-      assert.strictEqual(
-        data.tokens.total,
-        data.tokens.prompt + data.tokens.completion + data.tokens.thinking
-      );
-      // Nothing of this model has ever been measured here.
-      assert.strictEqual(data.basis, 'guess');
-      assert.strictEqual(data.lastRun, null);
-      // Charlie has two documents and Delta one; the default floor is three.
-      assert.strictEqual(data.skippable.lowDocument, 2);
-      assert.strictEqual(data.skippable.decided, 0);
-      assert.ok(
-        data.extra.vocabularyRequests > 0,
-        'proposing a vocabulary is a pass of its own'
-      );
-
-      const kept = await askJson(
-        '/api/simplify/order/estimate?keepVocabulary=1'
-      );
-      assert.strictEqual(kept.body.data.extra.vocabularyRequests, 0);
-
-      const floored = await askJson(
-        '/api/simplify/order/estimate?minDocuments=5'
-      );
-      assert.strictEqual(floored.body.data.items, 1, 'only Alpha is left');
-      assert.strictEqual(floored.body.data.skippable.lowDocument, 3);
-      assert.strictEqual(floored.body.data.requests, 1);
-
-      // A decision on one of the four takes it out of the model pass.
-      await documentModel.replaceTagSplitProposals([
-        { tagId: 2, tagName: 'Bravo', action: 'keep', status: 'accepted' },
-        { tagId: 3, tagName: 'Charlie', action: 'keep', status: 'open' },
-      ]);
-      const decided = await askJson(
-        '/api/simplify/order/estimate?skipDecided=1'
-      );
-      assert.strictEqual(decided.body.data.skippable.decided, 1);
-      assert.strictEqual(decided.body.data.items, 3);
-      // The lever is a lever: without it nothing is left out.
-      const undecided = await askJson('/api/simplify/order/estimate');
-      assert.strictEqual(undecided.body.data.items, 4);
-      assert.strictEqual(undecided.body.data.skippable.decided, 1);
-      await documentModel.replaceTagSplitProposals([]);
     });
 
     await test('The review estimate scans for nothing, and says so', async () => {
@@ -607,7 +547,7 @@ async function main() {
       assert.strictEqual(fakeOpenAI.requests.length, 0);
     });
 
-    await test('Both estimates refuse politely, naming the reason', async () => {
+    await test('The review estimate refuses politely, naming the reason', async () => {
       const review = config.duplicatesAiReview;
       const provider = config.aiProvider;
       try {
@@ -616,22 +556,12 @@ async function main() {
         assert.strictEqual(off.status, 503);
         assert.strictEqual(off.body.success, false);
         assert.match(off.body.error, /DUPLICATES_AI_REVIEW/);
-        // The Simplify page has no such switch, so it still answers.
-        assert.strictEqual(
-          (await ask('/api/simplify/order/estimate')).status,
-          200
-        );
 
         config.duplicatesAiReview = review;
         config.aiProvider = '';
-        for (const path of [
-          '/api/duplicates/ai-review/estimate',
-          '/api/simplify/order/estimate',
-        ]) {
-          const answer = await askJson(path);
-          assert.strictEqual(answer.status, 503, path);
-          assert.match(answer.body.error, /No AI provider is configured/, path);
-        }
+        const answer = await askJson('/api/duplicates/ai-review/estimate');
+        assert.strictEqual(answer.status, 503);
+        assert.match(answer.body.error, /No AI provider is configured/);
       } finally {
         config.duplicatesAiReview = review;
         config.aiProvider = provider;
@@ -705,13 +635,6 @@ async function main() {
       // No provider reported reasoning, so nothing was written down for it.
       assert.strictEqual(run.thinkingTokens, null);
       assert.ok(run.items > 0, 'the run asked about nothing');
-
-      // And now the estimate has a run of this very task to stand on.
-      tagSimplifyService.forgetEstimateTags();
-      const after = await askJson('/api/simplify/order/estimate');
-      assert.strictEqual(after.body.data.basis, 'run');
-      assert.ok(after.body.data.lastRun, 'the estimate forgot the run');
-      assert.strictEqual(after.body.data.lastRun.status, 'done');
     });
   } finally {
     jobs.reset();
