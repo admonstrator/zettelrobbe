@@ -8,19 +8,11 @@
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
-    "route": "DELETE /api/duplicates/mappings",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
     "route": "DELETE /api/ignored/:documentId",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "DELETE /api/ocr/queue/:documentId",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "DELETE /api/simplify/groups/:key/members/:tagId",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
@@ -52,39 +44,7 @@
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
-    "route": "GET /api/duplicates/ai-review/jobs/:id",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/duplicates/ai-review/jobs/:id/events",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/duplicates/ai-review/jobs/:id/result",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/duplicates/ai-review/jobs/current",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
     "route": "GET /api/duplicates/dismissals",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/duplicates/entities",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/duplicates/log",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/duplicates/mappings",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/duplicates/scan",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
@@ -165,22 +125,6 @@
   },
   {
     "route": "GET /api/simplify/document-types",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/simplify/groups",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/simplify/order/estimate",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/simplify/proposals",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "GET /api/simplify/proposals/:tagId/impact",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
@@ -300,39 +244,11 @@
     "guards": ["isAuthenticated"]
   },
   {
-    "route": "PATCH /api/simplify/proposals/:tagId",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
     "route": "POST /api/changelog/mark-seen",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
-    "route": "POST /api/duplicates/ai-review",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/duplicates/ai-review/jobs",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/duplicates/ai-review/jobs/:id/stop",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/duplicates/delete",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/duplicates/dismiss",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
     "route": "POST /api/duplicates/log/:id/undo",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/duplicates/merge",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
@@ -512,30 +428,6 @@
   {
     "route": "POST /api/setup/quickstart/detect",
     "guards": ["remoteSetupGuard", "authGate", "jsonParser"]
-  },
-  {
-    "route": "POST /api/simplify/apply",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/simplify/groups/:key/decision",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/simplify/order/apply",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/simplify/order/propose",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/simplify/proposals/run",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
-  },
-  {
-    "route": "POST /api/simplify/vocabulary/propose",
-    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "POST /api/tidy-up/runs",
