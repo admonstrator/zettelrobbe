@@ -3,11 +3,11 @@
 /**
  * Every route that is not public must carry its own guard.
  *
- * routes/setup.js has a router-wide guard (a pathless router.use) that keeps
+ * routes/index.js has a router-wide guard (a pathless router.use) that keeps
  * anonymous callers out of everything that is not public. That guard is one
- * edit away from disappearing: when the router is split into one router per
- * feature, a route that moves into a new router no longer runs behind it. The
- * defence is a guard in the route's own handler stack, so a moved route stays
+ * edit away from disappearing: a route mounted outside routes/index.js, or a
+ * feature router mounted in front of the guard, no longer runs behind it. The
+ * defence is a guard in the route's own handler stack, so such a route stays
  * protected. This test fails for any route that has none.
  *
  * What counts as a guard: a handler in the route's own stack whose function
@@ -147,11 +147,19 @@ function isRouter(value) {
   return typeof value === 'function' && Array.isArray(value.stack);
 }
 
-/** All routers in the harness app's stack, direct children only. */
+/** All routers in the harness app's stack, nested ones included. */
 function mountedRouters(app) {
-  return app.router.stack
-    .map((layer) => layer.handle)
-    .filter((handle) => isRouter(handle));
+  const found = [];
+  const walk = (stack) => {
+    for (const layer of stack) {
+      if (isRouter(layer.handle)) {
+        found.push(layer.handle);
+        walk(layer.handle.stack);
+      }
+    }
+  };
+  walk(app.router.stack);
+  return found;
 }
 
 (async () => {
@@ -181,8 +189,8 @@ function mountedRouters(app) {
 
   await test('the walk reaches the routers it is meant to cover', () => {
     assert.ok(
-      routerModules.has('setup.js') && routerModules.has('tidyUp.js'),
-      'routes/setup.js and routes/tidyUp.js export routers'
+      routerModules.has('index.js') && routerModules.has('tidyUp.js'),
+      'routes/index.js and routes/tidyUp.js export routers'
     );
     for (const [file, mod] of routerModules) {
       assert.ok(
@@ -196,7 +204,7 @@ function mountedRouters(app) {
     );
     assert.ok(
       routes.some((r) => r.path === '/api/settings/api-key'),
-      'a known setup.js route is in the list'
+      'a known feature-router route is in the list'
     );
     assert.ok(
       routes.some((r) => r.path.startsWith('/api/tidy-up')),

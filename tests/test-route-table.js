@@ -8,7 +8,7 @@
  * tests/fixtures/route-table.json lists every route as "METHOD /path" with its
  * ordered guard chain (router-level guards that apply, then route-level
  * middleware). The test builds the real routers (routes/oidc.js,
- * routes/tidyUp.js, routes/setup.js) and fails on any difference, so a route
+ * routes/tidyUp.js, routes/index.js) and fails on any difference, so a route
  * lost or added by accident, or a guard dropped in a move, cannot pass.
  * Handler code is not part of the fixture; scripts/route-proof.js proves that
  * per move.

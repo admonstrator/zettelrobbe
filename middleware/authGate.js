@@ -5,7 +5,7 @@
  * The guards in front of every page and API route, and the small checks that
  * routes the guards let through use to find out who is calling.
  *
- * remoteSetupGuard and authGate are pathless: routes/setup.js applies them
+ * remoteSetupGuard and authGate are pathless: routes/index.js applies them
  * with router.use(), so they run for every request that reaches that router,
  * including the server.js routes mounted after it.
  */

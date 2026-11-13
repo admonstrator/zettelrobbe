@@ -28,6 +28,9 @@
     "types/jsonwebtoken.d.ts",
     "services/settingsCatalog.js",
     "services/settingsService.js",
-    "services/documentPipeline.js"
+    "services/documentPipeline.js",
+    "routes/index.js",
+    "tests/test-route-shadowing.js",
+    "services/bootIdentity.js"
   ]
 }

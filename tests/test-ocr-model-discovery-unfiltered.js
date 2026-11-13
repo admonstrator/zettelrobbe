@@ -13,25 +13,17 @@
  * The heuristic still earns its keep as a ranking, so what it finds is
  * reported separately and the UI groups on it.
  *
- * The route function is read out of the route file rather than copied, so this
- * test cannot keep passing after the real one changes.
+ * The real function is required from services/connectionChecks.js and driven
+ * with the setup and quickstart services stubbed, so this test cannot keep
+ * passing after the real one changes.
  */
 
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { readRouteSources } = require('./helpers/route-sources');
-
-const source = readRouteSources();
-
-const start = source.indexOf('async function discoverOcrModelsForSetup');
-assert.ok(
-  start !== -1,
-  'Could not find discoverOcrModelsForSetup in the route modules — did it move or get renamed?'
-);
-const end = source.indexOf('\n}\n', start);
-assert.ok(end > start, 'Could not delimit discoverOcrModelsForSetup');
-const functionSource = source.slice(start, end + 2);
+const setupService = require('../services/setupService');
+const quickstartService = require('../services/quickstartService');
+const { discoverOcrModelsForSetup } = require('../services/connectionChecks');
 
 // The classification probe answers with a catalogue that mixes a
 // vision-by-name model, a plain chat model that reads documents perfectly
@@ -51,26 +43,22 @@ const CATALOGUE = {
   resolvedOcrApiUrl: 'http://192.168.1.5:1234/v1',
 };
 
+// Stubs the two singletons the function talks to; call it right before the
+// discovery it prepares, the stubs stay until the next call.
 function buildDiscover({ classification, legacyModels = [] }) {
-  const setupService = {
-    withTemporaryValidationTimeout: async (_timeout, run) => run(),
-    detectOcrApiUrlForSetup: async ({ apiUrl }) => ({ resolvedApiUrl: apiUrl }),
-    discoverOcrModels: async () => legacyModels,
-  };
-  const quickstartService = {
-    detectAndClassify: async () => {
-      if (classification instanceof Error) {
-        throw classification;
-      }
-      return classification;
-    },
+  setupService.withTemporaryValidationTimeout = async (_timeout, run) => run();
+  setupService.detectOcrApiUrlForSetup = async ({ apiUrl }) => ({
+    resolvedApiUrl: apiUrl,
+  });
+  setupService.discoverOcrModels = async () => legacyModels;
+  quickstartService.detectAndClassify = async () => {
+    if (classification instanceof Error) {
+      throw classification;
+    }
+    return classification;
   };
 
-  return new Function(
-    'setupService',
-    'quickstartService',
-    `${functionSource}\nreturn discoverOcrModelsForSetup;`
-  )(setupService, quickstartService);
+  return discoverOcrModelsForSetup;
 }
 
 async function run() {

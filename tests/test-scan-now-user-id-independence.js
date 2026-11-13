@@ -66,7 +66,7 @@ assert.ok(
 // about a value nothing consumes.
 assert.ok(
   !routeSource.includes('ownUserId'),
-  'routes/setup.js must not thread an own-user ID it never reads through processDocument()'
+  'the route modules must not thread an own-user ID they never read through processDocument()'
 );
 assert.ok(
   !routeSource.includes('getOwnUserID'),

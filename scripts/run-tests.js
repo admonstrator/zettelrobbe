@@ -186,6 +186,7 @@ const TESTS = {
   'settings-save-golden': 'test-settings-save-golden.js',
   'settings-catalog': 'test-settings-catalog.js',
   'document-pipeline-callers': 'test-document-pipeline-callers.js',
+  'route-shadowing': 'test-route-shadowing.js',
 };
 
 const AREAS = {
@@ -351,7 +352,7 @@ const AREAS = {
     'anthropic-settings',
     'ocr-provider-anthropic',
   ],
-  routes: ['route-table'],
+  routes: ['route-table', 'route-shadowing'],
   settings: ['settings-save-golden', 'settings-catalog'],
 };
 

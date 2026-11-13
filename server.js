@@ -9,7 +9,7 @@ const paperlessService = require('./services/paperlessService');
 const documentModel = require('./models/document');
 const setupService = require('./services/setupService');
 const { runStartupMigrations } = require('./services/startupMigrations');
-const setupRoutes = require('./routes/setup');
+const routes = require('./routes');
 const tidyUpRoutes = require('./routes/tidyUp');
 const oidcRoutes = require('./routes/oidc');
 const oidcService = require('./services/oidcService');
@@ -822,10 +822,10 @@ async function scanDocuments(source = 'scheduler') {
 
 // Routes
 // Single sign-on comes first: its callback must be reachable without a
-// session, before the setup router's authentication guard runs.
+// session, before the authentication guard of routes/index.js runs.
 app.use('/', oidcRoutes);
 app.use('/', tidyUpRoutes);
-app.use('/', setupRoutes);
+app.use('/', routes);
 
 // Development-only reference page for the zr UI framework. It ships no product
 // behaviour, only one sample of every component, so it is not registered in a
@@ -911,9 +911,10 @@ app.get('/', async (req, res) => {
   }
 });
 
-// /health is served by routes/setup.js, which is mounted above this file's
-// routes. A second handler here was never reachable and has been removed so the
-// OpenAPI spec documents the handler that actually answers.
+// /health is served by routes/system.js (through routes/index.js), which is
+// mounted above this file's routes. A second handler here was never reachable
+// and has been removed so the OpenAPI spec documents the handler that actually
+// answers.
 
 // Error handler
 // Express detects error middleware by its four-argument signature, so `next`
