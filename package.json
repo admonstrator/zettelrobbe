@@ -103,5 +103,8 @@
       "@scarf/scarf",
       "better-sqlite3"
     ]
+  },
+  "overrides": {
+    "typescript": "$typescript"
   }
 }
