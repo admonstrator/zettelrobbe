@@ -49,10 +49,9 @@ const TYPES = new Set([
 const PAGE_KEYS_WITHOUT_MAPPING = {
   // Read by nothing any more; the page has no field for it.
   PROCESS_ONLY_NEW_DOCUMENTS: true,
-  // Written through the mistralApiKey field, which maps to MISTRAL_API_KEY.
-  OCR_API_KEY: true,
-  // Baked into the Docker image, so the container never pins it.
-  LOG_LEVEL: true,
+  // Written through the one OCR key field (#ocrApiKey), which maps to
+  // OCR_API_KEY.
+  MISTRAL_API_KEY: true,
 };
 
 let passed = 0;
@@ -157,6 +156,28 @@ test('fieldMappings in public/js/settings.js agree with the catalogue', () => {
     [],
     'page keys without a fieldMappings line'
   );
+});
+
+test('every fieldMappings selector names a field of the settings page', () => {
+  const source = read('public/js/settings.js');
+  const block = source.slice(
+    source.indexOf('const fieldMappings = ['),
+    source.indexOf('annotateEnvKeys(fieldMappings);')
+  );
+  const ids = [...block.matchAll(/selector: '#([A-Za-z0-9_-]+)'/g)].map(
+    (match) => match[1]
+  );
+  const views = fs
+    .readdirSync(path.join(REPO_ROOT, 'views'), { recursive: true })
+    .filter((file) => String(file).endsWith('.ejs'))
+    .map((file) => read(path.join('views', String(file))))
+    .join('\n');
+  // A field is written either as markup (id="x") or as an entry of the AI
+  // options table in views/settings.ejs ({ id: 'x', ... }).
+  const missing = ids.filter(
+    (id) => !views.includes(`id="${id}"`) && !views.includes(`id: '${id}'`)
+  );
+  assert.deepStrictEqual(missing, [], 'selectors without a field');
 });
 
 test('every key is read somewhere, or marked legacy', () => {

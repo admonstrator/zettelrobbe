@@ -3134,6 +3134,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#paperlessToken', envKey: 'PAPERLESS_API_TOKEN' },
     { selector: '#paperlessUsername', envKey: 'PAPERLESS_USERNAME' },
     { selector: '#scanInterval', envKey: 'SCAN_INTERVAL' },
+    { selector: '#logLevel', envKey: 'LOG_LEVEL' },
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },
     { selector: '#showTags', envKey: 'PROCESS_PREDEFINED_DOCUMENTS' },
     { selector: '#tagInput', envKey: 'TAGS' },
@@ -3267,7 +3268,8 @@ function initializeRuntimeOverridePills() {
     { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
     { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
     { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
-    { selector: '#mistralApiKey', envKey: 'MISTRAL_API_KEY' },
+    // One field for the OCR key; the save also fills MISTRAL_API_KEY.
+    { selector: '#ocrApiKey', envKey: 'OCR_API_KEY' },
     { selector: '#mistralOcrModel', envKey: 'MISTRAL_OCR_MODEL' },
     { selector: '#ocrPdfRenderEnabled', envKey: 'OCR_PDF_RENDER_ENABLED' },
     { selector: '#ocrPdfRenderMaxPages', envKey: 'OCR_PDF_RENDER_MAX_PAGES' },
