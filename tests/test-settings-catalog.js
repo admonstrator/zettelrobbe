@@ -50,7 +50,9 @@ const PAGE_KEYS_WITHOUT_MAPPING = {
   // Read by nothing any more; the page has no field for it.
   PROCESS_ONLY_NEW_DOCUMENTS: true,
   // Written through the one OCR key field (#ocrApiKey), which maps to
-  // OCR_API_KEY.
+  // OCR_API_KEY. A pinned MISTRAL_API_KEY locks that field as well unless the
+  // OCR provider is Claude (envKeyPinningField in public/js/settings.js,
+  // tests/test-settings-ocr-key-lock.js).
   MISTRAL_API_KEY: true,
 };
 

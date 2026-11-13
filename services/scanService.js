@@ -262,15 +262,8 @@ class ScanService {
       // Extract tag names from tag objects
       const existingTagNames = existingTags.map((tag) => tag.name);
 
-      // Read once per run: every document that waits for OCR or is being OCR'd
-      // is skipped below before the scan spends a single Paperless-ngx call on
-      // it. Documents that enter the queue during this run are caught by the
-      // per-document checks in documentPipeline.processDocument().
-      const ocrQueuedDocumentIds = new Set(
-        /** @type {Array<number|string>} */ (
-          await documentModel.getOcrQueueDocumentIds()
-        ).map((documentId) => Number(documentId))
-      );
+      // Asked once per run, when the first document gets that far.
+      const getExternalApiData = documentPipeline.externalApiDataForRun();
 
       for (const doc of documents) {
         if (scanControl.stopRequested) {
@@ -281,16 +274,23 @@ class ScanService {
           break;
         }
 
+        // The webhook queue may be on this document right now; it comes back
+        // on the next run.
+        if (!documentPipeline.claim(doc.id)) {
+          scanStats.skipped += 1;
+          console.info(
+            `Document ${doc.id} is being processed by another run, skipping it this scan`
+          );
+          continue;
+        }
+
         try {
           const result = await documentPipeline.processDocument(
             doc,
             existingTagNames,
             existingCorrespondentList,
             existingDocumentTypesList,
-            {
-              source: 'scan',
-              ocrQueuedDocumentIds,
-            }
+            { source: 'scan', getExternalApiData }
           );
           if (!result) {
             scanStats.skipped += 1;
@@ -328,6 +328,8 @@ class ScanService {
             `[ERROR] processing document ${doc.id}: ${messageOf(error)}`
           );
           console.debug(error);
+        } finally {
+          documentPipeline.release(doc.id);
         }
       }
 

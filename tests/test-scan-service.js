@@ -3,7 +3,7 @@
 /**
  * Pins the scheduled scan end to end: the loop around processDocument() that
  * tests/test-document-pipeline-callers.js does not reach. One run probes
- * Paperless-ngx, reads the entity lists and the OCR queue once, walks the
+ * Paperless-ngx, reads the entity lists once, walks the
  * documents, writes each result back through documentProcessingService,
  * completes or fails the document, counts it, marks the dashboard cache stale,
  * honours a stop request between documents, and reports to the health
@@ -34,11 +34,15 @@ const modulePaths = {
   duplicateMergeService: require.resolve('../services/duplicateMergeService'),
   scanHealthService: require.resolve('../services/scanHealthService'),
   dashboardStatsService: require.resolve('../services/dashboardStatsService'),
+  setupService: require.resolve('../services/setupService'),
+  thumbnailCache: require.resolve('../services/thumbnailCache'),
 };
 const SCAN_SERVICE = path.join(ROOT, 'services', 'scanService.js');
+const WEBHOOK_QUEUE = path.join(ROOT, 'services', 'webhookQueueService.js');
 const underTest = [
   path.join(ROOT, 'services', 'documentPipeline.js'),
   SCAN_SERVICE,
+  WEBHOOK_QUEUE,
 ];
 
 let passed = 0;
@@ -158,7 +162,9 @@ function makeWorld(scenario = {}) {
       isDocumentFailed: record('isDocumentFailed', () => s.failed),
       setProcessingStatus: record('setProcessingStatus'),
       addToOcrQueue: record('addToOcrQueue', () => s.ocrQueueAccepts),
-      getOcrQueueItem: record('getOcrQueueItem', null),
+      getOcrQueueItem: record('getOcrQueueItem', (id) =>
+        s.ocrQueueIds.includes(id) ? { status: 'pending' } : null
+      ),
       addFailedDocument: record('addFailedDocument'),
       getOcrQueueDocumentIds: record('getOcrQueueDocumentIds', () =>
         s.ocrQueueIds.map(String)
@@ -205,8 +211,8 @@ function makeWorld(scenario = {}) {
     skipRuleService: { apply: record('skipRules.apply', () => s.skipMatch) },
     documentProcessingService: {
       buildUpdateData: record('buildUpdateData', { title: 'Phone bill' }),
-      saveDocumentChanges: record('saveDocumentChanges', (id) => {
-        if (s.onSave) s.onSave(id);
+      saveDocumentChanges: record('saveDocumentChanges', async (id) => {
+        if (s.onSave) await s.onSave(id);
         if (s.saveFails) throw new Error(s.saveFails);
       }),
     },
@@ -234,6 +240,8 @@ function makeWorld(scenario = {}) {
       invalidate: recordSync('dashboard.invalidate'),
       refresh: record('dashboard.refresh'),
     },
+    setupService: { isConfigured: record('isConfigured', true) },
+    thumbnailCache: { removeThumbnailCacheForDocumentIds: async () => {} },
   };
 
   for (const key of Object.keys(modulePaths)) {
@@ -317,14 +325,16 @@ const LISTS = [
   'getAllDocuments()',
   'listCorrespondentsNames()',
   'listDocumentTypesNames()',
-  'getOcrQueueDocumentIds()',
 ];
 const RUN_OK = [
   'health.recordRunResult({"status":"ok"})',
   'dashboard.refresh()',
 ];
-const pipelineUpTo = (id, title) => [
+/* With OCR on, the pipeline asks the OCR queue about each document right
+   after "already processed". */
+const pipelineUpTo = (id, title, { ocr = false } = {}) => [
   `isDocumentProcessed(${id})`,
+  ...(ocr ? [`getOcrQueueItem(${id})`] : []),
   `isDocumentIgnored(${id})`,
   `isDocumentFailed(${id})`,
   `setProcessingStatus(${id}, "${title}", "processing")`,
@@ -491,7 +501,7 @@ async function main() {
     const oneFailingRun = [
       ...runStart(),
       ...LISTS,
-      ...pipelineUpTo(7, 'Scan 0007'),
+      ...pipelineUpTo(7, 'Scan 0007', { ocr: true }),
       analyze(7),
       'isDocumentProcessed(7)',
       'addToOcrQueue(7, "Scan 0007", "ai_invalid_json", {"skipIfProcessed":true})',
@@ -499,9 +509,10 @@ async function main() {
       ...RUN_OK,
     ];
     assert.deepStrictEqual(calls.slice(0, oneFailingRun.length), oneFailingRun);
-    assert.deepStrictEqual(calls.slice(-4), [
+    assert.deepStrictEqual(calls.slice(-5), [
       `skipRules.apply({"id":7,"title":"Scan 0007","page_count":2}, "<156 chars>")`,
       'setProcessingStatus(7, "Scan 0007", "failed")',
+      'addFailedDocument(7, "Scan 0007", "ai_failed_retry_limit", "ai")',
       ...RUN_OK,
     ]);
     assert.deepStrictEqual(summaries, [
@@ -520,7 +531,7 @@ async function main() {
     assert.deepStrictEqual(calls, [
       ...runStart(),
       ...LISTS,
-      ...pipelineUpTo(7, 'Scan 0007').slice(0, -1),
+      ...pipelineUpTo(7, 'Scan 0007', { ocr: true }).slice(0, -1),
       'skipRules.apply({"id":7,"title":"Scan 0007","page_count":2}, "x")',
       'isDocumentProcessed(7)',
       'addToOcrQueue(7, "Scan 0007", "short_content_lt_10", {"skipIfProcessed":true})',
@@ -529,15 +540,32 @@ async function main() {
     assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
   });
 
-  await test('a document in the OCR queue at run start costs no Paperless call', async () => {
-    const { calls, summaries } = await runScan({ ocrQueueIds: [7] });
+  await test('a document in the OCR queue costs no Paperless call', async () => {
+    const { calls, summaries } = await runScan({
+      ocrEnabled: true,
+      ocrQueueIds: [7],
+    });
     assert.deepStrictEqual(calls, [
       ...runStart(),
       ...LISTS,
       'isDocumentProcessed(7)',
+      'getOcrQueueItem(7)',
       ...RUN_OK,
     ]);
     assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
+  });
+
+  await test('with OCR off a document in the OCR queue is analysed', async () => {
+    const { calls, summaries } = await runScan({ ocrQueueIds: [7] });
+    assert.deepStrictEqual(calls, [
+      ...runStart(),
+      ...LISTS,
+      ...pipelineUpTo(7, 'Scan 0007'),
+      analyze(7),
+      ...COMPLETE,
+      ...RUN_OK,
+    ]);
+    assert.deepStrictEqual(summaries, [summary({ processed: 1 })]);
   });
 
   await test('a skip rule match counts as skipped', async () => {
@@ -566,6 +594,38 @@ async function main() {
     ]);
   });
 
+  await test('external API data is fetched once per run, not per document', async () => {
+    const { calls } = await runScan({
+      externalApi: true,
+      documents: [DOC, DOC_8],
+    });
+    assert.deepStrictEqual(calls, [
+      ...runStart(),
+      ...LISTS,
+      ...pipelineUpTo(7, 'Scan 0007'),
+      'externalApi.fetchData()',
+      analyze(7, ',"externalApiData":{"rate":1.1}'),
+      ...COMPLETE,
+      ...pipelineUpTo(8, 'Scan 0008'),
+      analyze(8, ',"externalApiData":{"rate":1.1}'),
+      ...writeBack(8, 'Scan 0008'),
+      'setProcessingStatus(8, "Scan 0008", "complete")',
+      'dashboard.invalidate()',
+      ...RUN_OK,
+    ]);
+    const twoRuns = await runScan({ externalApi: true }, { runs: 2 });
+    assert.strictEqual(
+      twoRuns.calls.filter((call) => call === 'externalApi.fetchData()').length,
+      2,
+      'each run asks once'
+    );
+  });
+
+  await test('a run that analyses nothing does not ask the external API', async () => {
+    const { calls } = await runScan({ externalApi: true, processed: true });
+    assert.ok(!calls.includes('externalApi.fetchData()'), calls.join('\n'));
+  });
+
   await test('a saved minimum content length applies without a restart', async () => {
     const { calls, summaries } = await runScan(
       {},
@@ -584,6 +644,90 @@ async function main() {
       ...RUN_OK,
     ]);
     assert.deepStrictEqual(summaries, [summary({ skipped: 1 })]);
+  });
+
+  console.log('Scan and webhook side by side');
+
+  await test('a webhook for the document the scan is writing back leaves it alone', async () => {
+    let during = null;
+    const { calls, summaries, logs } = await runScan(
+      {},
+      {
+        before: (world) => {
+          world.s.onSave = async (id) => {
+            // Once: without the claim the webhook writes 7 back as well.
+            if (id !== 7 || during) return;
+            during = [];
+            const webhookQueueService = require(WEBHOOK_QUEUE);
+            const mark = world.calls.length;
+            webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+            await webhookQueueService.processQueue();
+            during = world.calls.slice(mark);
+          };
+        },
+      }
+    );
+    assert.deepStrictEqual(during, [
+      'isConfigured()',
+      'getTags()',
+      'listCorrespondentsNames()',
+      'listDocumentTypesNames()',
+    ]);
+    assert.strictEqual(
+      calls.filter((call) => call.startsWith('analyzeDocument(')).length,
+      1
+    );
+    assert.deepStrictEqual(summaries, [summary({ processed: 1 })]);
+    assert.ok(
+      logs.includes(
+        'info Document 7 is being processed by another run, skipping this queue entry'
+      ),
+      logs
+    );
+  });
+
+  await test('a scan reaching the document the webhook is writing back skips it this run', async () => {
+    const world = makeWorld({ documents: [DOC, DOC_8] });
+    const scan = loadScan();
+    const webhookQueueService = require(WEBHOOK_QUEUE);
+    let scanCalls = null;
+    world.s.onSave = async (id) => {
+      if (id !== 7 || scanCalls) return;
+      scanCalls = [];
+      const mark = world.calls.length;
+      await scan.scanDocuments();
+      scanCalls = world.calls.slice(mark);
+    };
+    webhookQueueService.enqueue({ ...DOC }, { applySkipRules: true });
+    const { logs } = await captured(() => webhookQueueService.processQueue());
+    assert.ok(
+      !scanCalls.includes('isDocumentProcessed(7)'),
+      scanCalls.join('\n')
+    );
+    assert.ok(scanCalls.includes(analyze(8)), scanCalls.join('\n'));
+    assert.strictEqual(
+      world.calls.filter((call) => call === analyze(7)).length,
+      1
+    );
+    assert.ok(
+      logs.includes('info ' + summary({ total: 2, processed: 1, skipped: 1 })),
+      logs
+    );
+    assert.ok(
+      logs.includes(
+        'info Document 7 is being processed by another run, skipping it this scan'
+      ),
+      logs
+    );
+  });
+
+  await test('a claim is released after success, failure and skip', async () => {
+    const cases = [{}, { saveFails: 'Paperless said no' }, { processed: true }];
+    for (const scenario of cases) {
+      await runScan(scenario);
+      const documentPipeline = require('../services/documentPipeline');
+      assert.deepStrictEqual([...documentPipeline.inFlight], []);
+    }
   });
 
   console.log('Run guards');

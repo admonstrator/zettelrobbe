@@ -790,6 +790,9 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
  *       local tracking records, so it is processed again in a subsequent scan.
  *       A document that cannot be resolved — deleted, or Paperless-ngx briefly
  *       unavailable — leaves every local record untouched and answers 404.
+ *       A document that waits for OCR (queued or being read, while OCR is
+ *       switched on) is analysed once OCR has read it: nothing is changed and
+ *       the answer is 200 with `waitingForOcr: true`.
  *     tags:
  *       - History
  *       - API
@@ -804,7 +807,7 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
  *           type: integer
  *     responses:
  *       200:
- *         description: Document reset for rescanning
+ *         description: Document reset for rescanning, or left alone because it waits for OCR
  *         content:
  *           application/json:
  *             schema:
@@ -815,6 +818,10 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
  *                   example: true
  *                 message:
  *                   type: string
+ *                 waitingForOcr:
+ *                   type: boolean
+ *                   description: Present and true when the document waits for OCR; nothing was changed
+ *                   example: true
  *       400:
  *         description: Invalid document ID
  *       404:
@@ -841,9 +848,19 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
         .json({ success: false, error: 'Invalid document ID' });
     }
 
-    const { queued } = await webhookQueueService.rescanDocumentsByIds([
-      documentId,
-    ]);
+    const { queued, waitingForOcr } =
+      await webhookQueueService.rescanDocumentsByIds([documentId]);
+
+    // The OCR path analyses it once OCR has read the document; nothing was
+    // deleted or queued.
+    if (waitingForOcr.length > 0) {
+      return res.json({
+        success: true,
+        waitingForOcr: true,
+        message:
+          'Document is waiting for OCR and is analysed once OCR has read it. Nothing was changed.',
+      });
+    }
 
     // Not queued means the document could not be resolved in Paperless-ngx.
     // Nothing was deleted in that case, so this is an honest 404 rather than
@@ -876,7 +893,9 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
  *       Forces reprocessing of the given documents regardless of the configured
  *       scan tag filters. The local processing record is cleared and each document
  *       is enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS
- *       / TAGS scan-scope rules. Processing runs in the background.
+ *       / TAGS scan-scope rules. Processing runs in the background. Documents
+ *       that wait for OCR (while OCR is switched on) are left untouched and
+ *       listed in `waitingForOcr`; they are analysed once OCR has read them.
  *     tags:
  *       - History
  *     security:
@@ -916,6 +935,11 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
  *                   items:
  *                     type: integer
  *                   example: []
+ *                 waitingForOcr:
+ *                   type: array
+ *                   items:
+ *                     type: integer
+ *                   example: []
  *       400:
  *         description: Invalid document IDs
  *       401:
@@ -932,9 +956,9 @@ router.post('/api/history/rescan', isAuthenticated, async (req, res) => {
         .json({ success: false, error: 'Invalid document IDs' });
     }
 
-    const { queued, notFound } =
+    const { queued, notFound, waitingForOcr } =
       await webhookQueueService.rescanDocumentsByIds(ids);
-    res.json({ success: true, queued, notFound });
+    res.json({ success: true, queued, notFound, waitingForOcr });
   } catch (error) {
     console.error('[ERROR] /api/history/rescan:', error);
     res

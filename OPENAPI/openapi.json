@@ -8036,7 +8036,7 @@
     "/api/history/{id}/rescan": {
       "post": {
         "summary": "Reset one document for reprocessing",
-        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\n",
+        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\nA document that waits for OCR (queued or being read, while OCR is\nswitched on) is analysed once OCR has read it: nothing is changed and\nthe answer is 200 with `waitingForOcr: true`.\n",
         "tags": [
           "History",
           "API"
@@ -8061,7 +8061,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Document reset for rescanning",
+            "description": "Document reset for rescanning, or left alone because it waits for OCR",
             "content": {
               "application/json": {
                 "schema": {
@@ -8073,6 +8073,11 @@
                     },
                     "message": {
                       "type": "string"
+                    },
+                    "waitingForOcr": {
+                      "type": "boolean",
+                      "description": "Present and true when the document waits for OCR; nothing was changed",
+                      "example": true
                     }
                   }
                 }
@@ -8110,7 +8115,7 @@
     "/api/history/rescan": {
       "post": {
         "summary": "Rescan (reprocess) multiple documents by ID",
-        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background.\n",
+        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background. Documents\nthat wait for OCR (while OCR is switched on) are left untouched and\nlisted in `waitingForOcr`; they are analysed once OCR has read them.\n",
         "tags": [
           "History"
         ],
@@ -8166,6 +8171,13 @@
                       "example": 3
                     },
                     "notFound": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "example": []
+                    },
+                    "waitingForOcr": {
                       "type": "array",
                       "items": {
                         "type": "integer"

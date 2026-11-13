@@ -114,19 +114,22 @@ class WebhookQueueService {
       const existingCorrespondentNames = toNameList(existingCorrespondentList);
       const existingDocumentTypesList = toNameList(existingDocumentTypes);
 
-      // Read once per pass, as the scan does once per run: a document that
-      // waits for OCR or is being OCR'd gets its text and its analysis from
-      // that path (issue #322).
-      const ocrQueuedDocumentIds = new Set(
-        /** @type {Array<number|string>} */ (
-          await documentModel.getOcrQueueDocumentIds()
-        ).map((documentId) => Number(documentId))
-      );
+      // Asked once per pass, when the first document gets that far.
+      const getExternalApiData = documentPipeline.externalApiDataForRun();
 
       while (this.documentQueue.length > 0) {
         const { document: doc, applySkipRules } = /** @type {QueueEntry} */ (
           this.documentQueue.shift()
         );
+
+        // The scan may be on this document right now and writes its result
+        // back itself; a second analysis would be paid twice.
+        if (!documentPipeline.claim(doc.id)) {
+          console.info(
+            `Document ${doc.id} is being processed by another run, skipping this queue entry`
+          );
+          continue;
+        }
 
         try {
           const result = await documentPipeline.processDocument(
@@ -137,7 +140,7 @@ class WebhookQueueService {
             {
               source: applySkipRules ? 'webhook' : 'rescan',
               customPrompt: customPrompt || null,
-              ocrQueuedDocumentIds,
+              getExternalApiData,
             }
           );
           if (!result) continue;
@@ -163,6 +166,8 @@ class WebhookQueueService {
           // A failed analysis or write-back leaves no "processing" mark behind.
           await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
           console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
+        } finally {
+          documentPipeline.release(doc.id);
         }
       }
     } catch (error) {
@@ -193,8 +198,14 @@ class WebhookQueueService {
    * document and then reported success. Now a document that cannot be resolved
    * costs nothing: its records stay untouched and it comes back in `notFound`.
    *
+   * A document the OCR path is responsible for (it waits in the OCR queue or
+   * an OCR run is reading it, see documentPipeline.isWaitingForOcr) is left
+   * alone as well: the pipeline would skip it, so deleting its records would
+   * lose them for nothing. It comes back in `waitingForOcr` and is analysed
+   * once OCR has read it.
+   *
    * @param {Array<number|string>} ids - Document IDs to reprocess.
-   * @returns {Promise<{queued: number, notFound: number[]}>}
+   * @returns {Promise<{queued: number, notFound: number[], waitingForOcr: number[]}>}
    */
   async rescanDocumentsByIds(ids) {
     const numericIds = (Array.isArray(ids) ? ids : [])
@@ -202,15 +213,21 @@ class WebhookQueueService {
       .filter((id) => Number.isInteger(id) && id > 0);
 
     if (numericIds.length === 0) {
-      return { queued: 0, notFound: [] };
+      return { queued: 0, notFound: [], waitingForOcr: [] };
     }
 
     /** @type {number[]} */
     const notFound = [];
+    /** @type {number[]} */
+    const waitingForOcr = [];
     /** @type {{ id: number, document: QueuedDocument }[]} */
     const resolvedDocuments = [];
 
     for (const id of numericIds) {
+      if (await documentPipeline.isWaitingForOcr(id)) {
+        waitingForOcr.push(id);
+        continue;
+      }
       try {
         const document = await paperlessService.getDocument(id);
         if (!document) {
@@ -228,7 +245,7 @@ class WebhookQueueService {
     }
 
     if (resolvedDocuments.length === 0) {
-      return { queued: 0, notFound };
+      return { queued: 0, notFound, waitingForOcr };
     }
 
     // Drop the local "already processed" record so the gate in processDocument()
@@ -248,7 +265,7 @@ class WebhookQueueService {
     // Fire-and-forget: the HTTP response should not wait for AI processing.
     this.processQueue();
 
-    return { queued, notFound };
+    return { queued, notFound, waitingForOcr };
   }
 }
 

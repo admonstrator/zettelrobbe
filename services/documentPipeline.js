@@ -100,8 +100,10 @@ const MAX_ATTEMPTS = 3;
  * @property {PipelineSource} source - which caller this is; picks the profile
  * @property {string|null} [customPrompt] - prompt to analyse with instead of
  *   the configured one (webhook and rescan)
- * @property {Set<number>} [ocrQueuedDocumentIds] - documents in the OCR queue
- *   when the scan run or the queue pass started, read once per run
+ * @property {() => Promise<unknown>} [getExternalApiData] - the external API
+ *   data of this run, from externalApiDataForRun(): a scan run or a pass over
+ *   the webhook queue asks the API once, not once per document. Left out,
+ *   the data is fetched for this document alone.
  */
 
 /**
@@ -121,6 +123,70 @@ class DocumentPipeline {
     this.retryTracker = new Map();
     /** The switches per caller, for tests and for reading. */
     this.CALLER_PROFILES = CALLER_PROFILES;
+    /**
+     * Documents a caller is working on right now, from its first check to
+     * the status after the write-back. Process-wide: the scan and the
+     * webhook queue run side by side, and without a claim both pass
+     * isDocumentProcessed() for the same document and pay for two analyses
+     * and two write-backs.
+     *
+     * @type {Set<number>}
+     */
+    this.inFlight = new Set();
+  }
+
+  /**
+   * Claims a document for the calling run. A caller claims before its first
+   * check and releases in its finally, after the write-back and the status;
+   * a caller that cannot claim leaves the document alone (the scan finds it
+   * again on its next run).
+   *
+   * @param {number} documentId
+   * @returns {boolean} false when another run holds the document
+   */
+  claim(documentId) {
+    const id = Number(documentId);
+    if (this.inFlight.has(id)) {
+      return false;
+    }
+    this.inFlight.add(id);
+    return true;
+  }
+
+  /**
+   * @param {number} documentId
+   * @returns {void}
+   */
+  release(documentId) {
+    this.inFlight.delete(Number(documentId));
+  }
+
+  /**
+   * Whether the OCR path is responsible for the document right now: an OCR
+   * run is reading it, or it waits in the OCR queue (pending or processing).
+   * Such a document gets both its text and its analysis from that path.
+   *
+   * A queue row only counts while OCR is switched on. With OCR off nothing
+   * works the queue, and a pending row would hold the document back forever.
+   * A run in progress counts either way: it is reading the document now.
+   *
+   * Looked up per document, not once per run: the webhook queue picks up
+   * entries added while it drains, and the OCR queue changes meanwhile too.
+   *
+   * @param {number} documentId
+   * @returns {Promise<boolean>}
+   */
+  async isWaitingForOcr(documentId) {
+    if (mistralOcrService.isDocumentActivelyProcessing(documentId)) {
+      return true;
+    }
+    if (!mistralOcrService.isEnabled()) {
+      return false;
+    }
+    const queueItem = await documentModel.getOcrQueueItem(documentId);
+    return (
+      queueItem?.status === 'pending' || queueItem?.status === 'processing'
+    );
   }
 
   /**
@@ -172,11 +238,7 @@ class DocumentPipeline {
     // now, gets both its text and its analysis from that path. Analysing it
     // here would work on the very text the OCR run is about to replace, and
     // the three Paperless-ngx calls below would be spent for nothing.
-    const queuedForOcrIds = options.ocrQueuedDocumentIds;
-    if (
-      (queuedForOcrIds && queuedForOcrIds.has(Number(doc.id))) ||
-      mistralOcrService.isDocumentActivelyProcessing(doc.id)
-    ) {
+    if (await this.isWaitingForOcr(doc.id)) {
       console.debug(
         `Document ${doc.id} is waiting for Mistral OCR, skipping analysis this round`
       );
@@ -266,6 +328,15 @@ class DocumentPipeline {
         `Document ${doc.id} has failed ${attempts} times, skipping to prevent infinite retry loop`
       );
       await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
+      // Recorded like every other terminal failure. Without the row the next
+      // run starts a fresh count and pays for three more analyses, forever.
+      // The failed page lists it, and its reset brings the document back.
+      await documentModel.addFailedDocument(
+        doc.id,
+        doc.title,
+        'ai_failed_retry_limit',
+        'ai'
+      );
       this.retryTracker.delete(doc.id);
       return null;
     }
@@ -280,7 +351,9 @@ class DocumentPipeline {
       restrictToExistingCorrespondents:
         config.restrictToExistingCorrespondents === 'yes',
     };
-    const externalApiData = await this.fetchExternalApiData();
+    const externalApiData = options.getExternalApiData
+      ? await options.getExternalApiData()
+      : await this.fetchExternalApiData();
     if (externalApiData) {
       analysisOptions.externalApiData = externalApiData;
     }
@@ -434,6 +507,25 @@ class DocumentPipeline {
     }
 
     return queued;
+  }
+
+  /**
+   * The external API data of one run, fetched when the first document needs
+   * it and reused for the rest: a first scan of 2000 documents makes one
+   * call, an unreachable API costs one timeout per run instead of one per
+   * document, and a run that analyses nothing makes none.
+   *
+   * @returns {() => Promise<unknown>}
+   */
+  externalApiDataForRun() {
+    /** @type {Promise<unknown>|null} */
+    let pending = null;
+    return () => {
+      if (!pending) {
+        pending = this.fetchExternalApiData();
+      }
+      return pending;
+    };
   }
 
   /**

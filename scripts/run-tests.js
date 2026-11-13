@@ -191,6 +191,8 @@ const TESTS = {
   'caller-resolver': 'test-caller-resolver.js',
   'scan-service': 'test-scan-service.js',
   'typecheck-config': 'test-typecheck-config.js',
+  'rescan-waiting-for-ocr': 'test-rescan-waiting-for-ocr.js',
+  'settings-ocr-key-lock': 'test-settings-ocr-key-lock.js',
 };
 
 const AREAS = {
@@ -279,6 +281,7 @@ const AREAS = {
     'scan-control',
     'document-pipeline-callers',
     'scan-service',
+    'rescan-waiting-for-ocr',
   ],
   prompts: [
     'restriction-service',
@@ -361,7 +364,11 @@ const AREAS = {
   ],
   routes: ['route-table', 'route-shadowing'],
   tooling: ['typecheck-config'],
-  settings: ['settings-save-golden', 'settings-catalog'],
+  settings: [
+    'settings-save-golden',
+    'settings-catalog',
+    'settings-ocr-key-lock',
+  ],
 };
 
 // Tests intentionally excluded from the auto-discovery drift check below.

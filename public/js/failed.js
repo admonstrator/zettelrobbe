@@ -143,6 +143,9 @@
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-power"/></svg>AI failed (OCR disabled)',
       ai_failed_without_ocr_fallback:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>AI failed (no OCR fallback)',
+      // The scan gave up after three failed analyses in a row.
+      ai_failed_retry_limit:
+        '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>AI failed 3 times (retry limit)',
       insufficient_content_lt_10:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>Insufficient content (&lt; 10 chars)',
       ai_response_truncated:
