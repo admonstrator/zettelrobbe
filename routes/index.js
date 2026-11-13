@@ -33,6 +33,7 @@ router.use(require('./documents')); // chat document search, thumbnails
 router.use(require('./history')); // history page and API
 router.use(require('./maintenance')); // caches, reconcile, resets
 router.use(require('./settings')); // settings page and save
+router.use(require('./scan')); // scan, status, webhook
 router.use(require('./setup')); // not split yet
 
 // Carried over from routes/setup.js, which ran it once its modules had loaded:

@@ -2341,155 +2341,6 @@
         }
       }
     },
-    "/api/scan/now": {
-      "post": {
-        "summary": "Trigger immediate document scan",
-        "description": "Initiates an immediate scan of documents in Paperless-ngx that haven't been processed yet.\nThis endpoint can be used to manually trigger processing without waiting for the scheduled interval.\n\nThe scan will:\n- Connect to Paperless-ngx API\n- Fetch all unprocessed documents\n- Process each document with the configured AI service\n- Update documents in Paperless-ngx with generated metadata\n\nThe process respects the function limitations set in the configuration.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Scan trigger processed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "started": {
-                      "type": "boolean"
-                    },
-                    "running": {
-                      "type": "boolean"
-                    },
-                    "stopRequested": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Setup has not been completed yet",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "error": {
-                      "type": "string",
-                      "example": "Setup not completed"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Authentication required"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error"
-          },
-          "503": {
-            "description": "Scan control not ready",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Error during document scan"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/scan/stop": {
-      "post": {
-        "summary": "Request graceful stop for active scan",
-        "description": "Requests a graceful stop of the currently running scan.\nThe current document is allowed to finish processing before the scan exits.\n",
-        "tags": [
-          "Documents",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Stop request processed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "running": {
-                      "type": "boolean"
-                    },
-                    "stopRequested": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required"
-          }
-        }
-      }
-    },
     "/setup": {
       "get": {
         "summary": "Application setup page",
@@ -3642,136 +3493,6 @@
         }
       }
     },
-    "/api/webhook/document": {
-      "post": {
-        "summary": "Webhook for document updates",
-        "description": "Processes incoming webhook notifications from Paperless-ngx about document\nchanges, additions, or deletions. The webhook allows Zettelrobbe to respond\nto document changes in real-time.\n\nWhen a new document is added or updated in Paperless-ngx, this endpoint can\ntrigger automatic AI processing for metadata extraction.\n",
-        "tags": [
-          "Documents",
-          "API",
-          "System"
-        ],
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "event_type",
-                  "document_id"
-                ],
-                "properties": {
-                  "event_type": {
-                    "type": "string",
-                    "description": "Type of event that occurred",
-                    "enum": [
-                      "added",
-                      "updated",
-                      "deleted"
-                    ],
-                    "example": "added"
-                  },
-                  "document_id": {
-                    "type": "integer",
-                    "description": "ID of the affected document",
-                    "example": 123
-                  },
-                  "document_info": {
-                    "type": "object",
-                    "description": "Additional information about the document (optional)",
-                    "properties": {
-                      "title": {
-                        "type": "string",
-                        "example": "Invoice"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Document event processed"
-                    },
-                    "processing_queued": {
-                      "type": "boolean",
-                      "description": "Whether AI processing was queued for this document",
-                      "example": true
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid webhook payload",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": false
-                    },
-                    "error": {
-                      "type": "string",
-                      "example": "Missing required fields: event_type, document_id"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - invalid or missing API key",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Unauthorized: Invalid API key"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error processing webhook",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/dashboard": {
       "get": {
         "summary": "Main dashboard page",
@@ -4321,113 +4042,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/processing-status": {
-      "get": {
-        "summary": "Get document processing status",
-        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n",
-        "tags": [
-          "Documents",
-          "System",
-          "API"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Processing status retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "isProcessing": {
-                      "type": "boolean",
-                      "description": "Whether documents are currently being processed",
-                      "example": true
-                    },
-                    "isScanning": {
-                      "type": "boolean",
-                      "description": "Whether a scan loop is currently running",
-                      "example": true
-                    },
-                    "stopRequested": {
-                      "type": "boolean",
-                      "description": "Whether a graceful stop has been requested",
-                      "example": false
-                    },
-                    "scanner": {
-                      "$ref": "#/components/schemas/ScannerHealth"
-                    },
-                    "paperless": {
-                      "$ref": "#/components/schemas/PaperlessHealth"
-                    },
-                    "currentlyProcessing": {
-                      "type": "object",
-                      "description": "Details about the document currently being processed (if any)",
-                      "properties": {
-                        "documentId": {
-                          "type": "integer",
-                          "description": "Document ID",
-                          "example": 123
-                        },
-                        "title": {
-                          "type": "string",
-                          "description": "Document title",
-                          "example": "Invoice #12345"
-                        },
-                        "status": {
-                          "type": "string",
-                          "description": "Current processing status",
-                          "example": "processing"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Authentication required"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Failed to fetch processing status"
-                    }
-                  }
                 }
               }
             }
@@ -7220,6 +6834,392 @@
           },
           "401": {
             "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/scan/now": {
+      "post": {
+        "summary": "Trigger immediate document scan",
+        "description": "Initiates an immediate scan of documents in Paperless-ngx that haven't been processed yet.\nThis endpoint can be used to manually trigger processing without waiting for the scheduled interval.\n\nThe scan will:\n- Connect to Paperless-ngx API\n- Fetch all unprocessed documents\n- Process each document with the configured AI service\n- Update documents in Paperless-ngx with generated metadata\n\nThe process respects the function limitations set in the configuration.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan trigger processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "started": {
+                      "type": "boolean"
+                    },
+                    "running": {
+                      "type": "boolean"
+                    },
+                    "stopRequested": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Setup has not been completed yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Setup not completed"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Authentication required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          },
+          "503": {
+            "description": "Scan control not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Error during document scan"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scan/stop": {
+      "post": {
+        "summary": "Request graceful stop for active scan",
+        "description": "Requests a graceful stop of the currently running scan.\nThe current document is allowed to finish processing before the scan exits.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stop request processed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "running": {
+                      "type": "boolean"
+                    },
+                    "stopRequested": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required"
+          }
+        }
+      }
+    },
+    "/api/webhook/document": {
+      "post": {
+        "summary": "Webhook for document updates",
+        "description": "Processes incoming webhook notifications from Paperless-ngx about document\nchanges, additions, or deletions. The webhook allows Zettelrobbe to respond\nto document changes in real-time.\n\nWhen a new document is added or updated in Paperless-ngx, this endpoint can\ntrigger automatic AI processing for metadata extraction.\n",
+        "tags": [
+          "Documents",
+          "API",
+          "System"
+        ],
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "event_type",
+                  "document_id"
+                ],
+                "properties": {
+                  "event_type": {
+                    "type": "string",
+                    "description": "Type of event that occurred",
+                    "enum": [
+                      "added",
+                      "updated",
+                      "deleted"
+                    ],
+                    "example": "added"
+                  },
+                  "document_id": {
+                    "type": "integer",
+                    "description": "ID of the affected document",
+                    "example": 123
+                  },
+                  "document_info": {
+                    "type": "object",
+                    "description": "Additional information about the document (optional)",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "example": "Invoice"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Document event processed"
+                    },
+                    "processing_queued": {
+                      "type": "boolean",
+                      "description": "Whether AI processing was queued for this document",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid webhook payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Missing required fields: event_type, document_id"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Unauthorized: Invalid API key"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error processing webhook",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/processing-status": {
+      "get": {
+        "summary": "Get document processing status",
+        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n",
+        "tags": [
+          "Documents",
+          "System",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Processing status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "isProcessing": {
+                      "type": "boolean",
+                      "description": "Whether documents are currently being processed",
+                      "example": true
+                    },
+                    "isScanning": {
+                      "type": "boolean",
+                      "description": "Whether a scan loop is currently running",
+                      "example": true
+                    },
+                    "stopRequested": {
+                      "type": "boolean",
+                      "description": "Whether a graceful stop has been requested",
+                      "example": false
+                    },
+                    "scanner": {
+                      "$ref": "#/components/schemas/ScannerHealth"
+                    },
+                    "paperless": {
+                      "$ref": "#/components/schemas/PaperlessHealth"
+                    },
+                    "currentlyProcessing": {
+                      "type": "object",
+                      "description": "Details about the document currently being processed (if any)",
+                      "properties": {
+                        "documentId": {
+                          "type": "integer",
+                          "description": "Document ID",
+                          "example": 123
+                        },
+                        "title": {
+                          "type": "string",
+                          "description": "Document title",
+                          "example": "Invoice #12345"
+                        },
+                        "status": {
+                          "type": "string",
+                          "description": "Current processing status",
+                          "example": "processing"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Authentication required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Failed to fetch processing status"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
