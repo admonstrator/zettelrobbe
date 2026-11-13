@@ -36,6 +36,19 @@
  * before it, at every nesting level; "middleware" are the handlers in front of the final handler inside the
  * route itself. Error handlers (four parameters) are left out. Nested routers are followed and their mount
  * paths are joined, so a feature router mounted inside an aggregator router yields the same table.
+ *
+ * Limits, stated plainly:
+ *   - "Byte-identical handler" means identical fn.toString() text. It does not prove identical behaviour:
+ *     the same text can mean something else when a free name (a helper, a constant, an import) is bound
+ *     differently in the new file. A duplicated normalizeArray() with two meanings once passed this way.
+ *     A moved handler still needs its free names checked by eslint (no-undef) and by the tests, not by
+ *     this script alone.
+ *   - It leans on Express internals that are not public API: layer.matchers and layer.slash to decide
+ *     which router-level guard applies to a path, and a patched Router.prototype.use (see
+ *     installMountPathRecorder) to learn where a router was mounted. An Express upgrade can break it;
+ *     it then fails loudly or mis-reports, so re-check it after upgrading Express.
+ *   - tests/test-route-table.js depends on this module (buildSnapshot, compareSnapshots, toFixture and the
+ *     recorder). The route table fixture is only as trustworthy as these two limits allow.
  */
 
 const crypto = require('crypto');
