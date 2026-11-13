@@ -21,38 +21,37 @@
  *   written through getVocabulary() and saveVocabulary(). Entries of the
  *   dimension 'type' are document types, 'topic' entries are tags.
  * - Proposals live in `tag_split_proposals`, one per tag, and survive a
- *   reload. proposeSplits() replaces them; the user edits them one by one.
+ *   reload. proposeOrder() replaces them; the run service
+ *   (services/tidyUpRunService.js) reads them with listProposals() and
+ *   settles one at a time with updateProposal().
  * - applySplits() writes to Paperless-ngx and to the merge log (action
  *   'split', `details` per document), and duplicateMergeService.undo() hands
  *   a split row to undoSplit() here.
- * - The long-running pieces (the vocabulary proposal, the split proposals)
- *   run as a job of services/duplicateReviewJobService.js with their own
- *   runner and task name; they report progress through control.onProgress
- *   and honour control.signal like the judge does.
+ * - The long-running piece (the proposed order, with the vocabulary proposal
+ *   inside it) runs as a job of services/duplicateReviewJobService.js; it
+ *   reports progress through control.onProgress and honours control.signal
+ *   like the judge does.
  *
- * ## The proposed order (round 12)
+ * ## The proposed order
  *
- * The page does not ask for a decision per tag any more, it asks for one per
- * group. proposeOrder() is one job that proposes the vocabulary and then gives
+ * proposeOrder() is one job that proposes the vocabulary and then gives
  * *every* tag one of four actions — split, merge, keep, delete — by rule first
- * and by the model second. listGroups() derives the review from the stored
- * rows: one group per document type, per topic, per merge target, plus the two
- * buckets 'keep' and 'delete'. decideGroup() accepts, skips or reopens a whole
- * group, removeGroupMember() takes one tag out of one group, and
- * applyAccepted() writes what was accepted as a job: merges first (the merge
- * service does them, so the log row and its undo are the ones the Duplicates
- * page already knows), then splits, then deletes.
+ * and by the model second. listGroups() derives the groups the order falls
+ * into from the stored rows (one per document type, per topic, per merge
+ * target, plus the two buckets 'keep' and 'delete'); the run counts them.
+ * Tidy up turns the rows into suggestions (services/tidyUpSuggestions.js) and
+ * carries out a split with applySplits().
  *
  * ## What the model is asked, and what happens without one
  *
  * Two questions, both optional. The vocabulary proposal reads every tag name
  * in chunks and asks for the two dozen concepts the archive is really about;
- * the split proposals ask, for the tags the rule could not settle, which type
+ * the order asks, for the tags the rule could not settle, which type
  * and which topics of the vocabulary a name stands for. Requests are shaped
  * like the judge's — temperature 0, thinking off, the judge's model override,
  * a cap that grows with the request, a cut-off answer salvaged rather than
  * thrown away. Without a provider the vocabulary proposal is refused and the
- * split proposals are what the rule alone makes of the tags.
+ * order is what the rule alone makes of the tags.
  */
 
 'use strict';
@@ -61,7 +60,6 @@ const documentModel = require('../models/document');
 const paperlessService = require('./paperlessService');
 const entityNameMatcher = require('./entityNameMatcher');
 const { calculateTokens } = require('./serviceUtils');
-const { estimateRun } = require('./aiRunEstimate');
 const scanControl = require('./scanControl');
 
 /** The two dimensions a vocabulary entry can belong to. */
@@ -94,8 +92,6 @@ const GROUP_KINDS_IN_ORDER = Object.freeze([
   'delete',
   'keep',
 ]);
-/** What a group decision may be. */
-const GROUP_DECISIONS = Object.freeze(['accept', 'skip', 'reopen']);
 /** The log action of a split, shared with duplicateMergeService and the page. */
 const SPLIT_ACTION = 'split';
 /** The log action a deleted tag is written under, the same one the page knows. */
@@ -106,20 +102,6 @@ const MAX_APPLY_TAGS = 200;
 const LOG_PREFIX = '[SIMPLIFY]';
 /** The most model requests one run keeps in flight, whatever it was told. */
 const MAX_LANES = 8;
-/**
- * The document count below which a tag is offered as skippable when the
- * caller names no floor of its own. A tag on two documents is not what an
- * archive is reorganised around, and a run that leaves those out asks the
- * model about a third fewer names on a real archive.
- */
-const DEFAULT_LOW_DOCUMENT_FLOOR = 3;
-/**
- * How long the estimate may answer from the tag list it last read. Two pages
- * ask for an estimate on every move of a lever, and a walk over 1,200 tags is
- * a dozen requests to Paperless-ngx; the list does not change while somebody
- * drags a slider.
- */
-const ESTIMATE_TAGS_TTL_MS = 60 * 1000;
 
 /**
  * The phases the two long-running tasks report, the same strings
@@ -372,30 +354,6 @@ function salvageObjects(text) {
 /** A tag name as the matcher compares it: one spelling for many. */
 function normalizedTagKey(name) {
   return entityNameMatcher.normalizeName(String(name ?? ''), 'tags').asciiKey;
-}
-
-/**
- * A group key as the page and the routes spell it: 'keep', 'delete' or
- * '<kind>:<name>'. The name may itself contain a colon, so only the first one
- * separates; it is compared exactly, spelling for spelling.
- *
- * @param {string} key
- * @returns {{kind: string, name: string|null, key: string}|null}
- */
-function parseGroupKey(key) {
-  const raw = String(key ?? '').trim();
-  if (raw === '') return null;
-  if (raw === 'keep' || raw === 'delete') {
-    return { kind: raw, name: null, key: raw };
-  }
-  const colon = raw.indexOf(':');
-  if (colon <= 0) return null;
-  const kind = raw.slice(0, colon);
-  const name = raw.slice(colon + 1);
-  if (!['type', 'topic', 'merge'].includes(kind) || name.trim() === '') {
-    return null;
-  }
-  return { kind, name, key: `${kind}:${name}` };
 }
 
 /** A model's reason, trimmed to what a table cell can show. */
@@ -1278,38 +1236,6 @@ class TagSimplifyService {
 
   /* --- The split proposals ---------------------------------------------- */
 
-  /**
-   * What the model is told about the decomposition: the vocabulary it may use
-   * and nothing else.
-   *
-   * @param {{types: object[], topics: object[]}} vocabulary
-   * @returns {string}
-   */
-  buildSplitSystemPrompt(vocabulary) {
-    const typeNames = vocabulary.types.map((entry) => entry.name);
-    const topicNames = vocabulary.topics.map((entry) => entry.name);
-    return [
-      'You are given tag names of one personal document archive (Paperless-ngx).',
-      'A tag in this archive often presses two dimensions into one name: the kind of document it is, and what it is about. The kind belongs in the document type, the subject belongs in a tag.',
-      'For every tag name, say which document type it encodes and which topics it is about.',
-      '',
-      `The document types you may use: ${typeNames.join(', ') || '(none)'}.`,
-      `The topics you may use: ${topicNames.join(', ') || '(none)'}.`,
-      '',
-      'Use those names and no others. Never invent a type or a topic, and never answer with a name that is not in the two lists above.',
-      'Copy the names exactly as they are spelled in the lists.',
-      '"type" is null when the name says nothing about the kind of document.',
-      '"topics" is an empty list when the name is about nothing in the list.',
-      'A name that is neither gets "type": null and an empty "topics".',
-      '"confidence" is "high" when the name plainly says it and "low" when you had to guess.',
-      '"reason" is at most six words.',
-      '',
-      'Answer with a JSON array and nothing else — no prose, no explanation, no code fence:',
-      '[{"id": "12", "type": "Rechnung", "topics": ["Strom"], "confidence": "high", "reason": "<at most six words>"}]',
-      'Answer every tag you were given exactly once, with the id copied as it was given.',
-    ].join('\n');
-  }
-
   /** The tags of one request: id and name, one JSON object per line. */
   buildSplitUserPrompt(tags) {
     return [
@@ -1324,192 +1250,6 @@ class TagSimplifyService {
     ].join('\n');
   }
 
-  /**
-   * Proposes, for every tag that is not itself in the vocabulary, the
-   * document type and topic tags it stands for: first by rule
-   * (entityNameMatcher.decomposeCompound against the vocabulary), then by
-   * the model for the rest, `config.simplifyTagsPerRequest` names per
-   * request. Replaces the stored proposals. Runs as a job.
-   *
-   * @param {object} options  { fresh?: boolean }
-   * @param {object} control
-   * @returns {Promise<{proposals: number, byRule: number, byModel: number, requests: number, tokens: number}>}
-   */
-  async proposeSplits(options = {}, control = {}) {
-    void options;
-    const config = this._config();
-    const vocabulary = await this.getVocabulary();
-    if (vocabulary.types.length === 0 && vocabulary.topics.length === 0) {
-      throw new SimplifyError('Save a vocabulary first', 409);
-    }
-
-    let tags;
-    try {
-      tags = await paperlessService.listEntities('tags');
-    } catch (error) {
-      throw this._asPaperlessError(error, 'reading the tags');
-    }
-
-    const mergeService = this._mergeService();
-    const configuredTagNames = mergeService.configuredTagNames();
-    const vocabularyKeys = new Set(
-      [...vocabulary.types, ...vocabulary.topics].map(
-        (entry) => entityNameMatcher.normalizeName(entry.name, 'tags').asciiKey
-      )
-    );
-
-    const candidates = [];
-    let skipped = 0;
-    for (const tag of tags) {
-      const name = String(tag?.name ?? '').trim();
-      if (name === '') {
-        skipped += 1;
-        continue;
-      }
-      const isVocabulary = vocabularyKeys.has(
-        entityNameMatcher.normalizeName(name, 'tags').asciiKey
-      );
-      if (
-        isVocabulary ||
-        tag.isInboxTag ||
-        tag.userCanChange === false ||
-        mergeService.isConfiguredTagName(configuredTagNames, name)
-      ) {
-        skipped += 1;
-        continue;
-      }
-      candidates.push(tag);
-    }
-
-    // Pass one: what the vocabulary accounts for without asking anybody.
-    const proposals = new Map();
-    const unsettled = [];
-    for (const tag of candidates) {
-      const decomposed = entityNameMatcher.decomposeCompound(
-        tag.name,
-        vocabulary
-      );
-      if (decomposed) {
-        proposals.set(Number(tag.id), this._ruleProposal(tag, decomposed));
-      }
-      if (!decomposed || decomposed.score < 1) unsettled.push(tag);
-    }
-    const settledByRule =
-      proposals.size -
-      unsettled.filter((tag) => proposals.has(Number(tag.id))).length;
-
-    const usage = { requests: 0, tokens: 0, failedRequests: 0, failures: [] };
-    const withModel = this.hasProvider();
-    const perRequest = Math.max(1, Number(config.simplifyTagsPerRequest) || 50);
-    const chunks = withModel ? chunkList(unsettled, perRequest) : [];
-
-    this._noteRun(control, {
-      items: unsettled.length,
-      itemsByRule: settledByRule,
-      model: this._modelName() ?? null,
-      thinking: this._thinkingOn(),
-    });
-
-    this._report(control, {
-      phase: PHASES.SPLITTING,
-      kind: 'tags',
-      requestsDone: 0,
-      requestsPlanned: chunks.length,
-      pairsTotal: candidates.length,
-      pairsJudged: settledByRule,
-      tokens: 0,
-      message: this._splitMessage(
-        settledByRule,
-        candidates.length,
-        unsettled.length,
-        chunks.length,
-        0
-      ),
-    });
-
-    if (chunks.length > 0) {
-      const service = this._provider();
-      const systemPrompt = this.buildSplitSystemPrompt(vocabulary);
-      const lanes = Math.min(this._lanes(), chunks.length);
-      let started = 0;
-      let done = 0;
-      await runInLanes(chunks, lanes, async (chunk) => {
-        if (this._stopped(control)) return;
-        started += 1;
-        this._report(control, {
-          phase: PHASES.SPLITTING,
-          message: this._splitMessage(
-            settledByRule,
-            candidates.length,
-            unsettled.length,
-            chunks.length,
-            started
-          ),
-          requestsDone: done,
-          requestsPlanned: chunks.length,
-          tokens: usage.tokens,
-        });
-        const answered = await this._splitChunk(
-          service,
-          systemPrompt,
-          chunk,
-          vocabulary,
-          usage,
-          control
-        );
-        for (const row of answered) {
-          proposals.set(row.tagId, row);
-        }
-        done += 1;
-        this._report(control, {
-          phase: PHASES.SPLITTING,
-          requestsDone: done,
-          requestsPlanned: chunks.length,
-          pairsJudged: proposals.size,
-          tokens: usage.tokens,
-          failedRequests: usage.failedRequests,
-        });
-        this._checkTokenBudget(control, usage);
-      });
-    }
-
-    const rows = [...proposals.values()].sort((a, b) =>
-      String(a.tagName).localeCompare(String(b.tagName), undefined, {
-        sensitivity: 'base',
-      })
-    );
-    await documentModel.replaceTagSplitProposals(rows);
-
-    const byRule = rows.filter((row) => row.source === 'rule').length;
-    const byModel = rows.filter((row) => row.source === 'model').length;
-    const without = candidates.length - rows.length;
-    this._log(
-      `proposals: ${candidates.length} tag(s), ${byRule} by rule, ${byModel} by the model ` +
-        `in ${usage.requests} request(s), ${without} without a proposal.`
-    );
-    if (!withModel) {
-      this._log(
-        'no AI provider is configured; the proposals are what the vocabulary alone accounts for.'
-      );
-    }
-
-    return {
-      proposals: rows.length,
-      byRule,
-      byModel,
-      requests: usage.requests,
-      tokens: usage.tokens,
-      skipped,
-      candidates: candidates.length,
-      withoutProposal: without,
-      usedModel: withModel,
-      stopped: this._stopped(control),
-      // Requests that answered nothing usable, each with its kind.
-      failedRequests: usage.failedRequests,
-      failures: usage.failures,
-    };
-  }
-
   /** The line the page reads while the split proposals are being made. */
   _splitMessage(settled, total, asked, requests, request) {
     const head = `${settled} of ${total} tags settled by rule`;
@@ -1522,30 +1262,6 @@ class TagSimplifyService {
     return request > 0
       ? `${line}, request ${request} of ${requests}…`
       : `${line}…`;
-  }
-
-  /**
-   * The proposal a decomposition makes on its own.
-   *
-   * @param {object} tag  EntityRecord
-   * @param {{type: string|null, topics: string[], rest: string, score: number}} decomposed
-   * @returns {object} a TagSplitProposal row
-   */
-  _ruleProposal(tag, decomposed) {
-    const settled = decomposed.score >= 1;
-    return {
-      tagId: Number(tag.id),
-      tagName: String(tag.name ?? ''),
-      documentCount: Number(tag.documentCount) || 0,
-      typeName: decomposed.type,
-      topicNames: [...decomposed.topics],
-      source: 'rule',
-      confidence: settled ? 'high' : 'low',
-      reason: this._ruleReason(decomposed),
-      documentsWithType: 0,
-      overwriteType: false,
-      status: 'open',
-    };
   }
 
   /** Why the rule proposes what it proposes, in one line. */
@@ -1884,92 +1600,6 @@ class TagSimplifyService {
   }
 
   /* --- What a split would cost ------------------------------------------ */
-
-  /**
-   * What applying one proposal would mean for its documents: how many there
-   * are, how many already carry a document type, and how many carry one that
-   * differs from the proposed one — those keep theirs unless the user switches
-   * `overwriteType` on. The page asks for this before it asks for a
-   * confirmation, and the number is stored on the proposal so a reload still
-   * shows it.
-   *
-   * @param {number} tagId
-   * @returns {Promise<{tagId:number, tagName:string, documents:number, withType:number, withDifferentType:number, typeId:number|null, typeSet:number, typeKept:number}>}
-   */
-  async proposalImpact(tagId) {
-    const id = Number(tagId);
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new SimplifyError('Unknown tag', 404);
-    }
-    const proposal = await documentModel.getTagSplitProposal(id);
-    if (!proposal) {
-      throw new SimplifyError(`There is no proposal for tag ${id}`, 404);
-    }
-
-    let typeId = null;
-    try {
-      if (proposal.typeName) {
-        const existing = await paperlessService.findDocumentTypeByExactName(
-          proposal.typeName
-        );
-        // A type that does not exist yet cannot conflict with anything.
-        typeId = existing ? Number(existing.id) : null;
-      }
-      const documentIds = await paperlessService.getDocumentIdsByEntity(
-        'tags',
-        id
-      );
-      const documents =
-        documentIds.length > 0
-          ? await paperlessService.getDocumentsByIds(
-              documentIds,
-              'id,document_type'
-            )
-          : [];
-      let withType = 0;
-      let withDifferentType = 0;
-      for (const document of documents) {
-        const current =
-          document?.document_type == null
-            ? null
-            : Number(document.document_type);
-        if (current == null) continue;
-        withType += 1;
-        if (typeId == null || current !== typeId) withDifferentType += 1;
-      }
-      await this._storeDocumentsWithType(id, withDifferentType);
-      // What the apply would do with the type: every document with
-      // overwriteType, otherwise only those without one; a differing type is
-      // kept unless overwritten. Documents that already carry the proposed
-      // type are neither.
-      const overwrite = proposal.overwriteType === true;
-      const typeSet = !proposal.typeName
-        ? 0
-        : overwrite
-          ? documents.length
-          : documents.length - withType;
-      const typeKept = !proposal.typeName || overwrite ? 0 : withDifferentType;
-      return {
-        tagId: id,
-        tagName: proposal.tagName,
-        documents: documents.length,
-        withType,
-        withDifferentType,
-        typeId,
-        typeSet,
-        typeKept,
-      };
-    } catch (error) {
-      throw this._asPaperlessError(error, `reading the documents of tag ${id}`);
-    }
-  }
-
-  /** Stores the conflict count on the proposal row. */
-  async _storeDocumentsWithType(tagId, count) {
-    await documentModel.updateTagSplitProposal(tagId, {
-      documentsWithType: count,
-    });
-  }
 
   /* --- Applying a split -------------------------------------------------- */
 
@@ -3222,134 +2852,6 @@ class TagSimplifyService {
   }
 
   /**
-   * The tags of the archive, from the read the estimate last made when that
-   * was less than ESTIMATE_TAGS_TTL_MS ago.
-   *
-   * Only the estimate uses it. A run reads the archive as it is, because it
-   * is about to write to it.
-   *
-   * @returns {Promise<object[]>}
-   */
-  async _tagsForEstimate() {
-    const cached = this._estimateTags;
-    if (cached && Date.now() - cached.at < ESTIMATE_TAGS_TTL_MS) {
-      return cached.tags;
-    }
-    let tags;
-    try {
-      tags = await paperlessService.listEntities('tags');
-    } catch (error) {
-      throw this._asPaperlessError(error, 'reading the tags');
-    }
-    this._estimateTags = { tags, at: Date.now() };
-    return tags;
-  }
-
-  /** Forgets the tag list the estimate answers from; the tests use it. */
-  forgetEstimateTags() {
-    this._estimateTags = null;
-  }
-
-  /**
-   * What the next run of the proposed order would cost, without asking
-   * anybody.
-   *
-   * The page calls this on every move of a lever, so nothing here asks a
-   * model and nothing reads a document: the rule pass the run itself runs,
-   * the tag list (cached for a minute), the saved vocabulary, the stored
-   * proposals, and what the judge measured about this model.
-   *
-   * `skippable` is what each lever would save, counted over the tags that
-   * would otherwise reach the model — the number the page puts next to the
-   * lever, not a count of the whole archive. `lowDocument` uses the floor it
-   * was given, or DEFAULT_LOW_DOCUMENT_FLOOR when it was given none, so the
-   * page has something real to offer before anybody has moved anything.
-   *
-   * @param {object} [options]
-   * @param {boolean} [options.keepVocabulary]  use the saved vocabulary
-   *   instead of proposing a new one, which is the pass that costs extra
-   * @param {boolean} [options.skipDecided]
-   * @param {number|null} [options.minDocuments]
-   * @param {number|null} [options.concurrency]
-   * @returns {Promise<object>} a TagOrderEstimate
-   */
-  async estimateOrder(options = {}) {
-    const config = this._config();
-    const keepVocabulary = options?.keepVocabulary === true;
-    const floor = this._minDocuments(options?.minDocuments);
-
-    const tags = await this._tagsForEstimate();
-    const named = tags.filter((tag) => String(tag?.name ?? '').trim() !== '');
-    const vocabulary = await this.getVocabulary();
-    const { settled, unsettled } = this._rulePass(named, vocabulary);
-
-    const decided = await this._decidedProposals();
-    const skippable = {
-      decided: unsettled.filter((tag) => decided.has(Number(tag.id))).length,
-      lowDocument: unsettled.filter(
-        (tag) =>
-          (Number(tag.documentCount) || 0) <
-          (floor === null ? DEFAULT_LOW_DOCUMENT_FLOOR : floor)
-      ).length,
-    };
-    const narrowed = await this._narrowToAsk(unsettled, options);
-
-    const model = this._modelName() ?? null;
-    const thinking = this._thinkingOn();
-    const batchSize = Math.max(1, Number(config.simplifyTagsPerRequest) || 50);
-    const lanes = this._lanes(options?.concurrency);
-    const [calibration, lastRun] = await Promise.all([
-      model
-        ? documentModel.getAiCalibration(model, thinking)
-        : Promise.resolve(null),
-      documentModel.getLastAiRunStats('order', model),
-    ]);
-
-    return {
-      tags: named.length,
-      itemsByRule: settled.size,
-      ...estimateRun({
-        items: narrowed.items.length,
-        batchSize,
-        lanes,
-        calibration,
-        lastRun,
-        thinking,
-      }),
-      model,
-      thinking,
-      skippable,
-      lastRun,
-      // The ceiling that would end the run. The dialog names it, so nobody
-      // meets it for the first time on the running screen.
-      tokenBudget: require('./duplicateReviewJobService').tokenBudget(),
-      // What comes on top of `requests`: proposing a new vocabulary is a
-      // pass of its own over every tag name, before the first tag is
-      // ordered. Nothing when the run keeps the saved one.
-      extra: {
-        vocabularyRequests: keepVocabulary
-          ? 0
-          : this._vocabularyRequestsFor(named),
-      },
-    };
-  }
-
-  /** How many requests a vocabulary proposal over these tags would take. */
-  _vocabularyRequestsFor(named) {
-    const config = this._config();
-    const perRequest = Math.max(
-      MIN_VOCABULARY_NAMES_PER_REQUEST,
-      Number(config.duplicatesAiSweepNames) || MIN_VOCABULARY_NAMES_PER_REQUEST
-    );
-    const distinct = new Set();
-    for (const tag of named) {
-      const name = String(tag?.name ?? '').trim();
-      if (name !== '') distinct.add(name);
-    }
-    return Math.ceil(distinct.size / perRequest);
-  }
-
-  /**
    * What the rule alone makes of one tag, or null when only the model can
    * say.
    *
@@ -3657,313 +3159,7 @@ class TagSimplifyService {
     return { groups: list, ...totals };
   }
 
-  /**
-   * Accepts, skips or reopens every open member of a group (applied members
-   * are left alone). A group key is 'type:Rechnung', 'topic:Strom',
-   * 'merge:Amazon', 'keep' or 'delete'.
-   *
-   * @param {string} key
-   * @param {'accept'|'skip'|'reopen'} decision
-   * @returns {Promise<{ key: string, changed: number, group: object|null }>}
-   */
-  async decideGroup(key, decision) {
-    if (!GROUP_DECISIONS.includes(decision)) {
-      throw new SimplifyError(
-        `decision must be one of ${GROUP_DECISIONS.join(', ')}`,
-        400
-      );
-    }
-    const parsed = parseGroupKey(key);
-    const before = parsed ? await this.listGroups() : null;
-    const group =
-      before?.groups.find((entry) => entry.key === parsed.key) || null;
-    if (!group) {
-      throw new SimplifyError(`There is no group "${String(key ?? '')}"`, 404);
-    }
-
-    const moves = {
-      accept: { from: ['open', 'skipped'], to: 'accepted' },
-      skip: { from: ['open', 'accepted'], to: 'skipped' },
-      reopen: { from: ['accepted', 'skipped'], to: 'open' },
-    }[decision];
-    const tagIds = group.members
-      .filter((member) => moves.from.includes(member.status))
-      .map((member) => member.tagId);
-    const changed =
-      tagIds.length > 0
-        ? await documentModel.setTagSplitProposalStatus(tagIds, moves.to)
-        : 0;
-    this._log(
-      `group "${group.key}": ${decision}, ${changed} of ${group.tags} tag(s) changed.`
-    );
-
-    const after = await this.listGroups();
-    return {
-      key: group.key,
-      changed,
-      group: after.groups.find((entry) => entry.key === group.key) || null,
-    };
-  }
-
-  /**
-   * Takes one tag out of a group without touching the rest of its proposal:
-   * out of a type group the tag loses its type, out of a topic group that
-   * topic, out of a merge group it becomes 'keep', out of 'delete' it becomes
-   * 'keep'. A tag left with nothing becomes 'keep'.
-   *
-   * @param {string} key
-   * @param {number} tagId
-   * @returns {Promise<object>} the patched proposal
-   */
-  async removeGroupMember(key, tagId) {
-    const parsed = parseGroupKey(key);
-    if (!parsed) {
-      throw new SimplifyError(`There is no group "${String(key ?? '')}"`, 404);
-    }
-    const id = Number(tagId);
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new SimplifyError('Unknown tag', 404);
-    }
-    const proposal = await documentModel.getTagSplitProposal(id);
-    if (!proposal) {
-      throw new SimplifyError(`There is no proposal for tag ${id}`, 404);
-    }
-    if (!this._isGroupMember(parsed, proposal)) {
-      throw new SimplifyError(
-        `Tag ${id} is not in the group "${parsed.key}"`,
-        404
-      );
-    }
-    if (proposal.status === 'applied') {
-      throw new SimplifyError('This proposal was already applied', 409);
-    }
-    if (parsed.kind === 'keep') {
-      throw new SimplifyError(
-        'A tag that is kept is already out of everything',
-        400
-      );
-    }
-
-    let action = proposal.action || 'split';
-    let typeName = proposal.typeName ?? null;
-    let topicNames = [...proposal.topicNames];
-    let mergeInto = proposal.mergeInto ?? null;
-    if (parsed.kind === 'type') {
-      typeName = null;
-    } else if (parsed.kind === 'topic') {
-      topicNames = topicNames.filter((name) => name !== parsed.name);
-    } else {
-      action = 'keep';
-    }
-    if (action === 'split' && !typeName && topicNames.length === 0) {
-      action = 'keep';
-    }
-    if (action === 'keep') {
-      typeName = null;
-      topicNames = [];
-      mergeInto = null;
-    }
-
-    const patched = await this.updateProposal(id, {
-      action,
-      typeName,
-      topicNames,
-      mergeInto,
-    });
-    this._log(
-      `group "${parsed.key}": tag ${id} "${patched.tagName}" taken out, it is now "${patched.action}".`
-    );
-    return patched;
-  }
-
-  /** True when a proposal is shown in the given group. */
-  _isGroupMember(parsed, proposal) {
-    const action = proposal.action || 'split';
-    if (parsed.kind === 'keep') return action === 'keep';
-    if (parsed.kind === 'delete') return action === 'delete';
-    if (parsed.kind === 'merge') {
-      return action === 'merge' && proposal.mergeInto === parsed.name;
-    }
-    if (parsed.kind === 'type') {
-      return action === 'split' && proposal.typeName === parsed.name;
-    }
-    return (
-      action === 'split' &&
-      Array.isArray(proposal.topicNames) &&
-      proposal.topicNames.includes(parsed.name)
-    );
-  }
-
   /* --- Applying the order ----------------------------------------------- */
-
-  /**
-   * Applies every accepted proposal (or those of one group when
-   * request.groupKey is set), one tag after the other: merges first, then
-   * splits, then deletes, because a merge that feeds a split must happen
-   * before it. Runs as a job with task 'apply'; the result has the shape of
-   * TagOrderApplyResult. A stop between two tags leaves the rest accepted.
-   *
-   * @param {{ groupKey?: string|null, performedBy?: string|null }} request
-   * @param {object} control
-   * @returns {Promise<{ applied: object[], merged: object[], failed: object[], stopped: boolean }>}
-   */
-  async applyAccepted(request = {}, control = {}) {
-    if (scanControl.isRunning()) {
-      throw new SimplifyError(
-        'A document scan is running. Wait until it has finished.',
-        409
-      );
-    }
-    const performedBy = request.performedBy ?? null;
-    const wanted =
-      request.groupKey == null || String(request.groupKey).trim() === ''
-        ? null
-        : String(request.groupKey);
-
-    let accepted = await documentModel.listTagSplitProposals({
-      status: 'accepted',
-    });
-    let groupKey = null;
-    if (wanted !== null) {
-      const parsed = parseGroupKey(wanted);
-      const group = parsed
-        ? (await this.listGroups()).groups.find(
-            (entry) => entry.key === parsed.key
-          )
-        : null;
-      if (!group) {
-        throw new SimplifyError(`There is no group "${wanted}"`, 404);
-      }
-      groupKey = group.key;
-      const ids = new Set(group.members.map((member) => member.tagId));
-      accepted = accepted.filter((proposal) => ids.has(proposal.tagId));
-    }
-
-    // 'keep' is a decision not to write anything; it never reaches the API.
-    const order = { merge: 0, split: 1, delete: 2 };
-    const todo = accepted
-      .filter((proposal) => order[proposal.action] != null)
-      .sort(
-        (a, b) =>
-          order[a.action] - order[b.action] ||
-          b.documentCount - a.documentCount ||
-          String(a.tagName).localeCompare(String(b.tagName), undefined, {
-            sensitivity: 'base',
-          })
-      );
-
-    const mergeService = this._mergeService();
-    const context = {
-      performedBy,
-      configuredTagNames: mergeService.configuredTagNames(),
-      vocabulary: await this.getVocabulary(),
-      mergeService,
-      statuses: ['accepted'],
-      tags: null,
-      tagsLoading: null,
-    };
-    const startedAt = Date.now();
-    this._log(
-      `order apply started: ${todo.length} accepted proposal(s)` +
-        `${groupKey ? ` of the group "${groupKey}"` : ''}.`
-    );
-    this._report(control, {
-      phase: PHASES.APPLYING,
-      kind: 'tags',
-      requestsDone: 0,
-      requestsPlanned: 0,
-      pairsTotal: todo.length,
-      pairsJudged: 0,
-      tokens: 0,
-      message:
-        todo.length === 0
-          ? 'Nothing is accepted.'
-          : `Applying ${todo.length} tag(s)…`,
-    });
-
-    const applied = [];
-    const merged = [];
-    const failed = [];
-    let stopped = false;
-    let done = 0;
-    let started = 0;
-    /** Applies one proposal and books what came of it; never throws. */
-    const applyOne = async (proposal) => {
-      if (stopped || this._stopped(control)) {
-        stopped = true;
-        return;
-      }
-      started += 1;
-      this._report(control, {
-        phase: PHASES.APPLYING,
-        pairsTotal: todo.length,
-        pairsJudged: done,
-        message: `Applying ${started} of ${todo.length}: ${proposal.tagName}…`,
-      });
-      try {
-        if (proposal.action === 'merge') {
-          merged.push(await this._applyMerge(proposal, context));
-        } else {
-          applied.push(await this._applyOne(proposal.tagId, context));
-        }
-      } catch (error) {
-        failed.push({
-          tagId: Number(proposal.tagId),
-          tagName: error?.tagName || proposal.tagName,
-          error: error?.message || 'unknown error',
-        });
-        this._log(
-          `${proposal.action} tag ${proposal.tagId} "${proposal.tagName}": refused, ` +
-            `${error?.message || 'unknown error'}.`
-        );
-      }
-      done += 1;
-      this._report(control, {
-        phase: PHASES.APPLYING,
-        pairsTotal: todo.length,
-        pairsJudged: done,
-      });
-    };
-
-    // Merges, then splits, then deletes, as sorted above. Inside a phase the
-    // proposals run side by side, as many at once as the model requests do,
-    // where that changes nothing: deletes always, merges unless one feeds
-    // another, splits unless two touch the same document. A split reads the
-    // type a document had for its undo; two at once would both read none,
-    // and the second undo would put back nothing where the first set a type.
-    const lanes = this._lanes();
-    for (const action of ['merge', 'split', 'delete']) {
-      if (stopped) break;
-      const batch = todo.filter((proposal) => proposal.action === action);
-      if (batch.length === 0) continue;
-      if (action === 'split' && batch.length > 1) {
-        this._report(control, {
-          phase: PHASES.APPLYING,
-          message: `Reading the documents of ${batch.length} splits…`,
-        });
-      }
-      const strands = await this._applyStrands(action, batch);
-      await runInLanes(strands, lanes, async (strand) => {
-        for (const proposal of strand) await applyOne(proposal);
-      });
-    }
-
-    const deleted = applied.filter(
-      (entry) => entry.action === DELETE_ACTION
-    ).length;
-    if (applied.length > 0) {
-      // A merge drops the caches itself; a split or a delete does not.
-      mergeService.afterWrite('split');
-    }
-    this._log(
-      `order applied: ${applied.length - deleted} split, ${merged.length} merged, ` +
-        `${deleted} deleted, ${failed.length} failed, in ${(
-          (Date.now() - startedAt) /
-          1000
-        ).toFixed(1)}s.`
-    );
-    return { applied, merged, failed, stopped };
-  }
 
   /**
    * One merge of the order: the target is looked up by name in Paperless-ngx
@@ -3973,144 +3169,6 @@ class TagSimplifyService {
    *
    * @returns {Promise<{tagId:number, tagName:string, targetId:number, targetName:string, logId:number|null, documentsUpdated:number}>}
    */
-  /**
-   * The proposals of one apply phase in strands: the proposals of a strand
-   * run one after the other, strands run side by side. A delete is a strand
-   * of its own. Merges are one strand when any of them feeds another (its
-   * target is another one's source), else one each. Splits that share a
-   * document share a strand, found by reading each split tag's documents;
-   * a tag whose documents cannot be read gets a strand of its own and
-   * reports the error when it is applied.
-   *
-   * @param {'merge'|'split'|'delete'} action
-   * @param {object[]} batch - the proposals of that action, in apply order
-   * @returns {Promise<object[][]>}
-   */
-  async _applyStrands(action, batch) {
-    if (action === 'merge') {
-      const sources = new Set(
-        batch.map((proposal) => normalizedTagKey(proposal.tagName))
-      );
-      const chained = batch.some((proposal) =>
-        sources.has(normalizedTagKey(String(proposal.mergeInto ?? '')))
-      );
-      return chained ? [batch] : batch.map((proposal) => [proposal]);
-    }
-    if (action !== 'split') return batch.map((proposal) => [proposal]);
-
-    // Union-find over the documents: the root is always the earliest index,
-    // so the strands keep the apply order among and within themselves.
-    const parent = batch.map((_, index) => index);
-    const find = (index) => {
-      let root = index;
-      while (parent[root] !== root) root = parent[root];
-      parent[index] = root;
-      return root;
-    };
-    const union = (a, b) => {
-      const rootA = find(a);
-      const rootB = find(b);
-      if (rootA !== rootB)
-        parent[Math.max(rootA, rootB)] = Math.min(rootA, rootB);
-    };
-    const firstWith = new Map();
-    for (const [index, proposal] of batch.entries()) {
-      let documentIds = [];
-      try {
-        documentIds = await paperlessService.getDocumentIdsByEntity(
-          'tags',
-          proposal.tagId
-        );
-      } catch {
-        // _applyOne reads them again and refuses in its own words.
-      }
-      for (const id of documentIds) {
-        const other = firstWith.get(Number(id));
-        if (other == null) firstWith.set(Number(id), index);
-        else union(other, index);
-      }
-    }
-    const strands = new Map();
-    for (const [index, proposal] of batch.entries()) {
-      const root = find(index);
-      if (!strands.has(root)) strands.set(root, []);
-      strands.get(root).push(proposal);
-    }
-    return [...strands.values()];
-  }
-
-  async _applyMerge(proposal, context) {
-    const name = String(proposal.mergeInto ?? '').trim();
-    if (name === '') {
-      throw this._refusal(
-        'The proposal names no tag to merge into',
-        proposal.tagName
-      );
-    }
-    if (context.tags === null) {
-      try {
-        // One read for the run, shared by merges applied side by side.
-        context.tagsLoading ||= context.mergeService.listEntities('tags');
-        const loaded = await context.tagsLoading;
-        if (context.tags === null) context.tags = loaded;
-      } catch (error) {
-        context.tagsLoading = null;
-        throw this._refusal(
-          `the tags could not be read: ${error?.message || 'unknown error'}`,
-          proposal.tagName
-        );
-      }
-    }
-    const wanted = normalizedTagKey(name);
-    const target =
-      context.tags.find((entity) => String(entity.name) === name) ||
-      context.tags.find((entity) => normalizedTagKey(entity.name) === wanted);
-    if (!target) {
-      throw this._refusal(
-        `There is no tag called "${name}" in Paperless-ngx`,
-        proposal.tagName
-      );
-    }
-    if (Number(target.id) === Number(proposal.tagId)) {
-      throw this._refusal(
-        'A tag cannot be merged into itself',
-        proposal.tagName
-      );
-    }
-
-    const result = await context.mergeService.merge({
-      kind: 'tags',
-      targetId: Number(target.id),
-      sourceIds: [Number(proposal.tagId)],
-      performedBy: context.performedBy,
-    });
-    const source = (Array.isArray(result?.sources) ? result.sources : [])[0];
-    if (!source || !source.deleted) {
-      throw this._refusal(
-        source?.error || 'The tag was not merged',
-        proposal.tagName
-      );
-    }
-    await documentModel.updateTagSplitProposal(proposal.tagId, {
-      status: 'applied',
-    });
-    // The tag is gone; the next merge of this run must not find it again.
-    context.tags = context.tags.filter(
-      (entity) => Number(entity.id) !== Number(proposal.tagId)
-    );
-    this._log(
-      `merged tag ${proposal.tagId} "${proposal.tagName}" into ` +
-        `${target.id} "${target.name}": ${source.documentsMoved} document(s).`
-    );
-    return {
-      tagId: Number(proposal.tagId),
-      tagName: String(proposal.tagName ?? ''),
-      targetId: Number(target.id),
-      targetName: String(target.name ?? ''),
-      logId: result?.mergeId ?? null,
-      documentsUpdated: Number(source.documentsMoved) || 0,
-    };
-  }
 }
 
 const tagSimplifyService = new TagSimplifyService();
@@ -4119,7 +3177,6 @@ tagSimplifyService.PROPOSAL_SOURCES = PROPOSAL_SOURCES;
 tagSimplifyService.PROPOSAL_STATUSES = PROPOSAL_STATUSES;
 tagSimplifyService.PROPOSAL_ACTIONS = PROPOSAL_ACTIONS;
 tagSimplifyService.GROUP_KINDS = GROUP_KINDS;
-tagSimplifyService.GROUP_DECISIONS = GROUP_DECISIONS;
 tagSimplifyService.SPLIT_ACTION = SPLIT_ACTION;
 tagSimplifyService.DELETE_ACTION = DELETE_ACTION;
 tagSimplifyService.MAX_APPLY_TAGS = MAX_APPLY_TAGS;

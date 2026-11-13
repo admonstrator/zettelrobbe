@@ -40,6 +40,10 @@ const os = require('os');
 const path = require('path');
 
 const { createFakePaperless } = require('./helpers/fake-paperless');
+const {
+  listEntityNameMappings,
+  clearEntityNameMappings,
+} = require('./helpers/entity-name-mappings');
 
 let passed = 0;
 let failed = 0;
@@ -80,6 +84,7 @@ async function main() {
   const originalCwd = process.cwd();
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'zr-guard-'));
   process.chdir(tempRoot);
+  const dataDir = path.join(tempRoot, 'data');
 
   process.env.NODE_ENV = 'test';
   process.env.LOG_LEVEL = 'error';
@@ -114,7 +119,7 @@ async function main() {
   }
 
   async function clearMappings() {
-    await documentModel.clearEntityNameMappings();
+    clearEntityNameMappings(dataDir);
   }
 
   try {
@@ -140,7 +145,7 @@ async function main() {
         'nothing was created in Paperless-ngx'
       );
 
-      const mappings = await documentModel.listEntityNameMappings();
+      const mappings = listEntityNameMappings(dataDir);
       assert.strictEqual(mappings.length, 1);
       assert.deepStrictEqual(
         {
@@ -191,7 +196,7 @@ async function main() {
         'the proposed name was created'
       );
       assert.deepStrictEqual(
-        await documentModel.listEntityNameMappings(),
+        listEntityNameMappings(dataDir),
         [],
         'a hint is not a mapping and is not recorded'
       );
@@ -227,7 +232,7 @@ async function main() {
         'a document that was just analyzed must not land in the inbox again'
       );
       assert.ok(fake.tagNames().includes('Posteingaenge'));
-      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.deepStrictEqual(listEntityNameMappings(dataDir), []);
       assert.deepStrictEqual(
         duplicateLines(lines),
         [],
@@ -244,7 +249,7 @@ async function main() {
       );
 
       assert.deepStrictEqual(value.tagIds, [40], 'found by name, case aside');
-      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.deepStrictEqual(listEntityNameMappings(dataDir), []);
       assert.deepStrictEqual(
         duplicateLines(lines),
         [],
@@ -268,7 +273,7 @@ async function main() {
 
       assert.notStrictEqual(result.tagIds[0], 50);
       assert.ok(fake.tagNames().includes('Rechnungen'));
-      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.deepStrictEqual(listEntityNameMappings(dataDir), []);
       assert.deepStrictEqual(
         duplicateLines(lines),
         [],
@@ -299,10 +304,7 @@ async function main() {
       );
       assert.deepStrictEqual(value.errors, []);
       assert.deepStrictEqual(fake.tagNames(), ['Rechnung']);
-      assert.strictEqual(
-        (await documentModel.listEntityNameMappings()).length,
-        1
-      );
+      assert.strictEqual(listEntityNameMappings(dataDir).length, 1);
     });
 
     await test('Restriction on plus no match drops the name as before', async () => {
@@ -323,7 +325,7 @@ async function main() {
         'Tag does not exist and restrictions are enabled'
       );
       assert.deepStrictEqual(fake.tagNames(), ['Rechnung']);
-      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.deepStrictEqual(listEntityNameMappings(dataDir), []);
     });
 
     await test('Correspondents: a hard match maps and says "correspondent"', async () => {
@@ -347,7 +349,7 @@ async function main() {
         ['Müller GmbH', 'Stadtwerke'],
         'nothing was created'
       );
-      const mappings = await documentModel.listEntityNameMappings();
+      const mappings = listEntityNameMappings(dataDir);
       assert.strictEqual(mappings.length, 1);
       assert.strictEqual(mappings[0].kind, 'correspondents');
       assert.strictEqual(mappings[0].reason, 'umlaut-variant');
@@ -376,7 +378,7 @@ async function main() {
 
       assert.notStrictEqual(value.id, 90);
       assert.ok(fake.correspondentNames().includes('Amazon EU S.a.r.l.'));
-      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.deepStrictEqual(listEntityNameMappings(dataDir), []);
       assert.ok(
         duplicateLines(lines).some(
           (line) =>
@@ -404,7 +406,7 @@ async function main() {
       assert.deepStrictEqual(fake.correspondentNames(), [
         'Telekom Deutschland',
       ]);
-      const mappings = await documentModel.listEntityNameMappings();
+      const mappings = listEntityNameMappings(dataDir);
       assert.strictEqual(mappings[0].reason, 'legal-form');
     });
 
@@ -428,7 +430,7 @@ async function main() {
         'the guard read the correspondents once for six documents'
       );
       assert.strictEqual(
-        (await documentModel.listEntityNameMappings()).length,
+        listEntityNameMappings(dataDir).length,
         6,
         'every document still gets its own record'
       );
@@ -492,7 +494,7 @@ async function main() {
         ),
         `no mapping line:\n${duplicateLines(lines).join('\n')}`
       );
-      const mappings = await documentModel.listEntityNameMappings();
+      const mappings = listEntityNameMappings(dataDir);
       assert.strictEqual(mappings[0].documentId, null);
     });
 
@@ -526,7 +528,7 @@ async function main() {
         140,
         'without the list the guard cannot map, so the name is created'
       );
-      assert.deepStrictEqual(await documentModel.listEntityNameMappings(), []);
+      assert.deepStrictEqual(listEntityNameMappings(dataDir), []);
       assert.ok(
         duplicateLines(lines).some((line) =>
           /the creation guard could not read the correspondents: /.test(line)
@@ -548,7 +550,7 @@ async function main() {
           documentId: i,
         });
       }
-      const mappings = await documentModel.listEntityNameMappings();
+      const mappings = listEntityNameMappings(dataDir);
       assert.strictEqual(mappings.length, 200, 'the model prunes the oldest');
       assert.strictEqual(mappings[0].proposedName, 'Proposal 205');
       assert.strictEqual(mappings[199].proposedName, 'Proposal 6');
@@ -584,7 +586,7 @@ async function main() {
         ['Gas'],
         'the compound was never created'
       );
-      const mappings = await documentModel.listEntityNameMappings();
+      const mappings = listEntityNameMappings(dataDir);
       assert.strictEqual(mappings.length, 1, 'one row per topic');
       assert.deepStrictEqual(
         {
@@ -656,7 +658,7 @@ async function main() {
         'nothing was created for it'
       );
       assert.deepStrictEqual(
-        await documentModel.listEntityNameMappings(),
+        listEntityNameMappings(dataDir),
         [],
         'a dropped name maps onto nothing'
       );
@@ -688,7 +690,7 @@ async function main() {
         'the old behaviour: the name is created'
       );
       assert.deepStrictEqual(
-        await documentModel.listEntityNameMappings(),
+        listEntityNameMappings(dataDir),
         [],
         'a hint is not a mapping'
       );
@@ -718,7 +720,7 @@ async function main() {
         'the compound is created as it always was'
       );
       assert.deepStrictEqual(
-        await documentModel.listEntityNameMappings(),
+        listEntityNameMappings(dataDir),
         [],
         'and nothing is recorded'
       );
