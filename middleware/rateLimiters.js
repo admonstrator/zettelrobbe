@@ -10,7 +10,7 @@
  */
 
 const { rateLimit } = require('express-rate-limit');
-const config = require('../config/config.js');
+const { hasValidApiKey } = require('./caller');
 const { renderLoginView } = require('../services/loginView');
 
 /**
@@ -30,11 +30,7 @@ const cacheClearLimiter = rateLimit({
   standardHeaders: true, // Return rate limit info in RateLimit-* headers
   legacyHeaders: false, // Disable X-RateLimit-* headers
   // Skip rate limiting for API key authenticated requests (trusted clients)
-  skip: (req) => {
-    const apiKey = req.headers['x-api-key'];
-    const currentApiKey = config.getApiKey();
-    return Boolean(currentApiKey && apiKey && apiKey === currentApiKey);
-  },
+  skip: hasValidApiKey,
 });
 
 /** Budget for the password form; LOGIN_RATE_LIMIT_MAX is read at boot. */

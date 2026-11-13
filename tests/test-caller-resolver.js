@@ -29,7 +29,7 @@ const { mountRouter } = require('./helpers/mount-router');
  * They switch to hasValidApiKey / readSessionToken / callerRateLimitKey from
  * middleware/caller.js when the waves are merged; then this set is emptied.
  */
-const PENDING_FILES = new Set(['server.js', 'middleware/rateLimiters.js']);
+const PENDING_FILES = new Set();
 
 const SECRET = 'caller-resolver-secret';
 const API_KEY = 'caller-resolver-api-key';

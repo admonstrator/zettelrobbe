@@ -15,6 +15,11 @@ const oidcRoutes = require('./routes/oidc');
 const oidcService = require('./services/oidcService');
 const { isAuthenticated } = require('./routes/auth');
 const {
+  readSessionToken,
+  hasValidApiKey,
+  callerRateLimitKey,
+} = require('./middleware/caller');
+const {
   isHttpsRequest,
   shouldUseSecureCookies,
 } = require('./services/sessionCookie');
@@ -31,7 +36,6 @@ const cookieParser = require('cookie-parser');
 const { doubleCsrf } = require('csrf-csrf');
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
-const jwt = require('jsonwebtoken');
 const Logger = require('./services/loggerService');
 const dataDir = path.join(process.cwd(), 'data');
 const openApiDir = path.join(dataDir, 'OPENAPI');
@@ -188,29 +192,8 @@ const apiGlobalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const apiKey = req.headers['x-api-key'];
-    const currentApiKey = config.getApiKey();
-    if (currentApiKey && apiKey && apiKey === currentApiKey) {
-      return `api-key:${apiKey}`;
-    }
-
-    const token = req.cookies?.jwt || req.headers.authorization?.split(' ')[1];
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const userIdentifier =
-          decoded?.id || decoded?.userId || decoded?.username || decoded?.sub;
-        if (userIdentifier) {
-          return `user:${userIdentifier}`;
-        }
-      } catch {
-        // Ignore invalid token and fallback to IP
-      }
-    }
-
-    return ipKeyGenerator(req.ip);
-  },
+  // The API key or the signed-in user; anyone else by IP.
+  keyGenerator: (req) => callerRateLimitKey(req) || ipKeyGenerator(req.ip),
 });
 
 app.use(cors(corsOptions));
@@ -289,16 +272,14 @@ const { invalidCsrfTokenError, generateCsrfToken, doubleCsrfProtection } =
   doubleCsrf({
     getSecret: () => JWT_SECRET,
     getSessionIdentifier: (req) => {
-      const token =
-        req.cookies?.jwt || req.headers.authorization?.split(' ')[1];
+      // The raw token, verified or not: the CSRF token is bound to it.
+      const token = readSessionToken(req);
       if (token) {
         return `jwt:${token}`;
       }
 
-      const apiKey = req.headers['x-api-key'];
-      const currentApiKey = config.getApiKey();
-      if (currentApiKey && apiKey && apiKey === currentApiKey) {
-        return `api-key:${apiKey}`;
+      if (hasValidApiKey(req)) {
+        return `api-key:${req.headers['x-api-key']}`;
       }
 
       return `ip:${req.ip || 'unknown'}`;
@@ -317,11 +298,8 @@ const { invalidCsrfTokenError, generateCsrfToken, doubleCsrfProtection } =
 
 // Middleware to skip CSRF for API Key authenticated requests and provide token to EJS
 app.use((req, res, next) => {
-  const apiKey = req.headers['x-api-key'];
-  const currentApiKey = config.getApiKey();
-
   // If API Key is valid, skip CSRF
-  if (currentApiKey && apiKey && apiKey === currentApiKey) {
+  if (hasValidApiKey(req)) {
     return next();
   }
 
