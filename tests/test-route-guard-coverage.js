@@ -10,11 +10,14 @@
  * defence is a guard in the route's own handler stack, so such a route stays
  * protected. This test fails for any route that has none.
  *
- * What counts as a guard: a handler in the route's own stack whose function
- * name is one of GUARD_NAMES (isAuthenticated, authenticateJWT,
- * protectApiRoute). A name is checked, not behaviour, because the behaviour is
- * covered by test-session-token-type and the endpoint-protection tests; this
- * test is the net that catches a route nobody thought about.
+ * What counts as a guard: a handler in the route's own stack that IS one of
+ * the exported guard functions (isAuthenticated from routes/auth.js,
+ * protectApiRoute from middleware/authGate.js), compared by identity. A local
+ * function that merely carries a guard's name does not count and is reported
+ * as an impostor. Identity is checked, not behaviour, because the behaviour is
+ * covered by test-auth-guard-characterization, test-session-token-type and
+ * the endpoint-protection tests; this test is the net that catches a route
+ * nobody thought about.
  *
  * What counts as public: exactly the paths the router-wide guard lets
  * through (PUBLIC_ROUTES in middleware/authGate.js, matched on whole path
@@ -34,12 +37,24 @@ const path = require('path');
 const express = require('express');
 const { mountRouter, REPO_ROOT } = require('./helpers/mount-router');
 
-/** Handler names that make a route self-guarding. */
-const GUARD_NAMES = new Set([
-  'isAuthenticated',
-  'authenticateJWT',
-  'protectApiRoute',
-]);
+/** Names of the guards, for the message about a same-named impostor. */
+const GUARD_NAMES = new Set(['isAuthenticated', 'protectApiRoute']);
+
+/**
+ * The guard functions themselves. Loaded on first use, after the harness has
+ * pointed cwd at its throwaway database.
+ *
+ * @returns {Set<Function>}
+ */
+function guardFunctions() {
+  const { isAuthenticated } = require(
+    path.join(REPO_ROOT, 'routes', 'auth.js')
+  );
+  const { protectApiRoute } = require(
+    path.join(REPO_ROOT, 'middleware', 'authGate.js')
+  );
+  return new Set([isAuthenticated, protectApiRoute]);
+}
 
 /**
  * Public on purpose: the paths the router-wide guard waves through
@@ -67,14 +82,15 @@ const ALLOWLIST = new Map([
 
 /**
  * Yields every route below a router layer stack as
- * { method, path, handlers: string[] }, recursing into nested routers.
+ * { method, path, handlers: string[], handles: Function[] }, recursing into
+ * nested routers.
  * Fails loudly for a router mounted under a path prefix: the prefix is not
  * recoverable from an Express 5 layer, so the paths would be wrong and the
  * public check meaningless. Extend this function when a split needs that.
  *
  * @param {any[]} stack
  * @param {string} [prefix]
- * @returns {{ method: string, path: string, handlers: string[] }[]}
+ * @returns {{ method: string, path: string, handlers: string[], handles: Function[] }[]}
  */
 function collectRoutes(stack, prefix = '') {
   const found = [];
@@ -87,6 +103,7 @@ function collectRoutes(stack, prefix = '') {
         `a route with a non-string path (${String(routePath)}) cannot be checked; extend the test`
       );
       const handlers = layer.route.stack.map((l) => l.name || '<anonymous>');
+      const handles = layer.route.stack.map((l) => l.handle);
       const methods = Object.keys(layer.route.methods || {}).filter(
         (m) => layer.route.methods[m]
       );
@@ -95,6 +112,7 @@ function collectRoutes(stack, prefix = '') {
           method: method.toUpperCase(),
           path: prefix + routePath,
           handlers,
+          handles,
         });
       }
     } else if (layer.handle && Array.isArray(layer.handle.stack)) {
@@ -118,13 +136,21 @@ function isPublic(route) {
 
 /** The routes that are not public and have no guard in their own handler stack. */
 function findUnguarded(routes) {
+  const guards = guardFunctions();
   return routes.filter(
-    (r) => !isPublic(r) && !r.handlers.some((h) => GUARD_NAMES.has(h))
+    (r) => !isPublic(r) && !r.handles.some((h) => guards.has(h))
   );
 }
 
 function describe(r) {
-  return `${r.method} ${r.path} [${r.handlers.join(', ')}]`;
+  const guards = guardFunctions();
+  const impostors = r.handles
+    .filter((h) => GUARD_NAMES.has(h.name) && !guards.has(h))
+    .map((h) => h.name);
+  const note = impostors.length
+    ? ` (a local ${impostors.join(', ')} is not the real guard)`
+    : '';
+  return `${r.method} ${r.path} [${r.handlers.join(', ')}]${note}`;
 }
 
 let passed = 0;
@@ -243,10 +269,14 @@ function mountedRouters(app) {
 
   await test('the detector flags an unguarded route (self-check)', () => {
     const router = express.Router();
-    const guard = function isAuthenticated(_req, _res, next) {
-      next();
-    };
-    router.get('/guarded', guard, (_req, res) => res.end());
+    const { isAuthenticated } = require(
+      path.join(REPO_ROOT, 'routes', 'auth.js')
+    );
+    const { protectApiRoute } = require(
+      path.join(REPO_ROOT, 'middleware', 'authGate.js')
+    );
+    router.get('/guarded', isAuthenticated, (_req, res) => res.end());
+    router.get('/session-only', protectApiRoute, (_req, res) => res.end());
     router.post('/open', (_req, res) => res.end());
     router.get('/login', (_req, res) => res.end());
     const nested = express.Router();
@@ -257,6 +287,24 @@ function mountedRouters(app) {
       (r) => `${r.method} ${r.path}`
     );
     assert.deepStrictEqual(flagged, ['POST /open', 'DELETE /nested-open']);
+  });
+
+  await test('a same-named fake guard is flagged (self-check)', () => {
+    const router = express.Router();
+    const fake = function isAuthenticated(_req, _res, next) {
+      next();
+    };
+    const fakeJson = function protectApiRoute(_req, _res, next) {
+      next();
+    };
+    router.get('/fake', fake, (_req, res) => res.end());
+    router.get('/fake-json', fakeJson, (_req, res) => res.end());
+
+    const unguarded = findUnguarded(collectRoutes(router.stack));
+    assert.deepStrictEqual(unguarded.map(describe), [
+      'GET /fake [isAuthenticated, <anonymous>] (a local isAuthenticated is not the real guard)',
+      'GET /fake-json [protectApiRoute, <anonymous>] (a local protectApiRoute is not the real guard)',
+    ]);
   });
 
   await test('a router mounted under a prefix is refused, not mis-checked', () => {

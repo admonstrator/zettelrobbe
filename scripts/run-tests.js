@@ -187,6 +187,8 @@ const TESTS = {
   'settings-catalog': 'test-settings-catalog.js',
   'document-pipeline-callers': 'test-document-pipeline-callers.js',
   'route-shadowing': 'test-route-shadowing.js',
+  'auth-guard-characterization': 'test-auth-guard-characterization.js',
+  'caller-resolver': 'test-caller-resolver.js',
 };
 
 const AREAS = {
@@ -321,6 +323,8 @@ const AREAS = {
     'harness-session',
     'route-guard-coverage',
     'auth-gate-public-paths',
+    'auth-guard-characterization',
+    'caller-resolver',
   ],
   duplicates: [
     'entity-merge-model',

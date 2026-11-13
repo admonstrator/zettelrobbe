@@ -36,6 +36,7 @@ const {
 const bcrypt = require('bcryptjs');
 const QRCode = require('qrcode');
 const { hasValidSession } = require('../middleware/authGate');
+const { clearSessionCookie } = require('../services/sessionCookie');
 const {
   MFA_CHALLENGE_COOKIE,
   MFA_SETUP_COOKIE,
@@ -1278,7 +1279,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const envPreview = toEnvPreviewLines(finalConfig);
 
     // Enforce a fresh login after setup completion.
-    res.clearCookie('jwt');
+    clearSessionCookie(res);
     res.clearCookie(MFA_CHALLENGE_COOKIE);
     res.clearCookie(MFA_SETUP_COOKIE);
 
