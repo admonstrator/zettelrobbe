@@ -53,8 +53,10 @@ the full server-dependent suite, start the server first, then run the tests agai
 `scanDocuments()` loop and SSE progress streams. Routes live in `routes/`, request guards and limiters in
 `middleware/`, everything else in the `services/` singletons.
 
-**Service layer** (`services/`): every service is a singleton —
-`class Foo { ... }; module.exports = new Foo();`. Import and call directly; do not `new` them.
+**Service layer** (`services/`): every service with state or dependencies is a singleton —
+`class Foo { ... }; module.exports = new Foo();`. Import and call directly; do not `new` them. Small
+stateless helpers shared by several routers (`sessionCookie`, `userPresence`, `documentIdList`, …) export
+plain functions instead.
 
 **AI provider abstraction:** `services/aiProviderRules.js` is the single source of provider and
 model knowledge: `PROVIDERS` (id, label, transport, connection keys), `resolveRules(provider, model)`
@@ -226,8 +228,7 @@ a restart. Do not cache a config value in a module constant or a service constru
 No build step and no `.ts` sources: types are JSDoc, checked by `tsc --noEmit` (`npm run typecheck`).
 A file is checked only when it starts with `// @ts-check` **and** is listed in `tsconfig.json` `files`
 (strict mode); new modules join that way, legacy files stay out until someone types them. The same list
-drives an `eslint-plugin-jsdoc` block, so malformed JSDoc in a typed file fails lint. Settings parsing
-uses zod.
+drives an `eslint-plugin-jsdoc` block, so malformed JSDoc in a typed file fails lint.
 
 ## CI
 
