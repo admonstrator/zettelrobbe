@@ -191,6 +191,7 @@ const TESTS = {
   'caller-resolver': 'test-caller-resolver.js',
   'scan-service': 'test-scan-service.js',
   'typecheck-config': 'test-typecheck-config.js',
+  'rescan-waiting-for-ocr': 'test-rescan-waiting-for-ocr.js',
 };
 
 const AREAS = {
@@ -279,6 +280,7 @@ const AREAS = {
     'scan-control',
     'document-pipeline-callers',
     'scan-service',
+    'rescan-waiting-for-ocr',
   ],
   prompts: [
     'restriction-service',

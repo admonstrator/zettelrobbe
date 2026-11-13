@@ -183,8 +183,14 @@ class WebhookQueueService {
    * document and then reported success. Now a document that cannot be resolved
    * costs nothing: its records stay untouched and it comes back in `notFound`.
    *
+   * A document the OCR path is responsible for (it waits in the OCR queue or
+   * an OCR run is reading it, see documentPipeline.isWaitingForOcr) is left
+   * alone as well: the pipeline would skip it, so deleting its records would
+   * lose them for nothing. It comes back in `waitingForOcr` and is analysed
+   * once OCR has read it.
+   *
    * @param {Array<number|string>} ids - Document IDs to reprocess.
-   * @returns {Promise<{queued: number, notFound: number[]}>}
+   * @returns {Promise<{queued: number, notFound: number[], waitingForOcr: number[]}>}
    */
   async rescanDocumentsByIds(ids) {
     const numericIds = (Array.isArray(ids) ? ids : [])
@@ -192,15 +198,21 @@ class WebhookQueueService {
       .filter((id) => Number.isInteger(id) && id > 0);
 
     if (numericIds.length === 0) {
-      return { queued: 0, notFound: [] };
+      return { queued: 0, notFound: [], waitingForOcr: [] };
     }
 
     /** @type {number[]} */
     const notFound = [];
+    /** @type {number[]} */
+    const waitingForOcr = [];
     /** @type {{ id: number, document: QueuedDocument }[]} */
     const resolvedDocuments = [];
 
     for (const id of numericIds) {
+      if (await documentPipeline.isWaitingForOcr(id)) {
+        waitingForOcr.push(id);
+        continue;
+      }
       try {
         const document = await paperlessService.getDocument(id);
         if (!document) {
@@ -218,7 +230,7 @@ class WebhookQueueService {
     }
 
     if (resolvedDocuments.length === 0) {
-      return { queued: 0, notFound };
+      return { queued: 0, notFound, waitingForOcr };
     }
 
     // Drop the local "already processed" record so the gate in processDocument()
@@ -238,7 +250,7 @@ class WebhookQueueService {
     // Fire-and-forget: the HTTP response should not wait for AI processing.
     this.processQueue();
 
-    return { queued, notFound };
+    return { queued, notFound, waitingForOcr };
   }
 }
 
