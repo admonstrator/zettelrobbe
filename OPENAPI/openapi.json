@@ -2636,166 +2636,6 @@
         }
       }
     },
-    "/api/settings/mfa/status": {
-      "get": {
-        "summary": "Get MFA status for current user",
-        "description": "Returns whether TOTP MFA is enabled for the authenticated settings user.",
-        "tags": [
-          "Settings",
-          "Authentication"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "MFA status loaded successfully"
-          },
-          "403": {
-            "description": "Forbidden - unsupported authentication context"
-          },
-          "404": {
-            "description": "User not found"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/mfa/setup": {
-      "post": {
-        "summary": "Start MFA setup and return provisioning data",
-        "description": "Validates current password and creates a temporary TOTP setup challenge including local QR image data.",
-        "tags": [
-          "Settings",
-          "Authentication"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "MFA setup challenge created"
-          },
-          "400": {
-            "description": "Validation error"
-          },
-          "401": {
-            "description": "Invalid current password"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/mfa/enable": {
-      "post": {
-        "summary": "Enable MFA after validating TOTP code",
-        "description": "Validates current password and setup token, verifies TOTP code, then enables MFA.",
-        "tags": [
-          "Settings",
-          "Authentication"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "MFA enabled successfully"
-          },
-          "400": {
-            "description": "Validation error"
-          },
-          "401": {
-            "description": "Invalid credentials or token"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/mfa/verify": {
-      "post": {
-        "summary": "Verify a TOTP code for an already enabled MFA setup",
-        "description": "Validates an entered TOTP code against the stored user MFA secret.",
-        "tags": [
-          "Settings",
-          "Authentication"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "TOTP code validated successfully"
-          },
-          "400": {
-            "description": "Validation error"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "User not found"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
-    "/api/settings/mfa/disable": {
-      "post": {
-        "summary": "Disable MFA for current user",
-        "description": "Validates current password and a valid TOTP code, then disables MFA for the user.",
-        "tags": [
-          "Settings",
-          "Authentication"
-        ],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "MFA disabled successfully"
-          },
-          "400": {
-            "description": "Validation error"
-          },
-          "401": {
-            "description": "Invalid credentials"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "User not found"
-          },
-          "500": {
-            "description": "Server error"
-          }
-        }
-      }
-    },
     "/health": {
       "get": {
         "summary": "System health check endpoint",
@@ -4481,6 +4321,166 @@
           },
           "401": {
             "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/api/settings/mfa/status": {
+      "get": {
+        "summary": "Get MFA status for current user",
+        "description": "Returns whether TOTP MFA is enabled for the authenticated settings user.",
+        "tags": [
+          "Settings",
+          "Authentication"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MFA status loaded successfully"
+          },
+          "403": {
+            "description": "Forbidden - unsupported authentication context"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/settings/mfa/setup": {
+      "post": {
+        "summary": "Start MFA setup and return provisioning data",
+        "description": "Validates current password and creates a temporary TOTP setup challenge including local QR image data.",
+        "tags": [
+          "Settings",
+          "Authentication"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MFA setup challenge created"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Invalid current password"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/settings/mfa/enable": {
+      "post": {
+        "summary": "Enable MFA after validating TOTP code",
+        "description": "Validates current password and setup token, verifies TOTP code, then enables MFA.",
+        "tags": [
+          "Settings",
+          "Authentication"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MFA enabled successfully"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Invalid credentials or token"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/settings/mfa/verify": {
+      "post": {
+        "summary": "Verify a TOTP code for an already enabled MFA setup",
+        "description": "Validates an entered TOTP code against the stored user MFA secret.",
+        "tags": [
+          "Settings",
+          "Authentication"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TOTP code validated successfully"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/settings/mfa/disable": {
+      "post": {
+        "summary": "Disable MFA for current user",
+        "description": "Validates current password and a valid TOTP code, then disables MFA for the user.",
+        "tags": [
+          "Settings",
+          "Authentication"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MFA disabled successfully"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "User not found"
+          },
+          "500": {
+            "description": "Server error"
           }
         }
       }
