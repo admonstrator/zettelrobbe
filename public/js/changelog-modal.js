@@ -5,6 +5,7 @@
 // the release as seen in the database when the user clicks "Let's go".
 // "Remind me later", Escape and clicking the backdrop close it for the current
 // tab session without writing to the database, so it returns on the next start.
+// Following a link in the entries counts as "Remind me later" as well.
 
 (function () {
   'use strict';
@@ -46,6 +47,18 @@
 
   modal.addEventListener('close', function () {
     if (!confirmed) {
+      deferInSession(currentVersion);
+    }
+  });
+
+  // A link in the entries (e.g. to Settings -> Changelog) leaves the page
+  // without closing the dialog; count it as "Remind me later" so the dialog
+  // does not open again on the page the link leads to.
+  modal.addEventListener('click', function (event) {
+    if (
+      event.target.closest &&
+      event.target.closest('#changelogModalEntries a')
+    ) {
       deferInSession(currentVersion);
     }
   });
