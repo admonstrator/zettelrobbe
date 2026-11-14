@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { stripTrailingSlashes } = require('../services/serviceUtils');
 const currentDir = decodeURIComponent(process.cwd());
 const envPath = path.join(currentDir, 'data', '.env');
 const migratedEnvPath = path.join(currentDir, 'data', '.env.migrated');
@@ -480,9 +481,7 @@ const externalApiConfig = liveBlock({
 
 const paperless = liveBlock({
   apiUrl: () =>
-    env('PAPERLESS_API_URL')
-      .replace(/\/+$/, '')
-      .replace(/\/api$/i, ''),
+    stripTrailingSlashes(env('PAPERLESS_API_URL')).replace(/\/api$/i, ''),
   apiToken: () => process.env.PAPERLESS_API_TOKEN,
   // Deadline for every single Paperless-ngx request. Axios ships with no
   // timeout at all, so a host that accepts the connection and then goes
