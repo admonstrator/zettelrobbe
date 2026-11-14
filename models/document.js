@@ -2317,6 +2317,83 @@ module.exports = {
     }
   },
 
+  /**
+   * Where one document stands in Zettelrobbe's own records, for the manual
+   * page: processed when, failed why, ignored, waiting in the OCR queue.
+   *
+   * @param {number} documentId
+   */
+  getDocumentStatus(documentId) {
+    const row = (sql) => db.prepare(sql).get(documentId) || null;
+    const processed = row(
+      'SELECT processed_at FROM processed_documents WHERE document_id = ?'
+    );
+    const failed = row(
+      'SELECT failed_reason FROM failed_documents WHERE document_id = ?'
+    );
+    const ignored = row(
+      'SELECT reason FROM ignored_documents WHERE document_id = ?'
+    );
+    const ocr = row(
+      'SELECT status, password_protected FROM ocr_queue WHERE document_id = ?'
+    );
+    return {
+      processedAt: processed ? processed.processed_at : null,
+      failedReason: failed ? failed.failed_reason : null,
+      ignored: !!ignored,
+      ocrStatus: ocr ? ocr.status : null,
+      passwordProtected: !!(ocr && ocr.password_protected),
+    };
+  },
+
+  /**
+   * The documents of one local list, newest first, as the manual page walks
+   * through them: failed, the OCR queue, the password-protected PDFs, or the
+   * ignored ones.
+   *
+   * @param {'failed'|'ocr'|'locked'|'ignored'} list
+   * @param {number} [limit]
+   * @returns {Array<{ id: number, title: string }>}
+   */
+  getManualWorklist(list, limit = 500) {
+    const queries = {
+      failed:
+        'SELECT document_id AS id, title FROM failed_documents ORDER BY updated_at DESC LIMIT ?',
+      ocr: 'SELECT document_id AS id, title FROM ocr_queue ORDER BY added_at DESC LIMIT ?',
+      locked:
+        "SELECT document_id AS id, title FROM ocr_queue WHERE password_protected = 1 AND status = 'failed' ORDER BY added_at DESC LIMIT ?",
+      ignored:
+        'SELECT document_id AS id, title FROM ignored_documents ORDER BY created_at DESC LIMIT ?',
+    };
+    const sql = queries[list];
+    return sql ? db.prepare(sql).all(limit) : [];
+  },
+
+  /**
+   * Drops every local record of a document that no longer exists in
+   * Paperless-ngx: processed, history, original snapshot, OCR queue, failed
+   * and ignored lists.
+   *
+   * @param {number} documentId
+   */
+  forgetDocument(documentId) {
+    const tables = [
+      'processed_documents',
+      'history_documents',
+      'original_documents',
+      'ocr_queue',
+      'failed_documents',
+      'ignored_documents',
+    ];
+    db.transaction(() => {
+      for (const table of tables) {
+        db.prepare(`DELETE FROM ${table} WHERE document_id = ?`).run(
+          documentId
+        );
+      }
+    })();
+  },
+
   async isDocumentIgnored(documentId) {
     try {
       const row = db

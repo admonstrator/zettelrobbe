@@ -6597,7 +6597,7 @@
     "/manual/preview/{id}": {
       "get": {
         "summary": "Document preview",
-        "description": "Fetches and returns the content of a specific document from Paperless-ngx\nfor preview in the manual document review interface.\n\nThis endpoint retrieves document details including content, title, ID, and tags,\nallowing users to view the document text before applying changes or processing\nit with AI tools. The document content is retrieved directly from Paperless-ngx\nusing the system's configured API credentials.\n",
+        "description": "Fetches and returns the content of a specific document from Paperless-ngx\nfor preview in the manual document review interface.\n\nThis endpoint retrieves the document's text and metadata (tags, correspondent,\ndocument type, dates, file) together with Zettelrobbe's own status of it,\nallowing users to review the document before applying changes or processing\nit with AI tools. The document content is retrieved directly from Paperless-ngx\nusing the system's configured API credentials.\n",
         "tags": [
           "Documents",
           "API"
@@ -6656,6 +6656,78 @@
                         "ACME Corp",
                         "2023"
                       ]
+                    },
+                    "correspondent": {
+                      "type": "string",
+                      "nullable": true,
+                      "example": "ACME Corp"
+                    },
+                    "documentType": {
+                      "type": "string",
+                      "nullable": true,
+                      "example": "Invoice"
+                    },
+                    "created": {
+                      "type": "string",
+                      "nullable": true,
+                      "example": "2026-02-03"
+                    },
+                    "added": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "archiveSerialNumber": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "originalFileName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "pageCount": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "mimeType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "hasArchive": {
+                      "type": "boolean",
+                      "description": "Paperless-ngx keeps an archived PDF of the document"
+                    },
+                    "locked": {
+                      "type": "boolean",
+                      "description": "True when the PDF needs a password. Checked only for a\ndocument without text, or known from the OCR queue.\n"
+                    },
+                    "status": {
+                      "type": "object",
+                      "description": "Zettelrobbe's own records of the document",
+                      "properties": {
+                        "processedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "failedReason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "ignored": {
+                          "type": "boolean"
+                        },
+                        "ocrStatus": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "passwordProtected": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "paperlessLink": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "The document's page in Paperless-ngx"
                     }
                   }
                 }
@@ -7188,7 +7260,7 @@
     "/manual/updateDocument": {
       "post": {
         "summary": "Update document metadata in Paperless-ngx",
-        "description": "Updates document metadata such as tags, correspondent and title in the Paperless-ngx system.\nThis endpoint handles the translation between tag names and IDs, and manages the creation of\nnew tags or correspondents if they don't exist in the system.\n\nThe endpoint also removes any unused tags from the document to keep the metadata clean.\n",
+        "description": "Updates document metadata such as tags, correspondent, title, document type and\ncreated date in the Paperless-ngx system. Afterwards the document counts as processed\nand leaves the failed list; a finished entry in the OCR queue is removed too.\nThis endpoint handles the translation between tag names and IDs, and manages the creation of\nnew tags or correspondents if they don't exist in the system.\n\nThe endpoint also removes any unused tags from the document to keep the metadata clean.\n",
         "tags": [
           "Documents",
           "API"
@@ -7241,6 +7313,17 @@
                     "type": "string",
                     "description": "New title for the document",
                     "example": "Acme Corp Invoice - August 2023"
+                  },
+                  "documentType": {
+                    "type": "string",
+                    "description": "Document type name; created when missing unless restricted to existing types",
+                    "example": "Invoice"
+                  },
+                  "created": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Date the document was created (YYYY-MM-DD)",
+                    "example": "2023-08-14"
                   }
                 }
               }
@@ -7298,6 +7381,265 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/manual/file/{id}": {
+      "get": {
+        "summary": "Document file for the preview",
+        "description": "Streams the file Paperless-ngx shows in its own viewer (the archived PDF\nwhen there is one, the original otherwise) for the preview frame of the\nmanual page. Only PDFs, images and plain text are passed through.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file, shown inline",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "404": {
+            "description": "Document not found"
+          },
+          "415": {
+            "description": "The file type cannot be previewed"
+          },
+          "502": {
+            "description": "Paperless-ngx could not deliver the file"
+          }
+        }
+      }
+    },
+    "/manual/worklist": {
+      "get": {
+        "summary": "Documents to work through on the manual page",
+        "description": "One list of documents, newest first, that the manual page steps through\nwith Next and Previous. `unprocessed` looks at the 200 documents added\nlast in Paperless-ngx and keeps those Zettelrobbe has neither processed\nnor ignored; the other lists come from Zettelrobbe's own records.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "list",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "unprocessed",
+                "failed",
+                "ocr",
+                "locked",
+                "ignored"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "list": {
+                          "type": "string"
+                        },
+                        "documents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "title": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown list"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/manual/vocabulary": {
+      "get": {
+        "summary": "Correspondent and document type names",
+        "description": "The names the manual page offers while typing a correspondent or document type.",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The names",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "correspondents": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "documentTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/manual/document/{id}": {
+      "delete": {
+        "summary": "Delete a document in Paperless-ngx",
+        "description": "Deletes the document in Paperless-ngx (version 2.10 and later move it to\ntheir trash) and drops Zettelrobbe's own records of it: processed,\nhistory, OCR queue, failed and ignored lists.\n",
+        "tags": [
+          "Documents",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "documentId": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID"
+          },
+          "403": {
+            "description": "The Paperless-ngx user of Zettelrobbe may not delete it"
+          },
+          "404": {
+            "description": "Document not found"
+          },
+          "409": {
+            "description": "OCR is reading the document right now"
+          },
+          "500": {
+            "description": "Server error"
           }
         }
       }

@@ -2202,6 +2202,58 @@ class PaperlessService {
   }
 
   /**
+   * The file Paperless-ngx shows in its own viewer: the archived PDF when
+   * there is one, the original otherwise. Returned as a stream so a large
+   * scan is passed through rather than held in memory.
+   *
+   * @param {number} documentId
+   * @returns {Promise<{ stream: import('stream').Readable, mimeType: string, length: string|null }>}
+   */
+  async getDocumentPreviewStream(documentId) {
+    this.initialize();
+    const response = await this.client.get(
+      `/documents/${documentId}/preview/`,
+      { responseType: 'stream' }
+    );
+    return {
+      stream: response.data,
+      mimeType: response.headers['content-type'] || 'application/octet-stream',
+      length: response.headers['content-length'] || null,
+    };
+  }
+
+  /**
+   * The most recently added documents, newest first, with only the fields a
+   * list needs. Unfiltered: the scan's tag filters do not apply.
+   *
+   * @param {number} limit
+   * @returns {Promise<Array<{ id: number, title: string, created: string|null, added: string|null }>>}
+   */
+  async listRecentDocuments(limit) {
+    this.initialize();
+    const response = await this.client.get('/documents/', {
+      params: {
+        ordering: '-added',
+        page_size: limit,
+        fields: 'id,title,created,added',
+      },
+    });
+    return Array.isArray(response.data?.results) ? response.data.results : [];
+  }
+
+  /**
+   * Deletes a document in Paperless-ngx. Paperless-ngx 2.10 and later move it
+   * to their trash, from where it can be restored until the trash is emptied.
+   *
+   * @param {number} documentId
+   * @returns {Promise<void>}
+   */
+  async deleteDocument(documentId) {
+    this.initialize();
+    await this.client.delete(`/documents/${documentId}/`);
+  }
+
+  /**
    * The Paperless-ngx release, as its API reports it in the X-Version header
    * of every authenticated answer, or null when it cannot be told. Kept for
    * ten minutes per instance: the OCR page asks on every load, and an update

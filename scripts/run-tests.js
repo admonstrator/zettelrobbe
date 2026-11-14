@@ -119,6 +119,7 @@ const TESTS = {
   'pdf-password-real': 'test-pdf-password-real.js',
   'pdf-passwords-delete-route': 'test-pdf-passwords-delete-route.js',
   'pdf-unlock-service': 'test-pdf-unlock-service.js',
+  'manual-page-routes': 'test-manual-page-routes.js',
   'ocr-password-protected': 'test-ocr-password-protected.js',
   'ocr-queue-password-flag': 'test-ocr-queue-password-flag.js',
   'ollama-token-metrics': 'test-ollama-token-metrics.js',
@@ -375,7 +376,7 @@ const AREAS = {
     'anthropic-settings',
     'ocr-provider-anthropic',
   ],
-  routes: ['route-table', 'route-shadowing'],
+  routes: ['route-table', 'route-shadowing', 'manual-page-routes'],
   tooling: ['typecheck-config'],
   settings: [
     'settings-save-golden',

@@ -163,24 +163,63 @@
     transition: filter 0.3s ease;
   }
 
-  /* The manual preview claims its height up front, so picking a document does
-     not make the rest of the page jump. Frame and padding come from .zr-panel.
-     Tall enough to balance the analysis column once content loads; while empty
-     the #previewEmpty hint fills it instead of a bare grey area. */
-  .manual-preview {
-    min-height: 360px;
+  /* The manual page. Its viewer fills the window below the cards above it, so
+     only the PDF or the text scrolls, never the page around it; the minimum
+     keeps it usable on a short window. Frame and padding come from .zr-panel. */
+  .manual-viewer {
+    display: flex;
+    height: max(420px, calc(100dvh - 430px));
+    padding: 0;
+    overflow: hidden;
   }
-  /* Document text keeps its own line breaks and scrolls inside the panel: a
-     long document used to run together into one paragraph and stretch the
-     page to its full length. */
-  .manual-preview #contentPreview {
-    max-height: 600px;
-    overflow-y: auto;
+  .manual-viewer > * {
+    flex: 1;
+    min-width: 0;
+  }
+  .manual-viewer > .zr-empty {
+    align-self: center;
+  }
+  .manual-viewer iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: var(--zr-surface-sunken);
+  }
+  /* Document text keeps its own line breaks and scrolls inside the viewer. */
+  .manual-text {
+    margin: 0;
+    padding: var(--zr-3);
+    overflow: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     font-size: var(--zr-fs-sm);
   }
-
+  .manual-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px var(--zr-4);
+    margin: 0;
+  }
+  .manual-facts dt {
+    color: var(--zr-text-muted);
+  }
+  .manual-facts dd {
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  /* The AI's proposal under a field: quiet until it differs. */
+  .manual-suggest {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
+  .manual-suggest__value {
+    font-weight: 600;
+    color: var(--zr-text);
+  }
   /* An empty tag list says so instead of leaving its label over nothing. */
   .manual-tags:empty::before {
     content: attr(data-empty);
@@ -194,18 +233,24 @@
     background: transparent;
     border: 1px dashed color-mix(in srgb, var(--zr-brand) 55%, transparent);
   }
-  /* The empty hint shows only while the preview has no content. */
-  .manual-preview #contentPreview:not(:empty) + #previewEmpty {
-    display: none;
+  .manual-worklist {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-2);
   }
-  /* Most of a phone screen of blank grey pushed the analysis and tag cards a
-     long scroll away. */
+  .manual-worklist .zr-select {
+    width: auto;
+  }
+  .manual-keys kbd {
+    padding: 0 4px;
+    border: 1px solid var(--zr-line);
+    border-radius: 4px;
+    font-family: var(--zr-font-mono);
+    font-size: 0.85em;
+  }
   @media (max-width: 860px) {
-    .manual-preview {
-      min-height: 160px;
-    }
-    .manual-preview #contentPreview {
-      max-height: 320px;
+    .manual-viewer {
+      height: 60vh;
     }
   }
 

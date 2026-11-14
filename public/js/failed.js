@@ -111,6 +111,9 @@
                         <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
                     </button>
                     <div id="failedRowMenu${item.document_id}" popover class="zr-menu">
+                        <a class="zr-menu__item" href="/manual?id=${item.document_id}&list=failed">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>Open in Manual
+                        </a>
                         <button type="button" class="zr-menu__item failed-ignore-btn" data-id="${item.document_id}">
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>Ignore permanently
                         </button>
