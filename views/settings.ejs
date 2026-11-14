@@ -742,6 +742,15 @@
                                         </div>
                                         <p id="ocrModelVisionHint" class="zr-field__hint <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">Vision support is detected from the model name, so the list is grouped rather than filtered &middot; models outside the recommended group may still work</p>
                                     </div>
+                                    <div id="ocrPromptContainer" class="zr-field zr-field--stacked <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">
+                                        <label for="ocrPrompt" class="zr-field__name">OCR Prompt</label>
+                                        <textarea id="ocrPrompt" name="ocrPrompt" rows="8" class="zr-textarea" spellcheck="false" data-default-anthropic="<%= ocrPromptDefaults.anthropic %>" data-default-local="<%= ocrPromptDefaults.local %>"><%= config.OCR_PROMPT || (ocrStoredForAnthropic ? ocrPromptDefaults.anthropic : ocrPromptDefaults.local) %></textarea>
+                                        <button id="ocrPromptResetBtn" type="button" class="zr-btn" data-locked-by="ocrPrompt">
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                            Reset to Default
+                                        </button>
+                                        <p class="zr-field__hint">Sent to the vision model with every document or page; the Mistral OCR API takes no prompt. Reset to Default puts back the built-in prompt of the selected provider. Claude: an answer of exactly [no text] marks a document without text and leaves its content untouched.</p>
+                                    </div>
                                     <div id="ocrPdfRenderContainer" class="zr-col zr-col--loose">
                                         <%- include('partials/settings-switch', {
                                             id: 'ocrPdfRenderEnabled',

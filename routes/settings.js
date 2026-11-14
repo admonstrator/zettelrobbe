@@ -37,6 +37,7 @@ const { isMfaEnabledForUser } = require('../services/mfaService');
 const restartService = require('../services/restartService');
 const oidcService = require('../services/oidcService');
 const { parsePasswordList } = require('../services/pdfPasswordService');
+const { DEFAULT_OCR_PROMPTS } = require('../services/ocrPrompt');
 const {
   getAnthropicFormOptions,
   loadAiProviderPresets,
@@ -422,6 +423,9 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     bootId: BOOT_IDENTITY.bootId,
     aiProviderPresets,
     anthropicOptions: getAnthropicFormOptions(),
+    // The built-in OCR prompts: the field shows the selected provider's one
+    // while nothing else is stored, and its Reset button puts it back.
+    ocrPromptDefaults: DEFAULT_OCR_PROMPTS,
     // The AI option catalogue (labels, plain-language help, basic/advanced
     // level, which providers show each) and the keys whose change ends in a
     // restart. Both come from their single source so the view holds no list

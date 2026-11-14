@@ -39,6 +39,7 @@ const {
   parsePasswordList,
   serializePasswordList,
 } = require('./pdfPasswordService');
+const { normalizeOcrPrompt } = require('./ocrPrompt');
 
 /**
  * @typedef {'string'|'secret'|'boolean'|'integer'|'number'|'list'|'enum'|'url'|'cron'|'json'} SettingType
@@ -1024,6 +1025,16 @@ const CATALOG = Object.freeze([
       default: 'mistral-ocr-latest',
       field: 'mistralOcrModel',
       ...PSW,
+    }),
+    setting('OCR_PROMPT', {
+      type: 'string',
+      default: '',
+      field: 'ocrPrompt',
+      // Empty, or a built-in prompt, means the selected provider's own.
+      parse: (raw) =>
+        typeof raw === 'string' ? { value: normalizeOcrPrompt(raw) } : {},
+      readBy: 'services/ocrPrompt.js',
+      ...PS,
     }),
     setting('OCR_PDF_RENDER_ENABLED', {
       type: 'boolean',

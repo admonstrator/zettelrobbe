@@ -933,7 +933,9 @@ function buildInitialSetupConfig(input, env = process.env) {
 
 /**
  * A value only needs quoting when it carries something a .env parser would
- * otherwise eat — whitespace, a comment marker or a quote of its own.
+ * otherwise eat — whitespace, a comment marker or a quote of its own. A line
+ * break (a multi-line prompt) is written as \n, which dotenv and Docker
+ * Compose expand again inside double quotes, so every key stays one line.
  *
  * @param {unknown} value
  * @returns {string}
@@ -941,7 +943,10 @@ function buildInitialSetupConfig(input, env = process.env) {
 function quoteEnvValue(value) {
   const text = String(value);
   if (!/[\s"'#]/.test(text)) return text;
-  return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return `"${text
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, '\\n')}"`;
 }
 
 /**

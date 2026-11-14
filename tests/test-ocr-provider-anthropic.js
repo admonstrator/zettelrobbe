@@ -37,6 +37,7 @@
  * 13. an API error becomes one readable line
  * 14. a request that stops making progress ends as an OCR timeout
  * 15. ANTHROPIC_MAX_TOKENS above 64000 raises the OCR cap, up to 128000
+ * 16. OCR_PROMPT replaces the built-in instruction
  */
 
 const assert = require('assert');
@@ -68,6 +69,7 @@ const PAGE_TWO_BASE64 = Buffer.from('rendered page two').toString('base64');
 /** Every variable a case may set; each case starts from none of them. */
 const MANAGED_ENV = [
   'OCR_PROVIDER',
+  'OCR_PROMPT',
   'MISTRAL_OCR_PROVIDER',
   'OCR_API_KEY',
   'MISTRAL_API_KEY',
@@ -592,6 +594,19 @@ async function main() {
         assert.deepStrictEqual(rest, []);
       }
     );
+
+    await run('16. OCR_PROMPT replaces the built-in instruction', async () => {
+      const { service } = loadOcr(
+        claudeEnv(fake, { OCR_PROMPT: 'Transcribe only the invoice total.' })
+      );
+      await service.performOcr(PDF_BASE64, 'application/pdf', 77);
+
+      const [, instruction] = fake.requests[0].body.messages[0].content;
+      assert.deepStrictEqual(instruction, {
+        type: 'text',
+        text: 'Transcribe only the invoice total.',
+      });
+    });
 
     await run(
       '5. an image goes out as an image block; thinking off per model',
