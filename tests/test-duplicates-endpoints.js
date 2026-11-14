@@ -27,12 +27,12 @@ const path = require('path');
 const { mountRouter, REPO_ROOT } = require('./helpers/mount-router');
 const { createFakePaperless } = require('./helpers/fake-paperless');
 
-const duplicateMergeService = require(
-  path.join(REPO_ROOT, 'services', 'duplicateMergeService')
-);
-const entityMatchAiService = require(
-  path.join(REPO_ROOT, 'services', 'entityMatchAiService')
-);
+// Loaded only after mountRouter: both open models/document.js, which binds
+// to data/ under the working directory at require time. Required up here,
+// they reached the real database of the instance the suite ran in (and its
+// judge's memory was forgotten).
+let duplicateMergeService;
+let entityMatchAiService;
 
 const API_KEY = 'test-api-key';
 
@@ -99,6 +99,12 @@ async function main() {
       dashboardStatsService.refresh = async () => ({});
     },
   });
+  duplicateMergeService = require(
+    path.join(REPO_ROOT, 'services', 'duplicateMergeService')
+  );
+  entityMatchAiService = require(
+    path.join(REPO_ROOT, 'services', 'entityMatchAiService')
+  );
 
   const call = (method, url, body) =>
     fetch(harness.base + url, {

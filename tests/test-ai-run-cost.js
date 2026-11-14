@@ -435,6 +435,8 @@ async function main() {
   const fakeOpenAI = await createFakeOpenAI();
 
   const harness = await mountRouter({
+    // models/document.js was loaded above, in tempRoot.
+    modelsLoadedInTempDir: true,
     // The harness has a default model of its own, and the judge reads
     // OPENAI_MODEL off the environment at call time rather than off the
     // config snapshot.

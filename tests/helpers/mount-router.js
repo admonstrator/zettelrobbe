@@ -106,6 +106,7 @@ const DEFAULT_ENV = {
  *   that reads it before a guard ran. Pass null to let the router's own authentication decide
  *   (the default): requests are then anonymous unless the test sends credentials itself.
  * @param {(services: object) => void} [options.stub] - hook to override service methods before the router loads
+ * @param {boolean} [options.modelsLoadedInTempDir] - the caller already loaded models/document.js in a throwaway working directory of its own; without it a model loaded before this call is an error
  * @returns {Promise<{app, base, server, tmpDir, documentModel, paperlessService, setupService, router, routers: object[],
  *   sessionToken: string|null, sessionCookie: string|null,
  *   authHeaders: (extra?: Record<string, string>) => Record<string, string>,
@@ -118,6 +119,20 @@ const DEFAULT_ENV = {
  *   anonymous when it meant to be signed in.
  */
 async function mountRouter(options = {}) {
+  // models/document.js opens data/documents.db under the working directory
+  // the moment it is first required. Loaded before this point, it is bound
+  // to the real data/ (in a container: the live instance's database) and
+  // every case below would read and write there.
+  const documentModelPath = require.resolve(
+    path.join(REPO_ROOT, 'models', 'document.js')
+  );
+  if (require.cache[documentModelPath] && !options.modelsLoadedInTempDir) {
+    throw new Error(
+      'mountRouter: models/document.js was loaded before the throwaway database was set up; ' +
+        'require services and models after mountRouter() returns, or pass modelsLoadedInTempDir ' +
+        'when the test loaded them in a throwaway directory of its own'
+    );
+  }
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zr-router-'));
   fs.mkdirSync(path.join(tmpDir, 'data'), { recursive: true });
   for (const dir of ['config', 'public', 'views']) {
