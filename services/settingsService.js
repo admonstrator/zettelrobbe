@@ -34,6 +34,7 @@ const setupService = require('./setupService.js');
 const oidcService = /** @type {any} */ (require('./oidcService'));
 const configFile = require('../config/config.js');
 const { restartRequiredAmong } = require('../config/restartRequiredKeys');
+const { stripTrailingSlashes } = require('./serviceUtils');
 const {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_EFFORT_LEVELS,
@@ -333,10 +334,10 @@ function checkCustomFieldConflicts(conflicts, currentCustomFields) {
  * @returns {string}
  */
 function effectivePaperlessUrl(value) {
-  return String(value || '')
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/api$/i, '');
+  return stripTrailingSlashes(String(value || '').trim()).replace(
+    /\/api$/i,
+    ''
+  );
 }
 
 /**

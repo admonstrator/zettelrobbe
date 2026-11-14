@@ -17,7 +17,7 @@
 
 const axios = require('axios');
 const setupService = require('./setupService');
-const { validateApiUrl } = require('./serviceUtils');
+const { validateApiUrl, stripTrailingSlashes } = require('./serviceUtils');
 
 const FLAVOR_PROBE_TIMEOUT_MS = 10000;
 const OLLAMA_SHOW_TIMEOUT_MS = 5000;
@@ -31,11 +31,33 @@ class QuickstartService {
   constructor() {
     // Ordered: embedding hints are checked first because embedding models
     // must never be suggested; vision hints imply text capability (VLMs).
-    this.embeddingNameHints = ['embed', 'bge', 'nomic-embed', 'text-embedding', 'minilm', 'gte-', 'e5-', 'rerank'];
+    this.embeddingNameHints = [
+      'embed',
+      'bge',
+      'nomic-embed',
+      'text-embedding',
+      'minilm',
+      'gte-',
+      'e5-',
+      'rerank',
+    ];
     // Known accepted false positive: "gemma3:1b" (text-only variant) is
     // classified as vision. The suggestion is a dropdown default the user
     // can always override.
-    this.visionNameHints = ['llava', 'bakllava', '-vl', 'vl-', 'vlm', 'vision', 'minicpm-v', 'moondream', 'pixtral', 'gemma3', 'internvl', 'smolvlm'];
+    this.visionNameHints = [
+      'llava',
+      'bakllava',
+      '-vl',
+      'vl-',
+      'vlm',
+      'vision',
+      'minicpm-v',
+      'moondream',
+      'pixtral',
+      'gemma3',
+      'internvl',
+      'smolvlm',
+    ];
     // Dedicated OCR models (e.g. Mistral's mistral-ocr-latest) classify as
     // plain ['text'] under classifyModelName - none of the vision hints
     // above match "ocr" naming. suggestModels() needs its own hint list so
@@ -48,7 +70,9 @@ class QuickstartService {
   // ── Classification helpers (pure, offline-testable) ──────────────────────
 
   classifyModelName(modelId) {
-    const normalized = String(modelId || '').trim().toLowerCase();
+    const normalized = String(modelId || '')
+      .trim()
+      .toLowerCase();
     if (!normalized) {
       return ['text'];
     }
@@ -66,8 +90,13 @@ class QuickstartService {
 
   classifyLmStudioEntry(entry) {
     const id = String(entry?.id || '').trim();
-    const type = String(entry?.type || '').trim().toLowerCase();
-    const state = String(entry?.state || '').trim().toLowerCase() || null;
+    const type = String(entry?.type || '')
+      .trim()
+      .toLowerCase();
+    const state =
+      String(entry?.state || '')
+        .trim()
+        .toLowerCase() || null;
 
     let capabilities;
     let source = 'lmstudio-api';
@@ -87,13 +116,24 @@ class QuickstartService {
 
   classifyOllamaShowPayload(modelName, payload) {
     const id = String(modelName || '').trim();
-    const rawCapabilities = Array.isArray(payload?.capabilities) ? payload.capabilities : null;
+    const rawCapabilities = Array.isArray(payload?.capabilities)
+      ? payload.capabilities
+      : null;
 
     if (!rawCapabilities) {
-      return { id, capabilities: this.classifyModelName(id), state: null, source: 'heuristic' };
+      return {
+        id,
+        capabilities: this.classifyModelName(id),
+        state: null,
+        source: 'heuristic',
+      };
     }
 
-    const normalized = rawCapabilities.map((value) => String(value || '').trim().toLowerCase());
+    const normalized = rawCapabilities.map((value) =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+    );
     let capabilities;
     if (normalized.includes('embedding')) {
       capabilities = ['embedding'];
@@ -117,10 +157,14 @@ class QuickstartService {
   }
 
   suggestModels(classifiedModels = []) {
-    const textCandidates = classifiedModels.filter((model) => model.capabilities.includes('text'));
-    const visionCandidates = classifiedModels.filter((model) => model.capabilities.includes('vision'));
-    const ocrNameCandidates = textCandidates.filter(
-      (model) => this.ocrNameHints.some((hint) => model.id.toLowerCase().includes(hint))
+    const textCandidates = classifiedModels.filter((model) =>
+      model.capabilities.includes('text')
+    );
+    const visionCandidates = classifiedModels.filter((model) =>
+      model.capabilities.includes('vision')
+    );
+    const ocrNameCandidates = textCandidates.filter((model) =>
+      this.ocrNameHints.some((hint) => model.id.toLowerCase().includes(hint))
     );
 
     let suggestedAiModel = null;
@@ -151,7 +195,8 @@ class QuickstartService {
 
     // Dedicated OCR models (named "*ocr*") are purpose-built for this and
     // take priority over generic vision models when present.
-    const ocrCandidates = ocrNameCandidates.length > 0 ? ocrNameCandidates : visionCandidates;
+    const ocrCandidates =
+      ocrNameCandidates.length > 0 ? ocrNameCandidates : visionCandidates;
 
     let suggestedOcrModel = null;
     let bestOcrScore = -1;
@@ -162,7 +207,10 @@ class QuickstartService {
       const effectiveSize = size == null ? Number.POSITIVE_INFINITY : size;
       // Prefer higher score; on ties prefer the smaller model (cheaper
       // vision models are perfectly adequate for OCR).
-      if (score > bestOcrScore || (score === bestOcrScore && effectiveSize < bestOcrSize)) {
+      if (
+        score > bestOcrScore ||
+        (score === bestOcrScore && effectiveSize < bestOcrSize)
+      ) {
         bestOcrScore = score;
         bestOcrSize = effectiveSize;
         suggestedOcrModel = model.id;
@@ -175,7 +223,7 @@ class QuickstartService {
   // ── URL handling ──────────────────────────────────────────────────────────
 
   normalizeBaseUrls(baseUrl) {
-    const trimmed = String(baseUrl || '').trim().replace(/\/+$/, '');
+    const trimmed = stripTrailingSlashes(String(baseUrl || '').trim());
     if (!trimmed) {
       return null;
     }
@@ -183,7 +231,7 @@ class QuickstartService {
     const bareBaseUrl = trimmed.replace(/\/v1$/i, '');
     return {
       bareBaseUrl,
-      versionedBaseUrl: `${bareBaseUrl}/v1`
+      versionedBaseUrl: `${bareBaseUrl}/v1`,
     };
   }
 
@@ -202,15 +250,17 @@ class QuickstartService {
   // setupService.getMistralUrlValidationOptions). The "OCR fallback" wizard
   // step always lets the user override this before finishing setup.
   resolveOcrProviderDefault(bareBaseUrl) {
-    const normalized = String(bareBaseUrl || '').trim().toLowerCase();
+    const normalized = String(bareBaseUrl || '')
+      .trim()
+      .toLowerCase();
     return normalized.includes('api.mistral.ai') ? 'mistral' : 'custom';
   }
 
   buildLoopbackBlockedError(validationError) {
     return new Error(
-      `URL validation failed: ${validationError} — localhost URLs are blocked by default. `
-      + 'Use your machine\'s LAN IP or host.docker.internal instead, or set '
-      + 'PAPERLESS_AI_SETUP_ALLOW_LOCALHOST=true to allow loopback addresses.'
+      `URL validation failed: ${validationError} — localhost URLs are blocked by default. ` +
+        "Use your machine's LAN IP or host.docker.internal instead, or set " +
+        'PAPERLESS_AI_SETUP_ALLOW_LOCALHOST=true to allow loopback addresses.'
     );
   }
 
@@ -220,29 +270,43 @@ class QuickstartService {
     const headers = this.buildRequestHeaders(apiKey);
     const requestConfig = { headers, timeout: probeTimeoutMs };
 
-    const [ollamaResult, lmStudioResult, openAiResult] = await Promise.allSettled([
-      axios.get(`${bareBaseUrl}/api/tags`, requestConfig),
-      axios.get(`${bareBaseUrl}/api/v0/models`, requestConfig),
-      axios.get(`${versionedBaseUrl}/models`, requestConfig)
-    ]);
+    const [ollamaResult, lmStudioResult, openAiResult] =
+      await Promise.allSettled([
+        axios.get(`${bareBaseUrl}/api/tags`, requestConfig),
+        axios.get(`${bareBaseUrl}/api/v0/models`, requestConfig),
+        axios.get(`${versionedBaseUrl}/models`, requestConfig),
+      ]);
 
     // Priority: ollama > lmstudio > openai-compatible. The richest metadata
     // source wins; Ollama and LM Studio both also serve /v1/models.
-    if (ollamaResult.status === 'fulfilled' && Array.isArray(ollamaResult.value?.data?.models)) {
+    if (
+      ollamaResult.status === 'fulfilled' &&
+      Array.isArray(ollamaResult.value?.data?.models)
+    ) {
       return { flavor: 'ollama', payload: ollamaResult.value.data };
     }
 
     if (lmStudioResult.status === 'fulfilled') {
       const rawData = lmStudioResult.value?.data;
-      const entries = Array.isArray(rawData?.data) ? rawData.data : (Array.isArray(rawData) ? rawData : []);
+      const entries = Array.isArray(rawData?.data)
+        ? rawData.data
+        : Array.isArray(rawData)
+          ? rawData
+          : [];
       // Require the LM Studio-specific "type" field so a generic server that
       // happens to answer on /api/v0/models is not misclassified.
-      if (entries.length > 0 && entries.every((entry) => typeof entry?.type === 'string')) {
+      if (
+        entries.length > 0 &&
+        entries.every((entry) => typeof entry?.type === 'string')
+      ) {
         return { flavor: 'lmstudio', payload: entries };
       }
     }
 
-    if (openAiResult.status === 'fulfilled' && Array.isArray(openAiResult.value?.data?.data)) {
+    if (
+      openAiResult.status === 'fulfilled' &&
+      Array.isArray(openAiResult.value?.data?.data)
+    ) {
       return { flavor: 'openai-compatible', payload: openAiResult.value.data };
     }
 
@@ -266,50 +330,64 @@ class QuickstartService {
     return results;
   }
 
-  async classifyOllamaModels(bareBaseUrl, tagsPayload, apiKey, deadlineTimestamp) {
+  async classifyOllamaModels(
+    bareBaseUrl,
+    tagsPayload,
+    apiKey,
+    deadlineTimestamp
+  ) {
     const headers = this.buildRequestHeaders(apiKey);
-    const entries = (Array.isArray(tagsPayload?.models) ? tagsPayload.models : [])
+    const entries = (
+      Array.isArray(tagsPayload?.models) ? tagsPayload.models : []
+    )
       .slice(0, OLLAMA_MODEL_CAP)
       .map((entry) => ({
         name: String(entry?.name || '').trim(),
-        parameterSize: String(entry?.details?.parameter_size || '').trim()
+        parameterSize: String(entry?.details?.parameter_size || '').trim(),
       }))
       .filter((entry) => entry.name);
 
-    return this.mapWithConcurrency(entries, OLLAMA_SHOW_CONCURRENCY, async (entry) => {
-      // Past the soft deadline, skip the network call and degrade to the
-      // name heuristic so the overall request stays within budget.
-      if (Date.now() >= deadlineTimestamp) {
-        return {
-          id: entry.name,
-          capabilities: this.classifyModelName(entry.name),
-          state: null,
-          source: 'heuristic',
-          parameterSize: entry.parameterSize || null
-        };
-      }
+    return this.mapWithConcurrency(
+      entries,
+      OLLAMA_SHOW_CONCURRENCY,
+      async (entry) => {
+        // Past the soft deadline, skip the network call and degrade to the
+        // name heuristic so the overall request stays within budget.
+        if (Date.now() >= deadlineTimestamp) {
+          return {
+            id: entry.name,
+            capabilities: this.classifyModelName(entry.name),
+            state: null,
+            source: 'heuristic',
+            parameterSize: entry.parameterSize || null,
+          };
+        }
 
-      try {
-        const response = await axios.post(
-          `${bareBaseUrl}/api/show`,
-          { model: entry.name },
-          { headers, timeout: OLLAMA_SHOW_TIMEOUT_MS }
-        );
-        const classified = this.classifyOllamaShowPayload(entry.name, response.data);
-        classified.parameterSize = entry.parameterSize || null;
-        return classified;
-      } catch {
-        // A single failing model (e.g. corrupt manifest) must never fail
-        // the whole detection; fall back to the name heuristic.
-        return {
-          id: entry.name,
-          capabilities: this.classifyModelName(entry.name),
-          state: null,
-          source: 'heuristic',
-          parameterSize: entry.parameterSize || null
-        };
+        try {
+          const response = await axios.post(
+            `${bareBaseUrl}/api/show`,
+            { model: entry.name },
+            { headers, timeout: OLLAMA_SHOW_TIMEOUT_MS }
+          );
+          const classified = this.classifyOllamaShowPayload(
+            entry.name,
+            response.data
+          );
+          classified.parameterSize = entry.parameterSize || null;
+          return classified;
+        } catch {
+          // A single failing model (e.g. corrupt manifest) must never fail
+          // the whole detection; fall back to the name heuristic.
+          return {
+            id: entry.name,
+            capabilities: this.classifyModelName(entry.name),
+            state: null,
+            source: 'heuristic',
+            parameterSize: entry.parameterSize || null,
+          };
+        }
       }
-    });
+    );
   }
 
   classifyLmStudioModels(entries) {
@@ -332,7 +410,7 @@ class QuickstartService {
       capabilities: this.classifyModelName(id),
       state: null,
       source: 'heuristic',
-      parameterSize: null
+      parameterSize: null,
     }));
   }
 
@@ -348,9 +426,14 @@ class QuickstartService {
     }
 
     const validationOptions = setupService.getSetupUrlValidationOptions();
-    const urlValidation = await validateApiUrl(urls.bareBaseUrl, validationOptions);
+    const urlValidation = await validateApiUrl(
+      urls.bareBaseUrl,
+      validationOptions
+    );
     if (!urlValidation.valid) {
-      const isLoopback = /localhost|127\.0\.0\.1|\[?::1\]?/i.test(urls.bareBaseUrl);
+      const isLoopback = /localhost|127\.0\.0\.1|\[?::1\]?/i.test(
+        urls.bareBaseUrl
+      );
       if (isLoopback && !validationOptions.allowLocalhost) {
         throw this.buildLoopbackBlockedError(urlValidation.error);
       }
@@ -369,26 +452,41 @@ class QuickstartService {
 
     if (!probeResult) {
       throw new Error(
-        'No compatible API found at this URL. Checked Ollama (/api/tags), '
-        + 'LM Studio (/api/v0/models) and OpenAI-compatible (/v1/models) endpoints.'
+        'No compatible API found at this URL. Checked Ollama (/api/tags), ' +
+          'LM Studio (/api/v0/models) and OpenAI-compatible (/v1/models) endpoints.'
       );
     }
 
     let models;
     if (probeResult.flavor === 'ollama') {
       const elapsedMs = Date.now() - startTime;
-      const deadlineTimestamp = startTime
-        + Math.max(3000, overallTimeoutMs - elapsedMs - CLASSIFICATION_DEADLINE_HEADROOM_MS);
-      models = await this.classifyOllamaModels(urls.bareBaseUrl, probeResult.payload, apiKey, deadlineTimestamp);
+      const deadlineTimestamp =
+        startTime +
+        Math.max(
+          3000,
+          overallTimeoutMs - elapsedMs - CLASSIFICATION_DEADLINE_HEADROOM_MS
+        );
+      models = await this.classifyOllamaModels(
+        urls.bareBaseUrl,
+        probeResult.payload,
+        apiKey,
+        deadlineTimestamp
+      );
     } else if (probeResult.flavor === 'lmstudio') {
       models = this.classifyLmStudioModels(probeResult.payload);
     } else {
       models = this.classifyOpenAiCompatibleModels(probeResult.payload);
     }
 
-    const textModels = models.filter((m) => m.capabilities.includes('text')).map((m) => m.id);
-    const visionModels = models.filter((m) => m.capabilities.includes('vision')).map((m) => m.id);
-    const embeddingModels = models.filter((m) => m.capabilities.includes('embedding')).map((m) => m.id);
+    const textModels = models
+      .filter((m) => m.capabilities.includes('text'))
+      .map((m) => m.id);
+    const visionModels = models
+      .filter((m) => m.capabilities.includes('vision'))
+      .map((m) => m.id);
+    const embeddingModels = models
+      .filter((m) => m.capabilities.includes('embedding'))
+      .map((m) => m.id);
     const { suggestedAiModel, suggestedOcrModel } = this.suggestModels(models);
 
     const isOllama = probeResult.flavor === 'ollama';
@@ -402,13 +500,13 @@ class QuickstartService {
         id: m.id,
         capabilities: m.capabilities,
         state: m.state,
-        source: m.source
+        source: m.source,
       })),
       textModels,
       visionModels,
       embeddingModels,
       suggestedAiModel,
-      suggestedOcrModel
+      suggestedOcrModel,
     };
   }
 
@@ -416,14 +514,14 @@ class QuickstartService {
     const flavorLabels = {
       ollama: 'Ollama',
       lmstudio: 'LM Studio',
-      'openai-compatible': 'an OpenAI-compatible API'
+      'openai-compatible': 'an OpenAI-compatible API',
     };
     const label = flavorLabels[detection.flavor] || detection.flavor;
     const total = detection.models.length;
     const parts = [
       `${detection.textModels.length} text`,
       `${detection.visionModels.length} vision`,
-      `${detection.embeddingModels.length} embedding`
+      `${detection.embeddingModels.length} embedding`,
     ];
     return `Detected ${label}: ${total} model${total === 1 ? '' : 's'} (${parts.join(', ')}).`;
   }

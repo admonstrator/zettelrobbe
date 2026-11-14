@@ -779,7 +779,7 @@ class SetupService {
   }
 
   async fetchOpenAiCompatibleModels(apiUrl, apiKey = '', options = {}) {
-    const normalizedApiUrl = String(apiUrl || '').replace(/\/+$/, '');
+    const normalizedApiUrl = stripTrailingSlashes(String(apiUrl || ''));
     const urlValidation = await validateApiUrl(normalizedApiUrl, options);
     if (!urlValidation.valid) {
       throw new Error(`Model URL validation failed: ${urlValidation.error}`);
@@ -806,7 +806,7 @@ class SetupService {
   }
 
   async fetchOllamaModels(apiUrl, apiKey = '', options = {}) {
-    const normalizedApiUrl = String(apiUrl || '').replace(/\/+$/, '');
+    const normalizedApiUrl = stripTrailingSlashes(String(apiUrl || ''));
     const urlValidation = await validateApiUrl(normalizedApiUrl, options);
     if (!urlValidation.valid) {
       throw new Error(`Model URL validation failed: ${urlValidation.error}`);
@@ -853,9 +853,7 @@ class SetupService {
     const deduped = [];
 
     values.forEach((value) => {
-      const normalized = String(value || '')
-        .trim()
-        .replace(/\/+$/, '');
+      const normalized = stripTrailingSlashes(String(value || '').trim());
       if (!normalized || seen.has(normalized)) {
         return;
       }
@@ -872,12 +870,10 @@ class SetupService {
     defaultUrl = '',
     preferVersioned = false
   ) {
-    const normalizedInput = String(apiUrl || '')
-      .trim()
-      .replace(/\/+$/, '');
-    const normalizedDefault = String(defaultUrl || '')
-      .trim()
-      .replace(/\/+$/, '');
+    const normalizedInput = stripTrailingSlashes(String(apiUrl || '').trim());
+    const normalizedDefault = stripTrailingSlashes(
+      String(defaultUrl || '').trim()
+    );
     const effectiveUrl = normalizedInput || normalizedDefault;
 
     if (!effectiveUrl) {
@@ -1105,9 +1101,8 @@ class SetupService {
     }
 
     if (provider === 'openai') {
-      const targetUrl = (apiUrl || 'https://api.openai.com/v1').replace(
-        /\/+$/,
-        ''
+      const targetUrl = stripTrailingSlashes(
+        apiUrl || 'https://api.openai.com/v1'
       );
       return this.fetchOpenAiCompatibleModels(targetUrl, apiKey, {
         allowPrivateIPs: false,
@@ -1128,7 +1123,7 @@ class SetupService {
       return this.dedupeModelIds(models);
     }
 
-    const normalizedBase = apiUrl.replace(/\/+$/, '');
+    const normalizedBase = stripTrailingSlashes(apiUrl);
     const localValidationOptions = this.getSetupUrlValidationOptions();
     const isOpenAiLike = /\/v1$/i.test(normalizedBase);
     const attempts = isOpenAiLike
@@ -1343,7 +1338,7 @@ class SetupService {
   }
 
   async runLocalOcrValidationRequest({ apiUrl, apiKey, model, imageDataUrl }) {
-    const normalizedApiUrl = String(apiUrl || '').replace(/\/+$/, '');
+    const normalizedApiUrl = stripTrailingSlashes(String(apiUrl || ''));
     const baseApiUrl = normalizedApiUrl.replace(/\/v1$/i, '');
     const openAiApiUrl = /\/v1$/i.test(normalizedApiUrl)
       ? normalizedApiUrl
@@ -1674,7 +1669,7 @@ class SetupService {
       const isOpenAiCompatible = /\/v1$/i.test(apiUrl);
       const probeEndpoints = isOpenAiCompatible
         ? [`${apiUrl}/models`, `${apiUrl.replace(/\/v1$/i, '')}/api/tags`]
-        : [`${apiUrl}/api/tags`, `${apiUrl.replace(/\/+$/, '')}/v1/models`];
+        : [`${apiUrl}/api/tags`, `${stripTrailingSlashes(apiUrl)}/v1/models`];
 
       const headers = { 'Content-Type': 'application/json' };
       if (apiKey) {

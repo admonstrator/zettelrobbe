@@ -203,15 +203,14 @@ class MistralOcrService {
         config.ollama?.apiUrl ||
         process.env.OLLAMA_API_URL ||
         'http://localhost:11434';
-      return String(config.mistralOcr?.apiUrl || ollamaDefault).replace(
-        /\/+$/,
-        ''
+      return stripTrailingSlashes(
+        String(config.mistralOcr?.apiUrl || ollamaDefault)
       );
     }
 
-    return String(
-      config.mistralOcr?.apiUrl || 'https://api.mistral.ai/v1'
-    ).replace(/\/+$/, '');
+    return stripTrailingSlashes(
+      String(config.mistralOcr?.apiUrl || 'https://api.mistral.ai/v1')
+    );
   }
 
   isEnabled() {
@@ -1042,9 +1041,7 @@ class MistralOcrService {
   }
 
   buildLocalOcrApiCandidates(apiBase) {
-    const normalized = String(apiBase || '')
-      .trim()
-      .replace(/\/+$/, '');
+    const normalized = stripTrailingSlashes(String(apiBase || '').trim());
     if (!normalized) {
       return [];
     }
@@ -1087,16 +1084,16 @@ class MistralOcrService {
   }
 
   async persistDetectedLocalOcrApiBase(detectedBase) {
-    const normalizedDetectedBase = String(detectedBase || '')
-      .trim()
-      .replace(/\/+$/, '');
+    const normalizedDetectedBase = stripTrailingSlashes(
+      String(detectedBase || '').trim()
+    );
     if (!normalizedDetectedBase) {
       return;
     }
 
-    const currentApiUrl = String(process.env.OCR_API_URL || '')
-      .trim()
-      .replace(/\/+$/, '');
+    const currentApiUrl = stripTrailingSlashes(
+      String(process.env.OCR_API_URL || '').trim()
+    );
     if (currentApiUrl === normalizedDetectedBase) {
       return;
     }
@@ -1126,7 +1123,7 @@ class MistralOcrService {
 
   async resolveLocalOcrApiBase() {
     if (this.provider !== 'ollama') {
-      return String(this.apiBase || '').replace(/\/+$/, '');
+      return stripTrailingSlashes(String(this.apiBase || ''));
     }
 
     if (this.detectedLocalApiBase) {
@@ -1138,7 +1135,7 @@ class MistralOcrService {
     }
 
     this.localApiDetectionPromise = (async () => {
-      const configuredBase = String(this.apiBase || '').replace(/\/+$/, '');
+      const configuredBase = stripTrailingSlashes(String(this.apiBase || ''));
       const authHeaders = this.apiKey
         ? { Authorization: `Bearer ${this.apiKey}` }
         : {};
