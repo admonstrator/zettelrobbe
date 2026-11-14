@@ -147,9 +147,6 @@
     text-transform: uppercase;
     color: var(--zr-text-faint);
   }
-  .zr-settings-nav a {
-    font-weight: 500;
-  }
   /* A topic with edits that are not saved yet, wherever they are. */
   .zr-settings-nav__dirty {
     flex: none;
