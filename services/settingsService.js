@@ -597,7 +597,7 @@ function buildFieldUpdates(body, current) {
   const warnings = [];
   for (const entry of settingsCatalog.getCatalog()) {
     if (!entry.parse || !entry.field) continue;
-    const result = entry.parse(body[entry.field], current[entry.key], body);
+    const result = entry.parse(body[entry.field], current[entry.key]);
     if (result.warning) warnings.push(result.warning);
     if (result.error) return { updates, warnings, error: result.error };
     if ('value' in result) updates[entry.key] = result.value;

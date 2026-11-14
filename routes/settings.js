@@ -262,6 +262,92 @@ router.post('/api/key-regenerate', isAuthenticated, async (req, res) => {
 
 /**
  * @swagger
+ * /api/settings/pdf-passwords:
+ *   delete:
+ *     summary: Delete every stored PDF password
+ *     description: |
+ *       Empties PDF_PASSWORDS, the list the OCR fallback tries on
+ *       password-protected PDFs. Saving the settings only ever adds passwords
+ *       to the list; this is the one way to remove them. Refused while the
+ *       key is set by the environment.
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: The stored PDF passwords were deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     deleted:
+ *                       type: integer
+ *                       description: How many passwords were stored before
+ *                       example: 3
+ *                 message:
+ *                   type: string
+ *                   example: "All 3 PDF passwords deleted."
+ *       401:
+ *         description: Unauthorized
+ *       409:
+ *         description: PDF_PASSWORDS is set by the environment
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.delete(
+  '/api/settings/pdf-passwords',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      if (configFile.isProtectedRuntimeEnvKey('PDF_PASSWORDS')) {
+        return res.status(409).json({
+          success: false,
+          error: 'Set by the environment (PDF_PASSWORDS).',
+        });
+      }
+      const current = settingsService.currentSettings(process.env);
+      const deleted = parsePasswordList(current.PDF_PASSWORDS).length;
+      const { merged } = settingsService.planSave(current, {
+        PDF_PASSWORDS: '',
+      });
+      await setupService.saveConfig(merged, { skipValidation: true });
+      res.json({
+        success: true,
+        data: { deleted },
+        message:
+          [
+            'No PDF passwords were stored.',
+            'The stored PDF password was deleted.',
+          ][deleted] ?? `All ${deleted} PDF passwords deleted.`,
+      });
+    } catch (error) {
+      console.error('Error deleting the PDF passwords:', error.message);
+      res
+        .status(500)
+        .json({ success: false, error: 'Error deleting the PDF passwords' });
+    }
+  }
+);
+
+/**
+ * @swagger
  * /api/dashboard/stats:
  *   get:
  *     summary: Get dashboard statistics payload
