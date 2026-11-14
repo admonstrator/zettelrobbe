@@ -800,7 +800,7 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="pdfPasswords" class="zr-field__name">PDF Passwords</label>
                                         <textarea id="pdfPasswords" name="pdfPasswords" rows="3" class="zr-textarea" autocomplete="off" spellcheck="false" placeholder="<%= pdfPasswordCount ? `${pdfPasswordCount} stored` : 'One password per line' %>"></textarea>
-                                        <p class="zr-field__hint">Tried on PDFs that cannot be opened without a password, one per line. Zettelrobbe only checks which one fits; Paperless-ngx (3.0 or later) removes it and keeps the unlocked file as a new version of the document<% if (pdfPasswordCount) { %><span id="pdfPasswordsAddHint"> &middot; Passwords typed here are added to the stored ones</span><% } %></p>
+                                        <p class="zr-field__hint">One password per line, tried on PDFs that need one. Paperless-ngx 3.0+ removes the matching password and keeps the unlocked file as a new version.<% if (pdfPasswordCount) { %><span id="pdfPasswordsAddHint"> New ones are added to the stored list.</span><% } %></p>
                                         <% if (pdfPasswordCount) { %>
                                         <button id="pdfPasswordsDeleteBtn" type="button" class="zr-btn zr-btn--danger" data-locked-by="pdfPasswords" data-count="<%= pdfPasswordCount %>">
                                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
