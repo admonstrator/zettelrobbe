@@ -176,7 +176,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /Paperless-ngx marks the tags it uses as inbox; every one of them is taken off a document once the analysis was written\. Use it when you let the analysis file documents on its own\./
+        /Takes every Paperless-ngx inbox tag off a document once its analysis is written\./
       );
 
       const list = sliceBetween(
@@ -262,21 +262,16 @@ function sliceBetween(source, from, to) {
         )
       );
 
-      const setupSource = fs.readFileSync(
-        path.join(__dirname, '..', 'routes', 'setup.js'),
-        'utf8'
-      );
-      const group = sliceBetween(
-        setupSource,
-        "title: 'Document processing'",
-        ']'
-      );
+      const group = require('../services/settingsCatalog')
+        .exportGroups()
+        .find((entry) => entry.title === 'Document processing');
+      assert.ok(group, 'the Document processing export group exists');
       [
         'IGNORE_TAGS',
         'REMOVE_INBOX_TAGS_AFTER_PROCESSING',
         'REMOVE_TAGS_AFTER_PROCESSING',
       ].forEach((key) =>
-        assert.ok(group.includes(`'${key}'`), `${key} in the export group`)
+        assert.ok(group.keys.includes(key), `${key} in the export group`)
       );
     });
 
@@ -317,12 +312,22 @@ function sliceBetween(source, from, to) {
         !/ignoreTag|removeTag|promptTag|tagAddButton/.test(lock),
         'no field ids are special-cased'
       );
+      // Every locked field goes through lockEnvField, which locks its chips.
+      const lockOne = sliceBetween(
+        source,
+        'function lockEnvField(setupForm, fieldElement, envKey, notedContainers)',
+        '\n}\n'
+      );
+      assert.match(lockOne, /lockChipField\(fieldElement\)/);
       const pills = sliceBetween(
         source,
         'function initializeRuntimeOverridePills()',
         '\n}\n'
       );
-      assert.match(pills, /lockChipField\(fieldElement\)/);
+      assert.match(
+        pills,
+        /lockEnvField\(setupForm, fieldElement, pinnedBy, notedContainers\)/
+      );
 
       const manager = sliceBetween(source, 'class TagsManager', '\n}\n');
       assert.match(manager, /dataset\?\.locked === 'true'/);

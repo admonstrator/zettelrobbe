@@ -65,6 +65,7 @@ const os = require('os');
 const path = require('path');
 
 const { createFakePaperless } = require('./helpers/fake-paperless');
+const scanControl = require('../services/scanControl');
 
 let passed = 0;
 let failed = 0;
@@ -523,7 +524,7 @@ async function main() {
           { id: 41, name: 'travel' },
         ],
       });
-      global.__paperlessAiScanControl = { running: true };
+      scanControl.getState().running = true;
       try {
         await expectRefusal(
           () =>
@@ -536,7 +537,7 @@ async function main() {
           'merge during a scan'
         );
       } finally {
-        global.__paperlessAiScanControl = { running: false };
+        scanControl.reset();
       }
       assert.ok(true);
     });
@@ -1576,7 +1577,7 @@ async function main() {
         ],
       });
 
-      global.__paperlessAiScanControl = { running: true };
+      scanControl.getState().running = true;
       try {
         await expectRefusal(
           () =>
@@ -1585,7 +1586,7 @@ async function main() {
           'a delete during a document scan'
         );
       } finally {
-        global.__paperlessAiScanControl = { running: false };
+        scanControl.reset();
       }
       assert.ok(fake.tag(420), 'nothing was deleted');
 
@@ -1800,7 +1801,7 @@ async function main() {
         ],
         documents: [{ id: 100, tags: [2] }],
       });
-      global.__paperlessAiScanControl = { running: true };
+      scanControl.getState().running = true;
       try {
         for (const [hint, write] of [
           [
@@ -1823,7 +1824,7 @@ async function main() {
           assert.match(error.message, /document scan is running/);
         }
       } finally {
-        delete global.__paperlessAiScanControl;
+        scanControl.reset();
       }
       assert.strictEqual(duplicateMergeService.isWriting(), false);
 

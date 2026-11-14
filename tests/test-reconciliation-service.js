@@ -92,7 +92,7 @@ function makeService({
       }
 
       _getScanControl() {
-        return global.__paperlessAiScanControl || { running: scanRunning };
+        return { running: scanRunning };
       }
 
       async _waitForScanIdle(timeoutMs = 100) {

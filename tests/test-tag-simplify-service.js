@@ -22,44 +22,28 @@
  *  3. A chunk whose answer cannot be read costs that chunk, nothing else
  *  4. The token budget stops the proposal
  *  5. Without a provider the vocabulary proposal is refused
- *  6. Without a vocabulary the split proposals are refused
- *  7. The rule table: the type itself, a compound, a joint, a plural, the
- *     multi-word forms, a topic without a type, an unknown remainder
- *  8. The exclusions: the vocabulary itself, the inbox tag, a configured tag,
- *     a tag the token may not change
- *  9. The model answers what the rule could not settle
- * 10. A type or topic outside the vocabulary is dropped, with a note
- * 11. A cut-off answer is salvaged
- * 12. A stop keeps the proposals that were made and stores them
- * 13. Without a provider the rule proposals are all there is
- * 14. proposalImpact counts the documents that keep their type, and stores it
- * 15. applySplits: tags added, type set, tag deleted, log row with details,
+ *  6. The proposed order: a cut-off answer is salvaged, thinking seen in one
+ *     answer widens the next cap, a stop keeps the proposals that were made
+ *  7. applySplits: tags added, type set, tag deleted, log row with details,
  *     local records rewritten, the caches dropped
- * 16. A document with another type keeps it; overwriteType sets it anyway
- * 17. A created type and a created tag are recorded for the undo
- * 18. Refusals: no proposal, an empty proposal, an inbox tag, a gone tag, a
+ *  8. A document with another type keeps it; overwriteType sets it anyway
+ *  9. A created type and a created tag are recorded for the undo
+ * 10. Refusals: no proposal, an empty proposal, an inbox tag, a gone tag, a
  *     configured tag, one applied twice
- * 19. A tag that still carries documents afterwards is not deleted: partial
- * 20. undoSplit puts the tag, the documents and the types back
- * 21. An object the split created is only deleted when nothing uses it
- * 22. undoSplit adopts a tag of the same name instead of creating a second
- * 23. A second undo is refused
- * 24. duplicateMergeService.undo() hands a split row to undoSplit
+ * 11. A tag that still carries documents afterwards is not deleted: partial
+ * 12. undoSplit puts the tag, the documents and the types back
+ * 13. An object the split created is only deleted when nothing uses it
+ * 14. undoSplit adopts a tag of the same name instead of creating a second
+ * 15. A second undo is refused
+ * 16. duplicateMergeService.undo() hands a split row to undoSplit
  *
- * Round 12, the proposed order:
- * 25. The rule gives every tag one of the four actions, in its own order
- * 26. A plural or another spelling merges into the tag with more documents
- * 27. The model settles the rest, with all four actions
- * 28. What the model may not say turns into keep, with a note
- * 29. Without a vocabulary there is nothing to keep
- * 30. The two phases, the counts and the log line of a run
- * 31. The apply works through merges, then splits, then deletes
- * 32. A deleted tag gives its documents back when the delete is undone
- * 33. A merge goes through the merge service and can be undone
- * 34. A merge target that is gone is a failure entry
- * 35. A stop between two tags leaves the rest accepted
- * 36. An apply with nothing accepted is not an error
- * 37. One group applies without touching the rest
+ * The proposed order:
+ * 17. The rule gives every tag one of the four actions, in its own order
+ * 18. A plural or another spelling merges into the tag with more documents
+ * 19. The model settles the rest, with all four actions
+ * 20. What the model may not say turns into keep, with a note
+ * 21. Without a vocabulary there is nothing to keep
+ * 22. The two phases, the counts and the log line of a run
  */
 
 'use strict';
@@ -213,7 +197,7 @@ async function main() {
     });
   }
 
-  /** One open proposal, as proposeSplits would have stored it. */
+  /** One open proposal, as proposeOrder would have stored it. */
   async function useProposal(row) {
     await documentModel.replaceTagSplitProposals([
       {
@@ -626,260 +610,31 @@ async function main() {
 
     /* --- The split proposals -------------------------------------------- */
 
-    await test('Without a vocabulary the split proposals are refused', async () => {
-      useFake({ tags: [{ id: 1, name: 'Stromrechnung' }] });
-      await documentModel.replaceTagVocabulary([]);
-      const error = await expectRefusal(
-        () => service.proposeSplits(),
-        409,
-        'no vocabulary'
-      );
-      assert.match(error.message, /Save a vocabulary first/);
-    });
-
-    await test('The rule settles what the vocabulary accounts for', async () => {
-      useFake({
-        tags: [
-          { id: 1, name: 'Rechnungen' },
-          { id: 2, name: 'Stromrechnung' },
-          { id: 3, name: 'Versicherungsbeitrag' },
-          { id: 4, name: 'Gasrechnungen' },
-          { id: 5, name: 'Rechnung (Auto)' },
-          { id: 6, name: 'Stromanbieter' },
-          { id: 7, name: 'Handyrechnung' },
-          { id: 8, name: 'Nachbarschaft' },
-        ],
-      });
-      await useVocabulary(
-        ['Rechnung', 'Beitrag'],
-        ['Strom', 'Gas', 'Auto', 'Versicherung']
-      );
-      useNoProvider();
-
-      const { value } = await withLog(() => service.proposeSplits());
-      assert.strictEqual(value.usedModel, false);
-      const rows = await service.listProposals();
-      const byName = new Map(rows.map((row) => [row.tagName, row]));
-
-      assert.deepStrictEqual(
-        {
-          typeName: byName.get('Rechnungen').typeName,
-          topicNames: byName.get('Rechnungen').topicNames,
-          confidence: byName.get('Rechnungen').confidence,
-          reason: byName.get('Rechnungen').reason,
-          source: byName.get('Rechnungen').source,
-        },
-        {
-          typeName: 'Rechnung',
-          topicNames: [],
-          confidence: 'high',
-          reason: 'the type itself',
-          source: 'rule',
-        },
-        'a plain type in the plural'
-      );
-      assert.deepStrictEqual(
-        [
-          byName.get('Stromrechnung').typeName,
-          byName.get('Stromrechnung').topicNames,
-          byName.get('Stromrechnung').reason,
-        ],
-        ['Rechnung', ['Strom'], 'compound of Rechnung and Strom']
-      );
-      assert.deepStrictEqual(
-        [
-          byName.get('Versicherungsbeitrag').typeName,
-          byName.get('Versicherungsbeitrag').topicNames,
-        ],
-        ['Beitrag', ['Versicherung']],
-        'the joint is taken off'
-      );
-      assert.deepStrictEqual(
-        [
-          byName.get('Gasrechnungen').typeName,
-          byName.get('Gasrechnungen').topicNames,
-        ],
-        ['Rechnung', ['Gas']],
-        'the plural of the compound'
-      );
-      assert.deepStrictEqual(
-        [
-          byName.get('Rechnung (Auto)').typeName,
-          byName.get('Rechnung (Auto)').topicNames,
-        ],
-        ['Rechnung', ['Auto']],
-        'the written-out form'
-      );
-      assert.deepStrictEqual(
-        [
-          byName.get('Stromanbieter').typeName,
-          byName.get('Stromanbieter').topicNames,
-          byName.get('Stromanbieter').confidence,
-        ],
-        [null, ['Strom'], 'low'],
-        'a topic without a type is only a guess'
-      );
-      assert.match(
-        byName.get('Stromanbieter').reason,
-        /"anbieter" is not in the vocabulary/
-      );
-      assert.deepStrictEqual(
-        [
-          byName.get('Handyrechnung').typeName,
-          byName.get('Handyrechnung').confidence,
-        ],
-        ['Rechnung', 'low'],
-        'a remainder nobody named stays low'
-      );
-      assert.ok(
-        !byName.has('Nachbarschaft'),
-        'a name the vocabulary says nothing about gets no proposal'
-      );
-      assert.strictEqual(value.byRule, rows.length);
-      assert.strictEqual(value.withoutProposal, 1);
-    });
-
-    await test('The vocabulary itself, the inbox tag and the settings are left alone', async () => {
-      useFake({
-        tags: [
-          { id: 1, name: 'Stromrechnung' },
-          { id: 2, name: 'Strom' },
-          { id: 3, name: 'Rechnung' },
-          { id: 4, name: 'Inbox', is_inbox_tag: true },
-          { id: 5, name: 'ai-processed' },
-          { id: 6, name: 'do-not-touch' },
-          { id: 7, name: 'Gasrechnung', user_can_change: false },
-        ],
-      });
-      await useVocabulary(['Rechnung'], ['Strom', 'Gas']);
-      useNoProvider();
-
-      const { value } = await withLog(() => service.proposeSplits());
-      const names = (await service.listProposals()).map((row) => row.tagName);
-      assert.deepStrictEqual(names, ['Stromrechnung']);
-      assert.strictEqual(value.skipped, 6, 'six tags never became candidates');
-      assert.strictEqual(value.candidates, 1);
-    });
-
-    await test('The model answers what the rule could not settle', async () => {
-      useFake({
-        tags: [
-          { id: 1, name: 'Stromrechnung' },
-          { id: 2, name: 'Handyvertrag' },
-          { id: 3, name: 'Nachbarschaft' },
-        ],
-      });
-      await useVocabulary(['Rechnung', 'Vertrag'], ['Strom', 'Telefon']);
-      config.simplifyTagsPerRequest = 50;
-      const { calls } = useProvider((prompt) =>
-        JSON.stringify(
-          idsInPrompt(prompt).map((id) => ({
-            id,
-            type: id === '2' ? 'Vertrag' : null,
-            topics: id === '2' ? ['Telefon'] : [],
-            confidence: 'high',
-            reason: 'a mobile phone contract',
-          }))
-        )
-      );
-
-      const { value, lines } = await withLog(() => service.proposeSplits());
-      assert.strictEqual(calls.length, 1, 'one request for the two unsettled');
-      assert.deepStrictEqual(
-        idsInPrompt(calls[0].prompt).sort(),
-        ['2', '3'],
-        'the settled compound is not asked about'
-      );
-      assert.ok(
-        calls[0].options.systemPrompt.includes(
-          'The topics you may use: Strom, Telefon.'
-        ),
-        'the vocabulary is in the prompt'
-      );
-      const rows = new Map(
-        (await service.listProposals()).map((row) => [row.tagName, row])
-      );
-      assert.deepStrictEqual(
-        [
-          rows.get('Handyvertrag').typeName,
-          rows.get('Handyvertrag').topicNames,
-          rows.get('Handyvertrag').source,
-          rows.get('Handyvertrag').reason,
-        ],
-        ['Vertrag', ['Telefon'], 'model', 'a mobile phone contract']
-      );
-      assert.strictEqual(
-        rows.get('Stromrechnung').source,
-        'rule',
-        'the rule keeps what it settled'
-      );
-      assert.strictEqual(
-        rows.get('Nachbarschaft').typeName,
-        null,
-        'the model may say "nothing"'
-      );
-      assert.strictEqual(value.byRule, 1);
-      assert.strictEqual(value.byModel, 2);
-      assert.ok(
-        simplifyLines(lines).some((line) =>
-          /^\[SIMPLIFY\] proposals: 3 tag\(s\), 1 by rule, 2 by the model in 1 request\(s\), 0 without a proposal\.$/.test(
-            line
-          )
-        ),
-        `no totals line:\n${simplifyLines(lines).join('\n')}`
-      );
-    });
-
-    await test('A name outside the vocabulary is dropped, with a note in the reason', async () => {
-      useFake({ tags: [{ id: 3, name: 'Nachbarschaft' }] });
-      await useVocabulary(['Rechnung'], ['Strom']);
-      useProvider(() =>
-        JSON.stringify([
-          {
-            id: '3',
-            type: 'Protokoll',
-            topics: ['Strom', 'Nachbarn'],
-            confidence: 'low',
-            reason: 'minutes of the neighbourhood meeting',
-          },
-        ])
-      );
-
-      await withLog(() => service.proposeSplits());
-      const [row] = await service.listProposals();
-      assert.strictEqual(row.typeName, null, 'the invented type is dropped');
-      assert.deepStrictEqual(
-        row.topicNames,
-        ['Strom'],
-        'the invented topic is dropped, the known one stays'
-      );
-      assert.match(
-        row.reason,
-        /\(not in the vocabulary: Protokoll, Nachbarn\)/
-      );
-    });
-
-    await test('A cut-off answer keeps the proposals the model managed to write', async () => {
+    await test('A cut-off answer keeps the tags the model managed to write', async () => {
       useFake({
         tags: [
           { id: 1, name: 'Nachbarschaft' },
           { id: 2, name: 'Gartenarbeit' },
         ],
+        documents: [{ id: 100, tags: [1, 2] }],
       });
       await useVocabulary(['Rechnung'], ['Strom']);
       useProvider(() => {
         const error = new Error('the answer hit the token limit');
         error.code = 'ai_response_truncated';
         error.partialText =
-          '[{"id":"1","type":"Rechnung","topics":[],"confidence":"low","reason":"an invoice"},{"id":"2","typ';
+          '[{"id":"1","action":"keep","confidence":"low","reason":"a subject"},{"id":"2","acti';
         return error;
       });
 
-      const { value, lines } = await withLog(() => service.proposeSplits());
+      const { value, lines } = await withLog(() =>
+        service.proposeOrder({ vocabulary: 'keep' })
+      );
       assert.strictEqual(value.byModel, 1, 'the complete object survives');
       const rows = await service.listProposals();
+      const answered = rows.filter((row) => row.source === 'model');
       assert.deepStrictEqual(
-        rows.map((row) => row.tagName),
+        answered.map((row) => row.tagName),
         ['Nachbarschaft']
       );
       assert.ok(
@@ -990,6 +745,7 @@ async function main() {
             { id: 1, name: 'Nachbarschaft' },
             { id: 2, name: 'Gartenarbeit' },
           ],
+          documents: [{ id: 100, tags: [1, 2] }],
         });
         await useVocabulary(['Rechnung'], ['Strom', 'Auto']);
         config.simplifyTagsPerRequest = 1;
@@ -1008,17 +764,16 @@ async function main() {
             return JSON.stringify(
               idsInPrompt(prompt).map((id) => ({
                 id,
-                type: 'Rechnung',
-                topics: [],
+                action: 'keep',
                 confidence: 'high',
-                reason: 'an invoice',
+                reason: 'a subject',
               }))
             );
           },
         };
         AIServiceFactory.getService = () => provider;
         try {
-          await service.proposeSplits();
+          await service.proposeOrder({ vocabulary: 'keep' });
           assert.strictEqual(calls.length, 2, 'one tag per request');
           assert.strictEqual(
             calls[0].options.maxTokens,
@@ -1157,10 +912,12 @@ async function main() {
 
     await test('A stop keeps the proposals that were made and stores them', async () => {
       const tags = [];
+      const documents = [];
       for (let id = 1; id <= 6; id += 1) {
         tags.push({ id, name: `Unknown ${id}` });
+        documents.push({ id: 100 + id, tags: [id], document_type: null });
       }
-      useFake({ tags });
+      useFake({ tags, documents });
       await useVocabulary(['Rechnung'], ['Strom']);
       config.simplifyTagsPerRequest = 2;
       const control = { stopped: false, stopReason: () => control.stopped };
@@ -1168,78 +925,30 @@ async function main() {
         const answer = JSON.stringify(
           idsInPrompt(prompt).map((id) => ({
             id,
-            type: 'Rechnung',
-            topics: [],
+            action: 'keep',
             confidence: 'low',
-            reason: 'an invoice',
+            reason: 'a subject',
           }))
         );
         control.stopped = true;
         return answer;
       });
 
-      const { value } = await withLog(() => service.proposeSplits({}, control));
-      assert.strictEqual(value.requests, 1, 'the stop ends the run');
-      assert.strictEqual(value.stopped, true);
-      const rows = await service.listProposals();
-      assert.strictEqual(rows.length, 2, 'what was made is stored');
-    });
-
-    await test('Without a provider the rule proposals are all there is', async () => {
-      useFake({
-        tags: [
-          { id: 1, name: 'Stromrechnung' },
-          { id: 2, name: 'Nachbarschaft' },
-        ],
-      });
-      await useVocabulary(['Rechnung'], ['Strom']);
-      useNoProvider();
-
-      const { value, lines } = await withLog(() => service.proposeSplits());
-      assert.strictEqual(value.requests, 0, 'nothing was asked');
-      assert.strictEqual(value.usedModel, false);
-      assert.strictEqual(value.byModel, 0);
-      assert.strictEqual(value.byRule, 1);
-      assert.ok(
-        simplifyLines(lines).some((line) =>
-          /no AI provider is configured/.test(line)
-        ),
-        `the result has to say so:\n${simplifyLines(lines).join('\n')}`
-      );
-    });
-
-    /* --- What a split would cost ---------------------------------------- */
-
-    await test('proposalImpact counts the documents that would keep their type', async () => {
-      splitArchive();
-      await useProposal({});
-
-      const impact = await service.proposalImpact(55);
-      assert.deepStrictEqual(impact, {
-        tagId: 55,
-        tagName: 'Stromrechnung',
-        documents: 3,
-        withType: 1,
-        withDifferentType: 1,
-        typeId: 7,
-        typeSet: 2,
-        typeKept: 1,
-      });
-      await useProposal({ overwriteType: true });
-      const overwritten = await service.proposalImpact(55);
-      assert.strictEqual(overwritten.typeSet, 3, 'overwrite sets every type');
-      assert.strictEqual(overwritten.typeKept, 0, 'and keeps none');
-      const stored = await documentModel.getTagSplitProposal(55);
-      assert.strictEqual(
-        stored.documentsWithType,
-        1,
-        'the conflict count is on the row after a reload'
-      );
-      await expectRefusal(
-        () => service.proposalImpact(999),
-        404,
-        'a tag without a proposal'
-      );
+      try {
+        const { value } = await withLog(() =>
+          service.proposeOrder({ vocabulary: 'keep' }, control)
+        );
+        assert.strictEqual(value.requests, 1, 'the stop ends the run');
+        assert.strictEqual(value.stopped, true);
+        const rows = await service.listProposals();
+        assert.strictEqual(
+          rows.filter((row) => row.source === 'model').length,
+          2,
+          'what the model answered is stored'
+        );
+      } finally {
+        config.simplifyTagsPerRequest = 50;
+      }
     });
 
     /* --- Applying a split ------------------------------------------------ */
@@ -1679,47 +1388,7 @@ async function main() {
         'the compound is back'
       );
     });
-    /* --- The proposed order (round 12) ---------------------------------- */
-
-    /** The archive the order cases start from. */
-    function orderArchive() {
-      return useFake({
-        tags: [
-          { id: 20, name: 'Stromrechnung' },
-          { id: 21, name: 'rechnungen' },
-          { id: 22, name: 'Rechnungen' },
-          { id: 23, name: 'todo' },
-        ],
-        documentTypes: [{ id: 7, name: 'Rechnung' }],
-        documents: [
-          { id: 200, tags: [20], document_type: null },
-          { id: 201, tags: [20], document_type: null },
-          { id: 202, tags: [21], document_type: null },
-          { id: 203, tags: [23], document_type: null },
-          { id: 204, tags: [22], document_type: null },
-        ],
-      });
-    }
-
-    /** The order proposals the apply cases work on, all accepted. */
-    async function useOrderProposals(rows) {
-      await documentModel.replaceTagSplitProposals(
-        rows.map((row) => ({
-          documentCount: 1,
-          action: 'split',
-          mergeInto: null,
-          typeName: null,
-          topicNames: [],
-          source: 'model',
-          confidence: 'high',
-          reason: 'because',
-          documentsWithType: 0,
-          overwriteType: false,
-          status: 'accepted',
-          ...row,
-        }))
-      );
-    }
+    /* --- The proposed order ---------------------------------- */
 
     /** The provider a run of the order uses: two questions, two answers. */
     function useOrderProvider(order) {
@@ -2205,478 +1874,6 @@ async function main() {
         ordering[ordering.length - 1].pairsJudged,
         3,
         'and every tag is settled at the end'
-      );
-    });
-
-    await test('The apply works through merges, then splits, then deletes', async () => {
-      const fake = orderArchive();
-      await useVocabulary(['Rechnung'], ['Strom']);
-      await useOrderProposals([
-        {
-          tagId: 20,
-          tagName: 'Stromrechnung',
-          documentCount: 2,
-          action: 'split',
-          typeName: 'Rechnung',
-          topicNames: ['Strom'],
-        },
-        {
-          tagId: 21,
-          tagName: 'rechnungen',
-          action: 'merge',
-          mergeInto: 'Rechnungen',
-        },
-        { tagId: 22, tagName: 'Rechnungen', action: 'keep' },
-        { tagId: 23, tagName: 'todo', action: 'delete' },
-      ]);
-
-      const { value, lines } = await withLog(() =>
-        service.applyAccepted({ performedBy: 'tester' })
-      );
-      assert.deepStrictEqual(
-        value.failed,
-        [],
-        `nothing may fail: ${JSON.stringify(value.failed)}`
-      );
-      assert.deepStrictEqual(
-        value.applied.map((entry) => [entry.tagName, entry.action]),
-        [
-          ['Stromrechnung', 'split'],
-          ['todo', 'delete'],
-        ],
-        'a keep is never applied'
-      );
-      assert.strictEqual(value.merged.length, 1);
-      assert.deepStrictEqual(
-        {
-          tagId: value.merged[0].tagId,
-          tagName: value.merged[0].tagName,
-          targetId: value.merged[0].targetId,
-          targetName: value.merged[0].targetName,
-          documentsUpdated: value.merged[0].documentsUpdated,
-        },
-        {
-          tagId: 21,
-          tagName: 'rechnungen',
-          targetId: 22,
-          targetName: 'Rechnungen',
-          documentsUpdated: 1,
-        }
-      );
-      assert.strictEqual(value.stopped, false);
-
-      const order = simplifyLines(lines)
-        .filter((line) => /merged tag|split tag|deleted tag/.test(line))
-        .map((line) => line.split(' ')[1]);
-      assert.deepStrictEqual(
-        order,
-        ['merged', 'split', 'deleted'],
-        'a merge first: a tag a split needs must still be there'
-      );
-
-      assert.strictEqual(fake.tag(20), undefined, 'the compound is gone');
-      assert.strictEqual(fake.tag(21), undefined, 'the other spelling is gone');
-      assert.strictEqual(fake.tag(23), undefined, 'the note to self is gone');
-      assert.ok(fake.tag(22), 'the survivor of the merge stays');
-      assert.deepStrictEqual(
-        fake.document(202).tags,
-        [22],
-        'the merged documents carry the survivor'
-      );
-      assert.deepStrictEqual(
-        fake.document(203).tags,
-        [],
-        'the deleted tag left its document behind'
-      );
-      assert.strictEqual(fake.document(200).document_type, 7);
-      for (const tagId of [20, 21, 23]) {
-        assert.strictEqual(
-          (await documentModel.getTagSplitProposal(tagId)).status,
-          'applied'
-        );
-      }
-      assert.strictEqual(
-        (await documentModel.getTagSplitProposal(22)).status,
-        'accepted',
-        'a keep stays what it was'
-      );
-      assert.ok(
-        simplifyLines(lines).some((line) =>
-          /^\[SIMPLIFY\] order applied: 1 split, 1 merged, 1 deleted, 0 failed, in \d+\.\d+s\.$/.test(
-            line
-          )
-        ),
-        `no apply line:\n${simplifyLines(lines).join('\n')}`
-      );
-    });
-
-    await test('A deleted tag gives its documents back when the delete is undone', async () => {
-      const fake = orderArchive();
-      await useVocabulary(['Rechnung'], ['Strom']);
-      await documentModel.addToHistory(203, [23], 'A document', 'Someone');
-      await useOrderProposals([
-        { tagId: 23, tagName: 'todo', action: 'delete' },
-      ]);
-
-      const { value } = await withLog(() =>
-        service.applyAccepted({ performedBy: 'tester' })
-      );
-      const logId = value.applied[0].logId;
-      const entry = await documentModel.getEntityMergeById(logId);
-      assert.strictEqual(entry.action, 'delete');
-      assert.strictEqual(entry.targetName, '', 'a delete has no target');
-      assert.deepStrictEqual(entry.sources[0].documentIds, [203]);
-      assert.deepStrictEqual(
-        entry.details.documents.map((document) => document.id),
-        [203],
-        'the documents are written down before the tag goes'
-      );
-
-      const undone = await withLog(() =>
-        duplicateMergeService.undo(logId, { performedBy: 'tester' })
-      );
-      assert.strictEqual(undone.value.status, 'undone');
-      const restoredId = undone.value.sources[0].restoredId;
-      assert.ok(Number.isInteger(restoredId));
-      assert.strictEqual(fake.tag(restoredId).name, 'todo');
-      assert.deepStrictEqual(
-        fake.document(203).tags,
-        [restoredId],
-        'the document carries it again'
-      );
-      assert.strictEqual(undone.value.sources[0].documentsRestored, 1);
-      assert.strictEqual(
-        (await documentModel.getTagSplitProposal(23)).status,
-        'open',
-        'and the proposal is a decision again'
-      );
-      const history = await documentModel.getHistoryByDocumentId(203);
-      assert.deepStrictEqual(
-        JSON.parse(history.tags),
-        [restoredId],
-        'the local rows point at the tag that exists'
-      );
-    });
-
-    await test('A merge of the order goes through the merge service and can be undone', async () => {
-      const fake = orderArchive();
-      await useVocabulary(['Rechnung'], ['Strom']);
-      await useOrderProposals([
-        {
-          tagId: 21,
-          tagName: 'rechnungen',
-          action: 'merge',
-          mergeInto: 'Rechnungen',
-        },
-      ]);
-
-      const { value } = await withLog(() => service.applyAccepted({}));
-      const logId = value.merged[0].logId;
-      const entry = await documentModel.getEntityMergeById(logId);
-      assert.strictEqual(
-        entry.action,
-        'merge',
-        'the row the log already knows'
-      );
-      assert.strictEqual(entry.targetId, 22);
-      assert.strictEqual(
-        (await documentModel.getTagSplitProposal(21)).status,
-        'applied'
-      );
-
-      const undone = await withLog(() => duplicateMergeService.undo(logId));
-      assert.strictEqual(undone.value.status, 'undone');
-      assert.ok(
-        fake.tagNames().includes('rechnungen'),
-        'the merged tag is back'
-      );
-      assert.strictEqual(
-        (await documentModel.getTagSplitProposal(21)).status,
-        'open',
-        'an undone merge is a decision again'
-      );
-    });
-
-    await test('A merge target that is gone is a failure, not a crash', async () => {
-      orderArchive();
-      await useVocabulary(['Rechnung'], ['Strom']);
-      await useOrderProposals([
-        {
-          tagId: 21,
-          tagName: 'rechnungen',
-          action: 'merge',
-          mergeInto: 'Quittungen',
-        },
-        {
-          tagId: 20,
-          tagName: 'Stromrechnung',
-          action: 'merge',
-          mergeInto: 'Stromrechnung',
-        },
-      ]);
-
-      const { value } = await withLog(() => service.applyAccepted({}));
-      assert.strictEqual(value.merged.length, 0);
-      assert.strictEqual(value.failed.length, 2);
-      assert.match(
-        value.failed.find((entry) => entry.tagId === 21).error,
-        /There is no tag called "Quittungen"/
-      );
-      assert.match(
-        value.failed.find((entry) => entry.tagId === 20).error,
-        /cannot be merged into itself/
-      );
-      assert.strictEqual(
-        (await documentModel.getTagSplitProposal(21)).status,
-        'accepted',
-        'what failed stays a decision'
-      );
-    });
-
-    await test('Accepted proposals are applied side by side where that changes nothing', async () => {
-      // Four deletes and two independent merges run in lanes; the two splits
-      // that share document 101 run one after the other so the second sees
-      // the type the first set, and its undo puts that back; two splits into
-      // a type and a topic that do not exist yet create each once.
-      const fake = useFake({
-        tags: [
-          { id: 1, name: 'Stromrechnung' },
-          { id: 2, name: 'Mietvertrag' },
-          { id: 3, name: 'Autorechnung' },
-          { id: 12, name: 'Tankbeleg' },
-          { id: 4, name: 'Altlast1' },
-          { id: 5, name: 'Altlast2' },
-          { id: 6, name: 'Altlast3' },
-          { id: 7, name: 'Altlast4' },
-          { id: 8, name: 'amazon' },
-          { id: 9, name: 'Amazon' },
-          { id: 10, name: 'Steuern' },
-          { id: 11, name: 'Steuer' },
-        ],
-        documentTypes: [{ id: 7, name: 'Rechnung' }],
-        documents: [
-          { id: 100, tags: [1], document_type: null },
-          { id: 101, tags: [1, 2], document_type: null },
-          { id: 112, tags: [1], document_type: null },
-          { id: 102, tags: [2], document_type: null },
-          { id: 103, tags: [3], document_type: null },
-          { id: 113, tags: [12], document_type: null },
-          { id: 104, tags: [4] },
-          { id: 105, tags: [5] },
-          { id: 106, tags: [6] },
-          { id: 107, tags: [7] },
-          { id: 108, tags: [8] },
-          { id: 109, tags: [9] },
-          { id: 110, tags: [10] },
-          { id: 111, tags: [11] },
-        ],
-      });
-      await useVocabulary(
-        ['Rechnung', 'Vertrag', 'Beleg'],
-        ['Strom', 'Miete', 'Auto']
-      );
-      await useOrderProposals([
-        {
-          tagId: 1,
-          tagName: 'Stromrechnung',
-          documentCount: 3,
-          typeName: 'Rechnung',
-          topicNames: ['Strom'],
-        },
-        {
-          tagId: 2,
-          tagName: 'Mietvertrag',
-          documentCount: 2,
-          typeName: 'Vertrag',
-          topicNames: ['Miete'],
-        },
-        {
-          tagId: 3,
-          tagName: 'Autorechnung',
-          typeName: 'Beleg',
-          topicNames: ['Auto'],
-        },
-        {
-          tagId: 12,
-          tagName: 'Tankbeleg',
-          typeName: 'Beleg',
-          topicNames: ['Auto'],
-        },
-        { tagId: 4, tagName: 'Altlast1', action: 'delete' },
-        { tagId: 5, tagName: 'Altlast2', action: 'delete' },
-        { tagId: 6, tagName: 'Altlast3', action: 'delete' },
-        { tagId: 7, tagName: 'Altlast4', action: 'delete' },
-        { tagId: 8, tagName: 'amazon', action: 'merge', mergeInto: 'Amazon' },
-        { tagId: 10, tagName: 'Steuern', action: 'merge', mergeInto: 'Steuer' },
-      ]);
-
-      config.duplicatesAiConcurrency = 3;
-      const realBulkEdit = paperlessService.bulkEditDocuments;
-      let inFlight = 0;
-      let peak = 0;
-      paperlessService.bulkEditDocuments = async function (...args) {
-        inFlight += 1;
-        peak = Math.max(peak, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        try {
-          return await realBulkEdit.apply(this, args);
-        } finally {
-          inFlight -= 1;
-        }
-      };
-      let value;
-      try {
-        ({ value } = await withLog(() => service.applyAccepted({})));
-      } finally {
-        paperlessService.bulkEditDocuments = realBulkEdit;
-        config.duplicatesAiConcurrency = 1;
-      }
-
-      assert.deepStrictEqual(
-        value.failed,
-        [],
-        `nothing failed: ${JSON.stringify(value.failed)}`
-      );
-      assert.strictEqual(value.applied.length, 8, 'four splits, four deletes');
-      assert.strictEqual(value.merged.length, 2);
-      assert.ok(peak >= 2, `at most ${peak} write(s) were in flight at once`);
-      for (const id of [1, 2, 3, 12, 4, 5, 6, 7, 8, 10]) {
-        assert.strictEqual(fake.tag(id), undefined, `tag ${id} is gone`);
-      }
-      assert.strictEqual(
-        fake.documentTypeNames().filter((name) => name === 'Beleg').length,
-        1,
-        'the type two splits share was created once'
-      );
-      assert.strictEqual(
-        fake.tagNames().filter((name) => name === 'Auto').length,
-        1,
-        'and so was the topic'
-      );
-      assert.strictEqual(
-        fake.document(101).document_type,
-        7,
-        'the bigger split set the type on the shared document first'
-      );
-
-      // The second split's undo leaves the type the first one set.
-      const logOf = (tagId) =>
-        value.applied.find((entry) => entry.tagId === tagId).logId;
-      await withLog(() => duplicateMergeService.undo(logOf(2)));
-      assert.strictEqual(fake.document(101).document_type, 7);
-      await withLog(() => duplicateMergeService.undo(logOf(1)));
-      assert.strictEqual(fake.document(101).document_type, null);
-
-      // The strands themselves: a merge chain is one, independent merges are
-      // one each.
-      assert.deepStrictEqual(
-        (
-          await service._applyStrands('merge', [
-            { tagName: 'A', mergeInto: 'B' },
-            { tagName: 'B', mergeInto: 'C' },
-          ])
-        ).map((strand) => strand.length),
-        [2]
-      );
-      assert.deepStrictEqual(
-        (
-          await service._applyStrands('merge', [
-            { tagName: 'A', mergeInto: 'X' },
-            { tagName: 'B', mergeInto: 'Y' },
-          ])
-        ).map((strand) => strand.length),
-        [1, 1]
-      );
-    });
-
-    await test('A stop between two tags leaves the rest accepted', async () => {
-      const fake = orderArchive();
-      await useVocabulary(['Rechnung'], ['Strom']);
-      await useOrderProposals([
-        {
-          tagId: 20,
-          tagName: 'Stromrechnung',
-          documentCount: 2,
-          action: 'split',
-          typeName: 'Rechnung',
-          topicNames: ['Strom'],
-        },
-        { tagId: 23, tagName: 'todo', action: 'delete' },
-      ]);
-
-      let stopped = false;
-      const control = {
-        stopReason: () => (stopped ? 'user' : null),
-        onProgress: () => {
-          stopped = true;
-        },
-      };
-      const { value } = await withLog(() => service.applyAccepted({}, control));
-      assert.strictEqual(value.stopped, true);
-      assert.deepStrictEqual(value.applied, []);
-      assert.ok(fake.tag(20), 'nothing was written after the stop');
-      assert.strictEqual(
-        (await documentModel.getTagSplitProposal(20)).status,
-        'accepted',
-        'the rest waits for the next run'
-      );
-    });
-
-    await test('An apply with nothing accepted is not an error', async () => {
-      orderArchive();
-      await useVocabulary(['Rechnung'], ['Strom']);
-      await useOrderProposals([
-        { tagId: 23, tagName: 'todo', action: 'delete', status: 'open' },
-      ]);
-
-      const { value, lines } = await withLog(() => service.applyAccepted({}));
-      assert.deepStrictEqual(value, {
-        applied: [],
-        merged: [],
-        failed: [],
-        stopped: false,
-      });
-      assert.ok(
-        simplifyLines(lines).some((line) =>
-          /^\[SIMPLIFY\] order applied: 0 split, 0 merged, 0 deleted, 0 failed, in \d+\.\d+s\.$/.test(
-            line
-          )
-        ),
-        `no apply line:\n${simplifyLines(lines).join('\n')}`
-      );
-    });
-
-    await test('One group applies without touching what is accepted elsewhere', async () => {
-      const fake = orderArchive();
-      await useVocabulary(['Rechnung'], ['Strom']);
-      await useOrderProposals([
-        {
-          tagId: 20,
-          tagName: 'Stromrechnung',
-          documentCount: 2,
-          action: 'split',
-          typeName: 'Rechnung',
-          topicNames: ['Strom'],
-        },
-        { tagId: 23, tagName: 'todo', action: 'delete' },
-      ]);
-
-      const { value } = await withLog(() =>
-        service.applyAccepted({ groupKey: 'delete' })
-      );
-      assert.deepStrictEqual(
-        value.applied.map((entry) => entry.tagName),
-        ['todo']
-      );
-      assert.ok(fake.tag(20), 'the split group was not touched');
-      assert.strictEqual(
-        (await documentModel.getTagSplitProposal(20)).status,
-        'accepted'
-      );
-      await expectRefusal(
-        () => service.applyAccepted({ groupKey: 'type:Quittung' }),
-        404,
-        'a group nobody proposed'
       );
     });
   } finally {

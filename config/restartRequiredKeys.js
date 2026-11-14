@@ -14,40 +14,13 @@
  * own.
  *
  * A key belongs here only while its consumer provably snapshots it. Whoever
- * makes a consumer read live removes the key in the same change.
+ * makes a consumer read live removes the mark in the same change.
+ *
+ * The keys themselves are the entries marked `restart: true` in
+ * services/settingsCatalog.js, where each one says why.
  */
 const RESTART_REQUIRED_KEYS = Object.freeze(
-  new Set([
-    // Express app construction (server.js): app.listen(), app.set('trust
-    // proxy'), the CSRF cookie options and the global rate limiter.
-    'PAPERLESS_AI_PORT',
-    'TRUST_PROXY',
-    'COOKIE_SECURE_MODE',
-    'GLOBAL_RATE_LIMIT_WINDOW_MS',
-    'GLOBAL_RATE_LIMIT_MAX',
-    // The API docs routes are mounted or not at boot (server.js).
-    'EXPOSE_API_DOCS',
-    // Cron schedules registered at boot by startScanning() in server.js, and
-    // the switches that decide whether each one is registered at all.
-    'SCAN_INTERVAL',
-    'DISABLE_AUTOMATIC_PROCESSING',
-    'RECONCILIATION_INTERVAL',
-    'RECONCILIATION_ENABLED',
-    'OCR_AUTO_PROCESS_INTERVAL',
-    'OCR_AUTO_PROCESS_ENABLED',
-    'MISTRAL_OCR_ENABLED',
-    // The connectivity probe's setInterval is started once at boot.
-    'PAPERLESS_PROBE_INTERVAL_SECONDS',
-    // server.js keeps MIN_CONTENT_LENGTH in a module constant.
-    'MIN_CONTENT_LENGTH',
-    // paperlessService builds its HTTP client once from these and keeps the
-    // tag, correspondent and custom field ids it read from that instance.
-    'PAPERLESS_API_URL',
-    'PAPERLESS_API_TOKEN',
-    'PAPERLESS_REQUEST_TIMEOUT_SECONDS',
-    // Each logger takes its level when it is constructed.
-    'LOG_LEVEL',
-  ])
+  new Set(require('../services/settingsCatalog').restartKeys())
 );
 
 /**

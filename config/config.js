@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { stripTrailingSlashes } = require('../services/serviceUtils');
 const currentDir = decodeURIComponent(process.cwd());
 const envPath = path.join(currentDir, 'data', '.env');
 const migratedEnvPath = path.join(currentDir, 'data', '.env.migrated');
@@ -480,9 +481,7 @@ const externalApiConfig = liveBlock({
 
 const paperless = liveBlock({
   apiUrl: () =>
-    env('PAPERLESS_API_URL')
-      .replace(/\/+$/, '')
-      .replace(/\/api$/i, ''),
+    stripTrailingSlashes(env('PAPERLESS_API_URL')).replace(/\/api$/i, ''),
   apiToken: () => process.env.PAPERLESS_API_TOKEN,
   // Deadline for every single Paperless-ngx request. Axios ships with no
   // timeout at all, so a host that accepts the connection and then goes
@@ -568,6 +567,9 @@ const mistralOcr = liveBlock({
   // content write-back leaves the OCR text local-only, where a regular
   // scan would never pick it up.
   autoAnalyze: () => envBool('OCR_AUTO_ANALYZE', 'yes'),
+  // Passwords tried on PDFs that cannot be opened without one, stored as a
+  // JSON array; services/pdfPasswordService.js reads it into a list.
+  pdfPasswords: () => process.env.PDF_PASSWORDS || '',
 });
 
 // Startup behaviour when Paperless-ngx is not reachable yet (e.g. both
@@ -627,7 +629,7 @@ const MUST_HAVE_PROMPT = `  Return the result EXCLUSIVELY as a JSON object. The 
   }`;
 
 module.exports = {
-  PAPERLESS_AI_VERSION: 'v2026.11.01',
+  PAPERLESS_AI_VERSION: 'v2026.11.02',
   CONFIGURED: false,
   configSourceMode: CONFIG_SOURCE_MODE,
   getApiKey,

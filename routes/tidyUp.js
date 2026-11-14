@@ -19,7 +19,7 @@
  * API, all under isAuthenticated (session cookie or API key):
  *
  *   GET  /tidy-up                         the page
- *   GET  /duplicates, GET /simplify       301 → /tidy-up (in routes/setup.js)
+ *   GET  /duplicates, GET /simplify       301 → /tidy-up (in routes/tidyUpSupport.js)
  *   POST /api/tidy-up/runs                start a run {askModel, suggestSplits, kind}
  *   GET  /api/tidy-up/runs/current        the running or last run (TidyUpRun), 204 when none
  *   GET  /api/tidy-up/runs/:id            one run

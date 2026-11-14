@@ -740,14 +740,23 @@
                                                 <span>Fetch OCR Models</span>
                                             </button>
                                         </div>
-                                        <p id="ocrModelVisionHint" class="zr-field__hint <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">Vision support is detected from the model name, so the list is grouped rather than filtered &middot; models outside the recommended group may still work</p>
+                                        <p id="ocrModelVisionHint" class="zr-field__hint <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">Grouped by vision support, guessed from the model name; other models may still work</p>
+                                    </div>
+                                    <div id="ocrPromptContainer" class="zr-field zr-field--stacked <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">
+                                        <label for="ocrPrompt" class="zr-field__name">OCR Prompt</label>
+                                        <textarea id="ocrPrompt" name="ocrPrompt" rows="8" class="zr-textarea" spellcheck="false" data-default-anthropic="<%= ocrPromptDefaults.anthropic %>" data-default-local="<%= ocrPromptDefaults.local %>"><%= config.OCR_PROMPT || (ocrStoredForAnthropic ? ocrPromptDefaults.anthropic : ocrPromptDefaults.local) %></textarea>
+                                        <button id="ocrPromptResetBtn" type="button" class="zr-btn" data-locked-by="ocrPrompt">
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                            Reset to Default
+                                        </button>
+                                        <p class="zr-field__hint">Sent to the vision model with every document or page; Mistral OCR takes none. Claude answers [no text] for a document without text.</p>
                                     </div>
                                     <div id="ocrPdfRenderContainer" class="zr-col zr-col--loose">
                                         <%- include('partials/settings-switch', {
                                             id: 'ocrPdfRenderEnabled',
                                             label: 'Render PDF Pages (poppler)',
                                             checked: (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes',
-                                            hint: 'Render PDF pages with poppler (pdftoppm) so local vision models can OCR multi-page documents; falls back to the first-page thumbnail when poppler is not installed'
+                                            hint: 'Lets local vision models read every page of a PDF; without poppler only the first-page thumbnail is used'
                                         }) %>
                                         <div id="ocrPdfRenderOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? '' : 'hidden' %>">
                                             <div class="zr-field zr-field--stacked">
@@ -784,9 +793,20 @@
                                                 id: 'ocrAutoAnalyze',
                                                 label: 'AI Analysis After OCR',
                                                 checked: (config.OCR_AUTO_ANALYZE || 'yes') === 'yes',
-                                                hint: 'Analyse each document right after OCR. Keep this on: when Paperless-ngx rejects the content write-back the OCR text only exists locally, where a regular scan would never see it'
+                                                hint: 'Analyse each document right after OCR. Keep it on: if Paperless-ngx rejects the OCR text, only this step sees it'
                                             }) %>
                                         </div>
+                                    </div>
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="pdfPasswords" class="zr-field__name">PDF Passwords</label>
+                                        <textarea id="pdfPasswords" name="pdfPasswords" rows="3" class="zr-textarea" autocomplete="off" spellcheck="false" placeholder="<%= pdfPasswordCount ? `${pdfPasswordCount} stored` : 'One password per line' %>"></textarea>
+                                        <p class="zr-field__hint">One password per line, tried on PDFs that need one. Paperless-ngx 3.0+ removes the matching password and keeps the unlocked file as a new version.<% if (pdfPasswordCount) { %><span id="pdfPasswordsAddHint"> New ones are added to the stored list.</span><% } %></p>
+                                        <% if (pdfPasswordCount) { %>
+                                        <button id="pdfPasswordsDeleteBtn" type="button" class="zr-btn zr-btn--danger" data-locked-by="pdfPasswords" data-count="<%= pdfPasswordCount %>">
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                            Delete All Passwords
+                                        </button>
+                                        <% } %>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="ocrValidationTimeout" class="zr-field__name">OCR Timeout</label>
@@ -895,7 +915,7 @@
                                     <%- include('partials/settings-switch', {
                                         id: 'removeInboxTagsAfterProcessing',
                                         label: 'Remove the inbox tag when a document is done',
-                                        hint: 'Paperless-ngx marks the tags it uses as inbox; every one of them is taken off a document once the analysis was written. Use it when you let the analysis file documents on its own.',
+                                        hint: 'Takes every Paperless-ngx inbox tag off a document once its analysis is written.',
                                         checked: config.REMOVE_INBOX_TAGS_AFTER_PROCESSING === 'yes'
                                     }) %>
 
@@ -931,7 +951,7 @@
                                         <h2 class="zr-module__title">Documents that skip OCR and AI</h2>
                                     </div>
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">A document that matches a rule goes straight to the <a href="/ignored">ignored list</a>, with the rule as its reason. Take it off the list to have it processed anyway.</p>
+                                    <p class="zr-sm zr-muted">A matching document goes to the <a href="/ignored">ignored list</a>; take it off there to process it anyway.</p>
 
                                     <div class="zr-field zr-field--stacked">
                                         <label for="maxPageCount" class="zr-field__name">Page limit</label>
@@ -964,7 +984,7 @@
                                         id: 'ignoreRepeatedContent',
                                         label: 'Skip copies of ignored documents',
                                         checked: String(config.IGNORE_REPEATED_CONTENT || 'yes').toLowerCase() !== 'no',
-                                        hint: 'A document whose text is the same as one on the ignored list is skipped too. Compares the text Paperless-ngx recognised, so a newly generated PDF of the same terms still counts.'
+                                        hint: 'Also skips documents whose text matches one on the ignored list, even as a newly generated PDF.'
                                     }) %>
                                     </div>
                                 </section>
@@ -1163,7 +1183,7 @@
                                                 <span>Copy</span>
                                             </button>
                                         </div>
-                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider · Empty uses the address shown, set it behind a reverse proxy</p>
+                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider; set it behind a reverse proxy</p>
                                     </div>
                                     <div class="zr-col zr-col--tight zr-sso-test">
                                         <div class="zr-row zr-row--wrap">
@@ -1183,7 +1203,7 @@
                                         <h2 class="zr-module__title">Who may sign in</h2>
                                     </div>
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">Single sign-on adds no users: it signs in to the one administrator account, and only the identity whose e-mail address matches gets in. Restrict the application at the provider as well.</p>
+                                    <p class="zr-sm zr-muted">Single sign-on opens the one administrator account, only for the matching e-mail address. Restrict the application at the provider too.</p>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcAdminEmail" class="zr-field__name">Administrator e-mail</label>
                                         <input type="text" inputmode="email" id="oidcAdminEmail" name="oidcAdminEmail" value="<%= config.OIDC_ADMIN_EMAIL || '' %>" class="zr-input" placeholder="you@example.com" autocomplete="off" spellcheck="false">
@@ -1271,7 +1291,7 @@
                                             <option value="client_secret_post" <%= oidcAuthMethod === 'client_secret_post' ? 'selected' : '' %>>client_secret_post</option>
                                             <option value="none" <%= oidcAuthMethod === 'none' ? 'selected' : '' %>>none (public client)</option>
                                         </select>
-                                        <p class="zr-field__hint">OIDC_TOKEN_AUTH_METHOD · Automatic uses none without a secret, otherwise client_secret_basic unless the provider only offers client_secret_post</p>
+                                        <p class="zr-field__hint">OIDC_TOKEN_AUTH_METHOD · Automatic picks one from the secret and what the provider offers</p>
                                     </div>
                                     </div>
                                 </details>
@@ -1387,7 +1407,7 @@
                                         <h2 class="zr-module__title">Quickstart auto-detect</h2>
                                     </div>
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-field__hint">Point at a local AI server (LM Studio, Ollama, or any OpenAI-compatible endpoint). Detection lists the running models and classifies them for AI analysis and OCR. These two fields drive the detection run only &mdash; what gets saved is what you apply to <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR fallback</a>.</p>
+                                    <p class="zr-field__hint">Finds the models on a local AI server (LM Studio, Ollama or OpenAI-compatible). Nothing is saved until you apply them to <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR fallback</a>.</p>
     <%
     /* Only the provider actually in use may prefill this field. config.OLLAMA_API_URL
        carries a default of http://localhost:11434 and is therefore never empty, so

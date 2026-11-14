@@ -321,7 +321,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'RESPONSE_TOKENS',
     label: 'Answer length',
-    help: 'How long an answer the model may write for one document, in tokens (roughly three quarters of a word each). The default is enough for tags, a title and a few fields; raise it only when answers arrive cut off.',
+    help: 'The longest answer the model may write for one document, in tokens. Raise it only when answers arrive cut off.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '1000',
@@ -330,7 +330,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'TOKEN_LIMIT',
     label: 'Document length limit',
-    help: 'The most text of one document that is sent to the model, in tokens. Longer documents are shortened to fit. Match it to what the model accepts; too high and the provider refuses the request, too low and long documents lose their ending.',
+    help: 'How much of a document is sent to the model, in tokens; longer ones are shortened. Match it to what the model accepts.',
     level: 'advanced',
     providers: null,
     defaultValue: '128000',
@@ -339,7 +339,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_TEMPERATURE_ANALYSIS',
     label: 'Analysis creativity',
-    help: 'How freely the model may deviate from the most likely answer when it tags and titles a document, from 0 (always the same answer) to 2 (very varied). Low values give consistent tags; leave it unless tags come out erratic.',
+    help: 'How varied tags and titles may be, from 0 (always the same answer) to 2. Low values keep tags consistent.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.3',
@@ -348,7 +348,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_TEMPERATURE_GENERATION',
     label: 'Generation creativity',
-    help: 'The same setting for the free-text tasks — the playground, the duplicate review and tag simplification. A little higher than for analysis, because those answers may be worded freely.',
+    help: 'The same for free-text tasks such as the playground and Tidy up, whose answers may be worded freely.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.7',
@@ -357,7 +357,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_EFFORT',
     label: 'Thinking effort',
-    help: 'How much the model may think before it answers. Higher levels take longer and cost more tokens but help with hard documents. Empty leaves the model at its own default, which suits most archives.',
+    help: 'How much the model thinks before answering. Higher helps hard documents but is slower and costlier; empty keeps the model default.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '',
@@ -366,7 +366,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_MAX_TOKENS',
     label: 'Answer and thinking budget',
-    help: 'The most tokens one request may spend on thinking and answering together. The default leaves room for both; lower it to cap costs, raise it when answers are cut off at a high thinking effort.',
+    help: 'The most tokens one request may spend on thinking and answering together. Raise it when answers are cut off.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '16000',
@@ -375,7 +375,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_STRUCTURED_OUTPUT',
     label: 'Structured answers',
-    help: 'Asks the model to answer in exactly the shape the app expects, so no answer is lost to a formatting slip. Switch it off only if a proxy in front of the API rejects the request.',
+    help: 'Makes the model answer in exactly the expected format. Switch it off only if a proxy rejects the request.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: 'yes',
@@ -384,7 +384,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_PROMPT_CACHING',
     label: 'Reuse the instructions',
-    help: 'The instructions are the same for every document of a scan. With this on, the provider keeps them for a few minutes and charges a fraction for the repeat, which makes a scan noticeably cheaper. There is no reason to switch it off except for a proxy that cannot handle it.',
+    help: 'Instructions repeated for every document are billed at a fraction, so scans cost less. Switch it off only for a proxy that cannot handle it.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: 'yes',
@@ -402,7 +402,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'OLLAMA_THINK',
     label: 'Let the model think',
-    help: 'Reasoning models such as Qwen3 or DeepSeek-R1 can write down their thoughts before answering. That improves hard cases but slows every document down and needs a larger answer length. Off unless you know your model benefits.',
+    help: 'Lets reasoning models such as Qwen3 think before answering: better on hard cases, but slower. Needs a larger answer length.',
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: 'false',
@@ -411,7 +411,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'OLLAMA_API_KEY',
     label: 'API key',
-    help: 'Only needed when the Ollama server sits behind a proxy that asks for a token. A plain Ollama install has no key; leave it empty.',
+    help: 'Only for an Ollama server behind a proxy that asks for a token; a plain install needs none.',
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: '',
@@ -420,7 +420,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AZURE_API_VERSION',
     label: 'API version',
-    help: 'The Azure OpenAI API version every request names. The default works for chat models; change it only when Azure asks for a newer one, for example for a recent model.',
+    help: 'The Azure OpenAI API version sent with every request. Change it only when Azure asks for a newer one.',
     level: 'advanced',
     providers: ['azure'],
     defaultValue: '2023-05-15',
@@ -436,7 +436,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_REVIEW',
     label: 'Ask the model about unclear pairs',
-    help: 'On the Tidy up page, the model reads the pairs of names that spelling rules cannot settle, looks at a few document titles and says whether they mean the same thing. Off, the page decides by spelling rules alone. Nothing runs until you start a run there.',
+    help: 'The model judges name pairs that spelling rules cannot settle, using a few document titles. Off, spelling rules decide alone.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
@@ -445,7 +445,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_GUARD_NEW_NAMES',
     label: 'Reuse an existing name instead of creating a near-duplicate',
-    help: 'When document analysis proposes a tag or correspondent that already exists in another spelling (upper or lower case, umlauts, a legal form such as GmbH, singular or plural, or the same words in another order), the existing one is used and the Tidy up page lists the mapping. A name that only looks like a typo of an existing one is logged, and the new name is still created.',
+    help: 'A proposed name that exists in another spelling (case, umlauts, legal form, plural, word order) becomes the existing one; a mere typo is only logged.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
@@ -463,7 +463,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_TOKEN_BUDGET',
     label: 'Token budget per run',
-    help: 'The most one Tidy up run may spend on the model across all its requests, in tokens (roughly three quarters of a word each). When it is reached the run stops and keeps the answers it already has; 0 means no limit.',
+    help: 'The most tokens one Tidy up run may spend; it then stops and keeps its answers. 0 means no limit.',
     level: 'advanced',
     providers: null,
     defaultValue: '200000',
@@ -481,7 +481,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_REQUEST_SECONDS',
     label: 'Seconds per request',
-    help: 'The page first measures your model on one small request, then puts as many pairs into each request as fit into this many seconds. Shorter means smaller requests and more frequent progress.',
+    help: 'Each request gets as many pairs as your model handles in this time. Shorter means smaller requests and more frequent progress.',
     level: 'advanced',
     providers: null,
     defaultValue: '30',
@@ -490,7 +490,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_CONCURRENCY',
     label: 'Requests at once',
-    help: 'How many model requests run in parallel. 0 lets the page choose: one for Ollama, three for a hosted provider. More at once finishes sooner but costs the same tokens.',
+    help: 'Model requests running in parallel; 0 picks one for Ollama, three for hosted providers. More is faster, not cheaper.',
     level: 'advanced',
     providers: null,
     defaultValue: '0',
@@ -499,7 +499,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_REVIEW_BATCH_SIZE',
     label: 'Pairs per request',
-    help: 'How many name pairs one model request asks about. Fewer pairs mean more, shorter requests; more pairs need a model that can read more text at once.',
+    help: 'Name pairs per model request. More pairs need a model that can read more text at once.',
     level: 'advanced',
     providers: null,
     defaultValue: '25',
@@ -508,7 +508,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_CANDIDATE_FLOOR',
     label: 'Lowest similarity shown to the model',
-    help: 'Pairs whose spelling is too far apart to be suggested on their own, but more alike than this score (0.5 to 0.95), are shown to the model too. A lower value asks about more pairs and costs more tokens.',
+    help: 'Pairs too different for a suggestion but above this similarity (0.5 to 0.95) go to the model. Lower asks about more pairs.',
     level: 'advanced',
     providers: null,
     defaultValue: '0.6',
@@ -517,7 +517,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_EXCERPTS',
     label: 'Read document excerpts for spelling-only pairs',
-    help: 'When two names were linked by spelling alone, the model also reads a short excerpt of a few of their documents. That tells apart names that look like a typo of each other but mean different things.',
+    help: 'For pairs linked by spelling alone, the model also reads short excerpts of their documents to tell look-alikes apart.',
     level: 'advanced',
     providers: null,
     defaultValue: 'yes',
@@ -535,7 +535,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
     label: 'Documents per name for excerpts',
-    help: 'How many documents of each tag or correspondent are sampled for those excerpts.',
+    help: 'How many documents per tag or correspondent are sampled for excerpts.',
     level: 'advanced',
     providers: null,
     defaultValue: '2',
@@ -544,7 +544,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
     label: 'Remember answers for (days)',
-    help: 'A pair the model has already answered about is not asked about again while both names stay unchanged. 0 switches this memory off.',
+    help: 'An answered pair is not asked again while both names stay unchanged. 0 switches this off.',
     level: 'advanced',
     providers: null,
     defaultValue: '90',
@@ -553,7 +553,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_THINKING',
     label: 'Let the model think first',
-    help: 'Reasoning models write down their thoughts before the answer and can spend the whole answer budget on them. Off, the model gets the evidence instead and answers in a fraction of the time and cost. Switch it on only if your model answers badly without it.',
+    help: 'Reasoning models can spend the whole answer budget on thinking. Switch it on only if your model answers badly without it.',
     level: 'advanced',
     providers: null,
     defaultValue: 'no',
@@ -562,7 +562,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_SWEEP_NAMES',
     label: 'Names per request when looking for synonyms',
-    help: 'To find synonyms, translations and abbreviations that spelling rules cannot see, the model reads the whole list of names in parts. This is how many names go into one part. The same size applies when the model proposes the document types and topics for splitting tags.',
+    help: 'Names per request when the model looks for synonyms, translations and abbreviations, and when it proposes split topics.',
     level: 'advanced',
     providers: null,
     defaultValue: '300',
@@ -571,7 +571,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'SIMPLIFY_TAGS_PER_REQUEST',
     label: 'Tags per request when splitting',
-    help: 'How many tag names the model looks at in one request when it suggests splitting a combined tag such as "Electricity bill" into a document type and a topic. Fewer names mean more requests; more names need a model that can read more text at once.',
+    help: 'Tag names per request when the model suggests splitting a tag such as "Electricity bill" into a document type and a topic.',
     level: 'advanced',
     providers: null,
     defaultValue: '50',
@@ -580,7 +580,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'SIMPLIFY_VOCABULARY_SIZE',
     label: 'Number of document types and topics to propose',
-    help: 'When you have not saved your own list yet, the model proposes the document types and topics that tags are split into. This is about how many it aims for, both together. Smaller means fewer, broader topics.',
+    help: 'How many document types and topics the model aims for when you have no saved list. Smaller means broader topics.',
     level: 'advanced',
     providers: null,
     defaultValue: '25',

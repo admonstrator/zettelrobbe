@@ -20,7 +20,7 @@
  * full list. The content adapts to the tile through the height container
  * queries in pages/dashboard.css.
  *
- * The wire format is storage v1 (documented in routes/setup.js): named
+ * The wire format is storage v1 (documented in routes/dashboard.js): named
  * dashboards, each holding its cards in display order. This module ships a
  * single board and only ever writes that one; it reads back whichever board the
  * stored config points at, so a later multi-board UI can grow around it without

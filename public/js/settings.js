@@ -642,6 +642,7 @@ function initializeFormHandlers() {
   const ocrApiUrlInput = document.getElementById('ocrApiUrl');
   const ocrApiKeyInput = document.getElementById('ocrApiKey');
   const ocrModelInput = document.getElementById('mistralOcrModel');
+  const ocrPromptInput = document.getElementById('ocrPrompt');
   const ocrValidationTimeoutInput = document.getElementById(
     'ocrValidationTimeout'
   );
@@ -1423,6 +1424,12 @@ function initializeFormHandlers() {
     ocrProviderSelect?.value || 'mistral'
   ).toLowerCase();
 
+  // The built-in OCR prompt of a provider, as the page renders it.
+  const defaultOcrPrompt = (provider) =>
+    (provider === 'anthropic'
+      ? ocrPromptInput?.dataset.defaultAnthropic
+      : ocrPromptInput?.dataset.defaultLocal) || '';
+
   const toggleOcrFields = () => {
     if (!ocrEnabledSelect || !ocrProviderSelect) return;
 
@@ -1475,6 +1482,20 @@ function initializeFormHandlers() {
       );
     }
 
+    // Mistral's OCR API takes no prompt. A prompt still showing the previous
+    // provider's built-in one follows the switch; an edited one stays.
+    document
+      .getElementById('ocrPromptContainer')
+      ?.classList.toggle('hidden', !enabled || provider === 'mistral');
+    if (
+      ocrPromptInput &&
+      ['', defaultOcrPrompt(previousOcrProvider)].includes(
+        ocrPromptInput.value.replace(/\r\n?/g, '\n').trim()
+      )
+    ) {
+      ocrPromptInput.value = defaultOcrPrompt(provider);
+    }
+
     // PDF page rendering only applies to local vision models; Mistral and
     // Claude read PDFs natively.
     const ocrPdfRenderContainer = document.getElementById(
@@ -1493,6 +1514,52 @@ function initializeFormHandlers() {
 
     previousOcrProvider = provider;
   };
+
+  document
+    .getElementById('ocrPromptResetBtn')
+    ?.addEventListener('click', () => {
+      if (!ocrPromptInput) return;
+      ocrPromptInput.value = defaultOcrPrompt(
+        String(ocrProviderSelect?.value || 'mistral').toLowerCase()
+      );
+      // Tells the unsaved-changes bar, which listens for input.
+      ocrPromptInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+  // Saving only adds PDF passwords; removing them is a request of its own.
+  const pdfPasswordsDeleteBtn = document.getElementById(
+    'pdfPasswordsDeleteBtn'
+  );
+  pdfPasswordsDeleteBtn?.addEventListener('click', async () => {
+    const count = Number(pdfPasswordsDeleteBtn.dataset.count) || 0;
+    const answer = await zrDialog({
+      icon: 'warning',
+      title: 'Delete All Passwords',
+      text: `${count === 1 ? 'The stored PDF password is' : `All ${count} stored PDF passwords are`} deleted. Locked documents can then only be unlocked with a password typed in again.`,
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Cancel',
+    });
+    if (!answer.isConfirmed) return;
+    pdfPasswordsDeleteBtn.disabled = true;
+    try {
+      const response = await fetch('/api/settings/pdf-passwords', {
+        method: 'DELETE',
+      });
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'The passwords were not deleted');
+      }
+      const field = document.getElementById('pdfPasswords');
+      if (field) field.placeholder = 'One password per line';
+      document.getElementById('pdfPasswordsAddHint')?.remove();
+      pdfPasswordsDeleteBtn.remove();
+      window.__zrToast?.(result.message, { tone: 'ok' });
+    } catch (error) {
+      pdfPasswordsDeleteBtn.disabled = false;
+      await zrDialog({ icon: 'error', title: 'Error', text: error.message });
+    }
+  });
 
   if (ocrProviderSelect) {
     const initialProvider = String(
@@ -3114,6 +3181,93 @@ function lockChipField(fieldElement) {
   });
 }
 
+/* The variable that pins a field, or null when the field is free. The OCR
+   key field writes OCR_API_KEY, but every OCR provider except Claude falls
+   back to MISTRAL_API_KEY when OCR_API_KEY is empty, so a key typed here
+   would win over a MISTRAL_API_KEY the container pins. Claude OCR never reads
+   that key, so for Claude only a pinned OCR_API_KEY locks the field. */
+function envKeyPinningField(envKey, lockedEnvKeys, ocrProvider) {
+  if (lockedEnvKeys.has(envKey)) {
+    return envKey;
+  }
+  if (
+    envKey === 'OCR_API_KEY' &&
+    lockedEnvKeys.has('MISTRAL_API_KEY') &&
+    String(ocrProvider || 'mistral').toLowerCase() !== 'anthropic'
+  ) {
+    return 'MISTRAL_API_KEY';
+  }
+  return null;
+}
+
+/* Locks one field: disabled, its value left visible, and its hint says which
+   variable pins it. notedContainers keeps a field container from getting the
+   sentence twice. */
+function lockEnvField(setupForm, fieldElement, envKey, notedContainers) {
+  // The :disabled styling in the framework carries the visual state. A
+  // switch carries the key on both halves (annotateEnvKeys), so the
+  // visible toggle is locked along with its hidden yes/no input.
+  fieldElement.disabled = true;
+  fieldElement.setAttribute('aria-disabled', 'true');
+  lockChipField(fieldElement);
+  // Controls that change the field's value (a model picker's Fetch button
+  // and its "Other…" text field) are locked along with it.
+  if (fieldElement.id) {
+    setupForm
+      .querySelectorAll(`[data-locked-by="${fieldElement.id}"]`)
+      .forEach((control) => {
+        control.disabled = true;
+        control.setAttribute('aria-disabled', 'true');
+      });
+  }
+
+  const note = `Set by the environment (${envKey}).`;
+  const tile = fieldElement.closest('.zr-checktile');
+  if (tile) {
+    tile.title = note;
+    return;
+  }
+
+  const container = fieldElement.closest('.zr-field, .zr-switchrow');
+  if (!container || notedContainers.has(container)) {
+    return;
+  }
+  notedContainers.add(container);
+
+  const hints = [...container.querySelectorAll('.zr-field__hint')];
+  // Hints that swap with the provider (the OCR key) each get the note.
+  const targets = hints.some((hint) => hint.id)
+    ? hints.filter((hint) => hint.id)
+    : hints.slice(-1);
+  if (targets.length === 0) {
+    const hint = document.createElement('p');
+    hint.className = 'zr-field__hint';
+    // A switch row keeps its text left of the toggle.
+    (container.querySelector('.zr-grow') || container).append(hint);
+    targets.push(hint);
+  }
+  targets.forEach((hint) => {
+    const sentence = document.createElement('span');
+    sentence.className = 'zr-field__locked';
+    sentence.textContent = hint.textContent.trim() ? ` · ${note}` : note;
+    hint.append(sentence);
+  });
+}
+
+/* Undoes lockEnvField for a plain field (no chips, no switch, no tile): the
+   only field whose lock can lift is the OCR key, when the provider switches
+   to Claude. */
+function unlockEnvField(fieldElement, notedContainers) {
+  fieldElement.disabled = false;
+  fieldElement.removeAttribute('aria-disabled');
+  const container = fieldElement.closest('.zr-field, .zr-switchrow');
+  if (!container) return;
+  container
+    .querySelectorAll('.zr-field__locked')
+    .forEach((sentence) => sentence.remove());
+  notedContainers.delete(container);
+}
+
 /* A field whose value the container pins is locked: disabled, its value
    left visible, and its hint says where the value comes from. The keys come
    from #setupForm (data-locked-env-keys, rendered by GET /settings). */
@@ -3134,6 +3288,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#paperlessToken', envKey: 'PAPERLESS_API_TOKEN' },
     { selector: '#paperlessUsername', envKey: 'PAPERLESS_USERNAME' },
     { selector: '#scanInterval', envKey: 'SCAN_INTERVAL' },
+    { selector: '#logLevel', envKey: 'LOG_LEVEL' },
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },
     { selector: '#showTags', envKey: 'PROCESS_PREDEFINED_DOCUMENTS' },
     { selector: '#tagInput', envKey: 'TAGS' },
@@ -3267,8 +3422,11 @@ function initializeRuntimeOverridePills() {
     { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
     { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
     { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
-    { selector: '#mistralApiKey', envKey: 'MISTRAL_API_KEY' },
+    // One field for the OCR key; the save also fills MISTRAL_API_KEY, and a
+    // pinned MISTRAL_API_KEY locks it too (envKeyPinningField).
+    { selector: '#ocrApiKey', envKey: 'OCR_API_KEY' },
     { selector: '#mistralOcrModel', envKey: 'MISTRAL_OCR_MODEL' },
+    { selector: '#ocrPrompt', envKey: 'OCR_PROMPT' },
     { selector: '#ocrPdfRenderEnabled', envKey: 'OCR_PDF_RENDER_ENABLED' },
     { selector: '#ocrPdfRenderMaxPages', envKey: 'OCR_PDF_RENDER_MAX_PAGES' },
     { selector: '#ocrPdfRenderDpi', envKey: 'OCR_PDF_RENDER_DPI' },
@@ -3285,6 +3443,7 @@ function initializeRuntimeOverridePills() {
       envKey: 'OCR_AUTO_PROCESS_BATCH_SIZE',
     },
     { selector: '#ocrAutoAnalyze', envKey: 'OCR_AUTO_ANALYZE' },
+    { selector: '#pdfPasswords', envKey: 'PDF_PASSWORDS' },
     {
       selector: '#ocrValidationTimeout',
       envKey: 'SETUP_OCR_VALIDATION_TIMEOUT_MS',
@@ -3353,62 +3512,43 @@ function initializeRuntimeOverridePills() {
     return;
   }
 
+  const ocrProviderSelect = document.getElementById('ocrProvider');
+  const ocrProvider = () => ocrProviderSelect?.value || 'mistral';
+
   const notedContainers = new Set();
   setupForm.querySelectorAll('[data-env-key]').forEach((fieldElement) => {
-    const envKey = fieldElement.dataset.envKey;
-    if (!lockedEnvKeys.has(envKey)) {
-      return;
+    const pinnedBy = envKeyPinningField(
+      fieldElement.dataset.envKey,
+      lockedEnvKeys,
+      ocrProvider()
+    );
+    if (pinnedBy) {
+      lockEnvField(setupForm, fieldElement, pinnedBy, notedContainers);
     }
-
-    // The :disabled styling in the framework carries the visual state. A
-    // switch carries the key on both halves (annotateEnvKeys), so the
-    // visible toggle is locked along with its hidden yes/no input.
-    fieldElement.disabled = true;
-    fieldElement.setAttribute('aria-disabled', 'true');
-    lockChipField(fieldElement);
-    // Controls that change the field's value (a model picker's Fetch button
-    // and its "Other…" text field) are locked along with it.
-    if (fieldElement.id) {
-      setupForm
-        .querySelectorAll(`[data-locked-by="${fieldElement.id}"]`)
-        .forEach((control) => {
-          control.disabled = true;
-          control.setAttribute('aria-disabled', 'true');
-        });
-    }
-
-    const note = `Set by the environment (${envKey}).`;
-    const tile = fieldElement.closest('.zr-checktile');
-    if (tile) {
-      tile.title = note;
-      return;
-    }
-
-    const container = fieldElement.closest('.zr-field, .zr-switchrow');
-    if (!container || notedContainers.has(container)) {
-      return;
-    }
-    notedContainers.add(container);
-
-    const hints = [...container.querySelectorAll('.zr-field__hint')];
-    // Hints that swap with the provider (the OCR key) each get the note.
-    const targets = hints.some((hint) => hint.id)
-      ? hints.filter((hint) => hint.id)
-      : hints.slice(-1);
-    if (targets.length === 0) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      // A switch row keeps its text left of the toggle.
-      (container.querySelector('.zr-grow') || container).append(hint);
-      targets.push(hint);
-    }
-    targets.forEach((hint) => {
-      const sentence = document.createElement('span');
-      sentence.className = 'zr-field__locked';
-      sentence.textContent = hint.textContent.trim() ? ` · ${note}` : note;
-      hint.append(sentence);
-    });
   });
+
+  // Pinned only through MISTRAL_API_KEY, the OCR key is locked for some
+  // providers and free for Claude: follow the switch.
+  const ocrKeyField = document.getElementById('ocrApiKey');
+  if (
+    ocrKeyField &&
+    ocrProviderSelect &&
+    !lockedEnvKeys.has('OCR_API_KEY') &&
+    lockedEnvKeys.has('MISTRAL_API_KEY')
+  ) {
+    ocrProviderSelect.addEventListener('change', () => {
+      const pinnedBy = envKeyPinningField(
+        'OCR_API_KEY',
+        lockedEnvKeys,
+        ocrProvider()
+      );
+      if (pinnedBy) {
+        lockEnvField(setupForm, ocrKeyField, pinnedBy, notedContainers);
+      } else {
+        unlockEnvField(ocrKeyField, notedContainers);
+      }
+    });
+  }
 }
 
 // Custom Fields Management

@@ -592,6 +592,22 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 17,
+    description: 'Mark OCR queue items whose PDF needs a password',
+    up: (database) => {
+      // Set when an OCR run finds the file locked, cleared when the item is
+      // queued again. The OCR page offers the unlock on these rows only.
+      const queueColumns = database
+        .prepare("PRAGMA table_info('ocr_queue')")
+        .all();
+      if (!queueColumns.some((col) => col.name === 'password_protected')) {
+        database.exec(
+          'ALTER TABLE ocr_queue ADD COLUMN password_protected INTEGER DEFAULT 0'
+        );
+      }
+    },
+  },
 ];
 
 /** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
@@ -745,20 +761,6 @@ function parseAiPairVerdictRow(row) {
     reason: row.reason ?? null,
     model: row.model ?? null,
     judgedAt: row.judged_at,
-  };
-}
-
-function parseEntityNameMappingRow(row) {
-  return {
-    id: row.id,
-    kind: row.kind,
-    proposedName: row.proposed_name,
-    targetId: row.target_id,
-    targetName: row.target_name,
-    reason: row.reason,
-    score: Number(row.score) || 0,
-    documentId: row.document_id ?? null,
-    createdAt: row.created_at,
   };
 }
 
@@ -1586,29 +1588,6 @@ module.exports = {
     }
   },
 
-  /** The newest mappings first, at most `limit` (default: everything kept). */
-  async listEntityNameMappings({ limit = ENTITY_NAME_MAPPINGS_KEEP } = {}) {
-    try {
-      return db
-        .prepare('SELECT * FROM entity_name_mappings ORDER BY id DESC LIMIT ?')
-        .all(Math.max(1, Number(limit) || ENTITY_NAME_MAPPINGS_KEEP))
-        .map(parseEntityNameMappingRow);
-    } catch (error) {
-      console.error('[ERROR] listing entity name mappings:', error);
-      return [];
-    }
-  },
-
-  /** Forgets every mapping. @returns {Promise<number>} rows removed */
-  async clearEntityNameMappings() {
-    try {
-      return db.prepare('DELETE FROM entity_name_mappings').run().changes;
-    } catch (error) {
-      console.error('[ERROR] clearing entity name mappings:', error);
-      return 0;
-    }
-  },
-
   /**
    * Writes down what one finished run cost. A stopped or failed run is saved
    * too, marked as such: it measured its requests all the same, and a page
@@ -1879,6 +1858,7 @@ module.exports = {
           reason = excluded.reason,
           ocr_text = CASE WHEN ocr_queue.status = 'done' THEN NULL ELSE ocr_queue.ocr_text END,
           status = 'pending',
+          password_protected = 0,
           added_at = CURRENT_TIMESTAMP
         WHERE ocr_queue.status IN ('pending', 'failed')
            OR (ocr_queue.status = 'done' AND ? = 1)
@@ -1954,6 +1934,52 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] getting paginated OCR queue:', error);
       return { docs: [], total: 0 };
+    }
+  },
+
+  /**
+   * Records that the document's PDF cannot be opened without a password.
+   * The row is failed: OCR cannot read it until it is unlocked.
+   *
+   * @param {number} documentId
+   * @returns {Promise<boolean>}
+   */
+  async markOcrQueuePasswordProtected(documentId) {
+    try {
+      const result = db
+        .prepare(
+          `
+        UPDATE ocr_queue SET
+          status = 'failed',
+          password_protected = 1,
+          processed_at = CURRENT_TIMESTAMP
+        WHERE document_id = ?
+      `
+        )
+        .run(documentId);
+      return result.changes > 0;
+    } catch (error) {
+      console.error(
+        '[ERROR] marking OCR queue item password protected:',
+        error
+      );
+      return false;
+    }
+  },
+
+  /** @returns {Promise<Array<{ document_id: number, title: string }>>} */
+  async getPasswordProtectedOcrItems() {
+    try {
+      return db
+        .prepare(
+          `SELECT document_id, title FROM ocr_queue
+           WHERE password_protected = 1 AND status = 'failed'
+           ORDER BY added_at DESC`
+        )
+        .all();
+    } catch (error) {
+      console.error('[ERROR] listing password-protected OCR items:', error);
+      return [];
     }
   },
 
@@ -2289,6 +2315,83 @@ module.exports = {
       console.error('[ERROR] removing ignored document:', error);
       return false;
     }
+  },
+
+  /**
+   * Where one document stands in Zettelrobbe's own records, for the manual
+   * page: processed when, failed why, ignored, waiting in the OCR queue.
+   *
+   * @param {number} documentId
+   */
+  getDocumentStatus(documentId) {
+    const row = (sql) => db.prepare(sql).get(documentId) || null;
+    const processed = row(
+      'SELECT processed_at FROM processed_documents WHERE document_id = ?'
+    );
+    const failed = row(
+      'SELECT failed_reason FROM failed_documents WHERE document_id = ?'
+    );
+    const ignored = row(
+      'SELECT reason FROM ignored_documents WHERE document_id = ?'
+    );
+    const ocr = row(
+      'SELECT status, password_protected FROM ocr_queue WHERE document_id = ?'
+    );
+    return {
+      processedAt: processed ? processed.processed_at : null,
+      failedReason: failed ? failed.failed_reason : null,
+      ignored: !!ignored,
+      ocrStatus: ocr ? ocr.status : null,
+      passwordProtected: !!(ocr && ocr.password_protected),
+    };
+  },
+
+  /**
+   * The documents of one local list, newest first, as the manual page walks
+   * through them: failed, the OCR queue, the password-protected PDFs, or the
+   * ignored ones.
+   *
+   * @param {'failed'|'ocr'|'locked'|'ignored'} list
+   * @param {number} [limit]
+   * @returns {Array<{ id: number, title: string }>}
+   */
+  getManualWorklist(list, limit = 500) {
+    const queries = {
+      failed:
+        'SELECT document_id AS id, title FROM failed_documents ORDER BY updated_at DESC LIMIT ?',
+      ocr: 'SELECT document_id AS id, title FROM ocr_queue ORDER BY added_at DESC LIMIT ?',
+      locked:
+        "SELECT document_id AS id, title FROM ocr_queue WHERE password_protected = 1 AND status = 'failed' ORDER BY added_at DESC LIMIT ?",
+      ignored:
+        'SELECT document_id AS id, title FROM ignored_documents ORDER BY created_at DESC LIMIT ?',
+    };
+    const sql = queries[list];
+    return sql ? db.prepare(sql).all(limit) : [];
+  },
+
+  /**
+   * Drops every local record of a document that no longer exists in
+   * Paperless-ngx: processed, history, original snapshot, OCR queue, failed
+   * and ignored lists.
+   *
+   * @param {number} documentId
+   */
+  forgetDocument(documentId) {
+    const tables = [
+      'processed_documents',
+      'history_documents',
+      'original_documents',
+      'ocr_queue',
+      'failed_documents',
+      'ignored_documents',
+    ];
+    db.transaction(() => {
+      for (const table of tables) {
+        db.prepare(`DELETE FROM ${table} WHERE document_id = ?`).run(
+          documentId
+        );
+      }
+    })();
   },
 
   async isDocumentIgnored(documentId) {
@@ -2708,35 +2811,6 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] updating a split proposal:', error);
       return false;
-    }
-  },
-
-  /**
-   * Sets one status on many proposals in one transaction: a group accepted,
-   * skipped or reopened on the page.
-   *
-   * @param {number[]} tagIds
-   * @param {string} status
-   * @returns {Promise<number>} rows changed
-   */
-  async setTagSplitProposalStatus(tagIds, status) {
-    const ids = (Array.isArray(tagIds) ? tagIds : [])
-      .map(Number)
-      .filter((id) => Number.isInteger(id) && id > 0);
-    if (ids.length === 0) return 0;
-    try {
-      const update = db.prepare(
-        'UPDATE tag_split_proposals SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE tag_id = ?'
-      );
-      const run = db.transaction(() => {
-        let changed = 0;
-        for (const id of ids) changed += update.run(String(status), id).changes;
-        return changed;
-      });
-      return run();
-    } catch (error) {
-      console.error('[ERROR] setting the status of split proposals:', error);
-      return 0;
     }
   },
 

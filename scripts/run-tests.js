@@ -73,6 +73,7 @@ const TESTS = {
   'setup-wizard-quickstart': 'test-setup-wizard-quickstart.js',
   'settings-quickstart-persistence': 'test-settings-quickstart-persistence.js',
   'settings-tidy-up-section': 'test-settings-tidy-up-section.js',
+  'settings-nav-active': 'test-settings-nav-active.js',
   'settings-ai-options': 'test-settings-ai-options.js',
   'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
@@ -114,6 +115,13 @@ const TESTS = {
   'ocr-pdf-render-fallback': 'test-ocr-pdf-render-fallback.js',
   'ocr-pdf-render-page-failure': 'test-ocr-pdf-render-page-failure.js',
   'poppler-render-real': 'test-poppler-render-real.js',
+  'pdf-password-service': 'test-pdf-password-service.js',
+  'pdf-password-real': 'test-pdf-password-real.js',
+  'pdf-passwords-delete-route': 'test-pdf-passwords-delete-route.js',
+  'pdf-unlock-service': 'test-pdf-unlock-service.js',
+  'manual-page-routes': 'test-manual-page-routes.js',
+  'ocr-password-protected': 'test-ocr-password-protected.js',
+  'ocr-queue-password-flag': 'test-ocr-queue-password-flag.js',
   'ollama-token-metrics': 'test-ollama-token-metrics.js',
   'reconciliation-service': 'test-reconciliation-service.js',
   'reset-local-overrides-password-guard':
@@ -176,6 +184,23 @@ const TESTS = {
   'settings-save-session-secret': 'test-settings-save-session-secret.js',
   'settings-save-restart': 'test-settings-save-restart.js',
   'session-guard': 'test-session-guard.js',
+  'harness-session': 'test-harness-session.js',
+  'route-guard-coverage': 'test-route-guard-coverage.js',
+  'route-table': 'test-route-table.js',
+  'auth-gate-public-paths': 'test-auth-gate-public-paths.js',
+  'mfa-service': 'test-mfa-service.js',
+  'session-cookie': 'test-session-cookie.js',
+  'scan-control': 'test-scan-control.js',
+  'settings-save-golden': 'test-settings-save-golden.js',
+  'settings-catalog': 'test-settings-catalog.js',
+  'document-pipeline-callers': 'test-document-pipeline-callers.js',
+  'route-shadowing': 'test-route-shadowing.js',
+  'auth-guard-characterization': 'test-auth-guard-characterization.js',
+  'caller-resolver': 'test-caller-resolver.js',
+  'scan-service': 'test-scan-service.js',
+  'typecheck-config': 'test-typecheck-config.js',
+  'rescan-waiting-for-ocr': 'test-rescan-waiting-for-ocr.js',
+  'settings-ocr-key-lock': 'test-settings-ocr-key-lock.js',
 };
 
 const AREAS = {
@@ -187,6 +212,8 @@ const AREAS = {
     'session-guard',
     'oidc-sso',
     'settings-oidc',
+    'mfa-service',
+    'session-cookie',
   ],
   ocr: [
     'ocr-fallback-ai-errors',
@@ -206,6 +233,12 @@ const AREAS = {
     'ocr-pdf-render-fallback',
     'ocr-pdf-render-page-failure',
     'poppler-render-real',
+    'pdf-password-service',
+    'pdf-password-real',
+    'pdf-passwords-delete-route',
+    'pdf-unlock-service',
+    'ocr-password-protected',
+    'ocr-queue-password-flag',
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
     'ocr-empty-result-guard',
@@ -259,6 +292,10 @@ const AREAS = {
     'reconciliation-service',
     'settings-paperless-url-fallback',
     'rescan-fetch-before-delete',
+    'scan-control',
+    'document-pipeline-callers',
+    'scan-service',
+    'rescan-waiting-for-ocr',
   ],
   prompts: [
     'restriction-service',
@@ -303,6 +340,11 @@ const AREAS = {
     'login-username-timing',
     'oidc-sso',
     'setup-complete-guard',
+    'harness-session',
+    'route-guard-coverage',
+    'auth-gate-public-paths',
+    'auth-guard-characterization',
+    'caller-resolver',
   ],
   duplicates: [
     'entity-merge-model',
@@ -333,6 +375,14 @@ const AREAS = {
     'anthropic-provider',
     'anthropic-settings',
     'ocr-provider-anthropic',
+  ],
+  routes: ['route-table', 'route-shadowing', 'manual-page-routes'],
+  tooling: ['typecheck-config'],
+  settings: [
+    'settings-save-golden',
+    'settings-catalog',
+    'settings-ocr-key-lock',
+    'settings-nav-active',
   ],
 };
 
@@ -372,6 +422,11 @@ function checkPdftoppmAvailability() {
   // Only a missing/inaccessible binary counts as unavailable; poppler's `-v`
   // exit code is not reliable across versions.
   const result = spawnSync('pdftoppm', ['-v'], { timeout: 5000 });
+  return !result.error;
+}
+
+function checkPdfinfoAvailability() {
+  const result = spawnSync('pdfinfo', ['-v'], { timeout: 5000 });
   return !result.error;
 }
 
@@ -416,6 +471,10 @@ async function getSkipReason(testName) {
 
   if (testName === 'poppler-render-real' && !checkPdftoppmAvailability()) {
     return 'pdftoppm not installed';
+  }
+
+  if (testName === 'pdf-password-real' && !checkPdfinfoAvailability()) {
+    return 'pdfinfo not installed';
   }
 
   if (testName === 'rate-limiting') {

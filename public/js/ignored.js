@@ -109,6 +109,9 @@
                 <td data-label="Added" class="zr-sm zr-faint zr-table__date" title="${addedTitle}">${added}</td>
                 <td data-label="" class="zr-table__actions">
                     <div class="zr-row">
+                        <a class="zr-btn zr-btn--ghost" href="/manual?id=${item.document_id}&list=ignored" title="Open in Manual">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg> Manual
+                        </a>
                         <button class="zr-btn ignored-unignore-btn" data-id="${item.document_id}" title="Remove from ignore list and allow scanning again">
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg> Unignore
                         </button>

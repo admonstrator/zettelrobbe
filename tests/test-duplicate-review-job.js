@@ -54,6 +54,7 @@ const jobs = require(
   path.join(REPO_ROOT, 'services', 'duplicateReviewJobService')
 );
 const judge = require(path.join(REPO_ROOT, 'services', 'entityMatchAiService'));
+const scanControl = require(path.join(REPO_ROOT, 'services', 'scanControl'));
 
 const realReviewScan = judge.reviewScan;
 const quiet = console.log;
@@ -604,9 +605,10 @@ function gate() {
     );
   });
   await test('a job waits for the running document scan and runs when it ends', async () => {
-    // The scan loop of server.js keeps its state on this global; a job that
-    // starts while it runs holds back, says so, and goes on when it is over.
-    global.__paperlessAiScanControl = { running: true };
+    // The scan loop of server.js keeps its state in services/scanControl.js; a
+    // job that starts while it runs holds back, says so, and goes on when it
+    // is over.
+    scanControl.getState().running = true;
     jobs.scanPollMs = 5;
     let ran = 0;
     judge.reviewScan = async () => {
@@ -621,18 +623,18 @@ function gate() {
       assert.strictEqual(job.progress.phase, 'starting');
       assert.match(job.progress.message, /document scan is running/);
 
-      global.__paperlessAiScanControl.running = false;
+      scanControl.getState().running = false;
       await jobs.wait(job.id);
       assert.strictEqual(ran, 1, 'the judge ran once the scan was over');
       assert.strictEqual(job.status, 'done');
     } finally {
-      delete global.__paperlessAiScanControl;
+      scanControl.reset();
       jobs.scanPollMs = 1000;
     }
   });
 
   await test('a stop while waiting for the scan ends the job as stopped', async () => {
-    global.__paperlessAiScanControl = { running: true };
+    scanControl.getState().running = true;
     jobs.scanPollMs = 5;
     let ran = 0;
     judge.reviewScan = async () => {
@@ -648,7 +650,7 @@ function gate() {
       assert.strictEqual(job.stopReason, 'user');
       assert.strictEqual(ran, 0, 'the judge never ran');
     } finally {
-      delete global.__paperlessAiScanControl;
+      scanControl.reset();
       jobs.scanPollMs = 1000;
     }
   });
