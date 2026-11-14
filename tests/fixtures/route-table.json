@@ -92,6 +92,10 @@
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
+    "route": "GET /api/ocr/unlock/status",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
+  },
+  {
     "route": "GET /api/processing-status",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
@@ -314,6 +318,14 @@
   },
   {
     "route": "POST /api/ocr/queue/add",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
+  },
+  {
+    "route": "POST /api/ocr/unlock-all",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
+  },
+  {
+    "route": "POST /api/ocr/unlock/:documentId",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {

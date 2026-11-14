@@ -592,6 +592,22 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 17,
+    description: 'Mark OCR queue items whose PDF needs a password',
+    up: (database) => {
+      // Set when an OCR run finds the file locked, cleared when the item is
+      // queued again. The OCR page offers the unlock on these rows only.
+      const queueColumns = database
+        .prepare("PRAGMA table_info('ocr_queue')")
+        .all();
+      if (!queueColumns.some((col) => col.name === 'password_protected')) {
+        database.exec(
+          'ALTER TABLE ocr_queue ADD COLUMN password_protected INTEGER DEFAULT 0'
+        );
+      }
+    },
+  },
 ];
 
 /** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
@@ -1842,6 +1858,7 @@ module.exports = {
           reason = excluded.reason,
           ocr_text = CASE WHEN ocr_queue.status = 'done' THEN NULL ELSE ocr_queue.ocr_text END,
           status = 'pending',
+          password_protected = 0,
           added_at = CURRENT_TIMESTAMP
         WHERE ocr_queue.status IN ('pending', 'failed')
            OR (ocr_queue.status = 'done' AND ? = 1)
@@ -1917,6 +1934,52 @@ module.exports = {
     } catch (error) {
       console.error('[ERROR] getting paginated OCR queue:', error);
       return { docs: [], total: 0 };
+    }
+  },
+
+  /**
+   * Records that the document's PDF cannot be opened without a password.
+   * The row is failed: OCR cannot read it until it is unlocked.
+   *
+   * @param {number} documentId
+   * @returns {Promise<boolean>}
+   */
+  async markOcrQueuePasswordProtected(documentId) {
+    try {
+      const result = db
+        .prepare(
+          `
+        UPDATE ocr_queue SET
+          status = 'failed',
+          password_protected = 1,
+          processed_at = CURRENT_TIMESTAMP
+        WHERE document_id = ?
+      `
+        )
+        .run(documentId);
+      return result.changes > 0;
+    } catch (error) {
+      console.error(
+        '[ERROR] marking OCR queue item password protected:',
+        error
+      );
+      return false;
+    }
+  },
+
+  /** @returns {Promise<Array<{ document_id: number, title: string }>>} */
+  async getPasswordProtectedOcrItems() {
+    try {
+      return db
+        .prepare(
+          `SELECT document_id, title FROM ocr_queue
+           WHERE password_protected = 1 AND status = 'failed'
+           ORDER BY added_at DESC`
+        )
+        .all();
+    } catch (error) {
+      console.error('[ERROR] listing password-protected OCR items:', error);
+      return [];
     }
   },
 

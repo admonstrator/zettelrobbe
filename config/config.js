@@ -568,6 +568,9 @@ const mistralOcr = liveBlock({
   // content write-back leaves the OCR text local-only, where a regular
   // scan would never pick it up.
   autoAnalyze: () => envBool('OCR_AUTO_ANALYZE', 'yes'),
+  // Passwords tried on PDFs that cannot be opened without one, stored as a
+  // JSON array; services/pdfPasswordService.js reads it into a list.
+  pdfPasswords: () => process.env.PDF_PASSWORDS || '',
 });
 
 // Startup behaviour when Paperless-ngx is not reachable yet (e.g. both

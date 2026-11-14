@@ -114,6 +114,11 @@ const TESTS = {
   'ocr-pdf-render-fallback': 'test-ocr-pdf-render-fallback.js',
   'ocr-pdf-render-page-failure': 'test-ocr-pdf-render-page-failure.js',
   'poppler-render-real': 'test-poppler-render-real.js',
+  'pdf-password-service': 'test-pdf-password-service.js',
+  'pdf-password-real': 'test-pdf-password-real.js',
+  'pdf-unlock-service': 'test-pdf-unlock-service.js',
+  'ocr-password-protected': 'test-ocr-password-protected.js',
+  'ocr-queue-password-flag': 'test-ocr-queue-password-flag.js',
   'ollama-token-metrics': 'test-ollama-token-metrics.js',
   'reconciliation-service': 'test-reconciliation-service.js',
   'reset-local-overrides-password-guard':
@@ -225,6 +230,11 @@ const AREAS = {
     'ocr-pdf-render-fallback',
     'ocr-pdf-render-page-failure',
     'poppler-render-real',
+    'pdf-password-service',
+    'pdf-password-real',
+    'pdf-unlock-service',
+    'ocr-password-protected',
+    'ocr-queue-password-flag',
     'setup-ocr-disabled-skip',
     'setupservice-ocr-validation',
     'ocr-empty-result-guard',
@@ -410,6 +420,11 @@ function checkPdftoppmAvailability() {
   return !result.error;
 }
 
+function checkPdfinfoAvailability() {
+  const result = spawnSync('pdfinfo', ['-v'], { timeout: 5000 });
+  return !result.error;
+}
+
 function checkHttpAvailability(baseUrl, timeoutMs = 1500) {
   return new Promise((resolve) => {
     let parsed;
@@ -451,6 +466,10 @@ async function getSkipReason(testName) {
 
   if (testName === 'poppler-render-real' && !checkPdftoppmAvailability()) {
     return 'pdftoppm not installed';
+  }
+
+  if (testName === 'pdf-password-real' && !checkPdfinfoAvailability()) {
+    return 'pdfinfo not installed';
   }
 
   if (testName === 'rate-limiting') {

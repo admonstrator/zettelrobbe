@@ -13,6 +13,9 @@
   let loadTimeout = null;
   let manualDocumentOmnibox = null;
   let queuedDocIds = new Set();
+  // Whether Paperless-ngx can remove PDF passwords and what is stored; the
+  // unlock actions follow it. Starts closed until the status has loaded.
+  let unlockStatus = { supported: false, storedPasswords: 0, locked: 0 };
 
   // ── DOM refs ───────────────────────────────────────────────────────────
   const tableBody = document.getElementById('ocrTableBody');
@@ -25,6 +28,7 @@
   // #manualDocSearchResults and #manualDocSearchStatus are resolved by the
   // omnibox itself via the IDs passed to createDocumentOmnibox().
   const processAllBtn = document.getElementById('processAllBtn');
+  const unlockAllBtn = document.getElementById('unlockAllBtn');
   const autoAnalyze = document.getElementById('autoAnalyzeToggle');
 
   // ── AI-analysis toggle ─────────────────────────────────────────────────
@@ -91,7 +95,7 @@
     initializeManualDocumentSearch();
     initializeSearchModeToggles();
     refreshQueuedIds();
-    loadQueue();
+    loadUnlockStatus().then(loadQueue);
     loadStats();
 
     if (statusFilter)
@@ -102,6 +106,7 @@
       });
 
     if (processAllBtn) processAllBtn.addEventListener('click', processAll);
+    if (unlockAllBtn) unlockAllBtn.addEventListener('click', unlockAll);
     if (prevBtn)
       prevBtn.addEventListener('click', function () {
         if (currentPage > 0) {
@@ -209,9 +214,18 @@
         // nowhere else. A plain green "done" would read as "nothing to see
         // here", which is the opposite of what that row means.
         const localOnly = item.status === 'done' && item.wrote_back === 0;
-        const statusHtml = localOnly
-          ? `<span class="zr-badge zr-badge--warn" title="Paperless-ngx did not accept the content. The OCR text exists only in this queue entry."><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg> not written back</span>`
-          : `<span class="zr-badge ${statusTone(item.status)}">${statusIcon(item.status)} ${escHtml(item.status)}</span>`;
+        // A PDF that needs a password failed for a reason a retry cannot
+        // fix, so the row says that instead of a plain "failed".
+        const locked =
+          item.status === 'failed' && Number(item.password_protected) === 1;
+        let statusHtml;
+        if (localOnly) {
+          statusHtml = `<span class="zr-badge zr-badge--warn" title="Paperless-ngx did not accept the content. The OCR text exists only in this queue entry."><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg> not written back</span>`;
+        } else if (locked) {
+          statusHtml = `<span class="zr-badge zr-badge--warn" title="OCR cannot read this PDF until its password is removed."><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg> password protected</span>`;
+        } else {
+          statusHtml = `<span class="zr-badge ${statusTone(item.status)}">${statusIcon(item.status)} ${escHtml(item.status)}</span>`;
+        }
 
         // Date only: the exact second added nothing and its width forced the
         // table to scroll sideways on ordinary desktop windows. The full
@@ -238,8 +252,14 @@
         // Analyze wins the primary slot wherever both apply: it is the cheaper
         // of the two and the one that moves the document forward. Re-running
         // OCR stays reachable in the menu.
+        // A locked PDF is unlocked first: OCR would only fail on it again.
+        const canUnlock = locked && unlockStatus.supported;
         let primaryBtn = '';
-        if (canAnalyze) {
+        if (canUnlock) {
+          primaryBtn = `<button class="zr-btn unlock-btn" data-id="${item.document_id}" title="Enter the password of this PDF"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg> Unlock</button>`;
+        } else if (locked) {
+          primaryBtn = `<span class="zr-xs zr-faint" title="Removing PDF passwords needs Paperless-ngx 3.0 or later${unlockStatus.paperlessVersion ? `; this one is ${escHtml(unlockStatus.paperlessVersion)}` : ''}.">Needs Paperless-ngx 3.0</span>`;
+        } else if (canAnalyze) {
           primaryBtn = `<button class="zr-btn analyze-btn" data-id="${item.document_id}" title="Start AI analysis using existing OCR text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg> Analyze</button>`;
         } else if (canProcess) {
           primaryBtn = `<button class="zr-btn process-btn" data-id="${item.document_id}" title="Send to OCR provider"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-play"/></svg> Process</button>`;
@@ -247,6 +267,12 @@
 
         const menuId = `ocrRowMenu${item.document_id}`;
         const menuItems = [
+          canUnlock && unlockStatus.storedPasswords
+            ? `<button type="button" class="zr-menu__item unlock-stored-btn" data-id="${item.document_id}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>Try stored passwords</button>`
+            : '',
+          locked
+            ? `<button type="button" class="zr-menu__item process-btn" data-id="${item.document_id}" title="Run OCR again, for a document unlocked in Paperless-ngx by hand"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-play"/></svg>Run OCR again</button>`
+            : '',
           canProcess && canAnalyze
             ? `<button type="button" class="zr-menu__item process-btn" data-id="${item.document_id}" title="Discard the stored text and run the OCR provider again"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-play"/></svg>Run OCR again</button>`
             : '',
@@ -289,6 +315,16 @@
     tableBody.querySelectorAll('.process-btn').forEach((btn) => {
       btn.addEventListener('click', function () {
         processSingle(parseInt(this.dataset.id, 10));
+      });
+    });
+    tableBody.querySelectorAll('.unlock-btn').forEach((btn) => {
+      btn.addEventListener('click', function () {
+        unlockSingle(parseInt(this.dataset.id, 10));
+      });
+    });
+    tableBody.querySelectorAll('.unlock-stored-btn').forEach((btn) => {
+      btn.addEventListener('click', function () {
+        unlockRequest(parseInt(this.dataset.id, 10));
       });
     });
     tableBody.querySelectorAll('.analyze-btn').forEach((btn) => {
@@ -366,6 +402,83 @@
       // Stats are decorative; keep the queue view usable if they fail to load.
       console.warn('Could not load OCR stats:', error);
     }
+  }
+
+  // ── Password-protected PDFs ────────────────────────────────────────────
+  async function loadUnlockStatus() {
+    try {
+      const resp = await fetch('/api/ocr/unlock/status');
+      const data = await resp.json();
+      if (data.success && data.data) unlockStatus = data.data;
+    } catch (error) {
+      // Without the status the unlock actions stay hidden; the queue works.
+      console.warn('Could not load the unlock status:', error);
+    }
+    renderUnlockControls();
+  }
+
+  function renderUnlockControls() {
+    const { supported, storedPasswords, locked } = unlockStatus;
+    setStatCount('statLockedCount', locked);
+    const badge = document.getElementById('statLocked');
+    if (badge) badge.classList.toggle('hidden', !locked);
+    if (!unlockAllBtn) return;
+    unlockAllBtn.classList.toggle('hidden', !locked || !supported);
+    unlockAllBtn.disabled = !storedPasswords;
+    unlockAllBtn.title = storedPasswords
+      ? `Try the ${storedPasswords} password(s) stored in Settings on every password-protected document`
+      : 'No passwords stored. Add them under Settings → OCR Fallback → PDF Passwords.';
+  }
+
+  async function unlockSingle(documentId) {
+    if (typeof window.zrDialog !== 'function') return;
+    const answer = await window.zrDialog({
+      title: `Unlock document #${documentId}`,
+      text: 'Enter the password of this PDF. Paperless-ngx removes it and keeps the unlocked file as a new version of the document.',
+      input: 'password',
+      inputPlaceholder: unlockStatus.storedPasswords
+        ? 'Password (empty: try the stored ones)'
+        : 'Password',
+      showCancelButton: true,
+      confirmButtonText: 'Unlock',
+    });
+    if (!answer.isConfirmed) return;
+    const password = String(answer.value || '');
+    if (!password && !unlockStatus.storedPasswords) {
+      showToast('Enter a password.', 'error');
+      return;
+    }
+    await unlockRequest(documentId, password);
+  }
+
+  async function unlockRequest(documentId, password) {
+    try {
+      const resp = await fetch(`/api/ocr/unlock/${documentId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(password ? { password } : {}),
+      });
+      const data = await resp.json();
+      showToast(
+        data.success ? data.message : data.error || 'Unlocking failed',
+        data.success ? 'success' : 'error'
+      );
+      if (data.success) queuedDocIds.delete(documentId);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    await loadUnlockStatus();
+    loadQueue();
+    loadStats();
+  }
+
+  function unlockAll() {
+    progress().run({
+      url: '/api/ocr/unlock-all',
+      body: {},
+      title: 'Unlocking Password-Protected Documents…',
+      onDone: refreshAfterRun,
+    });
   }
 
   function setStatCount(id, val) {
@@ -508,9 +621,11 @@
   // history page drives as well.
   const progress = () => window.zrOcrProgress;
 
+  // A run can find a locked PDF, so the unlock status is read again before
+  // the rows are drawn.
   const refreshAfterRun = (done) => {
     if (done) {
-      loadQueue();
+      loadUnlockStatus().then(loadQueue);
       loadStats();
     }
   };

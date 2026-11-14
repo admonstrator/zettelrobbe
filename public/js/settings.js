@@ -3375,6 +3375,7 @@ function initializeRuntimeOverridePills() {
       envKey: 'OCR_AUTO_PROCESS_BATCH_SIZE',
     },
     { selector: '#ocrAutoAnalyze', envKey: 'OCR_AUTO_ANALYZE' },
+    { selector: '#pdfPasswords', envKey: 'PDF_PASSWORDS' },
     {
       selector: '#ocrValidationTimeout',
       envKey: 'SETUP_OCR_VALIDATION_TIMEOUT_MS',

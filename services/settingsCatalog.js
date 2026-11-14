@@ -35,6 +35,10 @@ const {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_DEFAULT_MAX_TOKENS,
 } = require('./anthropicSupport');
+const {
+  parsePasswordList,
+  serializePasswordList,
+} = require('./pdfPasswordService');
 
 /**
  * @typedef {'string'|'secret'|'boolean'|'integer'|'number'|'list'|'enum'|'url'|'cron'|'json'} SettingType
@@ -53,6 +57,7 @@ const {
  * @callback SettingParser
  * @param {unknown} raw the form value (undefined when the body lacks the field)
  * @param {string|number} current the value in effect before the save
+ * @param {Record<string, unknown>} [body] the whole form, for a field with a companion switch
  * @returns {ParseResult}
  */
 
@@ -80,6 +85,23 @@ const {
  */
 
 /* ── Form value parsers ───────────────────────────────────────────────── */
+
+/**
+ * The PDF password list of the OCR section. Like every secret it never
+ * reaches the page, so an empty field keeps what is stored; a typed list
+ * (one password per line) replaces it whole, and the "remove" switch next to
+ * the field (pdfPasswordsClear) empties it.
+ *
+ * @type {SettingParser}
+ */
+function parsePdfPasswords(raw, _current, body) {
+  const clear = String(body?.pdfPasswordsClear ?? '')
+    .trim()
+    .toLowerCase();
+  if (['yes', 'on', 'true', '1'].includes(clear)) return { value: '' };
+  if (typeof raw !== 'string' || !raw.trim()) return {};
+  return { value: serializePasswordList(parsePasswordList(raw)) };
+}
 
 /**
  * Splits a list setting. Arrays are taken as they are; a string is split on
@@ -1064,6 +1086,13 @@ const CATALOG = Object.freeze([
       default: 'yes',
       field: 'ocrAutoAnalyze',
       parse: yesNoString,
+      ...PS,
+    }),
+    setting('PDF_PASSWORDS', {
+      type: 'secret',
+      default: '',
+      field: 'pdfPasswords',
+      parse: parsePdfPasswords,
       ...PS,
     }),
     setting('SETUP_OCR_VALIDATION_TIMEOUT_MS', {

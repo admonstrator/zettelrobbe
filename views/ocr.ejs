@@ -24,6 +24,8 @@
                              people to ignore it. -->
                         <span id="statNotWrittenBack" class="zr-badge zr-badge--warn hidden" title="Paperless-ngx did not accept the content. The OCR text of these documents exists only in the queue."><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg> <span id="statNotWrittenBackCount">…</span> not written back</span>
                         <span id="statFailed" class="zr-badge zr-badge--danger"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg> <span id="statFailedCount">…</span> failed</span>
+                        <!-- Hidden at zero, like the badge above. -->
+                        <span id="statLocked" class="zr-badge zr-badge--warn hidden" title="OCR cannot read these PDFs until their password is removed."><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-key"/></svg> <span id="statLockedCount">…</span> password protected</span>
                     </div>
                     <% } %>
                 </div>
@@ -94,6 +96,14 @@ MISTRAL_OCR_MODEL=mistral-ocr-latest</pre>
                             <span>AI analysis after OCR</span>
                         </label>
 
+                        <!-- Shown once a queued PDF turns out to need a password. -->
+                        <button id="unlockAllBtn"
+                                type="button"
+                                class="zr-btn hidden"
+                                title="Try the passwords stored in Settings on every password-protected document">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg> Unlock All
+                        </button>
+
                         <button id="processAllBtn"
                                 class="zr-btn zr-btn--primary"
                                 title="Process all pending items">
@@ -147,6 +157,7 @@ MISTRAL_OCR_MODEL=mistral-ocr-latest</pre>
     <%- include('partials/ocr-progress-overlay') %>
 
     <%- include('partials/scripts/ocr-scripts') %>
+    <script src="/js/dialogs.js"></script>
     <script src="/js/document-omnibox.js"></script>
     <script src="/js/ocr-progress.js"></script>
     <script src="/js/ocr.js"></script>

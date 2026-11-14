@@ -789,6 +789,19 @@
                                         </div>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
+                                        <label for="pdfPasswords" class="zr-field__name">PDF Passwords</label>
+                                        <textarea id="pdfPasswords" name="pdfPasswords" rows="3" class="zr-textarea" autocomplete="off" spellcheck="false" placeholder="<%= pdfPasswordCount ? `${pdfPasswordCount} stored` : 'One password per line' %>"></textarea>
+                                        <p class="zr-field__hint">Tried on PDFs that cannot be opened without a password, one per line. Zettelrobbe only checks which one fits; Paperless-ngx (3.0 or later) removes it and keeps the unlocked file as a new version of the document<%= pdfPasswordCount ? ' · Leave empty to keep the stored passwords, a new list replaces them' : '' %></p>
+                                        <% if (pdfPasswordCount) { %>
+                                        <%- include('partials/settings-switch', {
+                                            id: 'pdfPasswordsClear',
+                                            label: 'Remove Stored Passwords',
+                                            checked: false,
+                                            hint: 'Deletes all stored PDF passwords on save'
+                                        }) %>
+                                        <% } %>
+                                    </div>
+                                    <div class="zr-field zr-field--stacked">
                                         <label for="ocrValidationTimeout" class="zr-field__name">OCR Timeout</label>
                                         <div class="zr-row">
                                             <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS || 30000) / 1000) %>" class="zr-input">

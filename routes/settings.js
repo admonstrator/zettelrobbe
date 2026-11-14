@@ -36,6 +36,7 @@ const { cacheClearLimiter } = require('../middleware/rateLimiters');
 const { isMfaEnabledForUser } = require('../services/mfaService');
 const restartService = require('../services/restartService');
 const oidcService = require('../services/oidcService');
+const { parsePasswordList } = require('../services/pdfPasswordService');
 const {
   getAnthropicFormOptions,
   loadAiProviderPresets,
@@ -374,6 +375,9 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     ]),
   ].filter((key) => configFile.isProtectedRuntimeEnvKey(key));
 
+  // How many PDF passwords are stored: the list itself is a secret and stays
+  // off the page like the others, the count tells the field what it keeps.
+  const pdfPasswordCount = parsePasswordList(config.PDF_PASSWORDS).length;
   const configuredSecrets = {};
   settingsCatalog.secretKeys().forEach((key) => {
     configuredSecrets[key] = Boolean(config[key]);
@@ -411,6 +415,7 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     version,
     config,
     configuredSecrets,
+    pdfPasswordCount,
     lockedEnvKeys,
     // The process's boot id; the page compares /health against it to tell
     // the restarted server from the one it saved to.
