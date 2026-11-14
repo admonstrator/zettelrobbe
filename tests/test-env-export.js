@@ -98,6 +98,16 @@ check('escapes a quote inside a value', () => {
   assert.ok(env.includes('SYSTEM_PROMPT="Say \\"hello\\" politely"'));
 });
 
+check('writes a line break as \\n, one key per line', () => {
+  const { env } = buildEnvExport({ OCR_PROMPT: 'Read the page.\nKeep it.' });
+  assert.ok(env.includes('OCR_PROMPT="Read the page.\\nKeep it."'));
+  assert.strictEqual(
+    require('dotenv').parse(env).OCR_PROMPT,
+    'Read the page.\nKeep it.',
+    'dotenv reads it back'
+  );
+});
+
 check('emits every group when everything is configured', () => {
   const { env } = buildEnvExport({
     PAPERLESS_API_URL: 'https://paperless.example.com',

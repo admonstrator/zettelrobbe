@@ -642,6 +642,7 @@ function initializeFormHandlers() {
   const ocrApiUrlInput = document.getElementById('ocrApiUrl');
   const ocrApiKeyInput = document.getElementById('ocrApiKey');
   const ocrModelInput = document.getElementById('mistralOcrModel');
+  const ocrPromptInput = document.getElementById('ocrPrompt');
   const ocrValidationTimeoutInput = document.getElementById(
     'ocrValidationTimeout'
   );
@@ -1423,6 +1424,12 @@ function initializeFormHandlers() {
     ocrProviderSelect?.value || 'mistral'
   ).toLowerCase();
 
+  // The built-in OCR prompt of a provider, as the page renders it.
+  const defaultOcrPrompt = (provider) =>
+    (provider === 'anthropic'
+      ? ocrPromptInput?.dataset.defaultAnthropic
+      : ocrPromptInput?.dataset.defaultLocal) || '';
+
   const toggleOcrFields = () => {
     if (!ocrEnabledSelect || !ocrProviderSelect) return;
 
@@ -1475,6 +1482,20 @@ function initializeFormHandlers() {
       );
     }
 
+    // Mistral's OCR API takes no prompt. A prompt still showing the previous
+    // provider's built-in one follows the switch; an edited one stays.
+    document
+      .getElementById('ocrPromptContainer')
+      ?.classList.toggle('hidden', !enabled || provider === 'mistral');
+    if (
+      ocrPromptInput &&
+      ['', defaultOcrPrompt(previousOcrProvider)].includes(
+        ocrPromptInput.value.replace(/\r\n?/g, '\n').trim()
+      )
+    ) {
+      ocrPromptInput.value = defaultOcrPrompt(provider);
+    }
+
     // PDF page rendering only applies to local vision models; Mistral and
     // Claude read PDFs natively.
     const ocrPdfRenderContainer = document.getElementById(
@@ -1493,6 +1514,17 @@ function initializeFormHandlers() {
 
     previousOcrProvider = provider;
   };
+
+  document
+    .getElementById('ocrPromptResetBtn')
+    ?.addEventListener('click', () => {
+      if (!ocrPromptInput) return;
+      ocrPromptInput.value = defaultOcrPrompt(
+        String(ocrProviderSelect?.value || 'mistral').toLowerCase()
+      );
+      // Tells the unsaved-changes bar, which listens for input.
+      ocrPromptInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
 
   if (ocrProviderSelect) {
     const initialProvider = String(
@@ -3359,6 +3391,7 @@ function initializeRuntimeOverridePills() {
     // pinned MISTRAL_API_KEY locks it too (envKeyPinningField).
     { selector: '#ocrApiKey', envKey: 'OCR_API_KEY' },
     { selector: '#mistralOcrModel', envKey: 'MISTRAL_OCR_MODEL' },
+    { selector: '#ocrPrompt', envKey: 'OCR_PROMPT' },
     { selector: '#ocrPdfRenderEnabled', envKey: 'OCR_PDF_RENDER_ENABLED' },
     { selector: '#ocrPdfRenderMaxPages', envKey: 'OCR_PDF_RENDER_MAX_PAGES' },
     { selector: '#ocrPdfRenderDpi', envKey: 'OCR_PDF_RENDER_DPI' },

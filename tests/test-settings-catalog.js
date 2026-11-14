@@ -374,5 +374,20 @@ test('the parsers of the simple fields', () => {
   });
 });
 
+test('the OCR prompt: kept as typed, empty or a built-in one stores empty', () => {
+  const { DEFAULT_OCR_PROMPTS } = require('../services/ocrPrompt');
+  const parse = (raw) => catalog.getEntry('OCR_PROMPT').parse(raw, '');
+
+  assert.deepStrictEqual(parse(undefined), {}, 'no field keeps the value');
+  assert.deepStrictEqual(parse('  a = b\r\nc  '), { value: 'a = b\nc' });
+  assert.deepStrictEqual(parse('   '), { value: '' }, 'empty resets');
+  assert.deepStrictEqual(parse(DEFAULT_OCR_PROMPTS.local), { value: '' });
+  assert.deepStrictEqual(
+    parse(DEFAULT_OCR_PROMPTS.anthropic.replace(/\n/g, '\r\n') + '\n'),
+    { value: '' },
+    'the Claude prompt as a textarea sends it'
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

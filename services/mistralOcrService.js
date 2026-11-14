@@ -33,6 +33,7 @@ const {
   mapAnthropicUsage,
   assertAnthropicCompleted,
 } = require('./anthropicSupport');
+const { NO_TEXT_MARKER, resolveOcrPrompt } = require('./ocrPrompt');
 
 // ── Claude OCR limits ──────────────────────────────────────────────────────
 //
@@ -64,24 +65,9 @@ const CLAUDE_OCR_IMAGE_TYPES = new Set([
 const CLAUDE_OCR_MAX_TOKENS = 64000;
 const CLAUDE_OCR_MAX_TOKENS_CEILING = 128000;
 
-// What the model answers for a page without any text. The empty-result guard
-// in processQueueItem() then refuses to overwrite the document's content,
-// instead of a sentence like "This page is blank." becoming its text.
-const CLAUDE_OCR_NO_TEXT_MARKER = '[no text]';
-
 // The failure reason (and error code) of a PDF that cannot be opened without
 // a password; the OCR page offers its unlock on exactly these rows.
 const PASSWORD_PROTECTED = 'password_protected';
-
-const CLAUDE_OCR_INSTRUCTION = [
-  'Transcribe all text in this document exactly as it is written, in reading order, page by page.',
-  '- Keep the original language, spelling, numbers and punctuation. Do not translate, correct, summarize or explain anything.',
-  '- Reproduce tables as Markdown tables. Keep headings, lists and paragraph breaks.',
-  '- Include handwriting, stamps and filled-in form values where they are legible.',
-  '- Write [illegible] where text cannot be read. Do not guess.',
-  '- Answer with the transcript only: no introduction, no comments, no code fences.',
-  `- If the document contains no readable text at all, answer with exactly ${CLAUDE_OCR_NO_TEXT_MARKER}`,
-].join('\n');
 
 /**
  * The media type Claude would be told, from a Content-Type value: parameters
@@ -564,7 +550,7 @@ class MistralOcrService {
                 data: source.data,
               },
             },
-            { type: 'text', text: CLAUDE_OCR_INSTRUCTION },
+            { type: 'text', text: resolveOcrPrompt('anthropic') },
           ],
         },
       ],
@@ -589,7 +575,7 @@ class MistralOcrService {
     );
 
     const text = anthropicMessageText(message);
-    return text.toLowerCase() === CLAUDE_OCR_NO_TEXT_MARKER ? '' : text;
+    return text.toLowerCase() === NO_TEXT_MARKER ? '' : text;
   }
 
   /**
@@ -892,6 +878,7 @@ class MistralOcrService {
       ? baseApiUrl
       : normalizedApiBase;
     const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
+    const ocrPrompt = resolveOcrPrompt('local');
     const authHeaders = this.apiKey
       ? {
           Authorization: `Bearer ${this.apiKey}`,
@@ -911,7 +898,7 @@ class MistralOcrService {
               content: [
                 {
                   type: 'text',
-                  text: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+                  text: ocrPrompt,
                 },
                 {
                   type: 'image_url',
@@ -978,8 +965,7 @@ class MistralOcrService {
           messages: [
             {
               role: 'user',
-              content:
-                'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+              content: ocrPrompt,
               images: [imageBase64],
             },
           ],

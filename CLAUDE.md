@@ -92,7 +92,9 @@ in prompts. The base prompts live in `config/config.js` (`specialPromptPreDefine
 normalize them with `toNameList()` from `services/serviceUtils.js` instead of joining them directly.
 
 **OCR:** `services/mistralOcrService.js` — provider can be `mistral`, `ollama` (native `/api/chat`
-vision), OpenAI-compatible `/v1`, or `anthropic` (Claude reads PDFs and images natively). OCR is a fallback path when AI analysis fails on low-text docs. A PDF
+vision), OpenAI-compatible `/v1`, or `anthropic` (Claude reads PDFs and images natively). OCR is a fallback path when AI analysis fails on low-text docs. The
+instruction sent to a vision model comes from `services/ocrPrompt.js`: `OCR_PROMPT` when set, else the
+provider's built-in prompt (Claude's, or the short local one); Mistral takes none. A PDF
 that needs a password stops the run before any provider call (`services/pdfPasswordService.js`, poppler's
 `pdfinfo`); `services/pdfUnlockService.js` finds the password (typed, or the `PDF_PASSWORDS` list) locally
 and has Paperless-ngx 3.0+ remove it (`POST /api/documents/remove_password/`, a new version of the same
