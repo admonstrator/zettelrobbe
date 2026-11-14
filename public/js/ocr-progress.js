@@ -28,6 +28,7 @@
     download: 'i-download',
     ocr: 'i-scan',
     writeback: 'i-save',
+    unlock: 'i-key',
     ai: 'i-cpu',
     done: 'i-check-circle',
     error: 'i-alert-circle',

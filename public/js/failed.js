@@ -137,6 +137,8 @@
     const map = {
       ocr_failed:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>OCR failed',
+      password_protected:
+        '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>PDF needs a password',
       ai_failed_after_ocr:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>AI failed after OCR',
       ai_failed_ocr_disabled:

@@ -257,6 +257,7 @@ test('the secrets are the ones the settings page masks', () => {
     'OLLAMA_API_KEY',
     'OPENAI_API_KEY',
     'PAPERLESS_API_TOKEN',
+    'PDF_PASSWORDS',
   ]);
 });
 

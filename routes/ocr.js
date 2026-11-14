@@ -18,6 +18,9 @@
  *   POST  /api/ocr/analyze/:documentId      Process all pending OCR queue items
  *   GET   /api/ocr/queue/:documentId/text   Analyze existing OCR text with AI
  *   GET   /api/ocr/stats                    Get OCR text for one queue item
+ *   GET   /api/ocr/unlock/status            Whether password-protected PDFs can be unlocked
+ *   POST  /api/ocr/unlock/:documentId       Unlock one password-protected PDF
+ *   POST  /api/ocr/unlock-all               Try the stored passwords on every locked PDF (SSE)
  */
 
 const express = require('express');
@@ -29,6 +32,7 @@ const { protectApiRoute } = require('../middleware/authGate');
 const mistralOcrService = require('../services/mistralOcrService');
 const dashboardStatsService = require('../services/dashboardStatsService');
 const { normalizeDocumentIdList } = require('../services/documentIdList');
+const pdfUnlockService = require('../services/pdfUnlockService');
 const router = express.Router();
 
 /**
@@ -778,6 +782,239 @@ router.get('/api/ocr/stats', isAuthenticated, async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// ─── Password-protected PDFs ──────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/ocr/unlock/status:
+ *   get:
+ *     summary: Whether password-protected PDFs can be unlocked
+ *     description: >-
+ *       Tells the OCR page whether the connected Paperless-ngx can remove a
+ *       PDF password (version 3.0 or later), how many passwords are stored in
+ *       Settings and how many queue items wait for a password.
+ *     tags:
+ *       - OCR
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Unlock status returned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     supported:
+ *                       type: boolean
+ *                       description: Paperless-ngx can remove passwords.
+ *                     paperlessVersion:
+ *                       type: string
+ *                       nullable: true
+ *                     storedPasswords:
+ *                       type: integer
+ *                       description: Passwords stored in Settings (never the passwords themselves).
+ *                     locked:
+ *                       type: integer
+ *                       description: OCR queue items that failed because their PDF needs a password.
+ *       500:
+ *         description: Server error
+ */
+router.get('/api/ocr/unlock/status', isAuthenticated, async (req, res) => {
+  try {
+    const data = await pdfUnlockService.getStatus();
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('[ERROR] GET /api/ocr/unlock/status:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/ocr/unlock/{documentId}:
+ *   post:
+ *     summary: Unlock one password-protected PDF
+ *     description: >-
+ *       Finds the password that opens the document's PDF, either the one
+ *       given or the first of the passwords stored in Settings, and has
+ *       Paperless-ngx (3.0 or later) remove it. Paperless-ngx keeps the
+ *       unlocked file as a new version of the same document and reads its
+ *       text; the document leaves the OCR queue and the failed list and is
+ *       analysed by the next scan. Passwords are checked locally first, so
+ *       only a password that opens the file reaches Paperless-ngx. A document
+ *       that stays locked is answered with success false and an outcome.
+ *     tags:
+ *       - OCR
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: documentId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               password:
+ *                 type: string
+ *                 description: The password to try. Without it the stored passwords are tried.
+ *     responses:
+ *       200:
+ *         description: >-
+ *           Unlock result. outcome is unlocked or not_locked on success;
+ *           no_match, no_passwords, unsupported, rejected, forbidden, busy or
+ *           failed otherwise.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     documentId:
+ *                       type: integer
+ *                     outcome:
+ *                       type: string
+ *                       enum: [unlocked, not_locked, no_match, no_passwords, unsupported, rejected, forbidden, busy, failed]
+ *                 message:
+ *                   type: string
+ *                 error:
+ *                   type: string
+ *       400:
+ *         description: Invalid document ID or password
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  '/api/ocr/unlock/:documentId',
+  isAuthenticated,
+  async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId, 10);
+      if (!Number.isInteger(documentId) || documentId <= 0) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid document ID' });
+      }
+      const password = req.body?.password;
+      if (password !== undefined && typeof password !== 'string') {
+        return res
+          .status(400)
+          .json({ success: false, error: 'password must be a string' });
+      }
+
+      const result = await pdfUnlockService.unlock(documentId, { password });
+      const data = { documentId, outcome: result.outcome };
+      if (result.outcome === 'unlocked' || result.outcome === 'not_locked') {
+        dashboardStatsService.invalidate();
+        return res.json({ success: true, data, message: result.message });
+      }
+      return res.json({ success: false, data, error: result.message });
+    } catch (error) {
+      console.error('[ERROR] POST /api/ocr/unlock/:documentId:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/ocr/unlock-all:
+ *   post:
+ *     summary: Try the stored passwords on every locked PDF
+ *     description: >-
+ *       Works through the OCR queue items whose PDF needs a password and
+ *       tries the passwords stored in Settings on each, as
+ *       POST /api/ocr/unlock/{documentId} does without a password. Streams
+ *       one event per document via SSE and a summary at the end.
+ *     tags:
+ *       - OCR
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: SSE stream started
+ *         content:
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ */
+router.post('/api/ocr/unlock-all', isAuthenticated, async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no',
+    Connection: 'keep-alive',
+  });
+
+  const send = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (res.flush) res.flush();
+  };
+
+  try {
+    const stored = pdfUnlockService.storedPasswords().length;
+    if (!stored) {
+      send({
+        step: 'error',
+        message:
+          'No passwords are stored. Add them under Settings → OCR Fallback → PDF Passwords.',
+      });
+      return res.end();
+    }
+
+    send({
+      step: 'start',
+      message: `Trying ${stored} stored password(s) on every locked document…`,
+    });
+    const summary = await pdfUnlockService.unlockAllLocked(
+      (item, index, total) => {
+        send({
+          step: 'item_unlock',
+          message: `#${item.documentId} ${item.title || ''}: ${item.message}`,
+          documentId: item.documentId,
+          outcome: item.outcome,
+          completed: index + 1,
+          total,
+        });
+      }
+    );
+    if (summary.unlocked) dashboardStatsService.invalidate();
+    send({
+      step: 'done',
+      message: summary.total
+        ? `Done. ${summary.unlocked} of ${summary.total} unlocked, ${summary.stillLocked} still locked.`
+        : 'No document in the queue needs a password.',
+      ...summary,
+    });
+  } catch (error) {
+    console.error('[ERROR] POST /api/ocr/unlock-all:', error);
+    send({ step: 'error', message: error.message });
+  }
+
+  res.end();
 });
 
 module.exports = router;

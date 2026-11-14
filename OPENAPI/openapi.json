@@ -6338,6 +6338,190 @@
         }
       }
     },
+    "/api/ocr/unlock/status": {
+      "get": {
+        "summary": "Whether password-protected PDFs can be unlocked",
+        "description": "Tells the OCR page whether the connected Paperless-ngx can remove a PDF password (version 3.0 or later), how many passwords are stored in Settings and how many queue items wait for a password.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unlock status returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "supported": {
+                          "type": "boolean",
+                          "description": "Paperless-ngx can remove passwords."
+                        },
+                        "paperlessVersion": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "storedPasswords": {
+                          "type": "integer",
+                          "description": "Passwords stored in Settings (never the passwords themselves)."
+                        },
+                        "locked": {
+                          "type": "integer",
+                          "description": "OCR queue items that failed because their PDF needs a password."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/unlock/{documentId}": {
+      "post": {
+        "summary": "Unlock one password-protected PDF",
+        "description": "Finds the password that opens the document's PDF, either the one given or the first of the passwords stored in Settings, and has Paperless-ngx (3.0 or later) remove it. Paperless-ngx keeps the unlocked file as a new version of the same document and reads its text; the document leaves the OCR queue and the failed list and is analysed by the next scan. Passwords are checked locally first, so only a password that opens the file reaches Paperless-ngx. A document that stays locked is answered with success false and an outcome.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "description": "The password to try. Without it the stored passwords are tried."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unlock result. outcome is unlocked or not_locked on success; no_match, no_passwords, unsupported, rejected, forbidden, busy or failed otherwise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "documentId": {
+                          "type": "integer"
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "unlocked",
+                            "not_locked",
+                            "no_match",
+                            "no_passwords",
+                            "unsupported",
+                            "rejected",
+                            "forbidden",
+                            "busy",
+                            "failed"
+                          ]
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid document ID or password"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/api/ocr/unlock-all": {
+      "post": {
+        "summary": "Try the stored passwords on every locked PDF",
+        "description": "Works through the OCR queue items whose PDF needs a password and tries the passwords stored in Settings on each, as POST /api/ocr/unlock/{documentId} does without a password. Streams one event per document via SSE and a summary at the end.",
+        "tags": [
+          "OCR",
+          "API"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream started",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/manual/preview/{id}": {
       "get": {
         "summary": "Document preview",

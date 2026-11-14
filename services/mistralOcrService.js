@@ -17,6 +17,8 @@ const popplerService = require('./popplerService');
 const documentModel = require('../models/document');
 const AIServiceFactory = require('./aiServiceFactory');
 const documentProcessingService = require('./documentProcessingService');
+const pdfPasswordService = require('./pdfPasswordService');
+const pdfUnlockService = require('./pdfUnlockService');
 const {
   isTimeoutError,
   buildTimeoutErrorMessage,
@@ -66,6 +68,10 @@ const CLAUDE_OCR_MAX_TOKENS_CEILING = 128000;
 // in processQueueItem() then refuses to overwrite the document's content,
 // instead of a sentence like "This page is blank." becoming its text.
 const CLAUDE_OCR_NO_TEXT_MARKER = '[no text]';
+
+// The failure reason (and error code) of a PDF that cannot be opened without
+// a password; the OCR page offers its unlock on exactly these rows.
+const PASSWORD_PROTECTED = 'password_protected';
 
 const CLAUDE_OCR_INSTRUCTION = [
   'Transcribe all text in this document exactly as it is written, in reading order, page by page.',
@@ -1217,13 +1223,19 @@ class MistralOcrService {
    * Full OCR pipeline for a single queue item.
    * Emits progress events via the optional progressCallback(step, message).
    *
-   * Steps: 'download' | 'ocr' | 'writeback' | 'ai' | 'done' | 'error'
+   * Steps: 'download' | 'unlock' | 'ocr' | 'writeback' | 'ai' | 'done' | 'error'
+   *
+   * A password-protected PDF ends the run before any provider is called:
+   * unlocked with a stored password (unlocked: true, the document leaves the
+   * queue), still waiting for Paperless-ngx to store a version unlocked
+   * moments ago (waiting: true, the item stays pending), or failed with the
+   * reason password_protected.
    *
    * @param {number} documentId
    * @param {object} opts
    * @param {boolean} [opts.autoAnalyze=false] - Run AI analysis after OCR
    * @param {Function} [opts.progressCallback] - (step, message, data?) => void
-   * @returns {Promise<{ocrText: string, wroteBack: boolean, aiAnalysis?: object}>}
+   * @returns {Promise<{ocrText: string, wroteBack: boolean, aiAnalysis?: object, unlocked?: boolean, waiting?: boolean}>}
    */
   async processQueueItem(documentId, opts = {}) {
     const { autoAnalyze = false, progressCallback = null } = opts;
@@ -1282,6 +1294,48 @@ class MistralOcrService {
         });
       }
       emit('download', `Download complete (${mimeType}).`);
+
+      // A PDF that needs a password cannot be read by any provider, and
+      // sending it anyway costs a paid call for an error. It is unlocked with
+      // a stored password when one fits, otherwise it waits on the OCR page
+      // for someone to unlock it.
+      const fileBuffer = Buffer.from(base64, 'base64');
+      if (await pdfPasswordService.needsPassword(fileBuffer)) {
+        if (pdfUnlockService.wasRecentlyUnlocked(normalizedDocumentId)) {
+          await documentModel.updateOcrQueueStatus(
+            normalizedDocumentId,
+            'pending'
+          );
+          emit(
+            'done',
+            'Paperless-ngx is still storing the unlocked version of this document. It stays queued and is tried again later.'
+          );
+          return { ocrText: '', wroteBack: false, waiting: true };
+        }
+
+        emit('unlock', 'The PDF is password protected.');
+        if (pdfUnlockService.storedPasswords().length) {
+          emit('unlock', 'Trying the stored passwords…');
+          const unlock = await pdfUnlockService.unlock(normalizedDocumentId, {
+            file: fileBuffer,
+            fromOcrRun: true,
+          });
+          emit('unlock', unlock.message);
+          if (
+            unlock.outcome === 'unlocked' ||
+            unlock.outcome === 'not_locked'
+          ) {
+            emit('done', 'Processing finished: the document was unlocked.');
+            return { ocrText: '', wroteBack: false, unlocked: true };
+          }
+        }
+        /** @type {Error & { code?: string }} */
+        const locked = new Error(
+          'The PDF is password protected. Unlock it on the OCR page or store its password in Settings.'
+        );
+        locked.code = PASSWORD_PROTECTED;
+        throw locked;
+      }
 
       // Step 2: OCR
       const providerLabel = this.providerLabel;
@@ -1405,8 +1459,16 @@ class MistralOcrService {
           `[TIMEOUT][OCR] OCR pipeline timed out for document ${normalizedDocumentId}: ${error.message}`
         );
       }
-      await documentModel.updateOcrQueueStatus(normalizedDocumentId, 'failed');
-      await recordTerminalFailure('ocr_failed', 'ocr');
+      if (error?.code === PASSWORD_PROTECTED) {
+        await documentModel.markOcrQueuePasswordProtected(normalizedDocumentId);
+        await recordTerminalFailure(PASSWORD_PROTECTED, 'ocr');
+      } else {
+        await documentModel.updateOcrQueueStatus(
+          normalizedDocumentId,
+          'failed'
+        );
+        await recordTerminalFailure('ocr_failed', 'ocr');
+      }
       emit('error', error.message);
       throw error;
     } finally {

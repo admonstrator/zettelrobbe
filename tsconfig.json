@@ -35,6 +35,8 @@
     "middleware/caller.js",
     "routes/auth.js",
     "services/scanService.js",
-    "tests/test-typecheck-config.js"
+    "tests/test-typecheck-config.js",
+    "services/pdfPasswordService.js",
+    "services/pdfUnlockService.js"
   ]
 }
