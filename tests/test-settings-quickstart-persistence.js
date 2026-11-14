@@ -240,7 +240,7 @@ assert.ok(
   'The API key must never be rendered into the page — the settings page deliberately blanks every secret before render'
 );
 assert.ok(
-  /drive the detection run only/.test(section),
+  /Nothing is saved until you apply/.test(section),
   'The block must state that these fields are not saved'
 );
 
