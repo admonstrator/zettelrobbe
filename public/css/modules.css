@@ -347,7 +347,10 @@
     background: var(--zr-surface-2);
     color: var(--zr-text);
   }
-  .zr-sectionnav a[aria-current='true'] {
+  /* The scroll-spy (section-nav.js) marks its link "true"; the settings topic
+     list (settings-nav.js) shows one topic per view and marks it "page". */
+  .zr-sectionnav a[aria-current='true'],
+  .zr-sectionnav a[aria-current='page'] {
     background: var(--zr-brand-soft);
     color: var(--zr-brand-text);
     font-weight: 600;
