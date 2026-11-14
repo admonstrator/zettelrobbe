@@ -182,6 +182,26 @@ const RELEASES = [
       'Removed: The Duplicates and Simplify tags pages (/duplicates and /simplify redirect to /tidy-up) and the Local Overrides section',
     ],
   },
+  {
+    version: 'v2026.11.02',
+    entries: [
+      'New: Password-protected PDFs in the OCR queue can be unlocked, one by one with a typed password or all at once with a password list stored under Settings → OCR fallback. Paperless-ngx 3.0 or later removes the password and keeps the document as a new version of itself; on older versions such documents are marked as password protected and no longer cost a failed OCR call',
+      'New: The prompt sent to the OCR model can be edited under Settings → OCR fallback, with a button to return to the built-in one (not shown for Mistral, which takes no prompt)',
+      'Security: A session token is accepted only in an "Authorization: Bearer" header, and the routes reachable without login are matched on whole path segments',
+      'Improvement: Updated dependencies (Anthropic and OpenAI SDKs, csrf-csrf, express-rate-limit, openid-client)',
+      'Fix: The scan and the webhook no longer analyse the same document twice when they reach it at the same time',
+      'Fix: A document the AI failed on three times goes to the failed list, where it can be reset, instead of being analysed again in later scans',
+      'Fix: The webhook and a manual rescan protect a document like the scan does: no second OCR run for a document already in the OCR queue, and the same failure reasons and timeout hints',
+      'Fix: A rescan leaves a document alone while it waits for OCR instead of deleting its local data; with OCR switched off, documents left in the OCR queue are processed again',
+      'Fix: The external API is asked once per scan instead of once per document',
+      'Fix: The settings side list highlights the open topic again',
+      'Fix: An OCR key set by the container (OCR_API_KEY or MISTRAL_API_KEY) locks its field, changing the log level shows the restart note, and a Paperless-ngx URL that differs only by a trailing /api or slash no longer restarts the server',
+      'Fix: Pressing Enter in a dialog confirms it instead of cancelling',
+      'Improvement: Saving the minimum content length takes effect without a restart',
+      'Improvement: The server routes are split into one module per feature; nothing changes on the pages',
+      'Removed: The /api/duplicates and /api/simplify endpoints Tidy up does not use (the few it still calls remain)',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];
