@@ -176,7 +176,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /Paperless-ngx marks the tags it uses as inbox; every one of them is taken off a document once the analysis was written\. Use it when you let the analysis file documents on its own\./
+        /Takes every Paperless-ngx inbox tag off a document once its analysis is written\./
       );
 
       const list = sliceBetween(

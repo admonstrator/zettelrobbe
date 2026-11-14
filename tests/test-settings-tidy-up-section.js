@@ -654,7 +654,8 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_REQUEST_SECONDS'
       );
       assert.ok(
-        /measures your model/.test(seconds) && /Default: 30/.test(seconds),
+        /as many pairs as your model handles/.test(seconds) &&
+          /Default: 30/.test(seconds),
         'its hint says what the number does and what the default is'
       );
 
@@ -691,13 +692,11 @@ function sliceBetween(source, from, to) {
       // The hint has to name the tiers, or "the same word in another
       // spelling" is a promise nobody can check.
       assert.ok(
-        /upper or lower case, umlauts, a legal form such as GmbH, singular or plural, or the same words in another order/.test(
-          guard
-        ),
+        /case, umlauts, legal form, plural, word order/.test(guard),
         'the hint must name the spellings the guard treats as the same word'
       );
       assert.ok(
-        /only looks like a typo of an existing one is logged/.test(guard),
+        /a mere typo is only logged/.test(guard),
         'the hint must say that a fuzzy match is not mapped, only recorded'
       );
       assert.ok(
@@ -742,7 +741,8 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_SWEEP_NAMES'
       );
       assert.ok(
-        /the whole list of names/.test(sweep) && /Default: 300/.test(sweep),
+        /synonyms, translations and abbreviations/.test(sweep) &&
+          /Default: 300/.test(sweep),
         'its hint says what the number does and what the default is'
       );
 
@@ -1222,11 +1222,11 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_CONCURRENCY'
       );
       assert.ok(
-        /0 lets the page choose/.test(lanes) && /Default: 0/.test(lanes),
+        /0 picks one for Ollama/.test(lanes) && /Default: 0/.test(lanes),
         'its hint must say what zero means and what the default is'
       );
       assert.ok(
-        /finishes sooner but costs the same tokens/.test(lanes),
+        /More is faster, not cheaper/.test(lanes),
         'the hint must say what more lanes do and do not save'
       );
       assert.ok(
@@ -1250,7 +1250,7 @@ function sliceBetween(source, from, to) {
         'it must show the configured DUPLICATES_AI_VERDICT_MEMORY_DAYS'
       );
       assert.ok(
-        /0 switches this memory off/.test(memory) && /Default: 90/.test(memory),
+        /0 switches this off/.test(memory) && /Default: 90/.test(memory),
         'its hint must say what zero means and what the default is'
       );
       assert.ok(
