@@ -20,6 +20,10 @@
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
+    "route": "DELETE /manual/document/:id",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
+  },
+  {
     "route": "GET /about",
     "guards": ["remoteSetupGuard", "authGate", "protectApiRoute"]
   },
@@ -220,11 +224,23 @@
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
+    "route": "GET /manual/file/:id",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
+  },
+  {
     "route": "GET /manual/preview/:id",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {
     "route": "GET /manual/tags",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
+  },
+  {
+    "route": "GET /manual/vocabulary",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
+  },
+  {
+    "route": "GET /manual/worklist",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated"]
   },
   {

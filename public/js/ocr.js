@@ -267,6 +267,7 @@
 
         const menuId = `ocrRowMenu${item.document_id}`;
         const menuItems = [
+          `<a class="zr-menu__item" href="/manual?id=${item.document_id}&list=${locked ? 'locked' : 'ocr'}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>Open in Manual</a>`,
           canUnlock && unlockStatus.storedPasswords
             ? `<button type="button" class="zr-menu__item unlock-stored-btn" data-id="${item.document_id}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>Try stored passwords</button>`
             : '',

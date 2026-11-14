@@ -289,6 +289,8 @@ class HistoryManager {
               `<div id="${menuId}" popover class="zr-menu">` +
               `<button type="button" class="zr-menu__item history-view-btn" data-link="${escape(row.link ?? '')}">` +
               '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg>Open in Paperless-ngx</button>' +
+              `<a class="zr-menu__item" href="/manual?id=${docId}">` +
+              '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>Open in Manual</a>' +
               '<div class="zr-menu__sep"></div>' +
               // Shown whether or not the OCR fallback is configured. Hiding
               // them made "this build has no such feature" and "OCR is
