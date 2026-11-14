@@ -4165,6 +4165,78 @@
         }
       }
     },
+    "/api/settings/pdf-passwords": {
+      "delete": {
+        "summary": "Delete every stored PDF password",
+        "description": "Empties PDF_PASSWORDS, the list the OCR fallback tries on\npassword-protected PDFs. Saving the settings only ever adds passwords\nto the list; this is the one way to remove them. Refused while the\nkey is set by the environment.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored PDF passwords were deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "deleted": {
+                          "type": "integer",
+                          "description": "How many passwords were stored before",
+                          "example": 3
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "All 3 PDF passwords deleted."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "PDF_PASSWORDS is set by the environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/dashboard/stats": {
       "get": {
         "summary": "Get dashboard statistics payload",

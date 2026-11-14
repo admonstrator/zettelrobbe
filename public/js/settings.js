@@ -1526,6 +1526,41 @@ function initializeFormHandlers() {
       ocrPromptInput.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
+  // Saving only adds PDF passwords; removing them is a request of its own.
+  const pdfPasswordsDeleteBtn = document.getElementById(
+    'pdfPasswordsDeleteBtn'
+  );
+  pdfPasswordsDeleteBtn?.addEventListener('click', async () => {
+    const count = Number(pdfPasswordsDeleteBtn.dataset.count) || 0;
+    const answer = await zrDialog({
+      icon: 'warning',
+      title: 'Delete All Passwords',
+      text: `${count === 1 ? 'The stored PDF password is' : `All ${count} stored PDF passwords are`} deleted. Locked documents can then only be unlocked with a password typed in again.`,
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Cancel',
+    });
+    if (!answer.isConfirmed) return;
+    pdfPasswordsDeleteBtn.disabled = true;
+    try {
+      const response = await fetch('/api/settings/pdf-passwords', {
+        method: 'DELETE',
+      });
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'The passwords were not deleted');
+      }
+      const field = document.getElementById('pdfPasswords');
+      if (field) field.placeholder = 'One password per line';
+      document.getElementById('pdfPasswordsAddHint')?.remove();
+      pdfPasswordsDeleteBtn.remove();
+      window.__zrToast?.(result.message, { tone: 'ok' });
+    } catch (error) {
+      pdfPasswordsDeleteBtn.disabled = false;
+      await zrDialog({ icon: 'error', title: 'Error', text: error.message });
+    }
+  });
+
   if (ocrProviderSelect) {
     const initialProvider = String(
       ocrProviderSelect.value || 'mistral'

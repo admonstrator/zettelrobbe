@@ -58,7 +58,6 @@ const { normalizeOcrPrompt } = require('./ocrPrompt');
  * @callback SettingParser
  * @param {unknown} raw the form value (undefined when the body lacks the field)
  * @param {string|number} current the value in effect before the save
- * @param {Record<string, unknown>} [body] the whole form, for a field with a companion switch
  * @returns {ParseResult}
  */
 
@@ -89,19 +88,22 @@ const { normalizeOcrPrompt } = require('./ocrPrompt');
 
 /**
  * The PDF password list of the OCR section. Like every secret it never
- * reaches the page, so an empty field keeps what is stored; a typed list
- * (one password per line) replaces it whole, and the "remove" switch next to
- * the field (pdfPasswordsClear) empties it.
+ * reaches the page, so an empty field keeps what is stored; typed passwords
+ * (one per line) are added to the stored ones, repeats dropped. Removing
+ * the list is DELETE /api/settings/pdf-passwords, not a save.
  *
  * @type {SettingParser}
  */
-function parsePdfPasswords(raw, _current, body) {
-  const clear = String(body?.pdfPasswordsClear ?? '')
-    .trim()
-    .toLowerCase();
-  if (['yes', 'on', 'true', '1'].includes(clear)) return { value: '' };
+function parsePdfPasswords(raw, current) {
   if (typeof raw !== 'string' || !raw.trim()) return {};
-  return { value: serializePasswordList(parsePasswordList(raw)) };
+  return {
+    value: serializePasswordList(
+      parsePasswordList([
+        ...parsePasswordList(current),
+        ...parsePasswordList(raw),
+      ])
+    ),
+  };
 }
 
 /**

@@ -14,8 +14,9 @@
  *    PDF, a missing pdfinfo and a non-PDF do not
  * 4. findPassword() tries each candidate as user and as owner password and
  *    returns the first that opens the file, or null
- * 5. The settings field: empty keeps the stored list, a typed list replaces
- *    it as JSON, the remove switch empties it
+ * 5. The settings field: empty keeps the stored list, typed passwords are
+ *    added to it, repeats dropped (DELETE /api/settings/pdf-passwords removes
+ *    it, see test-pdf-passwords-delete-route.js)
  */
 
 'use strict';
@@ -189,24 +190,21 @@ async function run() {
     );
   });
 
-  await test('the settings field keeps, replaces and removes the list', () => {
+  await test('the settings field keeps the list and adds to it', () => {
     const entry = settingsCatalog.getEntry('PDF_PASSWORDS');
     assert.ok(entry, 'PDF_PASSWORDS is a setting');
     assert.strictEqual(entry.secret, true);
-    const stored = '["old"]';
-    assert.deepStrictEqual(entry.parse(undefined, stored, {}), {});
-    assert.deepStrictEqual(entry.parse('   ', stored, {}), {});
-    assert.deepStrictEqual(entry.parse('new, one\nsecond\n', stored, {}), {
-      value: '["new, one","second"]',
+    const stored = '["old","second"]';
+    assert.deepStrictEqual(entry.parse(undefined, stored), {});
+    assert.deepStrictEqual(entry.parse('   ', stored), {});
+    assert.deepStrictEqual(entry.parse('new, one\nsecond\n old \n', stored), {
+      value: '["old","second","new, one"]',
     });
-    assert.deepStrictEqual(
-      entry.parse('ignored', stored, { pdfPasswordsClear: 'yes' }),
-      { value: '' }
-    );
-    assert.deepStrictEqual(
-      entry.parse('', stored, { pdfPasswordsClear: 'no' }),
-      {}
-    );
+    assert.deepStrictEqual(entry.parse('first', ''), { value: '["first"]' });
+    // A list stored one per line (by hand, before the JSON format) is read too.
+    assert.deepStrictEqual(entry.parse('c', 'a\nb'), {
+      value: '["a","b","c"]',
+    });
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
