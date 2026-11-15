@@ -28,7 +28,20 @@
     ocrEnabled: false,
     worklist: { list: '', documents: [] },
     busy: false,
+    // The id of the document being fetched, and whether the preview frame is
+    // still fetching its PDF: either one shows the loading line over the viewer.
+    fetching: null,
+    framePending: false,
   };
+
+  // Each loadDocument() call takes a number; an answer that arrives after a
+  // later call started is dropped, so a fast Next does not show an older one.
+  let loadSeq = 0;
+
+  // A browser set to download PDFs instead of showing them never fires the
+  // frame's load event; after this long the loading line gives up.
+  const FRAME_WAIT_MS = 30000;
+  let frameTimer = null;
 
   function toast(message, type = 'success') {
     if (typeof window.__zrToast !== 'function') return;
@@ -172,7 +185,22 @@
     $('viewerEmpty').classList.remove('hidden');
   }
 
+  function renderLoading() {
+    const pdf = state.framePending && state.view === 'preview';
+    const show = !!state.fetching || pdf;
+    $('viewerLoading').classList.toggle('hidden', !show);
+    $('viewerLoadingText').textContent = state.fetching
+      ? `Loading document #${state.fetching}...`
+      : 'Loading the preview...';
+    $('manualViewer').setAttribute('aria-busy', String(show));
+  }
+
   function renderViewer() {
+    renderViewerContent();
+    renderLoading();
+  }
+
+  function renderViewerContent() {
     const doc = state.doc;
     const frame = $('previewFrame');
     const text = $('contentPreview');
@@ -184,12 +212,16 @@
     $('viewerMeta').textContent = '';
 
     if (!doc) {
-      showEmpty('No document selected', 'Search above and pick a document.');
+      // While the first document is on the way the loading line says enough.
+      if (!state.fetching) {
+        showEmpty('No document selected', 'Search above and pick a document.');
+      }
       return;
     }
 
     if (state.view === 'preview') {
       if (!canPreview(doc)) {
+        state.framePending = false;
         showEmpty(
           doc.locked ? 'No preview for a locked PDF' : 'No preview',
           doc.locked
@@ -199,7 +231,12 @@
         return;
       }
       const src = `/manual/file/${doc.id}`;
-      if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
+      if (frame.getAttribute('src') !== src) {
+        state.framePending = true;
+        clearTimeout(frameTimer);
+        frameTimer = setTimeout(onFrameLoad, FRAME_WAIT_MS);
+        frame.setAttribute('src', src);
+      }
       frame.classList.remove('hidden');
       $('viewerMeta').textContent = pagesLabel(doc.pageCount);
       return;
@@ -269,8 +306,13 @@
   async function loadDocument(id) {
     const documentId = Number(id);
     if (!Number.isInteger(documentId) || documentId <= 0) return;
+    const seq = ++loadSeq;
+    state.fetching = documentId;
+    renderViewer();
     try {
       const doc = await request(`/manual/preview/${documentId}`);
+      if (seq !== loadSeq) return;
+      state.fetching = null;
       state.doc = doc;
       state.suggestion = null;
       $('manualDocumentSearchInput').value = doc.title || `Document ${doc.id}`;
@@ -281,6 +323,9 @@
       updateWorklistPosition();
       updateUrl();
     } catch (error) {
+      if (seq !== loadSeq) return;
+      state.fetching = null;
+      renderViewer();
       toast(
         `Document ${documentId} could not be loaded: ${error.message}`,
         'error'
@@ -288,11 +333,21 @@
     }
   }
 
+  // The frame's load event also fires when Paperless-ngx answers with an
+  // error, so the loading line never stays up for good.
+  function onFrameLoad() {
+    clearTimeout(frameTimer);
+    if (!state.framePending) return;
+    state.framePending = false;
+    renderLoading();
+  }
+
   const reloadDocument = () => state.doc && loadDocument(state.doc.id);
 
   function clearDocument() {
     state.doc = null;
     state.suggestion = null;
+    state.framePending = false;
     $('docFacts').classList.add('hidden');
     $('docIdLabel').textContent = '';
     $('paperlessLink').classList.add('hidden');
@@ -668,6 +723,7 @@
       onSelect: (doc) => loadDocument(doc.id),
     });
 
+    $('previewFrame').addEventListener('load', onFrameLoad);
     $('tabPreview').addEventListener('click', () => setView('preview'));
     $('tabText').addEventListener('click', () => setView('text'));
     $('analyzeBtn').addEventListener('click', analyze);
@@ -698,19 +754,23 @@
     renderViewer();
     loadTags();
     loadVocabulary();
-    await loadUnlockStatus();
 
-    // A link from another page: /manual?id=123&list=failed
+    // A link from another page: /manual?id=123&list=failed. The document, its
+    // list and the unlock status load side by side, so the loading line shows
+    // at once instead of after the other two.
     const params = new URLSearchParams(location.search);
     const list = params.get('list') || '';
     const id = params.get('id');
+    const pending = [loadUnlockStatus()];
     if (
       list &&
       $('worklistSelect').querySelector(`option[value="${CSS.escape(list)}"]`)
     ) {
       $('worklistSelect').value = list;
-      await loadWorklist(list, { openFirst: !id });
+      pending.push(loadWorklist(list, { openFirst: !id }));
     }
-    if (id) await loadDocument(id);
+    if (id) pending.push(loadDocument(id));
+    await Promise.all(pending);
+    renderActions(state.doc);
   });
 })();

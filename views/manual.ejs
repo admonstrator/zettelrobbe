@@ -82,13 +82,18 @@
                                     </div>
                                     <span id="viewerMeta" class="zr-xs zr-faint"></span>
                                 </div>
-                                <div class="zr-panel manual-viewer">
+                                <div id="manualViewer" class="zr-panel manual-viewer">
                                     <iframe id="previewFrame" class="hidden" title="Document preview"></iframe>
                                     <pre id="contentPreview" class="zr-mono manual-text hidden"></pre>
                                     <div id="viewerEmpty" class="zr-empty">
                                         <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>
                                         <div id="viewerEmptyTitle" class="zr-empty__title">No document selected</div>
                                         <p id="viewerEmptyText" class="zr-sm zr-faint">Search above and pick a document.</p>
+                                    </div>
+                                    <!-- Over the viewer while the document or its PDF is on the way. -->
+                                    <div id="viewerLoading" class="zr-overlay manual-loading hidden" role="status" aria-live="polite">
+                                        <span class="zr-spinner"></span>
+                                        <span id="viewerLoadingText" class="zr-sm zr-muted">Loading...</span>
                                     </div>
                                 </div>
                             </div>
@@ -122,14 +127,16 @@
                                     </div>
                                 </div>
 
-                                <button id="ocrBtn" type="button" class="zr-btn zr-btn--block" disabled>
-                                    <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-scan"/></svg>
-                                    Run OCR
-                                </button>
-                                <button id="analyzeBtn" type="button" class="zr-btn zr-btn--block" disabled>
-                                    <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
-                                    Analyze with AI
-                                </button>
+                                <div class="manual-pair">
+                                    <button id="ocrBtn" type="button" class="zr-btn zr-btn--block" disabled>
+                                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-scan"/></svg>
+                                        Run OCR
+                                    </button>
+                                    <button id="analyzeBtn" type="button" class="zr-btn zr-btn--block" disabled>
+                                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
+                                        Analyze with AI
+                                    </button>
+                                </div>
                                 <div id="aiStatus" class="zr-row zr-sm zr-muted hidden" role="status">
                                     <svg class="zr-icon zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
                                     AI is analyzing the document...
