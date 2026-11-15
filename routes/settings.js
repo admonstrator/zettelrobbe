@@ -41,6 +41,7 @@ const { DEFAULT_OCR_PROMPTS } = require('../services/ocrPrompt');
 const {
   getAnthropicFormOptions,
   loadAiProviderPresets,
+  matchProviderChoice,
 } = require('../services/aiFormOptions');
 const { BOOT_IDENTITY } = require('../services/bootIdentity');
 const router = express.Router();
@@ -508,6 +509,12 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     // the restarted server from the one it saved to.
     bootId: BOOT_IDENTITY.bootId,
     aiProviderPresets,
+    // The entry of the provider list the stored configuration stands for.
+    aiProviderChoice: matchProviderChoice(
+      aiProviderPresets,
+      config.AI_PROVIDER,
+      config.CUSTOM_BASE_URL
+    )?.id,
     anthropicOptions: getAnthropicFormOptions(),
     // The built-in OCR prompts: the field shows the selected provider's one
     // while nothing else is stored, and its Reset button puts it back.
@@ -783,6 +790,11 @@ router.get(
  *                 type: number
  *                 description: Temperature for generation calls (range 0.0-2.0)
  *                 example: 0.7
+ *               aiReasoningEffort:
+ *                 type: string
+ *                 enum: ["", "low", "medium", "high"]
+ *                 description: Sent as reasoning_effort by the OpenAI, Azure and custom providers. Empty sends none. OpenAI only gets it for the models that take it (gpt-5, o-series); Azure and custom get it as set. Any other value is rejected with 400.
+ *                 example: "medium"
  *               tags:
  *                 type: string
  *                 description: Comma-separated list of tags to use for filtering
@@ -898,6 +910,11 @@ router.get(
  *                 type: string
  *                 enum: ["yes", "no"]
  *                 description: Let the judge reason before it answers (yes/no). Default no; a reasoning model otherwise spends the whole answer budget on its thoughts before the first verdict.
+ *                 example: "no"
+ *               duplicatesAiTemplateSwitch:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: Custom provider only. Also send Tidy up's thinking choice as chat_template_kwargs to models other than Qwen, which always get it (yes/no). Default no; hosted APIs such as Mistral's reject the field.
  *                 example: "no"
  *               duplicatesAiRequestSeconds:
  *                 type: integer

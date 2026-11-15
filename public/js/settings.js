@@ -614,8 +614,6 @@ function initializeFormHandlers() {
     .map((entry) => String(entry?.id || '').trim())
     .filter(Boolean);
 
-  const aiPresetSelect = document.getElementById('aiPreset');
-  const aiPresetHint = document.getElementById('aiPresetHint');
   const aiProviderSelect = document.getElementById('aiProvider');
   const ollamaUrlInput = document.getElementById('ollamaUrl');
   const ollamaApiKeyInput = document.getElementById('ollamaApiKey');
@@ -792,230 +790,98 @@ function initializeFormHandlers() {
     }
   };
 
-  const getCurrentAiFormValues = () => {
-    const provider = String(aiProviderSelect?.value || '')
-      .trim()
-      .toLowerCase();
-    if (provider === 'openai') {
-      return {
-        provider,
-        apiUrl: 'https://api.openai.com/v1',
-        model: String(
-          document.getElementById('openaiModel')?.value || ''
-        ).trim(),
-      };
-    }
-    if (provider === 'ollama') {
-      return {
-        provider,
-        apiUrl: String(ollamaUrlInput?.value || '')
-          .trim()
-          .replace(/\/+$/, ''),
-        model: String(ollamaModelInput?.value || '').trim(),
-      };
-    }
-    if (provider === 'azure') {
-      return {
-        provider,
-        apiUrl: String(document.getElementById('azureEndpoint')?.value || '')
-          .trim()
-          .replace(/\/+$/, ''),
-        model: String(
-          document.getElementById('azureDeploymentName')?.value || ''
-        ).trim(),
-      };
-    }
-    if (provider === 'anthropic') {
-      // An empty URL is api.anthropic.com, which is what the preset says.
-      return {
-        provider,
-        apiUrl: String(anthropicApiUrlInput?.value || '')
-          .trim()
-          .replace(/\/+$/, ''),
-        model: String(anthropicModelInput?.value || '').trim(),
-      };
-    }
-
-    return {
-      provider: 'custom',
-      apiUrl: String(customBaseUrlInput?.value || '')
-        .trim()
-        .replace(/\/+$/, ''),
-      model: String(customModelInput?.value || '').trim(),
-    };
+  /* The provider field is one list: its value is the provider, and the
+     entries that share the custom provider (Mistral, LM Studio, "Other …")
+     tell apart by data-choice and by their address. */
+  const trimSlashes = (value) => {
+    let text = String(value || '').trim();
+    while (text.endsWith('/')) text = text.slice(0, -1);
+    return text;
   };
 
-  const findMatchingAiPreset = () => {
-    const current = getCurrentAiFormValues();
+  const aiChoiceFor = (provider, apiUrl) => {
+    if (provider !== 'custom') {
+      return aiProviderPresets.find((entry) => entry.provider === provider);
+    }
+    const url = trimSlashes(apiUrl);
     return (
-      aiProviderPresets.find((preset) => {
-        const presetProvider = String(preset.provider || '')
-          .trim()
-          .toLowerCase();
-        const presetApiUrl = String(preset.apiUrl || '')
-          .trim()
-          .replace(/\/+$/, '');
-        const presetModel = String(preset.model || '').trim();
-        return (
-          presetProvider === current.provider &&
-          presetApiUrl === current.apiUrl &&
-          presetModel === current.model
-        );
-      }) || null
+      (url &&
+        aiProviderPresets.find(
+          (entry) =>
+            entry.provider === 'custom' &&
+            entry.apiUrl &&
+            trimSlashes(entry.apiUrl) === url
+        )) ||
+      aiProviderPresets.find(
+        (entry) => entry.provider === 'custom' && !entry.apiUrl
+      )
     );
   };
 
-  const applyAiPresetToSettings = (preset) => {
-    if (!preset) {
-      if (aiPresetHint) {
-        aiPresetHint.textContent =
-          'Manual mode: choose provider and enter values yourself.';
-      }
-      return;
-    }
+  /* Shows the entry a provider and a custom address stand for, without
+     touching any field. */
+  const showAiProviderChoice = (provider, apiUrl) => {
+    const choice = aiChoiceFor(provider, apiUrl);
+    const option = Array.from(aiProviderSelect?.options || []).find((entry) =>
+      choice ? entry.dataset.choice === choice.id : entry.value === provider
+    );
+    if (option) option.selected = true;
+  };
 
-    const provider = String(preset.provider || 'custom')
-      .trim()
-      .toLowerCase();
-    if (aiProviderSelect) {
-      aiProviderSelect.value = provider;
-      aiProviderSelect.dispatchEvent(new Event('change'));
-    }
+  const refreshAiProviderChoice = () => {
+    if (!aiProviderSelect) return;
+    showAiProviderChoice(aiProviderSelect.value, customBaseUrlInput?.value);
+  };
 
-    if (provider === 'openai') {
-      const openaiModel = document.getElementById('openaiModel');
-      if (openaiModel && preset.model) {
-        if (
-          !Array.from(openaiModel.options).some(
-            (option) => option.value === preset.model
-          )
-        ) {
-          const option = document.createElement('option');
-          option.value = preset.model;
-          option.textContent = preset.model;
-          openaiModel.appendChild(option);
+  /* A select shows a value only when it has an option for it. */
+  const setModelValue = (select, value) => {
+    if (!select || !value) return;
+    if (!Array.from(select.options).some((option) => option.value === value)) {
+      select.appendChild(new Option(value, value));
+    }
+    select.value = value;
+  };
+
+  /* What picking an entry fills in. A custom entry brings its address, and
+     its model unless the address was already its own; "Other" clears an
+     address that belongs to a named entry. The other providers keep what is
+     stored and only fill an empty field. */
+  const applyAiProviderChoice = (choice) => {
+    if (!choice) return;
+    if (choice.provider === 'custom') {
+      const current = trimSlashes(customBaseUrlInput?.value);
+      if (choice.apiUrl) {
+        if (current !== trimSlashes(choice.apiUrl) && customBaseUrlInput) {
+          customBaseUrlInput.value = choice.apiUrl;
+          setModelValue(customModelInput, choice.model);
         }
-        openaiModel.value = preset.model;
+      } else if (aiChoiceFor('custom', current)?.apiUrl) {
+        if (customBaseUrlInput) customBaseUrlInput.value = '';
+        if (customModelInput) customModelInput.value = '';
       }
-    } else if (provider === 'ollama') {
-      if (ollamaUrlInput)
-        ollamaUrlInput.value = String(preset.apiUrl || '').trim();
-      if (ollamaModelInput)
-        ollamaModelInput.value = String(preset.model || '').trim();
-    } else if (provider === 'custom') {
-      if (customBaseUrlInput)
-        customBaseUrlInput.value = String(preset.apiUrl || '').trim();
-      if (customModelInput)
-        customModelInput.value = String(preset.model || '').trim();
-      if (customApiKeyInput) {
+      if (customApiKeyInput && customApiKeyInput.placeholder !== 'Configured') {
         customApiKeyInput.placeholder =
-          preset.tokenPlaceholder || customApiKeyInput.placeholder;
+          choice.tokenPlaceholder || 'Enter API key';
       }
-    } else if (provider === 'azure') {
-      const azureEndpoint = document.getElementById('azureEndpoint');
-      const azureDeploymentName = document.getElementById(
-        'azureDeploymentName'
-      );
-      if (azureEndpoint)
-        azureEndpoint.value = String(preset.apiUrl || '').trim();
-      if (azureDeploymentName)
-        azureDeploymentName.value = String(preset.model || '').trim();
-    } else if (provider === 'anthropic') {
-      if (anthropicApiUrlInput)
-        anthropicApiUrlInput.value = String(preset.apiUrl || '').trim();
-      if (anthropicModelInput) {
-        const presetModel =
-          String(preset.model || '').trim() ||
-          String(anthropicOptions.defaultModel || '');
-        populateModelSelect(
-          anthropicModelInput,
-          [...anthropicSuggestedModelIds, presetModel],
-          'Select Claude model',
-          { preferred: presetModel }
-        );
+    } else if (choice.provider === 'ollama') {
+      if (ollamaUrlInput && !ollamaUrlInput.value.trim()) {
+        ollamaUrlInput.value = choice.apiUrl;
       }
-      if (
-        anthropicApiKeyInput &&
-        preset.tokenPlaceholder &&
-        anthropicApiKeyInput.placeholder !== 'Configured'
-      ) {
-        anthropicApiKeyInput.placeholder = preset.tokenPlaceholder;
+      if (ollamaModelInput && !ollamaModelInput.value.trim()) {
+        setModelValue(ollamaModelInput, choice.model);
       }
-    }
-
-    if (aiPresetHint) {
-      aiPresetHint.textContent = `Preset "${preset.label}" selected.`;
     }
   };
 
-  const refreshAiPresetSelection = () => {
-    if (!aiPresetSelect) {
-      return;
-    }
-
-    const matchingPreset = findMatchingAiPreset();
-    if (matchingPreset) {
-      aiPresetSelect.value = matchingPreset.id;
-      if (aiPresetHint) {
-        aiPresetHint.textContent = `Preset "${matchingPreset.label}" selected.`;
-      }
-      return;
-    }
-
-    aiPresetSelect.value = '';
-    if (aiPresetHint) {
-      aiPresetHint.textContent =
-        'Manual mode: choose provider and enter values yourself.';
-    }
-  };
-
-  const initAiPresets = () => {
-    if (!aiPresetSelect) {
-      return;
-    }
-
-    aiPresetSelect.innerHTML = '';
-    const customOption = document.createElement('option');
-    customOption.value = '';
-    customOption.textContent = 'Manual custom configuration';
-    aiPresetSelect.appendChild(customOption);
-
-    aiProviderPresets.forEach((preset) => {
-      const option = document.createElement('option');
-      option.value = String(preset.id || '');
-      option.textContent = String(preset.label || preset.id || 'Preset');
-      aiPresetSelect.appendChild(option);
-    });
-
-    refreshAiPresetSelection();
-    aiPresetSelect.addEventListener('change', () => {
-      const selectedPreset =
-        aiProviderPresets.find(
-          (entry) => String(entry.id || '') === aiPresetSelect.value
-        ) || null;
-      applyAiPresetToSettings(selectedPreset);
-    });
-  };
-
-  initAiPresets();
-
-  [
-    aiProviderSelect,
-    ollamaUrlInput,
-    ollamaModelInput,
-    customBaseUrlInput,
-    customModelInput,
-    document.getElementById('openaiModel'),
-    document.getElementById('azureEndpoint'),
-    document.getElementById('azureDeploymentName'),
-    anthropicModelInput,
-    anthropicApiUrlInput,
-  ].forEach((element) => {
-    if (element) {
-      element.addEventListener('change', () => refreshAiPresetSelection());
-      element.addEventListener('input', () => refreshAiPresetSelection());
-    }
+  // A person's pick arrives as 'input' as well as 'change'; code that sets
+  // the provider dispatches 'change' only, so it never fills fields.
+  aiProviderSelect?.addEventListener('input', () => {
+    const option = aiProviderSelect.selectedOptions[0];
+    applyAiProviderChoice(
+      aiProviderPresets.find((entry) => entry.id === option?.dataset.choice)
+    );
   });
+  customBaseUrlInput?.addEventListener('change', refreshAiProviderChoice);
 
   const isTimeoutMessage = (message) => {
     const normalized = String(message || '').toLowerCase();
@@ -1100,7 +966,7 @@ function initializeFormHandlers() {
           title: 'Models loaded',
           text: `${models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.'}${resolvedInfo}`,
         });
-        refreshAiPresetSelection();
+        refreshAiProviderChoice();
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
           'AI model discovery',
@@ -1168,7 +1034,7 @@ function initializeFormHandlers() {
           title: 'Models loaded',
           text: `${models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.'}${resolvedInfo}`,
         });
-        refreshAiPresetSelection();
+        refreshAiProviderChoice();
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
           'AI model discovery',
@@ -1830,7 +1696,10 @@ function initializeFormHandlers() {
     const quickstartKey = String(quickstartApiKeyInput?.value || '').trim();
 
     if (aiProviderSelect) {
-      aiProviderSelect.value = detectedProvider;
+      showAiProviderChoice(
+        detectedProvider,
+        quickstartDetection.resolvedAiApiUrl
+      );
       aiProviderSelect.dispatchEvent(new Event('change'));
     }
 
@@ -1889,7 +1758,7 @@ function initializeFormHandlers() {
       appliedOcr = true;
     }
 
-    refreshAiPresetSelection();
+    refreshAiProviderChoice();
 
     return {
       provider: detectedProvider,
@@ -3332,6 +3201,7 @@ function initializeRuntimeOverridePills() {
       selector: '#aiTemperatureGeneration',
       envKey: 'AI_TEMPERATURE_GENERATION',
     },
+    { selector: '#aiReasoningEffort', envKey: 'AI_REASONING_EFFORT' },
     { selector: '#ollamaThink', envKey: 'OLLAMA_THINK' },
     { selector: '#aiProcessedTag', envKey: 'ADD_AI_PROCESSED_TAG' },
     { selector: '#aiTagName', envKey: 'AI_PROCESSED_TAG_NAME' },
@@ -3391,6 +3261,10 @@ function initializeRuntimeOverridePills() {
       envKey: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
     },
     { selector: '#duplicatesAiThinking', envKey: 'DUPLICATES_AI_THINKING' },
+    {
+      selector: '#duplicatesAiTemplateSwitch',
+      envKey: 'DUPLICATES_AI_TEMPLATE_SWITCH',
+    },
     {
       selector: '#duplicatesAiRequestSeconds',
       envKey: 'DUPLICATES_AI_REQUEST_SECONDS',

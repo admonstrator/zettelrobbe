@@ -499,6 +499,7 @@ function sliceBetween(source, from, to) {
         'duplicatesAiReview',
         'duplicatesAiExcerpts',
         'duplicatesAiThinking',
+        'duplicatesAiTemplateSwitch',
         'duplicatesGuardNewNames',
       ].forEach((id) => {
         assert.ok(
@@ -513,8 +514,8 @@ function sliceBetween(source, from, to) {
 
       assert.strictEqual(
         countOccurrences(section, 'class="zr-field__hint"'),
-        17,
-        'each of the seventeen fields says what it does and what its default is'
+        18,
+        'each of the eighteen fields says what it does and what its default is'
       );
     });
 
@@ -1634,6 +1635,77 @@ function sliceBetween(source, from, to) {
           state = await pickerState(page);
           assert.ok(!state.button.hidden, 'the button returns with Ollama');
           assert.strictEqual(state.value, 'proxy-pinned-model');
+          await page.close();
+        });
+
+        await test('in a browser, the one provider list fills and follows the entry picked', async () => {
+          const { page } = await openPage(browser, []);
+          await page.goto(harness.base + '/settings#ai-provider');
+          const view = () =>
+            page.evaluate(() => {
+              const shown = (key) =>
+                !document
+                  .querySelector(`[data-ai-option="${key}"]`)
+                  .classList.contains('hidden');
+              const select = document.getElementById('aiProvider');
+              return {
+                entry: select.selectedOptions[0].textContent,
+                provider: select.value,
+                url: document.getElementById('customBaseUrl').value,
+                model: document.getElementById('customModel').value,
+                customBlock: !document
+                  .getElementById('customSettings')
+                  .classList.contains('hidden'),
+                effort: shown('AI_REASONING_EFFORT'),
+                templateSwitch: shown('DUPLICATES_AI_TEMPLATE_SWITCH'),
+              };
+            });
+          const labels = await page.$$eval('#aiProvider option', (options) =>
+            options.map((option) => option.textContent)
+          );
+          assert.strictEqual(labels.length, new Set(labels).size);
+          assert.ok(labels.includes('Mistral'));
+          assert.strictEqual(labels.at(-1), 'Other OpenAI-compatible server');
+          assert.strictEqual(
+            await page.$$eval('#aiPreset', (found) => found.length),
+            0,
+            'no second provider field'
+          );
+
+          await page.selectOption('#aiProvider', { label: 'Mistral' });
+          let state = await view();
+          assert.strictEqual(state.provider, 'custom');
+          assert.strictEqual(state.url, 'https://api.mistral.ai/v1');
+          assert.strictEqual(state.model, 'mistral-small-latest');
+          assert.ok(state.customBlock);
+          assert.ok(state.effort, 'thinking effort for the custom provider');
+          assert.ok(state.templateSwitch, 'the template switch is custom only');
+
+          await page.selectOption('#aiProvider', {
+            label: 'Other OpenAI-compatible server',
+          });
+          state = await view();
+          assert.strictEqual(state.provider, 'custom');
+          assert.strictEqual(state.url, '', 'the Mistral address goes');
+
+          await page.fill('#customBaseUrl', 'http://127.0.0.1:1234/v1/');
+          await page.dispatchEvent('#customBaseUrl', 'change');
+          state = await view();
+          assert.strictEqual(
+            state.entry,
+            'LM Studio',
+            'a known address finds its entry'
+          );
+
+          await page.selectOption('#aiProvider', { label: 'OpenAI' });
+          state = await view();
+          assert.ok(!state.customBlock);
+          assert.ok(state.effort);
+          assert.ok(!state.templateSwitch);
+
+          await page.selectOption('#aiProvider', { label: 'Ollama' });
+          state = await view();
+          assert.ok(!state.effort, 'Ollama has a thinking switch of its own');
           await page.close();
         });
       } finally {

@@ -2,7 +2,7 @@
   "presets": [
     {
       "id": "openai-default",
-      "label": "OpenAI (ChatGPT)",
+      "label": "OpenAI",
       "provider": "openai",
       "apiUrl": "https://api.openai.com/v1",
       "model": "gpt-4o-mini",
@@ -17,12 +17,28 @@
       "tokenPlaceholder": "sk-ant-..."
     },
     {
-      "id": "lmstudio-local",
-      "label": "LM Studio (OpenAI compatible)",
+      "id": "azure-default",
+      "label": "Azure OpenAI",
+      "provider": "azure",
+      "apiUrl": "",
+      "model": "",
+      "tokenPlaceholder": ""
+    },
+    {
+      "id": "mistral",
+      "label": "Mistral",
       "provider": "custom",
-      "apiUrl": "http://127.0.0.1:1234/v1",
-      "model": "qwen2.5-7b-instruct",
-      "tokenPlaceholder": "lm-studio-token"
+      "apiUrl": "https://api.mistral.ai/v1",
+      "model": "mistral-small-latest",
+      "tokenPlaceholder": "Mistral API key"
+    },
+    {
+      "id": "ionos-openai-compatible",
+      "label": "IONOS (GDPR compliant)",
+      "provider": "custom",
+      "apiUrl": "https://openai.inference.de-txl.ionos.com/v1",
+      "model": "meta-llama/llama-3.3-70b-instruct",
+      "tokenPlaceholder": "ionos-api-key"
     },
     {
       "id": "ollama-local",
@@ -33,12 +49,12 @@
       "tokenPlaceholder": ""
     },
     {
-      "id": "ionos-openai-compatible",
-      "label": "IONOS (GDPR compliant)",
+      "id": "lmstudio-local",
+      "label": "LM Studio",
       "provider": "custom",
-      "apiUrl": "https://openai.inference.de-txl.ionos.com/v1",
-      "model": "meta-llama/llama-3.3-70b-instruct",
-      "tokenPlaceholder": "ionos-api-key"
+      "apiUrl": "http://127.0.0.1:1234/v1",
+      "model": "qwen2.5-7b-instruct",
+      "tokenPlaceholder": "lm-studio-token"
     }
   ]
 }

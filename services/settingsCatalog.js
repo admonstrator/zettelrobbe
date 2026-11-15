@@ -40,6 +40,7 @@ const {
   serializePasswordList,
 } = require('./pdfPasswordService');
 const { normalizeOcrPrompt } = require('./ocrPrompt');
+const { REASONING_EFFORT_LEVELS } = require('./aiProviderRules');
 
 /**
  * @typedef {'string'|'secret'|'boolean'|'integer'|'number'|'list'|'enum'|'url'|'cron'|'json'} SettingType
@@ -724,6 +725,26 @@ const CATALOG = Object.freeze([
       parse: temperature('AI_TEMPERATURE_GENERATION'),
       ...PS,
     }),
+    setting('AI_REASONING_EFFORT', {
+      type: 'enum',
+      default: '',
+      values: ['', ...REASONING_EFFORT_LEVELS],
+      field: 'aiReasoningEffort',
+      // Empty is a value of its own: no reasoning_effort is sent. Anything
+      // else must be a level every API that knows the field accepts.
+      parse: (raw) => {
+        if (raw === undefined) return {};
+        const level = String(raw ?? '')
+          .trim()
+          .toLowerCase();
+        return level === '' || REASONING_EFFORT_LEVELS.includes(level)
+          ? { value: level }
+          : {
+              error: `Invalid thinking effort. Allowed values are ${REASONING_EFFORT_LEVELS.join(', ')}, or empty to send none.`,
+            };
+      },
+      ...PS,
+    }),
     setting('SYSTEM_PROMPT', {
       type: 'string',
       default: '',
@@ -881,6 +902,13 @@ const CATALOG = Object.freeze([
       type: 'boolean',
       default: 'no',
       field: 'duplicatesAiThinking',
+      parse: switchWhenPresent,
+      ...PS,
+    }),
+    setting('DUPLICATES_AI_TEMPLATE_SWITCH', {
+      type: 'boolean',
+      default: 'no',
+      field: 'duplicatesAiTemplateSwitch',
       parse: switchWhenPresent,
       ...PS,
     }),
