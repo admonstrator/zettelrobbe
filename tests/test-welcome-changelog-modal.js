@@ -1,6 +1,7 @@
 // Tests for the Mailrobbe-style welcome/support & changelog modal:
-// 1. Markup in views/partials/changelog-modal.ejs includes the two-column story,
-//    energy drink tiers, payment links, contact block, and changelog list below.
+// 1. Markup in views/partials/changelog-modal.ejs includes the two-column story
+//    (with the contact block at its end), energy drink tiers, payment links and
+//    the changelog list, and opens with the focus on the title.
 // 2. public/js/changelog-modal.js opens the modal when /api/changelog/status
 //    returns show=true, does NOT call /api/changelog/mark-seen when dismissed via
 //    "Remind me later" / Escape / backdrop, and DOES call /api/changelog/mark-seen
@@ -69,13 +70,29 @@ function testModalMarkup() {
     'welcome modal must include PGP key link'
   );
 
-  // Changelog section must sit inside the main column above the footer
-  const contactIdx = ejs.indexOf('zr-welcome__contact');
+  // The contact closes the story column, which leaves the main column short
+  // enough to fit a laptop screen without scrolling; the changelog sits in the
+  // main column above the footer.
+  const storyIdx = ejs.indexOf('class="zr-welcome__story"');
+  const contactIdx = ejs.indexOf('class="zr-welcome__contact"');
+  const mainIdx = ejs.indexOf('class="zr-welcome__main"');
   const changelogIdx = ejs.indexOf('id="changelogModalEntries"');
   const footIdx = ejs.indexOf('zr-welcome__foot');
   assert.ok(
-    contactIdx !== -1 && changelogIdx > contactIdx && footIdx > changelogIdx,
-    'changelog entries list must appear underneath the support/contact block and above the footer'
+    storyIdx < contactIdx && contactIdx < mainIdx,
+    'contact block must sit in the story column'
+  );
+  assert.ok(
+    changelogIdx > mainIdx && footIdx > changelogIdx,
+    'changelog entries list must sit in the main column above the footer'
+  );
+
+  // Opening the dialog focuses the title, not the first link: on a phone the
+  // first link sits below the fold and the dialog would open scrolled to it.
+  assert.match(
+    ejs,
+    /<h2 id="changelogModalTitle"[^>]*\btabindex="-1"[^>]*\bautofocus\b/,
+    'the dialog title must take the focus when the dialog opens'
   );
 
   assert.match(
