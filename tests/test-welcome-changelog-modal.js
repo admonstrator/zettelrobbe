@@ -47,6 +47,15 @@ function testModalMarkup() {
     );
   }
 
+  // The payment links live in a partial the About page shares.
+  assert.ok(
+    ejs.includes("include('pay-links')"),
+    'welcome modal must include the shared payment links'
+  );
+  const payLinks = fs.readFileSync(
+    path.join(ROOT, 'views', 'partials', 'pay-links.ejs'),
+    'utf8'
+  );
   for (const href of [
     'https://github.com/sponsors/admonstrator',
     'https://buymeacoffee.com/admon',
@@ -54,8 +63,8 @@ function testModalMarkup() {
     'https://ko-fi.com/admon',
   ]) {
     assert.ok(
-      ejs.includes(`href="${href}"`),
-      `welcome modal must include support link ${href}`
+      payLinks.includes(`href="${href}"`),
+      `payment links must include ${href}`
     );
   }
 
@@ -119,7 +128,7 @@ function testDialogStyles() {
     '.zr-welcome__story',
     '.zr-welcome__main',
     '.zr-welcome__tiles',
-    '.zr-welcome__pay',
+    '.zr-pay',
     '.zr-welcome__contact',
     '.zr-welcome__changelog',
     '.zr-welcome__foot',

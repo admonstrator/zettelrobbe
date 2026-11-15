@@ -319,13 +319,13 @@
   }
 
   /* One row of four where the column is wide enough, two rows otherwise. */
-  .zr-welcome__pay {
+  .zr-pay {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 8px;
   }
 
-  .zr-welcome__pay a {
+  .zr-pay a {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -345,7 +345,7 @@
   }
 
   .zr-welcome__tiles li:hover,
-  .zr-welcome__pay a:hover {
+  .zr-pay a:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(22, 24, 29, 0.12);
   }
@@ -504,7 +504,7 @@
     }
 
     .zr-welcome__tiles li,
-    .zr-welcome__pay a {
+    .zr-pay a {
       transition: none;
     }
   }

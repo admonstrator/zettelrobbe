@@ -1,0 +1,76 @@
+/* ==========================================================================
+   About.
+   @layer pages: above the framework layers, below utilities.
+   ========================================================================== */
+
+@layer pages {
+  /* The page spaces its modules with gaps, so the framework's stacking margin
+     between sibling modules would only push the right column out of line. */
+  .about-page .zr-module + .zr-module {
+    margin-top: 0;
+  }
+  .about-page .card-grid {
+    gap: var(--zr-4);
+  }
+
+  .about-hero {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--zr-4);
+    padding: var(--zr-4);
+  }
+  .about-hero__logo {
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+  }
+  .about-hero__name {
+    font-size: var(--zr-fs-xl);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* The system facts: label left, value right, values may break anywhere so a
+     long model name or commit never pushes the card wider. */
+  .about-facts {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px var(--zr-4);
+    margin: 0;
+    padding: var(--zr-3);
+    border-radius: var(--zr-r-md);
+    background: var(--zr-surface-2);
+  }
+  .about-facts dt {
+    color: var(--zr-text-muted);
+  }
+  .about-facts dd {
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  /* Two by two here; the dialog's column fits all four in one row. */
+  .about-support .zr-pay {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .about-prose {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-2);
+  }
+  .about-prose ul {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+    margin: 0;
+    padding-left: var(--zr-4);
+    list-style: disc;
+  }
+  @media (max-width: 600px) {
+    .about-hero {
+      flex-direction: column;
+    }
+  }
+}

@@ -2,7 +2,6 @@
 	document.addEventListener('DOMContentLoaded', () => {
 		const openPrefilledIssueBtn = document.getElementById('openPrefilledIssueBtn');
 		const copyIssueDiagnosticsBtn = document.getElementById('copyIssueDiagnosticsBtn');
-		const issueHelperStatus = document.getElementById('issueHelperStatus');
 		const supportInfoPayload = document.getElementById('supportInfoPayload');
 
 		if (!openPrefilledIssueBtn || !supportInfoPayload) {
@@ -51,7 +50,8 @@
 				`Platform: ${supportInfo.platform || 'unknown'}`,
 				`Environment: ${supportInfo.nodeEnv || 'unknown'}`,
 				`AI Provider: ${supportInfo.aiProvider || 'unknown'}`,
-				`Mistral OCR Enabled: ${supportInfo.ocrEnabled ? 'yes' : 'no'}`,
+				`AI Model: ${supportInfo.aiModel || 'unknown'}`,
+				`OCR: ${supportInfo.ocrEnabled ? `yes (${supportInfo.ocrProvider || 'unknown'})` : 'no'}`,
 				`Paperless API URL: ${redactSecrets(supportInfo.paperlessApiUrl || 'unknown')}`,
 				`Ollama API URL: ${redactSecrets(supportInfo.ollamaApiUrl || 'unknown')}`,
 				`Ollama Model: ${supportInfo.ollamaModel || 'unknown'}`,
@@ -62,8 +62,9 @@
 				`Azure API Version: ${supportInfo.azureApiVersion || 'unknown'}`,
 				`Anthropic Model: ${supportInfo.anthropicModel || 'unknown'}`,
 				`Anthropic API URL: ${redactSecrets(supportInfo.anthropicApiUrl || 'unknown')}`,
-				`Mistral OCR Model: ${supportInfo.mistralOcrModel || 'unknown'}`,
+				`OCR Model: ${supportInfo.mistralOcrModel || 'unknown'}`,
 				`Scan Interval: ${supportInfo.scanInterval || 'unknown'}`,
+				`Uptime: ${supportInfo.uptime || 'unknown'}`,
 				`Token Limit: ${supportInfo.tokenLimit || 'unknown'}`,
 				`Response Tokens: ${supportInfo.responseTokens || 'unknown'}`,
 				`Trust Proxy: ${supportInfo.trustProxy || 'unknown'}`,
@@ -80,16 +81,19 @@
 				`Client Timezone: ${timezone}`
 			].join('\n');
 
+			// The kernel's toast (public/js/zr.js); a classic script reaches it
+			// through the window hook.
+			const toast = (message, tone) => {
+				if (typeof window.__zrToast === 'function') {
+					window.__zrToast(message, { tone });
+				}
+			};
 			try {
 				await navigator.clipboard.writeText(diagnostics);
-				if (issueHelperStatus) {
-					issueHelperStatus.textContent = 'Diagnostics copied to clipboard.';
-				}
+				toast('Details copied. Paste them into your report.', 'ok');
 			} catch (error) {
 				console.error('Failed to copy diagnostics:', error);
-				if (issueHelperStatus) {
-					issueHelperStatus.textContent = 'Could not copy diagnostics. Please copy manually.';
-				}
+				toast('Could not copy the details. Your browser blocked the clipboard.', 'danger');
 			}
 		});
 	});
