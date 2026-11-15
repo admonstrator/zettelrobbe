@@ -134,6 +134,8 @@ const GPT_5_MODEL_PATTERN = /gpt-?5/i;
 const O_SERIES_MODEL_PATTERN = /(?:^|[/:_\s-])o[1-4](?:$|[-_.])/i;
 const GPT_OSS_MODEL_PATTERN = /gpt-?oss/i;
 const QWEN_MODEL_PATTERN = /qwen/i;
+const MISTRAL_MODEL_PATTERN =
+  /mistral|mixtral|magistral|ministral|codestral|devstral|pixtral|voxtral/i;
 
 /**
  * Model families whose rules differ from the transport default. Patterns are
@@ -149,6 +151,9 @@ const QWEN_MODEL_PATTERN = /qwen/i;
  *   serves it; OpenAI and Azure have never been sent the field for it.
  * - Qwen reads the `/no_think` soft switch out of the prompt as well as the
  *   chat template switch, so a gateway that drops one still passes the other.
+ * - Mistral's own API rejects `chat_template_kwargs` with 422 (issue #373)
+ *   and its chat templates have no thinking switch anywhere else, so it is
+ *   never sent for a Mistral model.
  *
  * @type {ReadonlyArray<{transport: Transport, pattern: RegExp, providers?: ReadonlyArray<ProviderId>, rules: Partial<RequestRules>}>}
  */
@@ -187,6 +192,12 @@ const MODEL_FAMILIES = Object.freeze([
       thinkingSwitch: 'chat_template',
       thinkingPromptSwitch: '/no_think',
     },
+  },
+  {
+    transport: 'openai-compatible',
+    pattern: MISTRAL_MODEL_PATTERN,
+    providers: ['custom'],
+    rules: { thinkingSwitch: null },
   },
 ]);
 
