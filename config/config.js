@@ -698,6 +698,9 @@ defineLive(module.exports, {
       0.7,
       'AI_TEMPERATURE_GENERATION'
     ),
+  // reasoning_effort for the OpenAI-compatible providers: low | medium |
+  // high; empty sends none. Which models get it: services/aiProviderRules.js.
+  aiReasoningEffort: () => env('AI_REASONING_EFFORT').trim().toLowerCase(),
   addAIProcessedTag: () => env('ADD_AI_PROCESSED_TAG', 'no'),
   addAIProcessedTags: () => env('AI_PROCESSED_TAG_NAME', 'ai-processed'),
   // Tags taken off a document when its analysis is written back, so a
@@ -747,6 +750,10 @@ defineLive(module.exports, {
   // request should take; the judge measures the model on a small first
   // request and sizes every later one to fit.
   duplicatesAiThinking: () => envBool('DUPLICATES_AI_THINKING', 'no'),
+  // The custom provider also sends Tidy up's thinking choice as
+  // chat_template_kwargs for models other than Qwen, which always get it.
+  duplicatesAiTemplateSwitch: () =>
+    envBool('DUPLICATES_AI_TEMPLATE_SWITCH', 'no'),
   duplicatesAiRequestSeconds: () =>
     envInt('DUPLICATES_AI_REQUEST_SECONDS', '30'),
   // Drift is prevented where it starts: when document analysis proposes a

@@ -286,9 +286,11 @@ async function main() {
         reasoning: false,
       });
       assert.strictEqual(body.reasoning_effort, 'low');
-      assert.deepStrictEqual(body.chat_template_kwargs, {
-        enable_thinking: false,
-      });
+      assert.strictEqual(
+        'chat_template_kwargs' in body,
+        false,
+        'the template switch goes to Qwen, or where the operator asks for it'
+      );
       assert.strictEqual(
         body.messages[body.messages.length - 1].content,
         'judge this',
@@ -443,6 +445,36 @@ async function main() {
       );
       assert.strictEqual(fake.last().body.model, 'gpt-5-mini');
       assert.strictEqual('temperature' in fake.last().body, false);
+      assert.strictEqual('reasoning_effort' in fake.last().body, false);
+
+      // The operator's thinking effort reaches the analysis too, and the
+      // template switch never does.
+      process.env.AI_REASONING_EFFORT = 'medium';
+      process.env.DUPLICATES_AI_TEMPLATE_SWITCH = 'yes';
+      try {
+        fake.reset();
+        await quiet(() =>
+          openaiService.analyzeDocument('Invoice 42', [], [], [], 1)
+        );
+        assert.strictEqual(fake.last().body.reasoning_effort, 'medium');
+        process.env.OPENAI_MODEL = 'gpt-4o-mini';
+        fake.reset();
+        await quiet(() =>
+          openaiService.analyzeDocument('Invoice 42', [], [], [], 1)
+        );
+        assert.strictEqual('reasoning_effort' in fake.last().body, false);
+        selectProvider('custom');
+        fake.reset();
+        await quiet(() =>
+          customService.analyzeDocument('Invoice 42', [], [], [], 1)
+        );
+        assert.strictEqual(fake.last().body.reasoning_effort, 'medium');
+        assert.strictEqual('chat_template_kwargs' in fake.last().body, false);
+        selectProvider('openai');
+      } finally {
+        delete process.env.AI_REASONING_EFFORT;
+        delete process.env.DUPLICATES_AI_TEMPLATE_SWITCH;
+      }
       process.env.OPENAI_MODEL = defaults.openaiModel;
 
       fake.setScript({

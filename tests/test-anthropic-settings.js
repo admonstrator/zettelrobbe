@@ -670,7 +670,7 @@ function startFakeAnthropic() {
       assert.ok(!html.includes(GOOD_KEY), 'the key never reaches the page');
       assert.match(
         html,
-        /<option value="anthropic" selected>Anthropic \(Claude\)<\/option>/
+        /<option value="anthropic" data-choice="anthropic-default" selected>Anthropic \(Claude\)<\/option>/
       );
       assert.match(
         html,
@@ -783,7 +783,7 @@ function startFakeAnthropic() {
       );
       assert.match(
         html,
-        /<option value="anthropic" >Anthropic \(Claude\)<\/option>/
+        /<option value="anthropic" data-choice="anthropic-default" >Anthropic \(Claude\)<\/option>/
       );
       assert.ok(
         html.includes(`<option value="${ANTHROPIC_DEFAULT_MODEL}" selected>`),

@@ -1,12 +1,13 @@
 'use strict';
 
 /**
- * What the AI provider forms offer without a request: the provider presets
+ * What the AI provider forms offer without a request: the one provider list
  * (config/ai-provider-presets.json, or the built-in list) and the Claude
  * models and effort levels. Shared by the setup wizard, the settings page and
- * GET /api/settings/ai/presets. Moved verbatim from routes/setup.js.
+ * GET /api/settings/ai/presets.
  *
- * Exports: getAnthropicFormOptions, loadAiProviderPresets.
+ * Exports: getAnthropicFormOptions, loadAiProviderPresets,
+ * matchProviderChoice.
  */
 
 const fs = require('fs').promises;
@@ -17,7 +18,14 @@ const {
   ANTHROPIC_EFFORT_LEVELS,
   ANTHROPIC_DEFAULT_MAX_TOKENS,
 } = require('./anthropicSupport');
+const { stripTrailingSlashes } = require('./serviceUtils');
 
+/**
+ * The one list the provider field offers. Every entry is a provider id plus
+ * what to fill in for it; several entries can share the custom provider and
+ * tell apart by their address. The list ends with OTHER_CHOICE, the custom
+ * provider with nothing filled in.
+ */
 const DEFAULT_AI_PROVIDER_PRESETS = [
   {
     id: 'openai-default',
@@ -26,30 +34,6 @@ const DEFAULT_AI_PROVIDER_PRESETS = [
     apiUrl: 'https://api.openai.com/v1',
     model: 'gpt-4o-mini',
     tokenPlaceholder: 'sk-...',
-  },
-  {
-    id: 'lmstudio-local',
-    label: 'LM Studio (OpenAI compatible)',
-    provider: 'custom',
-    apiUrl: 'http://127.0.0.1:1234/v1',
-    model: 'qwen2.5-7b-instruct',
-    tokenPlaceholder: 'lm-studio-token',
-  },
-  {
-    id: 'ollama-local',
-    label: 'Ollama',
-    provider: 'ollama',
-    apiUrl: 'http://localhost:11434',
-    model: 'llama3.2',
-    tokenPlaceholder: '',
-  },
-  {
-    id: 'ionos-openai-compatible',
-    label: 'IONOS (OpenAI compatible)',
-    provider: 'custom',
-    apiUrl: 'https://openai.inference.de-txl.ionos.com/v1',
-    model: 'meta-llama/llama-3.3-70b-instruct',
-    tokenPlaceholder: 'ionos-api-key',
   },
   {
     // No URL: the SDK knows api.anthropic.com, and ANTHROPIC_API_URL is only
@@ -61,7 +45,107 @@ const DEFAULT_AI_PROVIDER_PRESETS = [
     model: ANTHROPIC_DEFAULT_MODEL,
     tokenPlaceholder: 'sk-ant-...',
   },
+  {
+    id: 'azure-default',
+    label: 'Azure OpenAI',
+    provider: 'azure',
+    apiUrl: '',
+    model: '',
+    tokenPlaceholder: '',
+  },
+  {
+    id: 'mistral',
+    label: 'Mistral',
+    provider: 'custom',
+    apiUrl: 'https://api.mistral.ai/v1',
+    model: 'mistral-small-latest',
+    tokenPlaceholder: 'Mistral API key',
+  },
+  {
+    id: 'ionos-openai-compatible',
+    label: 'IONOS (GDPR compliant)',
+    provider: 'custom',
+    apiUrl: 'https://openai.inference.de-txl.ionos.com/v1',
+    model: 'meta-llama/llama-3.3-70b-instruct',
+    tokenPlaceholder: 'ionos-api-key',
+  },
+  {
+    id: 'ollama-local',
+    label: 'Ollama',
+    provider: 'ollama',
+    apiUrl: 'http://localhost:11434',
+    model: 'llama3.2',
+    tokenPlaceholder: '',
+  },
+  {
+    id: 'lmstudio-local',
+    label: 'LM Studio',
+    provider: 'custom',
+    apiUrl: 'http://127.0.0.1:1234/v1',
+    model: 'qwen2.5-7b-instruct',
+    tokenPlaceholder: 'lm-studio-token',
+  },
 ];
+
+/** The custom provider with nothing filled in; always the last entry. */
+const OTHER_CHOICE = Object.freeze({
+  id: 'custom',
+  label: 'Other OpenAI-compatible server',
+  provider: 'custom',
+  apiUrl: '',
+  model: '',
+  tokenPlaceholder: '',
+});
+
+const PROVIDER_VALUES = ['openai', 'ollama', 'custom', 'azure', 'anthropic'];
+
+/**
+ * A list a person can always choose every provider from: a file that leaves
+ * a provider out gets the built-in entry for it, and a custom entry without
+ * an address gives way to OTHER_CHOICE at the end.
+ *
+ * @param {Array<{id: string, provider: string, apiUrl: string}>} list
+ */
+function completeChoices(list) {
+  const named = list.filter(
+    (entry) => !(entry.provider === 'custom' && !entry.apiUrl)
+  );
+  const missing = DEFAULT_AI_PROVIDER_PRESETS.filter(
+    (entry) =>
+      entry.provider !== 'custom' &&
+      !named.some((choice) => choice.provider === entry.provider)
+  );
+  return [...named, ...missing, { ...OTHER_CHOICE }];
+}
+
+/**
+ * The entry a configuration stands for: the one of its provider, and for the
+ * custom provider the one with its address, else OTHER_CHOICE.
+ *
+ * @param {Array<{id: string, provider: string, apiUrl: string}>} choices
+ * @param {unknown} provider
+ * @param {unknown} apiUrl
+ */
+function matchProviderChoice(choices, provider, apiUrl) {
+  const id = String(provider || '')
+    .trim()
+    .toLowerCase();
+  if (id !== 'custom') {
+    return choices.find((entry) => entry.provider === id) || null;
+  }
+  const url = stripTrailingSlashes(String(apiUrl || '').trim());
+  return (
+    (url &&
+      choices.find(
+        (entry) =>
+          entry.provider === 'custom' &&
+          entry.apiUrl &&
+          stripTrailingSlashes(entry.apiUrl) === url
+      )) ||
+    choices.find((entry) => entry.id === OTHER_CHOICE.id) ||
+    null
+  );
+}
 
 /* What the setup wizard and the settings page need to offer the Claude
    models and effort levels without a request: the same constants the
@@ -91,10 +175,10 @@ async function loadAiProviderPresets() {
     const source = Array.isArray(parsed) ? parsed : parsed?.presets;
 
     if (!Array.isArray(source) || source.length === 0) {
-      return DEFAULT_AI_PROVIDER_PRESETS;
+      return completeChoices(DEFAULT_AI_PROVIDER_PRESETS);
     }
 
-    return source
+    const presets = source
       .map((item, index) => ({
         id: String(item.id || `preset-${index + 1}`),
         label: String(item.label || item.name || `Preset ${index + 1}`),
@@ -105,18 +189,19 @@ async function loadAiProviderPresets() {
           item.tokenPlaceholder || item.apiKeyPlaceholder || ''
         ),
       }))
-      .filter((item) =>
-        ['openai', 'ollama', 'custom', 'azure', 'anthropic'].includes(
-          item.provider
-        )
-      );
+      .filter((item) => PROVIDER_VALUES.includes(item.provider));
+    return completeChoices(presets);
   } catch (error) {
     console.warn(
       '[WARN] Could not load AI provider presets from config/ai-provider-presets.json:',
       error.message
     );
-    return DEFAULT_AI_PROVIDER_PRESETS;
+    return completeChoices(DEFAULT_AI_PROVIDER_PRESETS);
   }
 }
 
-module.exports = { getAnthropicFormOptions, loadAiProviderPresets };
+module.exports = {
+  getAnthropicFormOptions,
+  loadAiProviderPresets,
+  matchProviderChoice,
+};
