@@ -249,6 +249,7 @@
                                 TOKEN_LIMIT: { id: 'tokenLimit', type: 'number', attrs: 'min="1" step="1"' },
                                 AI_TEMPERATURE_ANALYSIS: { id: 'aiTemperatureAnalysis', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
                                 AI_TEMPERATURE_GENERATION: { id: 'aiTemperatureGeneration', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
+                                AI_REASONING_EFFORT: { id: 'aiReasoningEffort', type: 'select', choices: [{ value: '', label: 'Not sent' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] },
                                 ANTHROPIC_EFFORT: { id: 'anthropicEffort', type: 'select', choices: [{ value: '', label: 'Model default' }].concat(anthropicEffortLevels.map((level) => ({ value: level, label: anthropicEffortLabels[level] || level }))) },
                                 ANTHROPIC_MAX_TOKENS: { id: 'anthropicMaxTokens', type: 'number', attrs: 'min="1" step="1"' },
                                 ANTHROPIC_STRUCTURED_OUTPUT: { id: 'anthropicStructuredOutput', type: 'switch' },
@@ -268,6 +269,7 @@
                                 DUPLICATES_AI_TOKEN_BUDGET: { id: 'duplicatesAiTokenBudget', type: 'number', attrs: 'min="0" max="10000000" step="1000"' },
                                 DUPLICATES_AI_IDLE_STOP_SECONDS: { id: 'duplicatesAiIdleStopSeconds', type: 'number', attrs: 'min="0" max="3600" step="1"' },
                                 DUPLICATES_AI_THINKING: { id: 'duplicatesAiThinking', type: 'switch' },
+                                DUPLICATES_AI_TEMPLATE_SWITCH: { id: 'duplicatesAiTemplateSwitch', type: 'switch' },
                                 DUPLICATES_AI_REQUEST_SECONDS: { id: 'duplicatesAiRequestSeconds', type: 'number', attrs: 'min="5" max="300" step="5"' },
                                 DUPLICATES_AI_CONCURRENCY: { id: 'duplicatesAiConcurrency', type: 'number', attrs: 'min="0" max="8" step="1"' },
                                 DUPLICATES_AI_VERDICT_MEMORY_DAYS: { id: 'duplicatesAiVerdictMemoryDays', type: 'number', attrs: 'min="0" max="365" step="1"' },
@@ -353,18 +355,18 @@
                                     </div>
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
-                                        <label for="aiPreset" class="zr-field__name">Provider preset</label>
-                                        <select id="aiPreset" class="zr-input"></select>
-                                        <p id="aiPresetHint" class="zr-field__hint">Manual mode: choose provider and enter values yourself.</p>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="aiProvider" class="zr-field__name">AI Provider</label>
+                                        <label for="aiProvider" class="zr-field__name">AI provider</label>
+                                        <%
+                                            // One list: every provider, the known OpenAI-compatible
+                                            // services by name, and "Other" last. The value is the
+                                            // provider; data-choice tells the entries of custom apart.
+                                            const aiChoiceList = Array.isArray(aiProviderPresets) ? aiProviderPresets : [];
+                                            const aiChoiceId = typeof aiProviderChoice === 'string' ? aiProviderChoice : '';
+                                        %>
                                         <select id="aiProvider" name="aiProvider" class="zr-input">
-                                            <option value="openai" <%= config.AI_PROVIDER === 'openai' ? 'selected' : '' %>>OpenAI (ChatGPT)</option>
-                                            <option value="ollama" <%= config.AI_PROVIDER === 'ollama' ? 'selected' : '' %>>Ollama (Local LLM)</option>
-                                            <option value="custom" <%= config.AI_PROVIDER === 'custom' ? 'selected' : '' %>>Custom</option>
-                                            <option value="azure" <%= config.AI_PROVIDER === 'azure' ? 'selected' : '' %>>Azure</option>
-                                            <option value="anthropic" <%= anthropicSelected ? 'selected' : '' %>>Anthropic (Claude)</option>
+                                            <% aiChoiceList.forEach((choice) => { %>
+                                            <option value="<%= choice.provider %>" data-choice="<%= choice.id %>" <%= choice.id === aiChoiceId ? 'selected' : '' %>><%= choice.label %></option>
+                                            <% }) %>
                                         </select>
                                         <p class="zr-field__hint">The service that reads your documents. Each one asks for its own key and model below.</p>
                                     </div>
@@ -411,20 +413,20 @@
 
                                     <div id="customSettings" class="zr-col zr-col--loose <%= aiBlockHidden('custom') %>">
                                         <div class="zr-field zr-field--stacked">
-                                            <label for="customBaseUrl" class="zr-field__name">Custom Base URL</label>
+                                            <label for="customBaseUrl" class="zr-field__name">Server address</label>
                                             <input type="text" id="customBaseUrl" name="customBaseUrl" value="<%= config.CUSTOM_BASE_URL %>" class="zr-input" placeholder="http://localhost:8080/v1">
                                             <p class="zr-field__hint">The address of the OpenAI-compatible API, usually ending in /v1.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
-                                            <label for="customApiKey" class="zr-field__name">Custom API Key</label>
+                                            <label for="customApiKey" class="zr-field__name">API key</label>
                                             <div class="zr-inputgroup">
-                                                <input type="password" id="customApiKey" name="customApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.CUSTOM_API_KEY ? 'Configured' : 'Enter Custom API key' %>">
+                                                <input type="password" id="customApiKey" name="customApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.CUSTOM_API_KEY ? 'Configured' : 'Enter API key' %>">
                                                 <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="customApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
                                             <p class="zr-field__hint"><%= configuredSecrets.CUSTOM_API_KEY ? 'Leave empty to keep the stored key.' : 'Leave empty if the endpoint needs no key.' %></p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
-                                            <label for="customModel" class="zr-field__name">Custom Model</label>
+                                            <label for="customModel" class="zr-field__name">Model</label>
                                             <div class="zr-inputgroup">
                                                 <select id="customModel" name="customModel" class="zr-input">
                                                     <option value="<%= config.CUSTOM_MODEL %>" selected><%= config.CUSTOM_MODEL %></option>

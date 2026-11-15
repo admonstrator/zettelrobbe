@@ -58,7 +58,7 @@ const PROVIDERS = Object.freeze([
   }),
   Object.freeze({
     id: 'custom',
-    label: 'OpenAI-compatible endpoint',
+    label: 'Other OpenAI-compatible server',
     transport: 'openai-compatible',
     connection: Object.freeze([
       'CUSTOM_BASE_URL',
@@ -128,7 +128,16 @@ function transportFor(provider) {
  * @property {boolean} defaultCompletionCap
  *   a generateText() call without a maxTokens option still sends
  *   RESPONSE_TOKENS as its cap; false leaves the cap to the provider
+ * @property {boolean} effortSetting
+ *   the operator's AI_REASONING_EFFORT may be sent as `reasoning_effort`;
+ *   false where the model is known to reject the field
  */
+
+/**
+ * The values AI_REASONING_EFFORT takes, in the OpenAI spelling every
+ * OpenAI-compatible API that knows the field understands. Empty sends none.
+ */
+const REASONING_EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high']);
 
 const GPT_5_MODEL_PATTERN = /gpt-?5/i;
 const O_SERIES_MODEL_PATTERN = /(?:^|[/:_\s-])o[1-4](?:$|[-_.])/i;
@@ -144,11 +153,15 @@ const QWEN_MODEL_PATTERN = /qwen/i;
  *
  * - gpt-5 and the o-series reject a temperature other than the default and
  *   reject `max_tokens` (they want `max_completion_tokens`); both take
- *   `reasoning_effort`, gpt-5 down to 'minimal', the o-series down to 'low'.
+ *   `reasoning_effort`, gpt-5 down to 'minimal', the o-series down to 'low',
+ *   and are the OpenAI models the operator's thinking effort is sent to.
  * - gpt-oss takes `reasoning_effort` 'low' where an OpenAI-compatible server
  *   serves it; OpenAI and Azure have never been sent the field for it.
- * - Qwen reads the `/no_think` soft switch out of the prompt as well as the
- *   chat template switch, so a gateway that drops one still passes the other.
+ * - Qwen takes the chat template switch, and reads the `/no_think` soft
+ *   switch out of the prompt as well, so a gateway that drops one still
+ *   passes the other. It is the one family the switch is sent to unasked:
+ *   hosted APIs such as Mistral's reject the unknown field with 422 (issue
+ *   #373), so for any other model it waits for DUPLICATES_AI_TEMPLATE_SWITCH.
  *
  * @type {ReadonlyArray<{transport: Transport, pattern: RegExp, providers?: ReadonlyArray<ProviderId>, rules: Partial<RequestRules>}>}
  */
@@ -161,6 +174,7 @@ const MODEL_FAMILIES = Object.freeze([
       reasoningEffort: 'openai',
       reasoningOffEffort: 'minimal',
       maxTokensParam: 'max_completion_tokens',
+      effortSetting: true,
     },
   },
   {
@@ -171,6 +185,7 @@ const MODEL_FAMILIES = Object.freeze([
       reasoningEffort: 'openai',
       reasoningOffEffort: 'low',
       maxTokensParam: 'max_completion_tokens',
+      effortSetting: true,
     },
   },
   {
@@ -195,16 +210,18 @@ const MODEL_FAMILIES = Object.freeze([
  * family is applied.
  *
  * - openai: a generateText() call without a cap of its own has always gone
- *   out without one, so the model answers with whatever it allows.
- * - custom: every server that applies a chat template understands
- *   `chat_template_kwargs`, and one that does not passes it through, so the
- *   thinking switch is sent for every model there.
+ *   out without one, so the model answers with whatever it allows. Its
+ *   model names are reliable, so the thinking effort goes only to the
+ *   families above that take it; gpt-4o answers 400 for the field.
+ *
+ * Azure routes by deployment name and custom serves any model, so neither
+ * can tell a reasoning model by its name: the effort the operator set is
+ * sent there as it is.
  *
  * @type {Readonly<Partial<Record<ProviderId, Partial<RequestRules>>>>}
  */
 const PROVIDER_DEFAULTS = Object.freeze({
-  openai: Object.freeze({ defaultCompletionCap: false }),
-  custom: Object.freeze({ thinkingSwitch: 'chat_template' }),
+  openai: Object.freeze({ defaultCompletionCap: false, effortSetting: false }),
 });
 
 /** @type {Readonly<Record<Transport, RequestRules>>} */
@@ -221,6 +238,7 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     reasoningOffEffort: null,
     thinkingPromptSwitch: null,
     defaultCompletionCap: true,
+    effortSetting: true,
   }),
   ollama: Object.freeze({
     transport: 'ollama',
@@ -234,6 +252,7 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     reasoningOffEffort: null,
     thinkingPromptSwitch: null,
     defaultCompletionCap: true,
+    effortSetting: false,
   }),
   anthropic: Object.freeze({
     transport: 'anthropic',
@@ -247,29 +266,36 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     reasoningOffEffort: null,
     thinkingPromptSwitch: null,
     defaultCompletionCap: true,
+    effortSetting: false,
   }),
 });
 
 /**
  * The request rules for a provider and a model name.
  *
+ * `settings` carries what the operator decided where the model name cannot
+ * tell: `templateSwitch` (DUPLICATES_AI_TEMPLATE_SWITCH) sends the chat
+ * template switch to every model of the custom provider, not only to Qwen.
+ *
  * @param {unknown} provider
  * @param {unknown} [model]
+ * @param {{templateSwitch?: boolean}} [settings]
  * @returns {RequestRules}
  */
-function resolveRules(provider, model = '') {
+function resolveRules(provider, model = '', settings = {}) {
   const id = normalizeProvider(provider);
   const transport = transportFor(id);
   const name = String(model ?? '').trim();
   const base = { ...TRANSPORT_DEFAULTS[transport], ...PROVIDER_DEFAULTS[id] };
-  if (name === '') return base;
-
-  const family = MODEL_FAMILIES.find(
-    (entry) =>
-      entry.transport === transport &&
-      (!entry.providers || entry.providers.includes(id)) &&
-      entry.pattern.test(name)
-  );
+  const family =
+    name === ''
+      ? undefined
+      : MODEL_FAMILIES.find(
+          (entry) =>
+            entry.transport === transport &&
+            (!entry.providers || entry.providers.includes(id)) &&
+            entry.pattern.test(name)
+        );
   const rules = { ...base, ...(family ? family.rules : {}) };
 
   // The custom provider serves hosted and self-hosted models alike, behind
@@ -284,6 +310,9 @@ function resolveRules(provider, model = '') {
       rules.reasoningOffEffort = 'low';
     }
     rules.maxTokensParam = 'max_tokens';
+    if (settings.templateSwitch && !rules.thinkingSwitch) {
+      rules.thinkingSwitch = 'chat_template';
+    }
   }
   return rules;
 }
@@ -352,6 +381,15 @@ const AI_OPTIONS = Object.freeze([
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.7',
+    section: 'provider',
+  },
+  {
+    key: 'AI_REASONING_EFFORT',
+    label: 'Thinking effort',
+    help: 'How long a reasoning model such as o3, gpt-5 or Magistral thinks before answering. Empty sends nothing; other models may reject the setting.',
+    level: 'advanced',
+    providers: ['openai', 'azure', 'custom'],
+    defaultValue: '',
     section: 'provider',
   },
   {
@@ -560,6 +598,15 @@ const AI_OPTIONS = Object.freeze([
     section: 'tidy-up',
   },
   {
+    key: 'DUPLICATES_AI_TEMPLATE_SWITCH',
+    label: 'Switch thinking through the chat template',
+    help: 'Also sends the thinking choice as chat_template_kwargs, which vLLM, llama.cpp and LM Studio pass to models such as DeepSeek or GLM. Qwen always gets it; hosted APIs often reject it.',
+    level: 'advanced',
+    providers: ['custom'],
+    defaultValue: 'no',
+    section: 'tidy-up',
+  },
+  {
     key: 'DUPLICATES_AI_SWEEP_NAMES',
     label: 'Names per request when looking for synonyms',
     help: 'Names per request when the model looks for synonyms, translations and abbreviations, and when it proposes split topics.',
@@ -616,6 +663,7 @@ module.exports = {
   PROVIDERS,
   PROVIDER_IDS,
   AI_OPTIONS,
+  REASONING_EFFORT_LEVELS,
   MODEL_FAMILIES,
   TRANSPORT_DEFAULTS,
   PROVIDER_DEFAULTS,

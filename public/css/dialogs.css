@@ -139,25 +139,33 @@
     }
   }
 
+  /* Sized to show everything without scrolling on a laptop screen: the
+     contact sits in the story column, the payment links share one row and the
+     spacing is tight. Only a screen too low for it scrolls, without a bar. */
   .zr-welcome {
-    width: min(880px, calc(100vw - 32px));
+    width: min(1000px, calc(100vw - 32px));
     max-height: calc(100vh - 32px);
     border: 0;
+    scrollbar-width: none;
     border-radius: 20px;
     box-shadow: 0 24px 64px rgba(22, 24, 29, 0.28);
     animation: zr-welcome-pop 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 
+  .zr-welcome::-webkit-scrollbar {
+    display: none;
+  }
+
   .zr-welcome[open] {
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
   }
 
   .zr-welcome__story {
     display: flex;
     flex-direction: column;
     gap: 20px;
-    padding: 32px 26px;
+    padding: 28px 24px 24px;
     background: #16181d;
     color: #ffffff;
   }
@@ -224,13 +232,19 @@
   .zr-welcome__main {
     display: flex;
     flex-direction: column;
-    gap: 18px;
-    padding: 32px 32px 24px;
+    gap: 12px;
+    padding: 26px 28px 20px;
+  }
+
+  /* The title takes the focus when the dialog opens (tabindex -1, autofocus),
+     so the dialog neither scrolls to nor rings the first link. */
+  .zr-welcome__title:focus {
+    outline: none;
   }
 
   .zr-welcome__title {
     margin: 0;
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 800;
     line-height: 1.2;
   }
@@ -238,7 +252,7 @@
   .zr-welcome__text {
     margin: 0;
     font-size: 15px;
-    line-height: 1.6;
+    line-height: 1.55;
   }
 
   .zr-welcome__worth-head {
@@ -246,7 +260,7 @@
     flex-wrap: wrap;
     align-items: baseline;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
 
   .zr-welcome__worth-head h3 {
@@ -256,8 +270,7 @@
   }
 
   .zr-welcome__worth-head span,
-  .zr-welcome__who,
-  .zr-welcome__contact-text span {
+  .zr-welcome__who {
     color: var(--zr-text-muted);
     font-size: 13px;
   }
@@ -274,8 +287,8 @@
   .zr-welcome__tiles li {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 16px;
+    gap: 4px;
+    padding: 12px 14px;
     border-radius: 14px;
     background: var(--zr-surface-sunken);
     transition:
@@ -290,7 +303,7 @@
 
   .zr-welcome__amount {
     color: var(--zr-brand);
-    font-size: 26px;
+    font-size: 22px;
     font-weight: 800;
     line-height: 1.15;
   }
@@ -305,22 +318,25 @@
     line-height: 1.45;
   }
 
-  .zr-welcome__pay {
+  /* One row of four where the column is wide enough, two rows otherwise. */
+  .zr-pay {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 8px;
   }
 
-  .zr-welcome__pay a {
+  .zr-pay a {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    min-height: 44px;
+    min-height: 40px;
+    padding: 0 10px;
     border: 1px solid var(--zr-line-strong);
     border-radius: 10px;
     color: var(--zr-text);
     font-size: 14px;
+    white-space: nowrap;
     font-weight: 600;
     text-decoration: none;
     transition:
@@ -329,18 +345,20 @@
   }
 
   .zr-welcome__tiles li:hover,
-  .zr-welcome__pay a:hover {
+  .zr-pay a:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(22, 24, 29, 0.12);
   }
 
+  /* The contact closes the dark story column. */
   .zr-welcome__contact {
-    display: flex;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
     align-items: center;
-    gap: 14px;
-    padding: 12px 16px;
-    border-radius: 12px;
-    background: var(--zr-surface-sunken);
+    gap: 10px;
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
 
   .zr-welcome__contact-icon {
@@ -348,11 +366,11 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 18px;
-    background: var(--zr-brand-soft);
-    color: var(--zr-brand);
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background: rgba(141, 176, 250, 0.16);
+    color: #8db0fa;
   }
 
   .zr-welcome__contact-text {
@@ -362,20 +380,25 @@
     min-width: 0;
   }
 
+  .zr-welcome__contact-text span {
+    color: #c9ced6;
+    font-size: 12px;
+  }
+
   .zr-welcome__contact-text a {
-    color: var(--zr-brand);
+    color: #8db0fa;
     font-size: 14px;
     font-weight: 600;
     text-decoration: none;
   }
 
   .zr-welcome__pgp {
-    margin-left: auto;
-    padding: 6px 12px;
-    border: 1px solid var(--zr-line-strong);
+    grid-column: 2;
+    justify-self: start;
+    padding: 4px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
     border-radius: 8px;
-    background: var(--zr-surface);
-    color: var(--zr-text);
+    color: #ffffff;
     font-size: 13px;
     font-weight: 600;
     text-decoration: none;
@@ -384,11 +407,16 @@
   .zr-welcome__changelog {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 14px 16px;
+    gap: 8px;
+    padding: 12px 14px;
     border: 1px solid var(--zr-line);
     border-radius: 12px;
     background: var(--zr-surface-2);
+  }
+
+  .zr-welcome__changelog .zr-changelog-list {
+    gap: 6px;
+    font-size: 13px;
   }
 
   .zr-welcome__changelog-head {
@@ -434,7 +462,7 @@
 
   .zr-welcome__later,
   .zr-welcome__start {
-    min-height: 44px;
+    min-height: 40px;
     border: 0;
     border-radius: 10px;
     font: inherit;
@@ -476,7 +504,7 @@
     }
 
     .zr-welcome__tiles li,
-    .zr-welcome__pay a {
+    .zr-pay a {
       transition: none;
     }
   }

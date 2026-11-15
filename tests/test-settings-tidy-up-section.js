@@ -499,6 +499,7 @@ function sliceBetween(source, from, to) {
         'duplicatesAiReview',
         'duplicatesAiExcerpts',
         'duplicatesAiThinking',
+        'duplicatesAiTemplateSwitch',
         'duplicatesGuardNewNames',
       ].forEach((id) => {
         assert.ok(
@@ -513,8 +514,8 @@ function sliceBetween(source, from, to) {
 
       assert.strictEqual(
         countOccurrences(section, 'class="zr-field__hint"'),
-        17,
-        'each of the seventeen fields says what it does and what its default is'
+        18,
+        'each of the eighteen fields says what it does and what its default is'
       );
     });
 
@@ -1634,6 +1635,145 @@ function sliceBetween(source, from, to) {
           state = await pickerState(page);
           assert.ok(!state.button.hidden, 'the button returns with Ollama');
           assert.strictEqual(state.value, 'proxy-pinned-model');
+          await page.close();
+        });
+
+        await test('in a browser, the one provider list fills and follows the entry picked', async () => {
+          const { page } = await openPage(browser, []);
+          await page.goto(harness.base + '/settings#ai-provider');
+          const view = () =>
+            page.evaluate(() => {
+              const shown = (key) =>
+                !document
+                  .querySelector(`[data-ai-option="${key}"]`)
+                  .classList.contains('hidden');
+              const select = document.getElementById('aiProvider');
+              return {
+                entry: select.selectedOptions[0].textContent,
+                provider: select.value,
+                url: document.getElementById('customBaseUrl').value,
+                model: document.getElementById('customModel').value,
+                customBlock: !document
+                  .getElementById('customSettings')
+                  .classList.contains('hidden'),
+                effort: shown('AI_REASONING_EFFORT'),
+                templateSwitch: shown('DUPLICATES_AI_TEMPLATE_SWITCH'),
+              };
+            });
+          const labels = await page.$$eval('#aiProvider option', (options) =>
+            options.map((option) => option.textContent)
+          );
+          assert.strictEqual(labels.length, new Set(labels).size);
+          assert.ok(labels.includes('Mistral'));
+          assert.strictEqual(labels.at(-1), 'Other OpenAI-compatible server');
+          assert.strictEqual(
+            await page.$$eval('#aiPreset', (found) => found.length),
+            0,
+            'no second provider field'
+          );
+
+          await page.selectOption('#aiProvider', { label: 'Mistral' });
+          let state = await view();
+          assert.strictEqual(state.provider, 'custom');
+          assert.strictEqual(state.url, 'https://api.mistral.ai/v1');
+          assert.strictEqual(state.model, 'mistral-small-latest');
+          assert.ok(state.customBlock);
+          assert.ok(state.effort, 'thinking effort for the custom provider');
+          assert.ok(state.templateSwitch, 'the template switch is custom only');
+
+          await page.selectOption('#aiProvider', {
+            label: 'Other OpenAI-compatible server',
+          });
+          state = await view();
+          assert.strictEqual(state.provider, 'custom');
+          assert.strictEqual(state.url, '', 'the Mistral address goes');
+
+          await page.fill('#customBaseUrl', 'http://127.0.0.1:1234/v1/');
+          await page.dispatchEvent('#customBaseUrl', 'change');
+          state = await view();
+          assert.strictEqual(
+            state.entry,
+            'LM Studio',
+            'a known address finds its entry'
+          );
+
+          await page.selectOption('#aiProvider', { label: 'OpenAI' });
+          state = await view();
+          assert.ok(!state.customBlock);
+          assert.ok(state.effort);
+          assert.ok(!state.templateSwitch);
+
+          await page.selectOption('#aiProvider', { label: 'Ollama' });
+          state = await view();
+          assert.ok(!state.effort, 'Ollama has a thinking switch of its own');
+          await page.close();
+        });
+
+        await test('in a browser, the quickstart tests a Mistral OCR model as the OCR fallback does', async () => {
+          const { page } = await openPage(browser, []);
+          const ocrTests = [];
+          await page.route('**/api/settings/quickstart/detect', (route) =>
+            route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({
+                success: true,
+                message: 'Detected.',
+                detection: {
+                  aiProvider: 'custom',
+                  ocrProvider: 'mistral',
+                  resolvedAiApiUrl: 'https://api.mistral.ai/v1',
+                  resolvedOcrApiUrl: 'https://api.mistral.ai/v1',
+                  textModels: ['mistral-large-latest', 'mistral-ocr-latest'],
+                  suggestedAiModel: 'mistral-large-latest',
+                  suggestedOcrModel: 'mistral-ocr-latest',
+                },
+              }),
+            })
+          );
+          await page.route('**/api/settings/ai/test', (route) =>
+            route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({ success: true }),
+            })
+          );
+          await page.route('**/api/settings/ocr/test', (route) => {
+            ocrTests.push(route.request().postDataJSON());
+            return route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({ success: true }),
+            });
+          });
+          await page.goto(harness.base + '/settings#quickstart');
+          await page.fill('#settingsQuickstartUrl', 'https://api.mistral.ai');
+          await page.fill('#settingsQuickstartApiKey', 'mistral-key');
+          await page.click('#settingsQuickstartDetectBtn');
+          await page.waitForFunction(
+            () =>
+              document.getElementById('settingsQuickstartOcrModel').value ===
+              'mistral-ocr-latest'
+          );
+          await page.check('#settingsQuickstartEnableOcr');
+          await page.click('#settingsQuickstartSaveBtn');
+          const deadline = Date.now() + 10000;
+          while (ocrTests.length < 1 && Date.now() < deadline) {
+            await page.waitForTimeout(25);
+          }
+          assert.strictEqual(ocrTests.length, 1, 'the OCR model was tested');
+          assert.strictEqual(
+            ocrTests[0].provider,
+            'mistral',
+            "Mistral's OCR API, not a chat request to the OCR model"
+          );
+          assert.strictEqual(ocrTests[0].model, 'mistral-ocr-latest');
+          assert.strictEqual(ocrTests[0].apiKey, 'mistral-key');
+          assert.strictEqual(ocrTests[0].apiUrl, '');
+          assert.strictEqual(
+            await page.$eval(
+              '#aiProvider',
+              (select) => select.selectedOptions[0].textContent
+            ),
+            'Mistral'
+          );
           await page.close();
         });
       } finally {

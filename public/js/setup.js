@@ -396,31 +396,62 @@ class SetupWizard {
     );
   }
 
+  /* The entry of the provider list the fields stand for: the one of the
+     provider, and for the custom provider the one with this address, else
+     "Other OpenAI-compatible server". */
   findMatchingPreset() {
+    const trimSlashes = (value) => {
+      let text = String(value || '').trim();
+      while (text.endsWith('/')) text = text.slice(0, -1);
+      return text;
+    };
     const provider = String(this.aiProvider.value || '')
       .trim()
       .toLowerCase();
-    const apiUrl = String(this.aiApiUrl.value || '')
-      .trim()
-      .replace(/\/+$/, '');
-    const model = String(this.aiModel.value || '').trim();
-
+    if (provider !== 'custom') {
+      return (
+        this.presets.find((preset) => preset.provider === provider) || null
+      );
+    }
+    const apiUrl = trimSlashes(this.aiApiUrl.value);
     return (
-      this.presets.find((preset) => {
-        const presetProvider = String(preset.provider || '')
-          .trim()
-          .toLowerCase();
-        const presetApiUrl = String(preset.apiUrl || '')
-          .trim()
-          .replace(/\/+$/, '');
-        const presetModel = String(preset.model || '').trim();
-        return (
-          presetProvider === provider &&
-          presetApiUrl === apiUrl &&
-          presetModel === model
-        );
-      }) || null
+      (apiUrl &&
+        this.presets.find(
+          (preset) =>
+            preset.provider === 'custom' &&
+            preset.apiUrl &&
+            trimSlashes(preset.apiUrl) === apiUrl
+        )) ||
+      this.otherPreset()
     );
+  }
+
+  /** The custom provider with nothing filled in, last in the list. */
+  otherPreset() {
+    return (
+      this.presets.find(
+        (preset) => preset.provider === 'custom' && !preset.apiUrl
+      ) || {
+        id: 'custom',
+        label: 'Other OpenAI-compatible server',
+        provider: 'custom',
+        apiUrl: '',
+        model: '',
+        tokenPlaceholder: '',
+      }
+    );
+  }
+
+  /* Shows the matching entry and the hint that goes with it. */
+  showAiChoice() {
+    const choice = this.findMatchingPreset();
+    if (this.aiPreset && choice) this.aiPreset.value = choice.id;
+    if (this.aiPresetHint) {
+      this.aiPresetHint.textContent =
+        choice && choice.provider === 'custom' && !choice.apiUrl
+          ? 'Enter the address of your server, usually ending in /v1. The key can stay empty if the server needs none.'
+          : '';
+    }
   }
 
   getNormalizedTimeoutSeconds(rawValue, fallbackMs = 30000) {
@@ -466,28 +497,18 @@ class SetupWizard {
 
   populateAiPresets() {
     this.aiPreset.innerHTML = '';
-
-    const customOption = document.createElement('option');
-    customOption.value = '';
-    customOption.textContent = 'Manual custom configuration';
-    this.aiPreset.appendChild(customOption);
-
-    this.presets.forEach((preset) => {
+    const list = this.presets.some(
+      (preset) => preset.provider === 'custom' && !preset.apiUrl
+    )
+      ? this.presets
+      : [...this.presets, this.otherPreset()];
+    list.forEach((preset) => {
       const option = document.createElement('option');
       option.value = preset.id;
       option.textContent = preset.label;
       this.aiPreset.appendChild(option);
     });
-
-    const matchingPreset = this.findMatchingPreset();
-    if (matchingPreset) {
-      this.aiPreset.value = matchingPreset.id;
-      this.aiPresetHint.textContent = `Preset "${matchingPreset.label}" selected.`;
-    } else {
-      this.aiPreset.value = '';
-      this.aiPresetHint.textContent =
-        'Manual mode: choose provider and enter values yourself. Token is optional for custom endpoints.';
-    }
+    this.showAiChoice();
   }
 
   bindEvents() {
@@ -1461,26 +1482,33 @@ class SetupWizard {
   }
 
   applyPreset(preset) {
-    if (!preset) {
-      this.aiProvider.value = 'custom';
-      this.updateAiProviderFields();
-      this.aiPresetHint.textContent =
-        'Manual mode: choose provider and enter values yourself. Token is optional for custom endpoints.';
-      return;
-    }
-
-    this.aiProvider.value = preset.provider || 'custom';
-    this.aiApiUrl.value = preset.apiUrl || '';
-    if (this.aiProvider.value === 'anthropic') {
-      // The select has to offer the model before it can show it.
-      this.offerAnthropicAiModels(preset.model);
-    } else {
-      this.aiModel.value = preset.model || '';
+    const choice = preset || this.otherPreset();
+    const previous = this.findMatchingPreset();
+    const wasOther =
+      this.aiProvider.value === 'custom' && !(previous && previous.apiUrl);
+    this.aiProvider.value = choice.provider || 'custom';
+    if (choice.apiUrl || choice.provider !== 'custom') {
+      this.aiApiUrl.value = choice.apiUrl || '';
+      if (this.aiProvider.value === 'anthropic') {
+        // The select has to offer the model before it can show it.
+        this.offerAnthropicAiModels(choice.model);
+      } else {
+        this.setModelSelectOptions(
+          this.aiModel,
+          [choice.model || ''],
+          'Select model'
+        );
+        this.aiModel.value = choice.model || '';
+      }
+    } else if (!wasOther) {
+      // "Other" after a named entry: its address and model are not yours.
+      this.aiApiUrl.value = '';
+      this.setModelSelectOptions(this.aiModel, [], 'Select model');
     }
     this.updateAiProviderFields();
     this.aiToken.placeholder =
-      preset.tokenPlaceholder || 'Enter API token if required';
-    this.aiPresetHint.textContent = `Preset "${preset.label}" selected.${this.aiProvider.value === 'custom' ? ' Token can stay empty if your endpoint allows anonymous access.' : ''}`;
+      choice.tokenPlaceholder || 'Enter API token if required';
+    this.showAiChoice();
   }
 
   setAiConfigMode(mode) {
@@ -1657,6 +1685,7 @@ class SetupWizard {
     this.aiProvider.value = detection.aiProvider || 'custom';
     this.updateAiProviderFields();
     this.aiApiUrl.value = detection.resolvedAiApiUrl || '';
+    if (this.aiPreset) this.showAiChoice();
     this.aiToken.value = quickstartKey;
     if (selectedAiModel) {
       this.setModelSelectOptions(
