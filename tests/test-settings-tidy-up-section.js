@@ -1708,6 +1708,74 @@ function sliceBetween(source, from, to) {
           assert.ok(!state.effort, 'Ollama has a thinking switch of its own');
           await page.close();
         });
+
+        await test('in a browser, the quickstart tests a Mistral OCR model as the OCR fallback does', async () => {
+          const { page } = await openPage(browser, []);
+          const ocrTests = [];
+          await page.route('**/api/settings/quickstart/detect', (route) =>
+            route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({
+                success: true,
+                message: 'Detected.',
+                detection: {
+                  aiProvider: 'custom',
+                  ocrProvider: 'mistral',
+                  resolvedAiApiUrl: 'https://api.mistral.ai/v1',
+                  resolvedOcrApiUrl: 'https://api.mistral.ai/v1',
+                  textModels: ['mistral-large-latest', 'mistral-ocr-latest'],
+                  suggestedAiModel: 'mistral-large-latest',
+                  suggestedOcrModel: 'mistral-ocr-latest',
+                },
+              }),
+            })
+          );
+          await page.route('**/api/settings/ai/test', (route) =>
+            route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({ success: true }),
+            })
+          );
+          await page.route('**/api/settings/ocr/test', (route) => {
+            ocrTests.push(route.request().postDataJSON());
+            return route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({ success: true }),
+            });
+          });
+          await page.goto(harness.base + '/settings#quickstart');
+          await page.fill('#settingsQuickstartUrl', 'https://api.mistral.ai');
+          await page.fill('#settingsQuickstartApiKey', 'mistral-key');
+          await page.click('#settingsQuickstartDetectBtn');
+          await page.waitForFunction(
+            () =>
+              document.getElementById('settingsQuickstartOcrModel').value ===
+              'mistral-ocr-latest'
+          );
+          await page.check('#settingsQuickstartEnableOcr');
+          await page.click('#settingsQuickstartSaveBtn');
+          const deadline = Date.now() + 10000;
+          while (ocrTests.length < 1 && Date.now() < deadline) {
+            await page.waitForTimeout(25);
+          }
+          assert.strictEqual(ocrTests.length, 1, 'the OCR model was tested');
+          assert.strictEqual(
+            ocrTests[0].provider,
+            'mistral',
+            "Mistral's OCR API, not a chat request to the OCR model"
+          );
+          assert.strictEqual(ocrTests[0].model, 'mistral-ocr-latest');
+          assert.strictEqual(ocrTests[0].apiKey, 'mistral-key');
+          assert.strictEqual(ocrTests[0].apiUrl, '');
+          assert.strictEqual(
+            await page.$eval(
+              '#aiProvider',
+              (select) => select.selectedOptions[0].textContent
+            ),
+            'Mistral'
+          );
+          await page.close();
+        });
       } finally {
         await browser.close();
         snapshot.DUPLICATES_AI_MODEL = pinnedModel;

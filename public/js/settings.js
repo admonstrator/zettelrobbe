@@ -1253,6 +1253,27 @@ function initializeFormHandlers() {
 
   const isClaudeModelName = (model) => /^claude-/i.test(String(model || ''));
 
+  /* The body of an OCR connection test, read from the OCR fallback fields.
+     The quickstart writes its choice into these fields first and tests the
+     same way, so a Mistral OCR model is tested against Mistral's OCR API and
+     not as a chat model. */
+  const ocrTestPayload = () => ({
+    enabled: true,
+    provider: normalizeOcrProviderForApi(ocrProviderSelect?.value || 'mistral'),
+    apiUrl: normalizeOcrApiUrlForProvider(
+      ocrProviderSelect?.value || 'mistral',
+      ocrApiUrlInput?.value
+    ),
+    apiKey: String(ocrApiKeyInput?.value || '').trim(),
+    // Claude OCR picks the AI model when this is empty; the Mistral default
+    // would only be replaced again.
+    model:
+      String(ocrModelInput?.value || '').trim() ||
+      (ocrProviderSelect?.value === 'anthropic' ? '' : 'mistral-ocr-latest'),
+    setupOcrValidationTimeoutMs: getOcrValidationTimeoutMs(),
+    ...getAnthropicFallbackForOcr(),
+  });
+
   /* The OCR model select for Claude: the suggested models, with the current
      choice kept when it is a Claude model and the AI provider's model (or the
      default) preselected otherwise. */
@@ -1914,14 +1935,7 @@ function initializeFormHandlers() {
         );
         ocrResult = await runQuickstartModelTest(
           '/api/settings/ocr/test',
-          {
-            enabled: true,
-            provider: 'custom',
-            apiUrl: applied.ocrApiUrl,
-            apiKey: applied.apiKey,
-            model: applied.ocrModel,
-            setupOcrValidationTimeoutMs: getOcrValidationTimeoutMs(),
-          },
+          ocrTestPayload(),
           'OCR connection test'
         );
         setQuickstartTestRowState(
@@ -1978,26 +1992,7 @@ function initializeFormHandlers() {
         return;
       }
 
-      const payload = {
-        enabled: true,
-        provider: normalizeOcrProviderForApi(
-          ocrProviderSelect?.value || 'mistral'
-        ),
-        apiUrl: normalizeOcrApiUrlForProvider(
-          ocrProviderSelect?.value || 'mistral',
-          ocrApiUrlInput?.value
-        ),
-        apiKey: String(ocrApiKeyInput?.value || '').trim(),
-        // Claude OCR picks the AI model when this is empty; the Mistral
-        // default would only be replaced again.
-        model:
-          String(ocrModelInput?.value || '').trim() ||
-          (ocrProviderSelect?.value === 'anthropic'
-            ? ''
-            : 'mistral-ocr-latest'),
-        setupOcrValidationTimeoutMs: getOcrValidationTimeoutMs(),
-        ...getAnthropicFallbackForOcr(),
-      };
+      const payload = ocrTestPayload();
 
       const originalHtml = testOcrBtn.innerHTML;
       testOcrBtn.disabled = true;
