@@ -167,6 +167,7 @@
      only the PDF or the text scrolls, never the page around it; the minimum
      keeps it usable on a short window. Frame and padding come from .zr-panel. */
   .manual-viewer {
+    position: relative;
     display: flex;
     height: max(420px, calc(100dvh - 430px));
     padding: 0;
@@ -184,6 +185,16 @@
     height: 100%;
     border: 0;
     background: var(--zr-surface-sunken);
+  }
+  /* Quiet: a small spinner and one line, over a dimmed viewer. */
+  .manual-loading {
+    gap: var(--zr-2);
+  }
+  /* Run OCR and Analyze with AI side by side, each half the width. */
+  .manual-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--zr-2);
   }
   /* Document text keeps its own line breaks and scrolls inside the viewer. */
   .manual-text {
