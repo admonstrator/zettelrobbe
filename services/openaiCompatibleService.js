@@ -42,6 +42,7 @@ const {
   truncateToTokenLimit,
   writePromptToFile,
   extractChatMessageContent,
+  splitChatContent,
   assertCompletionNotTruncated,
   isTimeoutError,
   buildTimeoutErrorMessage,
@@ -706,8 +707,13 @@ class OpenAICompatibleService {
       const message = response?.choices?.[0]?.message;
       // Reasoning is no part of the answer, and a block the cut-off left
       // open is no part of it either.
+      const parts = splitChatContent(message?.content);
       const generatedText = extractChatMessageContent(
-        { ...message, content: stripReasoningText(message?.content) },
+        {
+          ...message,
+          content: stripReasoningText(parts.text),
+          reasoning_content: message?.reasoning_content ?? parts.reasoning,
+        },
         label
       );
 
@@ -729,6 +735,7 @@ class OpenAICompatibleService {
         // Reasoning and no answer: the model spent the completion thinking.
         throw message?.reasoning_content ||
           message?.reasoning ||
+          parts.reasoning ||
           /<think>/i.test(String(message?.content ?? ''))
           ? tagFailure(error, FAILURE_KINDS.THINKING)
           : error;

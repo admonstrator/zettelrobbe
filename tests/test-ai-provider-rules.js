@@ -82,6 +82,13 @@ function run() {
     rules.resolveRules('custom', 'llama-3.3-70b').thinkingPromptSwitch,
     null
   );
+  for (const model of ['mistral-large-latest', 'magistral-medium-latest']) {
+    assert.strictEqual(
+      rules.resolveRules('custom', model).thinkingSwitch,
+      null,
+      `${model}: Mistral's API rejects chat_template_kwargs (#373)`
+    );
+  }
   for (const provider of ['openai', 'azure']) {
     const qwenHosted = rules.resolveRules(provider, 'qwen3-32b');
     assert.strictEqual(qwenHosted.thinkingSwitch, null, provider);
