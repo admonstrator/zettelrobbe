@@ -53,6 +53,8 @@ updates:
   - dependency-name: "better-sqlite3"
     update-types:
     - "version-update:semver-major"
+  cooldown:
+    default-days: 7
 
 - package-ecosystem: "docker"
   directory: "/"
@@ -70,6 +72,8 @@ updates:
     docker-base-images:
       patterns:
       - "*"
+  cooldown:
+    default-days: 7
 
 - package-ecosystem: "github-actions"
   directory: "/"
@@ -87,3 +91,5 @@ updates:
     workflow-dependencies:
       patterns:
       - "*"
+  cooldown:
+    default-days: 7

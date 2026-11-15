@@ -7,110 +7,40 @@
 
 <h1>Zettelrobbe</h1>
 
-[![Latest Release](https://img.shields.io/github/v/release/admonstrator/zettelrobbe?style=for-the-badge&logo=github&color=0ea5e9)](https://github.com/admonstrator/zettelrobbe/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/admonstrator/zettelrobbe?style=for-the-badge&logo=docker&color=10b981)](https://hub.docker.com/r/admonstrator/zettelrobbe) [![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/zettelrobbe/ci.yml?branch=main&style=for-the-badge&logo=githubactions&label=CI)](https://github.com/admonstrator/zettelrobbe/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-Live-0891b2?style=for-the-badge&logo=readthedocs)](https://zettelrob.be/)
+AI tagging for [Paperless-ngx](https://github.com/paperless-ngx/paperless-ngx): titles, tags, correspondents and document types, assigned by a model you choose.
 
-[🧠 What makes it "Next"](#-the-evolution-what-makes-it-next) | [💖 Fuel the Evolution](#-fuel-the-evolution) | [🚀 Quick Start](#-quick-start) | [💬 Frequently Asked Questions](#-frequently-asked-questions)
+[![Latest Release](https://img.shields.io/github/v/release/admonstrator/zettelrobbe?style=for-the-badge&logo=github&color=0ea5e9)](https://github.com/admonstrator/zettelrobbe/releases/latest) [![Docker Pulls](https://img.shields.io/docker/pulls/admonstrator/zettelrobbe?style=for-the-badge&logo=docker&color=10b981)](https://hub.docker.com/r/admonstrator/zettelrobbe) [![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/zettelrobbe/ci.yml?branch=main&style=for-the-badge&logo=githubactions&label=CI)](https://github.com/admonstrator/zettelrobbe/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-zettelrob.be-0891b2?style=for-the-badge&logo=readthedocs)](https://zettelrob.be/)
 
-</div>
-
----
-
-## 📊 At a Glance: Next vs. Original
-
-| Feature                                     | Paperless-AI | Zettelrobbe |
-| ------------------------------------------- | ------------ | ----------- |
-| **Core automation**                         |              |             |
-| AI-based document classification            | ✅           | ✅          |
-| Paperless-ngx integration                   | ✅           | ✅          |
-| Basic manual processing flows               | ✅           | ✅          |
-| **Performance and scale**                   |              |             |
-| Server-side history pagination              | ❌           | ✅          |
-| Tag caching with reduced API calls          | ❌           | ✅          |
-| Faster dashboard behavior under high volume | ❌           | ✅          |
-| **Security and reliability**                |              |             |
-| Security-focused dependency maintenance     | ✅           | ✅          |
-| Global API + SSE rate limiting              | ❌           | ✅          |
-| MFA login support                           | ❌           | ✅          |
-| **OCR and recovery workflows**              |              |             |
-| Works with blurry documents and images      | ❌           | ✅          |
-| **UX and operations**                       |              |             |
-| Settings tabs with runtime ENV hints        | ❌           | ✅          |
-
----
-
-## 🚀 The Evolution: What makes it "Next"?
-
-This isn't just a collection of patches; it's a total overhaul of how your documents interact with AI. I took the original logic and ran it through a "Does this actually make my life easier?" filter.
-
-### 🧠 High-IQ Classification
-
-Connect to OpenAI, Ollama, or any OpenAI-compatible API. We've moved beyond simple keyword matching. The AI now understands **intent and context**, meaning it knows the difference between an "Electricity Bill" and a "Manual for a Toaster" without you writing a single regex.
-
-### 🧹 Duplicates: merge tags and correspondents that drifted apart
-
-Years of tagging leave "Amazon", "amazon" and "Amazon EU S.a.r.l." side by side. The **Duplicates** page scans your Paperless-ngx on request, groups names that mean the same thing (case and umlaut spellings, legal forms, singular/plural, word order, typos), tells you _why_ it thinks so and how sure it is, and merges each group into the survivor you pick: documents move first, the leftover objects are deleted only once they are empty. Every merge is logged locally and can be undone from the same page. An assistant at the top of the page says what a run does, what it costs before it starts, what happens while it runs and how the tools below are used once it is done; the proposal lands in those tools as ticks, and a pair only the model proposed is never ticked on its own. Nothing runs on its own.
-
-### 👓 Flexible OCR Vision (Mistral + Local)
-
-Waging war against blurry scans, shaky smartphone photos, and handwritten scribbles that standard OCR usually chokes on. You can run OCR with:
-
-- Mistral OCR (`provider: mistral`)
-- local OpenAI-compatible vision APIs (`provider: ollama` + `/v1` endpoint, e.g. LM Studio, vLLM, or any other OpenAI-compatible server)
-- native Ollama chat vision APIs (`provider: ollama` + `/api/chat` endpoint)
-
-This isn't locked to one model. **Any vision-capable model your endpoint serves works** — for example `llama3.2-vision`, `gemma3`, `qwen2-vl`, `minicpm-v`, `moondream`, `pixtral`, `internvl`, or `llava`. During setup, **Quickstart** probes your endpoint and automatically detects which of its models are vision-capable, so you don't have to guess.
-
-Multi-page PDFs are also fully supported for local vision models: pages are rendered to images via `poppler` and sent to the model one by one, instead of only OCRing a single-page thumbnail (see [OCR Provider Notes](#ocr-provider-notes) below). Mistral OCR handles PDFs natively.
-
-The OCR setup now also validates real image reading instead of only checking endpoint reachability.
-
-### ⚡️ Performance without the "Spinner-Induced Rage"
-
-I hated the lag in the original UI. I've implemented **server-side pagination** and **aggressive tag caching**. Whether you're managing 100 documents or 10,000, the dashboard stays snappy and your browser stays alive.
-
-### 🛡️ Hardened for Production
-
-I use this for my own life and my own documents. That means security isn't an afterthought - it's a requirement. Expect regular dependency updates, a reduced container attack surface, and error handling that fails gracefully instead of taking your whole stack down with it.
-
-### 🧩 The "Best of" Community DNA
-
-There were dozens of brilliant ideas and PRs left gathering dust in the original repository. I've personally hand-picked, tested, and integrated the best community suggestions, making this the most feature-complete version of the tool available.
-
-### 🤖 Vibe-Coded, Human-Vetted
-
-Built with heavy AI assistance but steered by human common sense. It's _vibe-coded_ in the sense that I prioritize how the tool _actually feels_ to use over rigid corporate specs. Yet it's engineered to be more stable than your enterprise-driven _Microsoft Access '97_ ~~nightmare~~ business software.
-
----
-
-## 💖 Fuel the Evolution
-
-Maintaining this solo, chasing bugs, and keeping up with the rapid pace of AI is a massive labor of love. If this tool saves your sanity (and your weekends), consider fueling the next update. Whether it's a cold energy drink or just a "thanks"; your support keeps the code flowing.
-
-<div align="center">
-
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?style=for-the-badge&logo=github)](https://github.com/sponsors/admonstrator) [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/admon) [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/aaronviehl) [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/admon)
+[Install](#install) · [First run](#first-run) · [The pages](#the-pages) · [Good to know](#good-to-know) · [When something does not work](#when-something-does-not-work) · [Full documentation](https://zettelrob.be/)
 
 </div>
 
 ---
 
-## ⚠️ A Note on Stability & Migration
+## What it does
 
-**Data is sacred. Back it up.**
+Zettelrobbe sits next to your Paperless-ngx instance. On a schedule (every 30 minutes by default) it looks for documents it has not seen yet and, for each one:
 
-Because **Zettelrobbe** introduces significant architectural improvements and new database logic, it's a "one-way street" evolution. Since I am cleaning up and optimizing the core logic plus adding new features, there is no guarantee of stability right now.
+1. fetches the document text from Paperless-ngx,
+2. sends it to your AI provider together with your prompt,
+3. writes the answer back: title, tags, correspondent, document type, language and the custom fields you configured,
+4. keeps a snapshot of what the document looked like before, so you can restore it.
 
-> However, I develop this for my own production environment, so I have zero interest in breaking things. However, every server is different. **Please create a full backup of your Paperless-ngx**. If you're coming from the original version, a fresh install is often the cleanest path to document zen.
+A document with too little text takes a detour through the OCR queue first, if you switched that on.
+
+It runs as one Docker container (Node.js, SQLite, about 512 MB RAM) and talks to Paperless-ngx only through its API. More detail: [How it works](https://zettelrob.be/how-it-works/).
+
+**AI providers:** OpenAI, Anthropic, Azure OpenAI, Ollama, and any OpenAI-compatible endpoint (LM Studio, OpenRouter, DeepSeek, Perplexity, Gemini through its compatibility layer, LiteLLM).
 
 ---
 
-## 🚀 Quick Start
+## Install
 
-### Docker Compose (Recommended)
+You need:
 
-Please check the docker variables [here](https://zettelrob.be/getting-started/configuration/#docker-environment-variables) for all configuration options.
-
-> If you are using plain HTTP (like running **Zettelrobbe** locally on your NAS, your PC, or in your home network), make sure to set `COOKIE_SECURE_MODE=never` to avoid login issues! See [Configuration](https://zettelrob.be/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values) for details. Using a reverse proxy like Nginx or Caddy with HTTPS is highly recommended for security and performance, especially if you expose the service to the internet.
+- Docker with Docker Compose
+- a running Paperless-ngx and an API token for it
+- an AI provider account, or a local model server such as Ollama
 
 ```yaml
 services:
@@ -122,87 +52,256 @@ services:
       - '3000:3000'
     volumes:
       - data:/app/data
+    environment:
+      # Opens the setup wizard to browsers on other machines.
+      # Remove this line once setup is finished.
+      - ALLOW_REMOTE_SETUP=yes
+      # Only when you open Zettelrobbe over plain http:// (no TLS proxy):
+      # - COOKIE_SECURE_MODE=never
 
 volumes:
   data:
 ```
 
-Then open [http://localhost:3000](http://localhost:3000) to complete setup.
+```bash
+docker compose up -d
+```
 
-### OCR Provider Notes
+Then open `http://<your-host>:3000`.
 
-- OCR API key env: `OCR_API_KEY` (backward-compatible fallback: `MISTRAL_API_KEY`)
-- Local OCR supports model discovery from both `/api/tags` (Ollama-style) and `/v1/models` (OpenAI-compatible)
-- OCR test sends a real PNG image and expects the exact token: `OCR-TEST-182730173401`
-- For OpenAI-compatible endpoints that reject data URLs, OCR validation automatically retries with raw base64 payload
-- Local vision OCR renders multi-page PDFs to per-page images via poppler (`pdftoppm`, bundled in the Docker image) and sends each page to the model. Configure with `OCR_PDF_RENDER_ENABLED` (default `yes`), `OCR_PDF_RENDER_MAX_PAGES` (default `10`, each page is one model request), and `OCR_PDF_RENDER_DPI` (default `150`)
-- On bare-metal installs, install `poppler-utils` to enable multi-page PDF OCR; without it the app falls back to OCRing only the first-page thumbnail
-- The Mistral OCR provider processes PDFs natively and ignores the `OCR_PDF_RENDER_*` settings
-- The OCR queue can be worked through automatically instead of pressing **Process All Pending**: enable `OCR_AUTO_PROCESS_ENABLED` (default `no`) and configure `OCR_AUTO_PROCESS_INTERVAL` (cron, default `*/15 * * * *`), `OCR_AUTO_PROCESS_BATCH_SIZE` (documents per run, default `10`) and `OCR_AUTO_ANALYZE` (run AI analysis right after OCR, default `yes`). Runs are skipped while a document scan is active or while Paperless-ngx is unreachable, so queued documents are never marked as failed because of an outage
+Four things that go wrong here more often than anything else:
 
-### Single Sign-On (OIDC)
+| What you see                                | Why                                                                                                                                   | Fix                                                                                                                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `403 – Remote Setup Access Denied`          | Until setup is finished, the wizard only answers requests from localhost. A browser talking to a container never counts as localhost. | Set `ALLOW_REMOTE_SETUP=yes`, as in the file above.                                                                                                                        |
+| Login fails with `Invalid CSRF token`       | You are on plain HTTP and the login cookies are not accepted.                                                                         | Set `COOKIE_SECURE_MODE=never` and restart. Behind a TLS reverse proxy use `COOKIE_SECURE_MODE=auto` and `TRUST_PROXY=1` instead.                                          |
+| The Paperless-ngx connection test fails     | `localhost` inside the container is the container itself.                                                                             | Use the address the container can reach. In the same Docker network that is the service name, for example `http://paperless-ngx:8000`. Enter the base URL, without `/api`. |
+| The app does not come back after the wizard | The wizard ends by restarting the app and relies on Docker to start it again.                                                         | Keep `restart: unless-stopped`, or start the container once by hand.                                                                                                       |
 
-Sign in with any OpenID Connect provider (Authentik, Authelia, Keycloak, Kanidm, Pocket ID, Zitadel, Entra ID, Google, ...) through a button on the login page. Zettelrobbe has one administrator account, and the identity whose e-mail address equals `OIDC_ADMIN_EMAIL` signs in as that account. Password login keeps working next to it.
+All environment variables: [Configuration reference](https://zettelrob.be/getting-started/configuration/#docker-environment-variables).
+
+---
+
+## First run
+
+Have these ready before you open the wizard:
+
+- the Paperless-ngx base URL, your Paperless username and an API token
+- the URL, model name and (if needed) API key of your AI provider
+
+The wizard has seven steps:
+
+1. **Admin account.** A local account for Zettelrobbe, unrelated to your Paperless-ngx users. Password: 8 characters or more.
+2. **Two-factor authentication (optional).** TOTP with any authenticator app. Can be switched on later in the settings.
+3. **Paperless-ngx.** URL, username, token, then **Test Paperless connection**. The test also checks that the token has the permissions Zettelrobbe needs.
+4. **Document scope.** All documents, or only those carrying certain tags. Also the ignore tag, the "processed" marker tag and the scan interval.
+5. **AI provider.** **Quickstart** probes a local model server and picks models for you. **Manual configuration** takes a provider preset, URL, model and key; **Fetch models** reads the model list from your endpoint.
+6. **OCR (optional).** Off unless you enable it. See [OCR](#ocr).
+7. **Review.** Shows the configuration it is about to write, then **Save and restart container**.
+
+After that `/setup` is closed for good and you sign in at the login page. Screenshots of every step: [First Setup](https://zettelrob.be/getting-started/first-setup/).
+
+> [!TIP]
+> For the first run, choose "only documents with these tags" in step 4 and put that tag on five or ten documents in Paperless-ngx. Look at the results, adjust the prompt, and widen the scope once you like what you get.
+
+### Your first document
+
+1. Add a document to Paperless-ngx as usual.
+2. On the dashboard, click **Scan now** in the **Task runner** widget. Otherwise the next scheduled scan picks it up.
+3. Open **History**. The document is at the top with its new title and correspondent.
+4. Click **Details** to see the assigned tags, the token usage and the state before processing.
+5. Not what you wanted? **Rescan** runs it again with your current settings. **Restore Original** puts the document back exactly as it was.
+
+The same walkthrough with screenshots: [Your First Document](https://zettelrob.be/guides/first-document/).
+
+---
+
+## The pages
+
+| Page      | Path         | What you do there                                                                                                                                                                                          |
+| --------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard | `/dashboard` | See how much is processed and what is waiting. Start or stop a scan by hand. A banner appears here when Paperless-ngx is unreachable.                                                                      |
+| Manual    | `/manual`    | Analyse one document now. Nothing is written to Paperless-ngx until you press **Save Tags**, which also makes this the place to try out a changed prompt.                                                  |
+| History   | `/history`   | Every processed document with what was assigned. Rescan, restore the original, or do either for several rows at once.                                                                                      |
+| OCR queue | `/ocr`       | Documents waiting for OCR, with the reason. Process them, read the extracted text, or add any document by hand.                                                                                            |
+| Tidy up   | `/tidy-up`   | Suggestions for merging names that mean the same (`invoice`, `Invoices`), splitting compound tags and deleting unused ones. Nothing changes until you accept a suggestion, and every change can be undone. |
+| Failed    | `/failed`    | Documents that failed three times, with the reason. Reset them or move them to Ignored.                                                                                                                    |
+| Ignored   | `/ignored`   | Documents every scan skips until you remove them from the list.                                                                                                                                            |
+| Settings  | `/settings`  | Everything the wizard set, and the rest.                                                                                                                                                                   |
+
+Documentation per feature: [Automatic tagging](https://zettelrob.be/features/auto-tagging/) · [Manual tagging](https://zettelrob.be/features/manual-tagging/) · [History & Restore](https://zettelrob.be/features/history/) · [OCR queue](https://zettelrob.be/features/ocr-queue/) · [Tidy up](https://zettelrob.be/features/tidy-up/) · [Settings tour](https://zettelrob.be/guides/settings-tour/)
+
+---
+
+## Good to know
+
+Things that are easy to miss and cost time when you do.
+
+### Where your documents go
+
+- Document text is sent to the AI provider and the OCR provider you configured, and nowhere else. With a hosted provider, that provider's privacy and retention terms apply to your documents.
+- With Ollama or another local server for both AI and OCR, no document text leaves your network.
+- Once a day Zettelrobbe asks GitHub whether a newer release exists. `UPDATE_CHECK_ENABLED=no` switches that off.
+
+### Tagging
+
+- **"Restrict to existing tags" does not show the model your tags.** The toggle only discards names that do not exist yet. To let the model pick from your list, put `%RESTRICTED_TAGS%` into your prompt (also `%RESTRICTED_CORRESPONDENTS%` and `%RESTRICTED_DOCUMENT_TYPES%`). With the toggle alone, documents simply come back with fewer tags than you expected. Details and a worked example: [The system prompt](https://zettelrob.be/getting-started/configuration/#the-system-prompt).
+- **Those lists are sent with every document** and count against `TOKEN_LIMIT`. With a thousand tags, less of the document itself fits into the request.
+- **You do not ask for JSON in your prompt.** Zettelrobbe appends the output format itself.
+- **Near-duplicates are caught for tags and correspondents:** if the model proposes `Invoices` and `invoice` exists, the existing one is used. This does not cover document types and does not catch typos.
+- **A document is given up on after three failed attempts** and parked on the Failed page, so it cannot block the others.
+
+### OCR
+
+- OCR is off by default. Without it, a document with fewer than 10 characters of text (`MIN_CONTENT_LENGTH`) is skipped.
+- Documents get into the queue on their own, but they do not get out of it on their own: someone has to press **Process All Pending**, unless you set `OCR_AUTO_PROCESS_ENABLED=yes`.
+- Only two things queue a document automatically: too little text, or an AI analysis that failed in a way OCR can fix (the model reported insufficient content, or its answer was unreadable). A long but garbled text passes both checks. Add such documents by hand on `/ocr`.
+- Mistral OCR is a paid API. A local vision model costs one request per page, up to `OCR_PDF_RENDER_MAX_PAGES` (default 10) pages per PDF.
+
+### Settings
+
+- A variable set in your compose file always wins over the Settings page. The field is then greyed out and says _Set by the environment_.
+- Everything saved in the UI lives in `data/runtime-overrides.json` inside the volume.
+- **Settings → Export** gives you the running configuration as a `.env` file. It contains your tokens and keys in clear text.
+- A few settings need a restart (port, cookie and proxy flags, schedules, the Paperless-ngx connection, log level). The page says so and restarts the service itself when you save.
+
+### Running it
+
+- Do not put Zettelrobbe on the public internet. There is one admin account, and it can change the metadata of every document. Keep it in your LAN or behind a VPN or an authenticating reverse proxy.
+- Back up Paperless-ngx before the first scan over your whole archive. **Restore Original** undoes what Zettelrobbe did to a document, but only as long as its history entry exists. It is not a backup.
+- If Paperless-ngx is down or restarts, the scanner picks up again on its own. No restart needed.
+- `GET /health` needs no login and reports whether the scanner is working, not only whether the web server answers. After three failed scan runs in a row (about 90 minutes with the default interval) it answers `503` and Docker marks the container `unhealthy`. `HEALTHCHECK_STRICT=no` keeps it at `200`. See [Monitoring](https://zettelrob.be/getting-started/monitoring/).
+
+---
+
+## OCR
+
+For scans, photos and faxes where Paperless-ngx found little or no text. Enable it in the wizard or under **Settings → OCR** and pick a provider:
+
+- **Mistral OCR** (`mistral`): hosted, paid, reads PDFs directly.
+- **A local vision model** (`ollama`): Ollama, LM Studio, vLLM or any OpenAI-compatible server with a model that accepts images, for example `llama3.2-vision`, `gemma3`, `qwen2-vl` or `llava`. **Quickstart** detects which of your models can read images.
+
+With a local model, each PDF page is rendered to an image and sent separately. The Docker image brings the renderer (poppler) along. On a bare-metal install, add `poppler-utils`; without it only the first page is read.
+
+To let the queue work itself off on a schedule:
 
 ```yaml
 environment:
-  OIDC_ENABLED: 'yes'
-  OIDC_ISSUER_URL: https://auth.example.com/application/o/zettelrobbe/
-  OIDC_CLIENT_ID: zettelrobbe
-  OIDC_CLIENT_SECRET: ${ZETTELROBBE_OIDC_CLIENT_SECRET}
-  OIDC_REDIRECT_URI: https://zettelrobbe.example.com/auth/oidc/callback
-  OIDC_ADMIN_EMAIL: you@example.com # required
-  OIDC_BUTTON_TEXT: Sign in with Authentik # optional, also OIDC_BUTTON_ICON / _COLOR / _TEXT_COLOR
+  - OCR_AUTO_PROCESS_ENABLED=yes
+  - OCR_AUTO_PROCESS_INTERVAL=*/15 * * * * # default
+  - OCR_AUTO_PROCESS_BATCH_SIZE=10 # documents per run, default
+  - OCR_AUTO_ANALYZE=yes # run the AI analysis right after OCR, default
 ```
 
-See [docs/sso-oidc.md](docs/sso-oidc.md) for all options, provider examples, button customization, security notes and troubleshooting.
+A run is skipped while a scan is active or Paperless-ngx is unreachable, so an outage does not turn queued documents into failed ones.
 
-### Container Images
-
-| Image Tag                         | Size        |
-| --------------------------------- | ----------- |
-| `admonstrator/zettelrobbe:latest` | ~500–700 MB |
-
-**Docker Hub:** [admonstrator/zettelrobbe](https://hub.docker.com/r/admonstrator/zettelrobbe)
-
-Versioned release tags use the format `vYYYY.MM.##` (example: `v2026.03.01`).
+Everything else, including how to let Zettelrobbe do all the OCR in place of Paperless-ngx and when that is a bad idea: [OCR queue](https://zettelrob.be/features/ocr-queue/).
 
 ---
 
-## 💬 Frequently Asked Questions
+## Single sign-on (OIDC)
 
-### "Is this project stable if it's vibe-coded?"
+Any OpenID Connect provider works (Authentik, Authelia, Keycloak, Kanidm, Pocket ID, Zitadel, Entra ID, Google). The login page gets an extra button; password login stays available next to it.
 
-**Short answer:** I use it every day for my actual documents. If it breaks, my own life becomes a chaotic mess of untagged invoices—so I have a very strong biological incentive to keep it stable.
+Zettelrobbe has one administrator account. SSO does not add users: the identity whose e-mail address equals `OIDC_ADMIN_EMAIL` signs in as that account, and every other identity is refused.
 
-**Long answer:** It's not _vibe-coded_ in the sense of being random; I test every feature and try to automate as much of the testing as possible. And _NO!_ it's not just one pile of AI-generated code inside a main.js file. Since I work as an IT architect, I understand the importance of maintainable code.
+```yaml
+environment:
+  - OIDC_ENABLED=yes
+  - OIDC_ISSUER_URL=https://auth.example.com/application/o/zettelrobbe/
+  - OIDC_CLIENT_ID=zettelrobbe
+  - OIDC_CLIENT_SECRET=${ZETTELROBBE_OIDC_CLIENT_SECRET}
+  - OIDC_REDIRECT_URI=https://zettelrobbe.example.com/auth/oidc/callback
+  - OIDC_ADMIN_EMAIL=you@example.com
+```
 
-### "So you don't read the code? Should I be worried?"
-
-I can read and understand code logic, but I don't write JavaScript from scratch myself. I treat AI like a talented, slightly erratic junior dev. I guide the architecture, I read and audit the logic of every line it generates, and I test the hell out of it. I am the filter. No "AI-slop" gets merged without passing my "Does this actually solve the problem?" test. Or at least, it doesn't stay merged if I encounter issues in production. You can learn more about the author's background and the AI-assisted development workflow on the [About the Project & Author](https://zettelrob.be/about/) page.
-
-### "Why was RAG (semantic search/chat) support removed?"
-
-We decided to focus the project entirely on its core mission: highly reliable automated document tagging, correspondent detection, and custom field/metadata extraction. Running a secondary Python RAG container with a vector database (ChromaDB) added massive image sizes, high RAM requirements, and severe architectural overhead. For a detailed breakdown of this decision, check out the [RAG Deprecation page](https://zettelrob.be/rag-deprecation/).
-
-### "What if I'm a 'real' developer and I find a bug?"
-
-**Please, for the love of all that is holy, open a PR.** I welcome everyone; from fellow vibe-coders to the wizards who actually understand memory management. If you see something that makes your inner _Senior Architect_ cry, fix it and send it over. I'm happy to learn, as long as we keep the "it just works" spirit alive.
-
-### "Why should I use this instead of the original project?"
-
-If the original works for you, stay there! But if you're tired of loading spinners, want better AI and OCR, then **Zettelrobbe** is for you. It's a more polished, more powerful, and more user-friendly evolution of the original vision.
-
-### "Does this support [Specific Niche AI Provider]?"
-
-If it's OpenAI-compatible, it probably works. If not, open an issue! Since I have an AuDHD brain, I'm prone to hyper-focusing on cool new features — so if your suggestion catches my interest, it might be implemented before my second energy drink.
+Provider examples, button options and troubleshooting: [docs/sso-oidc.md](docs/sso-oidc.md).
 
 ---
+
+## Updating and backups
+
+```bash
+docker compose pull
+```
+
+```bash
+docker compose up -d
+```
+
+The `data` volume survives updates. It holds:
+
+- `runtime-overrides.json`: your configuration
+- `documents.db`: processing history, the restore snapshots, metrics, and the admin account with its MFA secret
+
+Back it up together with Paperless-ngx. Without `documents.db`, **Restore Original** has nothing to restore from.
+
+**Image tags:** `latest` follows the newest release. Releases are tagged `vYYYY.MM.##`, for example `v2026.11.02`; pin one of those if you want to decide yourself when to update. The image is about 500–700 MB. What changed in each release: [Changelog](https://zettelrob.be/changelog/).
+
+---
+
+## When something does not work
+
+| Symptom                                        | Where to look                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| New documents are not processed                | The dashboard shows a banner when Paperless-ngx is unreachable. Otherwise run `curl http://<your-host>:3000/health`. `paperless.reachable: false` with `paperless.error` names the cause (a `403` means the token is rejected). `scanner.lastError` holds the last failed run. |
+| The scanner runs, but one document is left out | It is already processed, on the Ignored list, carries one of your `IGNORE_TAGS`, or has less text than `MIN_CONTENT_LENGTH`.                                                                                                                                                   |
+| A document keeps failing                       | Open **Failed**. Each row names the reason. **Reset** sends it into the next scan.                                                                                                                                                                                             |
+| Documents get fewer tags than expected         | See [Tagging](#tagging) above: a restriction without the matching placeholder in the prompt.                                                                                                                                                                                   |
+| A setting cannot be changed                    | It is set in your compose file. Change it there.                                                                                                                                                                                                                               |
+| The container is `unhealthy`                   | The scanner failed several runs in a row. `/health` says why.                                                                                                                                                                                                                  |
+| Locked out after losing the authenticator      | `docker exec -it zettelrobbe node scripts/mfa-reset.js --user <username> --yes`                                                                                                                                                                                                |
+
+More: [Troubleshooting](https://zettelrob.be/getting-started/troubleshooting/). If you report a bug, include the version, the exact steps and the log lines around the error (`docker logs zettelrobbe`).
+
+---
+
+## Relation to Paperless-AI
+
+Zettelrobbe is a fork of [clusterzx/paperless-ai](https://github.com/clusterzx/paperless-ai) and was called "Paperless-AI next" until the rename. The main differences today:
+
+- **Added:** the OCR queue, Tidy up, two-factor and OIDC sign-in, the scanner check behind `/health`.
+- **Removed:** the RAG chat (since v2026.05.01, [why](https://zettelrob.be/rag-deprecation/)) and the Playground (since v2026.08.04, [what to use instead](https://zettelrob.be/guides/playground/)).
+
+If the original does what you need, there is no reason to switch.
+
+**Coming from Paperless-AI or Paperless-AI next:** an existing `data/.env` is migrated on the first start and kept as `data/.env.migrated`. The old image tags `latest-lite` and `latest-full` point to the same image as `latest`. Going back to Paperless-AI with the same data volume is not supported, so keep a copy of the old volume before you switch.
+
+---
+
+## How this is built
+
+Most of the code is written with AI coding assistants, and has been from the start. I am an IT architect, not a JavaScript developer. My part is deciding what gets built and what gets cut, reading the diffs, and running the result on my own documents every day.
+
+What keeps that honest is a test suite (`npm run test:all`) and the rule that a fix arrives with a test that fails without it. If you find something that should have been caught, an issue pointing at the missing test is welcome.
+
+This is a hobby project maintained by one person. There is no support contract and no promise that a given request gets built. More on both: [CONTRIBUTING.md](CONTRIBUTING.md) and [About the project](https://zettelrob.be/about/).
+
+---
+
+## Contributing and security
+
+- Bugs and ideas: [open an issue](https://github.com/admonstrator/zettelrobbe/issues). Pull requests are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+- Security problems: please do not open a public issue. Use [GitHub Security Advisories](https://github.com/admonstrator/zettelrobbe/security/advisories/new).
+
+---
+
+## Support
+
+If Zettelrobbe saves you time, you can support its development:
 
 <div align="center">
 
-**Zettelrobbe is made with ❤️ by admon for the community**
-
-⭐ If you find this useful, please star the repository!
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?style=for-the-badge&logo=github)](https://github.com/sponsors/admonstrator) [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/admon) [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/aaronviehl) [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/admon)
 
 </div>
+
+The foundation was laid by [clusterzx](https://github.com/clusterzx), who can be supported on [Patreon](https://www.patreon.com/c/clusterzx).
+
+---
+
+## License
+
+[MIT](LICENSE). Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Thanks to [@clusterzx](https://github.com/clusterzx) for the original project, and to everyone who reports bugs and tests fixes.
