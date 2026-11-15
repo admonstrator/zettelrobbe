@@ -56,7 +56,11 @@ const path = require('path');
 const OpenAI = require('openai');
 
 const { createFakeOpenAI } = require('./helpers/fake-openai');
-const { jsonFromText } = require('../services/serviceUtils');
+const {
+  extractChatMessageContent,
+  jsonFromText,
+  splitChatContent,
+} = require('../services/serviceUtils');
 const { createFakeOllama } = require('./helpers/fake-ollama');
 
 let passed = 0;
@@ -1010,6 +1014,38 @@ async function main() {
       assert.strictEqual(jsonFromText('nothing { here'), '');
       assert.strictEqual(jsonFromText(''), '');
       assert.strictEqual(jsonFromText(null), '');
+    });
+
+    await test('content as parts (Mistral reasoning models) yields the text part, not an empty answer', async () => {
+      // The shape mistral-large-latest answers with.
+      const content = [
+        {
+          type: 'thinking',
+          thinking: [{ type: 'text', text: 'Draft: {"title":"x"} hmm' }],
+        },
+        { type: 'text', text: '{"title":"ACME invoice"}' },
+      ];
+      assert.deepStrictEqual(splitChatContent(content), {
+        text: '{"title":"ACME invoice"}',
+        reasoning: 'Draft: {"title":"x"} hmm',
+      });
+      assert.strictEqual(
+        extractChatMessageContent({ content }),
+        '{"title":"ACME invoice"}'
+      );
+      // Thinking only: the JSON comes out of the reasoning, as with
+      // reasoning_content.
+      await quiet(() =>
+        assert.strictEqual(
+          extractChatMessageContent({ content: [content[0]] }),
+          '{"title":"x"}'
+        )
+      );
+      assert.deepStrictEqual(splitChatContent(null), {
+        text: '',
+        reasoning: '',
+      });
+      assert.strictEqual(splitChatContent('plain').text, 'plain');
     });
 
     // ----------------------------------------- the switch per model family

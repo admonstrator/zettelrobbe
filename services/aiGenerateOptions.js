@@ -4,6 +4,7 @@ const {
   assertCompletionNotTruncated,
   estimateTokenCount,
   jsonFromText,
+  splitChatContent,
 } = require('./serviceUtils');
 const {
   assertAnthropicCompleted,
@@ -533,7 +534,10 @@ async function consumeChatCompletionStream(stream, collector, signal = null) {
     if (signal?.aborted) break;
     const choice = chunk?.choices?.[0];
     const delta = choice?.delta;
-    collector.pushContent(delta?.content);
+    // Mistral's reasoning models stream content as parts, thinking included.
+    const parts = splitChatContent(delta?.content);
+    collector.pushContent(parts.text);
+    collector.pushReasoning(parts.reasoning);
     // reasoning_content is what vLLM and its kin send; reasoning is the
     // spelling of the servers that followed the other example.
     collector.pushReasoning(
