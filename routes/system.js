@@ -30,6 +30,8 @@ const {
   buildScannerHealthSnapshot,
 } = require('../services/scannerHealthSnapshot');
 const { BOOT_IDENTITY } = require('../services/bootIdentity');
+const mistralOcrService = require('../services/mistralOcrService');
+const { PROVIDERS, normalizeProvider } = require('../services/aiProviderRules');
 const router = express.Router();
 
 /**
@@ -173,119 +175,98 @@ router.get('/health', async (req, res) => {
  *         description: Server error
  */
 
+/** "3d 4h 12m 9s"; the seconds always, larger units only once reached. */
+function formatUptime(totalSeconds) {
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  parts.push(`${totalSeconds % 60}s`);
+  return parts.join(' ');
+}
+
+/** The model the active provider is asked for; Azure names a deployment. */
+function activeModel(provider) {
+  const byProvider = {
+    openai: configFile.openai?.model,
+    anthropic: configFile.anthropic?.model,
+    ollama: configFile.ollama?.model,
+    custom: configFile.custom?.model,
+    azure: configFile.azure?.deploymentName,
+  };
+  return byProvider[provider] || 'unknown';
+}
+
+/**
+ * What the About page shows and what its bug report carries. The page lists
+ * the first few fields; the clipboard text and the GitHub prefill
+ * (public/js/bug-report-link.js) use the rest, keys only as set or not set.
+ */
+function buildSupportInfo() {
+  const aiProvider = normalizeProvider(configFile.aiProvider);
+  const ocrEnabled = configFile.mistralOcr?.enabled === 'yes';
+  return {
+    appVersion: configFile.PAPERLESS_AI_VERSION || 'unknown',
+    commitSha: process.env.PAPERLESS_AI_COMMIT_SHA || 'unknown',
+    paperlessNgxVersion: process.env.PAPERLESS_NGX_VERSION || 'unknown',
+    nodeVersion: process.version,
+    platform: `${process.platform} (${process.arch})`,
+    nodeEnv: process.env.NODE_ENV || 'production',
+    aiProvider,
+    aiProviderLabel:
+      PROVIDERS.find((entry) => entry.id === aiProvider)?.label || aiProvider,
+    aiModel: activeModel(aiProvider),
+    ocrEnabled,
+    ocrLabel: ocrEnabled ? mistralOcrService.providerLabel : 'Off',
+    serverTimeUtc: new Date().toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    uptime: formatUptime(Math.floor(process.uptime())),
+    paperlessApiUrl: configFile.paperless?.apiUrl || 'unknown',
+    ollamaApiUrl: configFile.ollama?.apiUrl || 'unknown',
+    ollamaModel: configFile.ollama?.model || 'unknown',
+    customBaseUrl: configFile.custom?.apiUrl || 'unknown',
+    customModel: configFile.custom?.model || 'unknown',
+    azureEndpoint: configFile.azure?.endpoint || 'unknown',
+    azureDeploymentName: configFile.azure?.deploymentName || 'unknown',
+    azureApiVersion: configFile.azure?.apiVersion || 'unknown',
+    anthropicModel: configFile.anthropic?.model || 'unknown',
+    // Empty means api.anthropic.com, which is worth saying in a bug report.
+    anthropicApiUrl: configFile.anthropic?.apiUrl || 'default',
+    ocrProvider: configFile.mistralOcr?.provider || 'mistral',
+    mistralOcrModel: configFile.mistralOcr?.model || 'unknown',
+    scanInterval: configFile.scanInterval || 'unknown',
+    tokenLimit: String(configFile.tokenLimit || 'unknown'),
+    responseTokens: String(configFile.responseTokens || 'unknown'),
+    trustProxy: String(configFile.trustProxy),
+    useExistingData: configFile.useExistingData || 'no',
+    restrictToExistingTags: configFile.restrictToExistingTags || 'no',
+    restrictToExistingCorrespondents:
+      configFile.restrictToExistingCorrespondents || 'no',
+    restrictToExistingDocumentTypes:
+      configFile.restrictToExistingDocumentTypes || 'no',
+    paperlessTokenSet: Boolean(configFile.paperless?.apiToken),
+    openAiKeySet: Boolean(configFile.openai?.apiKey),
+    customKeySet: Boolean(configFile.custom?.apiKey),
+    azureKeySet: Boolean(configFile.azure?.apiKey),
+    anthropicKeySet: Boolean(configFile.anthropic?.apiKey),
+    mistralKeySet: Boolean(configFile.mistralOcr?.apiKey),
+    apiKeySet: Boolean(configFile.getApiKey && configFile.getApiKey()),
+  };
+}
+
 // Page: About / Support Information
 router.get('/about', protectApiRoute, async (req, res) => {
   try {
-    const formatUptime = (totalSeconds) => {
-      const days = Math.floor(totalSeconds / 86400);
-      const hours = Math.floor((totalSeconds % 86400) / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-
-      const parts = [];
-      if (days > 0) parts.push(`${days}d`);
-      if (hours > 0) parts.push(`${hours}h`);
-      if (minutes > 0) parts.push(`${minutes}m`);
-      parts.push(`${seconds}s`);
-      return parts.join(' ');
-    };
-
-    const supportInfo = {
-      appVersion: configFile.PAPERLESS_AI_VERSION || 'unknown',
-      commitSha: process.env.PAPERLESS_AI_COMMIT_SHA || 'unknown',
-      paperlessNgxVersion: process.env.PAPERLESS_NGX_VERSION || 'unknown',
-      nodeVersion: process.version,
-      platform: `${process.platform} (${process.arch})`,
-      nodeEnv: process.env.NODE_ENV || 'production',
-      aiProvider: configFile.aiProvider || process.env.AI_PROVIDER || 'openai',
-      ocrEnabled: configFile.mistralOcr?.enabled === 'yes',
-      serverTimeUtc: new Date().toISOString(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      uptime: formatUptime(Math.floor(process.uptime())),
-      paperlessApiUrl: configFile.paperless?.apiUrl || 'unknown',
-      ollamaApiUrl: configFile.ollama?.apiUrl || 'unknown',
-      ollamaModel: configFile.ollama?.model || 'unknown',
-      customBaseUrl: configFile.custom?.apiUrl || 'unknown',
-      customModel: configFile.custom?.model || 'unknown',
-      azureEndpoint: configFile.azure?.endpoint || 'unknown',
-      azureDeploymentName: configFile.azure?.deploymentName || 'unknown',
-      azureApiVersion: configFile.azure?.apiVersion || 'unknown',
-      anthropicModel: configFile.anthropic?.model || 'unknown',
-      // Empty means api.anthropic.com, which is worth saying in a bug report.
-      anthropicApiUrl: configFile.anthropic?.apiUrl || 'default',
-      ocrProvider: configFile.mistralOcr?.provider || 'mistral',
-      mistralOcrModel: configFile.mistralOcr?.model || 'unknown',
-      scanInterval: configFile.scanInterval || 'unknown',
-      tokenLimit: String(configFile.tokenLimit || 'unknown'),
-      responseTokens: String(configFile.responseTokens || 'unknown'),
-      trustProxy: String(configFile.trustProxy),
-      useExistingData: configFile.useExistingData || 'no',
-      restrictToExistingTags: configFile.restrictToExistingTags || 'no',
-      restrictToExistingCorrespondents:
-        configFile.restrictToExistingCorrespondents || 'no',
-      restrictToExistingDocumentTypes:
-        configFile.restrictToExistingDocumentTypes || 'no',
-      paperlessTokenSet: Boolean(configFile.paperless?.apiToken),
-      openAiKeySet: Boolean(configFile.openai?.apiKey),
-      customKeySet: Boolean(configFile.custom?.apiKey),
-      azureKeySet: Boolean(configFile.azure?.apiKey),
-      anthropicKeySet: Boolean(configFile.anthropic?.apiKey),
-      mistralKeySet: Boolean(configFile.mistralOcr?.apiKey),
-      apiKeySet: Boolean(configFile.getApiKey && configFile.getApiKey()),
-    };
-
     return res.render('about', {
       version: configFile.PAPERLESS_AI_VERSION || ' ',
-      supportInfo,
+      supportInfo: buildSupportInfo(),
     });
   } catch (error) {
     console.error('[ERROR] About page:', error);
-    return res.status(500).render('about', {
-      version: configFile.PAPERLESS_AI_VERSION || ' ',
-      supportInfo: {
-        appVersion: configFile.PAPERLESS_AI_VERSION || 'unknown',
-        commitSha: process.env.PAPERLESS_AI_COMMIT_SHA || 'unknown',
-        paperlessNgxVersion: process.env.PAPERLESS_NGX_VERSION || 'unknown',
-        nodeVersion: process.version,
-        platform: `${process.platform} (${process.arch})`,
-        nodeEnv: process.env.NODE_ENV || 'production',
-        aiProvider:
-          configFile.aiProvider || process.env.AI_PROVIDER || 'openai',
-        ocrEnabled: configFile.mistralOcr?.enabled === 'yes',
-        serverTimeUtc: new Date().toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        uptime: 'unavailable',
-        paperlessApiUrl: configFile.paperless?.apiUrl || 'unknown',
-        ollamaApiUrl: configFile.ollama?.apiUrl || 'unknown',
-        ollamaModel: configFile.ollama?.model || 'unknown',
-        customBaseUrl: configFile.custom?.apiUrl || 'unknown',
-        customModel: configFile.custom?.model || 'unknown',
-        azureEndpoint: configFile.azure?.endpoint || 'unknown',
-        azureDeploymentName: configFile.azure?.deploymentName || 'unknown',
-        azureApiVersion: configFile.azure?.apiVersion || 'unknown',
-        anthropicModel: configFile.anthropic?.model || 'unknown',
-        anthropicApiUrl: configFile.anthropic?.apiUrl || 'default',
-        ocrProvider: configFile.mistralOcr?.provider || 'mistral',
-        mistralOcrModel: configFile.mistralOcr?.model || 'unknown',
-        scanInterval: configFile.scanInterval || 'unknown',
-        tokenLimit: String(configFile.tokenLimit || 'unknown'),
-        responseTokens: String(configFile.responseTokens || 'unknown'),
-        trustProxy: String(configFile.trustProxy),
-        useExistingData: configFile.useExistingData || 'no',
-        restrictToExistingTags: configFile.restrictToExistingTags || 'no',
-        restrictToExistingCorrespondents:
-          configFile.restrictToExistingCorrespondents || 'no',
-        restrictToExistingDocumentTypes:
-          configFile.restrictToExistingDocumentTypes || 'no',
-        paperlessTokenSet: Boolean(configFile.paperless?.apiToken),
-        openAiKeySet: Boolean(configFile.openai?.apiKey),
-        customKeySet: Boolean(configFile.custom?.apiKey),
-        azureKeySet: Boolean(configFile.azure?.apiKey),
-        anthropicKeySet: Boolean(configFile.anthropic?.apiKey),
-        mistralKeySet: Boolean(configFile.mistralOcr?.apiKey),
-        apiKeySet: Boolean(configFile.getApiKey && configFile.getApiKey()),
-      },
-    });
+    return res.status(500).send('The About page could not be loaded.');
   }
 });
 

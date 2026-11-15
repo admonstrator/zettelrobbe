@@ -7,163 +7,157 @@
     version: typeof version !== 'undefined' ? version : '',
     chatEnabled: typeof chatEnabled !== 'undefined' ? chatEnabled : false
 }) %>
-            <div class="zr-col zr-col--loose">
-                <div class="zr-viewhead">
-                    <p class="zr-viewhead__sub">Support information, project background, and author details.</p>
-                </div>
-
-                <div class="zr-module">
-                    <h3 class="zr-module__title">💖 Support the Project</h3>
-                    <div class="zr-col zr-muted">
-                        <p>
-                            If you find this tool helpful, consider supporting its development:
+            <%
+                const shortSha = /^[0-9a-f]{7,}$/i.test(supportInfo.commitSha || '') ? supportInfo.commitSha.slice(0, 7) : '';
+                const facts = [
+                    ['Version', supportInfo.appVersion + (shortSha ? ' (' + shortSha + ')' : '')],
+                    ['Paperless-ngx', supportInfo.paperlessNgxVersion !== 'unknown' ? supportInfo.paperlessNgxVersion : ''],
+                    ['AI', supportInfo.aiProviderLabel + (supportInfo.aiModel !== 'unknown' ? ' · ' + supportInfo.aiModel : '')],
+                    ['OCR', supportInfo.ocrLabel],
+                    ['Scan schedule', supportInfo.scanInterval],
+                    ['Node.js', supportInfo.nodeVersion],
+                    ['Platform', supportInfo.platform],
+                    ['Uptime', supportInfo.uptime],
+                    ['Server time', String(supportInfo.serverTimeUtc).replace('T', ' ').replace(/\.\d+Z$/, ' UTC') + ' (' + supportInfo.timezone + ')'],
+                ].filter(([, value]) => value);
+            %>
+            <div class="zr-col zr-col--loose about-page">
+                <section class="zr-module about-hero">
+                    <img class="about-hero__logo no-invert" src="/logo.png" alt="" width="56" height="56">
+                    <div class="zr-col zr-col--tight">
+                        <div class="zr-row zr-row--wrap">
+                            <h2 class="about-hero__name">Zettelrobbe</h2>
+                            <span class="zr-badge zr-badge--brand zr-num"><%= supportInfo.appVersion %></span>
+                        </div>
+                        <p class="zr-muted">
+                            Zettelrobbe reads the documents in your Paperless-ngx and fills in title, tags, correspondent,
+                            document type and custom fields with an AI model of your choice. A community fork of
+                            paperless-ai, free and open source under the MIT license.
                         </p>
                         <div class="zr-row zr-row--wrap">
-                            <a href="https://github.com/sponsors/admonstrator" target="_blank" rel="noopener noreferrer" aria-label="GitHub Sponsors" class="zr-row">
-                                <img class="no-invert" alt="GitHub Sponsors" src="https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?style=for-the-badge&amp;logo=github">
+                            <a class="zr-btn" href="https://zettelrob.be/" target="_blank" rel="noopener noreferrer">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-help"/></svg>Documentation
                             </a>
-                            <a href="https://buymeacoffee.com/admon" target="_blank" rel="noopener noreferrer" aria-label="Buy Me A Coffee" class="zr-row">
-                                <img class="no-invert" alt="Buy Me A Coffee" src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&amp;logo=buy-me-a-coffee&amp;logoColor=black">
+                            <a class="zr-btn" href="https://github.com/admonstrator/zettelrobbe/releases" target="_blank" rel="noopener noreferrer">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-zap"/></svg>Release notes
                             </a>
-                            <a href="https://ko-fi.com/admon" target="_blank" rel="noopener noreferrer" aria-label="Ko-fi" class="zr-row">
-                                <img class="no-invert" alt="Ko-fi" src="https://img.shields.io/badge/Ko--fi-FF5E5B?style=for-the-badge&amp;logo=ko-fi&amp;logoColor=white">
-                            </a>
-                            <a href="https://paypal.me/aaronviehl" target="_blank" rel="noopener noreferrer" aria-label="PayPal" class="zr-row">
-                                <img class="no-invert" alt="PayPal" src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&amp;logo=paypal&amp;logoColor=white">
+                            <a class="zr-btn" href="https://github.com/admonstrator/zettelrobbe" target="_blank" rel="noopener noreferrer">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-github"/></svg>Source code
                             </a>
                         </div>
                     </div>
+                </section>
+
+                <div class="card-grid">
+                    <section class="zr-module">
+                        <div class="zr-module__head">
+                            <h2 class="zr-module__title">Report a problem</h2>
+                        </div>
+                        <div class="zr-module__body zr-col">
+                            <p class="zr-sm zr-muted">
+                                A report with these details gets an answer faster. The issue form is filled in for you;
+                                API keys are never included, only whether one is set. Check the server addresses before
+                                you post them publicly.
+                            </p>
+                            <dl class="about-facts zr-sm">
+                                <% facts.forEach(([label, value]) => { %>
+                                    <dt><%= label %></dt><dd><%= value %></dd>
+                                <% }) %>
+                            </dl>
+                            <div class="zr-row zr-row--wrap">
+                                <a
+                                    id="openPrefilledIssueBtn"
+                                    href="https://github.com/admonstrator/zettelrobbe/issues/new?template=bug_report.yml"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="zr-btn zr-btn--primary">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-bug"/></svg>Open issue form
+                                </a>
+                                <button id="copyIssueDiagnosticsBtn" type="button" class="zr-btn">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-copy"/></svg>Copy details
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="zr-col zr-col--loose">
+                        <section class="zr-module about-support">
+                            <div class="zr-module__head">
+                                <h2 class="zr-module__title">Support Zettelrobbe</h2>
+                            </div>
+                            <div class="zr-module__body zr-col">
+                                <p class="zr-sm zr-muted">
+                                    Free for everyone, with no account and no license key. If it saves you time and
+                                    headaches, a few energy drinks keep it going.
+                                </p>
+                                <%- include('partials/pay-links') %>
+                            </div>
+                        </section>
+
+                        <section class="zr-module">
+                            <div class="zr-module__head">
+                                <h2 class="zr-module__title">Contact</h2>
+                            </div>
+                            <div class="zr-module__body zr-col">
+                                <p class="zr-sm zr-muted">Questions, praise, feedback, or a bug you would rather not post in public.</p>
+                                <div class="zr-row zr-row--wrap">
+                                    <a class="zr-btn" href="mailto:hey@admon.me">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-mail"/></svg>hey@admon.me
+                                    </a>
+                                    <a class="zr-btn zr-btn--ghost" href="https://github.com/admonstrator/Admonstrator/blob/main/pgp/hey@admon.me.asc" target="_blank" rel="noopener noreferrer">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>PGP key
+                                    </a>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
                 </div>
 
-                <div class="zr-module">
-                    <h3 class="zr-module__title">System Information (Support)</h3>
-                    <div>
-                        <div class="zr-panel"><strong>App Version:</strong> <%= supportInfo.appVersion %></div>
-                        <div class="zr-panel"><strong>Build Commit SHA:</strong> <span class="zr-mono"><%= supportInfo.commitSha %></span></div>
-                        <div class="zr-panel"><strong>Node.js:</strong> <%= supportInfo.nodeVersion %></div>
-                        <div class="zr-panel"><strong>Platform:</strong> <%= supportInfo.platform %></div>
-                        <div class="zr-panel"><strong>Environment:</strong> <%= supportInfo.nodeEnv %></div>
-                        <div class="zr-panel"><strong>AI Provider:</strong> <%= supportInfo.aiProvider %></div>
-                        <div class="zr-panel"><strong>Uptime:</strong> <%= supportInfo.uptime %></div>
-                        <div class="zr-panel"><strong>Server Time (UTC):</strong> <%= supportInfo.serverTimeUtc %></div>
-                        <div class="zr-panel"><strong>Server Timezone:</strong> <%= supportInfo.timezone %></div>
-                        <div class="zr-panel"><strong>Mistral OCR Enabled:</strong> <%= supportInfo.ocrEnabled ? 'yes' : 'no' %></div>
-                    </div>
-                </div>
+                <div class="card-grid">
+                    <section class="zr-module">
+                        <div class="zr-module__head">
+                            <h2 class="zr-module__title">Who is behind it</h2>
+                        </div>
+                        <div class="zr-module__body about-prose zr-muted">
+                            <p>
+                                I am Aaron Viehl
+                                (<a class="zr-link" href="https://github.com/admonstrator" target="_blank" rel="noopener noreferrer">@admonstrator</a>),
+                                a trained IT specialist for system integration and CTO at
+                                <a class="zr-link" href="https://singleton-factory.de" target="_blank" rel="noopener noreferrer">singleton-factory</a>
+                                in Germany, also known as the grumpy nerd next door. I build tools that hold up in daily
+                                use: less noise, more reliability, fewer surprises at the edges.
+                            </p>
+                            <p>
+                                I am not a full-time software engineer, and I use AI heavily to move faster. Every change
+                                still gets my review, hands-on testing and as many rounds as it takes until it is stable.
+                                More at <a class="zr-link" href="https://admon.me" target="_blank" rel="noopener noreferrer">admon.me</a>.
+                            </p>
+                        </div>
+                    </section>
 
-                <div class="zr-module">
-                    <h3 class="zr-module__title">Issue Reporting</h3>
-                    <p class="zr-sm zr-muted">
-                        Open a prefilled issue report with version and environment details, or copy diagnostics to your clipboard.
-                    </p>
-                    <div class="zr-row zr-row--wrap">
-                        <a
-                            id="openPrefilledIssueBtn"
-                            href="https://github.com/admonstrator/zettelrobbe/issues/new?template=bug_report.yml"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="zr-btn zr-btn--primary">
-                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-bug"/></svg>Open Issue Form
-                        </a>
-                        <button
-                            id="copyIssueDiagnosticsBtn"
-                            type="button"
-                            class="zr-btn">
-                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-copy"/></svg>Copy Issue Details
-                        </button>
-                        <span id="issueHelperStatus" class="zr-sm zr-faint"></span>
-                    </div>
-                </div>
-
-                <div class="zr-module">
-                    <h3 class="zr-module__title">This app is awesome because ✨</h3>
-                    <div class="zr-col zr-muted">
-                        <p>
-                            No corporate blah blah - just useful stuff that makes daily document chaos easier to handle 😄
-                        </p>
-                        <ul class="zr-col zr-col--tight" style="padding-left: var(--zr-4)">
-                            <li>⚡ Faster dashboard and history pages → less waiting, more doing</li>
-                            <li>🧠 Smarter OCR + AI fallback flows → fewer dead ends when documents are messy</li>
-                            <li>🛡️ Stronger security defaults → safer setup out of the box</li>
-                            <li>🐳 Cleaner Docker workflows → easier updates and less deployment pain</li>
-                            <li>📊 Better status + failure visibility → you immediately see what needs attention</li>
-                            <li>🧰 Practical support info page → easier bug reports and faster help</li>
-                        </ul>
-                        <p>
-                            End result: smoother daily use, cool new features and more magic! 🌟
-                        </p>
-                        <p>
-                            ❤️ Big, fat thank you to the original project:
-                            <a class="zr-link" href="https://github.com/clusterzx" target="_blank" rel="noopener noreferrer">@clusterzx</a>
-                            and
-                            <a class="zr-link" href="https://github.com/clusterzx/paperless-ai" target="_blank" rel="noopener noreferrer">clusterzx/paperless-ai</a>.
-                            This fork stands on that foundation.
-                        </p>
-                    </div>
-                </div>
-                
-                <div class="zr-module">
-                    <h3 class="zr-module__title">About the Author 👋</h3>
-                    <div class="zr-sm zr-muted zr-col zr-col--tight">
-                        <p>
-                            Meet the maintainer behind this fork: <strong>admonstrator (Aaron Viehl)</strong> 🔥
-                            (<a class="zr-link" href="https://github.com/admonstrator" target="_blank" rel="noopener noreferrer">@admonstrator</a>)
-                        </p>
-                        <p>
-                            Aaron is all about building practical tools that actually help in daily operations:<br />
-                            less noise, more reliability, smarter automation, fewer annoying edge-case surprises 💪<br />
-                            Also known as “the grumpy nerd next door,” he is CTO at
-                            <a class="zr-link" href="https://singleton-factory.de" target="_blank" rel="noopener noreferrer">@singleton-factory</a>,
-                            based in Germany.
-                        </p>
-                        <p>
-                            Want updates, ideas, or just nerdy tech talk? 👇<br />
-                            <a class="zr-link" href="https://admon.me" target="_blank" rel="noopener noreferrer">admon.me</a>
-                        </p>
-                        <p>
-                            I am a trained IT specialist for system integration, not a classic full-time software engineer — and yes,
-                            I use AI heavily to move faster. But every change still gets human review, hands-on testing, and a lot of
-                            iteration time from me until it is stable, practical, and trustworthy in daily use. If you find issues, have ideas, or want to contribute, please reach out! ❤️🙌
-                        </p>
-                    </div>
-                </div>
-                
-                <div class="zr-module">
-                    <h3 class="zr-module__title">Credits</h3>
-                    <div class="zr-col zr-muted">
-                        <p>
-                            This project exists because many people contribute in different ways. Thank you for helping make
-                            Zettelrobbe better for everyone.
-                        </p>
-                        <ul class="zr-col zr-col--tight" style="padding-left: var(--zr-4)">
-                            <li>
-                                Original project and core foundation:
-                                <a class="zr-link" href="https://github.com/clusterzx" target="_blank"
-                                    rel="noopener noreferrer">@clusterzx</a>
-                                and
-                                <a class="zr-link" href="https://github.com/clusterzx/paperless-ai"
-                                    target="_blank" rel="noopener noreferrer">clusterzx/paperless-ai</a>
-                            </li>
-                            <li>
-                                Fork maintainer:
-                                <a class="zr-link" href="https://github.com/admonstrator" target="_blank"
-                                    rel="noopener noreferrer">@admonstrator</a>
-                            </li>
-                            <li>
-                                Community code contributors:
-                                <a class="zr-link" href="https://github.com/claymore666" target="_blank"
-                                    rel="noopener noreferrer">@claymore666</a>
-                                and
-                                <a class="zr-link" href="https://github.com/saschabuehrle" target="_blank"
-                                    rel="noopener noreferrer">@saschabuehrle</a>
-                            </li>
-                            <li>Users and testers who report bugs, verify fixes, and provide clear reproduction steps</li>
-                            <li>Everyone supporting the project with feedback, patience, and encouragement</li>
-                        </ul>
-                        <p>
-                            Want to be listed here with a specific contribution? Open an issue or pull request and say hello.
-                        </p>
-                    </div>
+                    <section class="zr-module">
+                        <div class="zr-module__head">
+                            <h2 class="zr-module__title">Thanks to</h2>
+                        </div>
+                        <div class="zr-module__body about-prose zr-muted">
+                            <ul>
+                                <li>
+                                    <a class="zr-link" href="https://github.com/clusterzx" target="_blank" rel="noopener noreferrer">@clusterzx</a>
+                                    for
+                                    <a class="zr-link" href="https://github.com/clusterzx/paperless-ai" target="_blank" rel="noopener noreferrer">paperless-ai</a>,
+                                    the foundation this fork stands on
+                                </li>
+                                <li>
+                                    <a class="zr-link" href="https://github.com/claymore666" target="_blank" rel="noopener noreferrer">@claymore666</a>
+                                    and
+                                    <a class="zr-link" href="https://github.com/saschabuehrle" target="_blank" rel="noopener noreferrer">@saschabuehrle</a>
+                                    for their code
+                                </li>
+                                <li>everyone who reports bugs with clear steps, tests fixes and sends feedback</li>
+                            </ul>
+                            <p class="zr-sm zr-faint">Missing from this list? Open an issue or a pull request and say hello.</p>
+                        </div>
+                    </section>
                 </div>
             </div>
         </main>

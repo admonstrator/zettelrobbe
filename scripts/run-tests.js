@@ -44,6 +44,7 @@ const TESTS = {
   'injected-env-priority': 'test-injected-env-priority.js',
   'changelog-releases': 'test-changelog-releases.js',
   'welcome-changelog-modal': 'test-welcome-changelog-modal.js',
+  'about-page': 'test-about-page.js',
   'date-format-config': 'test-date-format-config.js',
   'log-level-config': 'test-log-level-config.js',
   'log-level-logger': 'test-log-level-logger.js',
@@ -249,6 +250,7 @@ const AREAS = {
   observability: [
     'changelog-releases',
     'welcome-changelog-modal',
+    'about-page',
     'date-format-config',
     'log-level-config',
     'log-level-logger',
