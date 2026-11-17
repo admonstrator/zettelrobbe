@@ -15,6 +15,9 @@
  *   2. gpt-4o-mini carries temperature, and max_tokens when a cap applies
  *   3. gpt-5-mini carries max_completion_tokens, reasoning_effort 'minimal'
  *      with reasoning off, and no temperature
+ *   3b. the GPT-6 family carries max_completion_tokens and no temperature on
+ *      OpenAI and on custom alike; reasoning off sends 'none' where the
+ *      model takes it, 'low' otherwise and on custom
  *   4. o3-mini on Azure goes to the deployment path with api-version and
  *      the api-key header, without temperature
  *   5. qwen3:8b on custom with reasoning off carries enable_thinking false
@@ -226,6 +229,59 @@ async function main() {
       assert.strictEqual(body.reasoning_effort, 'minimal');
       assert.strictEqual('temperature' in body, false);
       assert.strictEqual('chat_template_kwargs' in body, false);
+    });
+
+    await test('GPT-6 carries max_completion_tokens on OpenAI and custom, no temperature', async () => {
+      // gpt-6-luna answers 400 for max_tokens ("Use 'max_completion_tokens'
+      // instead") and for a temperature while it reasons.
+      selectProvider('openai');
+      let { body } = await call(openaiService, {
+        model: 'gpt-6-luna',
+        reasoning: false,
+        maxTokens: 400,
+        temperature: 0,
+      });
+      assert.strictEqual(body.model, 'gpt-6-luna');
+      assert.strictEqual(body.max_completion_tokens, 400);
+      assert.strictEqual('max_tokens' in body, false, 'max_tokens is a 400');
+      assert.strictEqual('temperature' in body, false);
+      assert.strictEqual(body.reasoning_effort, 'none', 'luna takes none');
+
+      ({ body } = await call(openaiService, {
+        model: 'gpt-6-astra',
+        reasoning: false,
+        maxTokens: 400,
+      }));
+      assert.strictEqual(body.max_completion_tokens, 400);
+      assert.strictEqual(
+        body.reasoning_effort,
+        'low',
+        'astra answers 400 for none and minimal'
+      );
+
+      selectProvider('custom');
+      ({ body } = await call(customService, {
+        model: 'gpt-6-luna',
+        reasoning: false,
+        maxTokens: 400,
+        temperature: 0,
+      }));
+      assert.strictEqual(body.max_completion_tokens, 400);
+      assert.strictEqual(
+        'max_tokens' in body,
+        false,
+        'the model rejects max_tokens behind a gateway too'
+      );
+      assert.strictEqual('temperature' in body, false);
+      assert.strictEqual(body.reasoning_effort, 'low');
+
+      ({ body } = await call(customService, { model: 'openai/gpt-6.1-sol' }));
+      assert.strictEqual(
+        body.max_completion_tokens,
+        Number(config.responseTokens),
+        'custom caps at RESPONSE_TOKENS, under the name the model takes'
+      );
+      assert.strictEqual('max_tokens' in body, false);
     });
 
     await test('o3-mini on Azure goes to the deployment with api-version', async () => {

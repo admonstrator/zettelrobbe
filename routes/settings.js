@@ -793,7 +793,7 @@ router.get(
  *               aiReasoningEffort:
  *                 type: string
  *                 enum: ["", "low", "medium", "high"]
- *                 description: Sent as reasoning_effort by the OpenAI, Azure and custom providers. Empty sends none. OpenAI only gets it for the models that take it (gpt-5, o-series); Azure and custom get it as set. Any other value is rejected with 400.
+ *                 description: Sent as reasoning_effort by the OpenAI, Azure and custom providers. Empty sends none. OpenAI only gets it for the models that take it (gpt-5, gpt-6, o-series); Azure and custom get it as set. Any other value is rejected with 400.
  *                 example: "medium"
  *               tags:
  *                 type: string

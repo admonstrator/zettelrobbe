@@ -129,7 +129,7 @@ function reasoningEnabled(options) {
  *
  * @param {unknown} provider
  * @param {unknown} model
- * @returns {'minimal'|'low'|null}
+ * @returns {'none'|'minimal'|'low'|null}
  */
 function reasoningOffEffort(provider, model) {
   const rules = resolveRules(provider, model);
@@ -137,11 +137,12 @@ function reasoningOffEffort(provider, model) {
 }
 
 /**
- * The value for the OpenAI and Azure APIs: 'minimal' for gpt-5, 'low' for
- * the o-series, null for everything else.
+ * The value for the OpenAI and Azure APIs: 'minimal' for gpt-5, 'none' for
+ * the GPT-6 models that take it, 'low' for the other GPT-6 models and the
+ * o-series, null for everything else.
  *
  * @param {unknown} model
- * @returns {'minimal'|'low'|null}
+ * @returns {'none'|'minimal'|'low'|null}
  */
 function reasoningEffortForOpenAi(model) {
   return reasoningOffEffort('openai', model);
