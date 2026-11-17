@@ -116,6 +116,9 @@ export default function settingsSso(root, { toast }) {
       // the issuer it was stored for.
       clientSecret: field('oidcClientSecret')?.value || '',
       tokenAuthMethod: field('oidcTokenAuthMethod')?.value || '',
+      // The URI a login would send: the typed one, else the detected one.
+      redirectUri:
+        (redirect?.value || '').trim() || redirect?.dataset.detected || '',
     };
 
     const label = testButton.querySelector('span');

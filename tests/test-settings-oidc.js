@@ -10,7 +10,9 @@
  * serves a discovery document and a token endpoint that answers like a real
  * one to a made-up authorization code, invalid_client for wrong client
  * credentials and invalid_grant otherwise. They record every token request,
- * which is how the tests see where a stored secret went.
+ * which is how the tests see where a stored secret went and which redirect
+ * URI was sent. With a list of registered redirect URIs a provider also
+ * answers invalid_client for any other one, like Authentik in strict mode.
  *
  * Covered:
  *   1. A save with the 14 form keys writes the 14 OIDC_* keys; switches
@@ -24,7 +26,9 @@
  *   5. The test endpoint: success against a provider, invalid_client
  *      reported, unreachable provider reported, bad input refused with 400,
  *      unauthenticated refused, and the stored secret only reaches the
- *      configured issuer's origin.
+ *      configured issuer's origin. The probe carries the redirect URI a
+ *      login would use (typed, else OIDC_REDIRECT_URI, else derived from the
+ *      request), never one built from the issuer (issue #438).
  */
 
 const assert = require('assert');
@@ -60,6 +64,8 @@ function startFakeProvider({ secret }) {
   const provider = {
     secret,
     authMethods: ['client_secret_basic', 'client_secret_post'],
+    // Registered redirect URIs; null accepts any.
+    redirectUris: null,
     tokenRequests: [],
     base: null,
   };
@@ -107,10 +113,19 @@ function startFakeProvider({ secret }) {
           clientSecret,
           authorization,
           grantType: params.get('grant_type'),
+          redirectUri: params.get('redirect_uri'),
         });
         // Client authentication first (RFC 6749, 5.2), then the grant.
         if (clientId !== CLIENT_ID || clientSecret !== provider.secret) {
           return send(401, { error: 'invalid_client' });
+        }
+        // Authentik checks the redirect URI before the code and calls a
+        // mismatch invalid_client.
+        if (
+          provider.redirectUris &&
+          !provider.redirectUris.includes(params.get('redirect_uri'))
+        ) {
+          return send(400, { error: 'invalid_client' });
         }
         return send(400, { error: 'invalid_grant' });
       });
@@ -501,6 +516,12 @@ function fullOidcBody(overrides = {}) {
           clientId: CLIENT_ID,
           tokenAuthMethod: 'client_secret_basic',
         },
+        {
+          issuerUrl: providerB.issuer,
+          clientId: CLIENT_ID,
+          clientSecret: 'secret-of-b',
+          redirectUri: 'zettelrobbe.example.com/auth/oidc/callback',
+        },
       ]) {
         const response = await testProvider(body);
         const answer = await response.json();
@@ -560,6 +581,99 @@ function fullOidcBody(overrides = {}) {
         assert.notStrictEqual(entry.clientSecret, STORED_SECRET);
         assert.ok(!entry.authorization, 'no Basic credentials');
       });
+    });
+
+    // Issue #438: the probe must carry the redirect URI a login would use.
+    const REGISTERED_REDIRECT =
+      'https://zettelrobbe.example.com/auth/oidc/callback';
+
+    await test('test endpoint: sends the typed redirect URI to a strict provider', async () => {
+      setOidcEnv({});
+      providerB.redirectUris = [REGISTERED_REDIRECT];
+      providerB.tokenRequests.length = 0;
+      try {
+        const response = await testProvider({
+          issuerUrl: providerB.issuer,
+          clientId: CLIENT_ID,
+          clientSecret: 'secret-of-b',
+          redirectUri: ` ${REGISTERED_REDIRECT} `,
+        });
+        const body = await response.json();
+        assert.strictEqual(body.success, true, JSON.stringify(body));
+        assert.strictEqual(providerB.tokenRequests.length, 1);
+        assert.strictEqual(
+          providerB.tokenRequests[0].redirectUri,
+          REGISTERED_REDIRECT
+        );
+      } finally {
+        providerB.redirectUris = null;
+      }
+    });
+
+    await test('test endpoint: without a typed redirect URI it sends OIDC_REDIRECT_URI', async () => {
+      setOidcEnv({ OIDC_REDIRECT_URI: REGISTERED_REDIRECT });
+      providerB.redirectUris = [REGISTERED_REDIRECT];
+      providerB.tokenRequests.length = 0;
+      try {
+        const response = await testProvider({
+          issuerUrl: providerB.issuer,
+          clientId: CLIENT_ID,
+          clientSecret: 'secret-of-b',
+          redirectUri: '',
+        });
+        const body = await response.json();
+        assert.strictEqual(body.success, true, JSON.stringify(body));
+        assert.strictEqual(
+          providerB.tokenRequests[0].redirectUri,
+          REGISTERED_REDIRECT
+        );
+      } finally {
+        providerB.redirectUris = null;
+      }
+    });
+
+    await test('test endpoint: with no redirect URI anywhere it sends the one derived from the request', async () => {
+      setOidcEnv({});
+      providerB.tokenRequests.length = 0;
+      const response = await testProvider({
+        issuerUrl: providerB.issuer,
+        clientId: CLIENT_ID,
+        clientSecret: 'secret-of-b',
+      });
+      const body = await response.json();
+      assert.strictEqual(body.success, true, JSON.stringify(body));
+      assert.strictEqual(
+        providerB.tokenRequests[0].redirectUri,
+        `${harness.base}/auth/oidc/callback`
+      );
+      assert.notStrictEqual(
+        providerB.tokenRequests[0].redirectUri,
+        `${providerB.base}/auth/oidc/callback`,
+        'never the issuer origin'
+      );
+    });
+
+    await test('test endpoint: an unregistered redirect URI is named in the error', async () => {
+      setOidcEnv({});
+      providerB.redirectUris = [REGISTERED_REDIRECT];
+      try {
+        const response = await testProvider({
+          issuerUrl: providerB.issuer,
+          clientId: CLIENT_ID,
+          clientSecret: 'secret-of-b',
+          redirectUri: 'https://other.example.com/auth/oidc/callback',
+        });
+        const body = await response.json();
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(body.success, false);
+        assert.ok(body.error.includes('invalid_client'), body.error);
+        assert.ok(
+          body.error.includes('https://other.example.com/auth/oidc/callback'),
+          body.error
+        );
+      } finally {
+        providerB.redirectUris = null;
+      }
     });
   } finally {
     await providerA.close();
