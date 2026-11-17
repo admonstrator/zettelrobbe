@@ -43,6 +43,45 @@ function run() {
   assert.strictEqual(gpt5.reasoningEffort, 'openai');
   assert.strictEqual(gpt5.maxTokensParam, 'max_completion_tokens');
 
+  // The GPT-6 family: max_completion_tokens and no temperature wherever it
+  // is served, the custom provider included; `none` only where OpenAI
+  // documents it, and never `minimal`.
+  for (const [provider, model, offEffort] of [
+    ['openai', 'gpt-6-luna', 'none'],
+    ['openai', 'gpt-6-sol', 'none'],
+    ['openai', 'gpt-6.1-terra', 'none'],
+    ['openai', 'gpt-6-astra', 'low'],
+    ['openai', 'gpt-6.1-sol', 'low'],
+    ['openai', 'gpt-6-luna-pro', 'low'],
+    ['azure', 'gpt-6-luna', 'none'],
+    ['custom', 'gpt-6-luna', 'low'],
+    ['custom', 'openai/gpt-6-luna', 'low'],
+    ['custom', 'openai/gpt-6.1-sol', 'low'],
+  ]) {
+    const gpt6 = rules.resolveRules(provider, model);
+    const label = `${provider} ${model}`;
+    assert.strictEqual(gpt6.maxTokensParam, 'max_completion_tokens', label);
+    assert.strictEqual(gpt6.temperature, false, label);
+    assert.strictEqual(gpt6.reasoningOffEffort, offEffort, label);
+    assert.strictEqual(gpt6.effortSetting, true, label);
+    assert.strictEqual(
+      gpt6.reasoningEffort,
+      provider === 'custom' ? 'compatible' : 'openai',
+      label
+    );
+  }
+  for (const model of ['gpt-60-mini', 'gpt-5.6-luna', 'gpt-4o-mini']) {
+    assert.notStrictEqual(
+      rules.resolveRules('openai', model).reasoningOffEffort,
+      'none',
+      `${model} is not a GPT-6 model`
+    );
+  }
+  assert.strictEqual(
+    rules.resolveRules('openai', 'gpt-60-mini').maxTokensParam,
+    'max_tokens'
+  );
+
   const o3 = rules.resolveRules('azure', 'o3-mini');
   assert.strictEqual(o3.reasoningEffort, 'openai');
 
