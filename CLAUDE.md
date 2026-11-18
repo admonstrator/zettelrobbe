@@ -203,9 +203,13 @@ because they were only ever looked at empty.
 4. Skip rules (`services/skipRuleService.js`: `MAX_PAGE_COUNT`, `IGNORE_TITLE_PATTERNS`, text fingerprint of
    ignored docs) move a doc to the ignored list before any OCR or AI call; the webhook applies them too,
    a manual rescan does not. Unignoring a doc exempts it from the rules.
-5. Docs below `MIN_CONTENT_LENGTH` (default 10) are skipped or routed to OCR.
-6. If `PROCESS_PREDEFINED_DOCUMENTS=yes`, only docs whose tags match the `TAGS` env var are processed.
-7. The factory's AI service analyzes; results are written back via `paperlessService.updateDocument()`.
+5. With `OCR_BEFORE_AI` (`off` | `tagged` | `all`, `services/ocrBeforeAi.js`) a document the setting applies to
+   goes to the OCR queue before its first AI call — scan and webhook only, not a manual rescan
+   (`applyOcrBeforeAi` in `CALLER_PROFILES`). At most once per document: `ocr_queue_history` remembers
+   every document that was ever queued, also after its queue row is gone.
+6. Docs below `MIN_CONTENT_LENGTH` (default 10) are skipped or routed to OCR.
+7. If `PROCESS_PREDEFINED_DOCUMENTS=yes`, only docs whose tags match the `TAGS` env var are processed.
+8. The factory's AI service analyzes; results are written back via `paperlessService.updateDocument()`.
    `services/scanControl.js` holds the scan state and the start/stop levers routes use mid-scan.
 
 ## Configuration system (important)

@@ -235,6 +235,14 @@ const RELEASES = [
       'Improvement: The fields of an OpenAI-compatible server are called Server address, API key and Model',
     ],
   },
+  {
+    version: 'v2026.11.04',
+    entries: [
+      'New: OCR before the first analysis (Settings → OCR fallback): send every document, or only documents with a tag such as needs-ocr, through OCR before the AI reads them, instead of analysing poor text first. Off by default; each document gets at most one OCR run. With a paid OCR service "every document" bills one run per document <a href="https://github.com/admonstrator/zettelrobbe/discussions/280">(see here)</a>',
+      'New: The dashboard card "Processing status" shows the last scan, the next scheduled scan with a countdown and the schedule in words <a href="https://github.com/admonstrator/zettelrobbe/discussions/363">(see here)</a>',
+      'New: After an update the welcome dialog says so at the top and names the version you came from',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];

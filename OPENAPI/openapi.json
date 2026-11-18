@@ -532,6 +532,13 @@
             "format": "date-time",
             "nullable": true
           },
+          "nextRunAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the armed scan task fires next, as reported by the\nscheduler itself. Null when automatic processing is off\n(DISABLE_AUTOMATIC_PROCESSING=yes) or the scheduler is not armed.\n",
+            "example": "2026-11-18T14:45:00.000Z"
+          },
           "consecutiveFailures": {
             "type": "integer",
             "description": "Number of consecutive failed scan runs",
@@ -3085,7 +3092,7 @@
     "/api/changelog/status": {
       "get": {
         "summary": "Check whether the What's New modal should be shown",
-        "description": "Returns show=true when the authenticated user has not yet seen the current release changelog.",
+        "description": "Returns show=true when the authenticated user has not yet seen the current release changelog.\n\n`updated` is true when the user confirmed the dialog for another release, so an update is\nwhy it shows again; `previousVersion` then names that release. A user who never confirmed the\ndialog (a fresh installation or a new account) gets `updated: false` and `previousVersion: null`.\nAPI-key callers and sessions without a username get `{ show: false }` only.\n",
         "tags": [
           "Changelog"
         ],
@@ -3096,7 +3103,42 @@
         ],
         "responses": {
           "200": {
-            "description": "Changelog status"
+            "description": "Changelog status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "show": {
+                      "type": "boolean",
+                      "description": "Whether the dialog should open"
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "The current release",
+                      "example": "v2026.11.04"
+                    },
+                    "entries": {
+                      "type": "array",
+                      "description": "Release notes of the current release (empty when show is false)",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "updated": {
+                      "type": "boolean",
+                      "description": "True when the user last confirmed the dialog for a different release"
+                    },
+                    "previousVersion": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "The release the user last confirmed, set only when updated is true",
+                      "example": "v2026.11.03"
+                    }
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "Not authenticated"
@@ -4779,6 +4821,21 @@
                     "description": "Run AI analysis directly after automatic OCR (yes/no)",
                     "example": "yes"
                   },
+                  "ocrBeforeAi": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "tagged",
+                      "all"
+                    ],
+                    "description": "OCR before the first AI analysis (OCR_BEFORE_AI). off sends a document to OCR only when its text is too short or the analysis fails; tagged sends documents not analysed yet that carry ocrBeforeAiTag to the OCR queue first; all sends every document not analysed yet. Each document goes through it at most once, and only while OCR is enabled. An unknown value is saved as off.",
+                    "example": "off"
+                  },
+                  "ocrBeforeAiTag": {
+                    "type": "string",
+                    "description": "Name of the Paperless-ngx tag that tagged looks for (OCR_BEFORE_AI_TAG), matched case-insensitively. Empty saves the default needs-ocr.",
+                    "example": "needs-ocr"
+                  },
                   "dateFormat": {
                     "type": "string",
                     "description": "How every date in the web interface is rendered",
@@ -5352,7 +5409,7 @@
     "/api/processing-status": {
       "get": {
         "summary": "Get document processing status",
-        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n",
+        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n\n`scanner` also tells when the automatic scan runs: `scanInterval` is\nthe cron expression, `lastRunFinishedAt` the end of the last run and\n`nextRunAt` the next time the armed scheduler fires (null when\nautomatic processing is off or the scheduler is not armed). The\ndashboard counts down to it between two polls.\n",
         "tags": [
           "Documents",
           "System",
