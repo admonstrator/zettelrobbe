@@ -207,6 +207,9 @@ const TESTS = {
   'typecheck-config': 'test-typecheck-config.js',
   'rescan-waiting-for-ocr': 'test-rescan-waiting-for-ocr.js',
   'settings-ocr-key-lock': 'test-settings-ocr-key-lock.js',
+  'settings-switch-row': 'test-settings-switch-row.js',
+  'settings-find': 'test-settings-find.js',
+  'settings-layout': 'test-settings-layout.js',
 };
 
 const AREAS = {
@@ -394,6 +397,9 @@ const AREAS = {
     'settings-catalog',
     'settings-ocr-key-lock',
     'settings-nav-active',
+    'settings-switch-row',
+    'settings-find',
+    'settings-layout',
   ],
 };
 

@@ -95,45 +95,63 @@
     };
     const entryClose = () => '</section>';
 %>
+<%
+    // The topic list: an entry with `featured: true` (Quick start) stands
+    // above the groups on its own, and "All options" heads the groups below
+    // it, which list every other entry. The phone picker follows the same
+    // order.
+    const settingsFeatured = settingsGroups.flatMap((group) => group.entries.filter((entry) => entry.featured));
+    const settingsNavGroups = (settingsFeatured.length ? [{ featured: true, label: '', icon: '', entries: settingsFeatured }] : [])
+        .concat(settingsGroups.map((group) => ({ featured: false, label: group.label, icon: group.icon, entries: group.entries.filter((entry) => !entry.featured) })))
+        .filter((group) => group.entries.length);
+%>
             <div class="zr-settings-page" data-module="settings-nav">
-                <div class="zr-viewhead zr-settings-search">
-                    <div class="zr-settings-search__box" role="search">
-                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-search"/></svg>
-                        <input type="search" class="zr-input" data-el="search" id="settingsSearch"
-                            placeholder="Search settings (e.g. scan interval, OCR model)"
-                            aria-label="Search settings" aria-controls="settingsSearchResults"
-                            aria-expanded="false" autocomplete="off" spellcheck="false">
-                        <div class="zr-settings-search__results hidden" id="settingsSearchResults" data-el="results" role="listbox" aria-label="Matching settings"></div>
-                    </div>
-                </div>
-
                 <div class="zr-settings" data-module="settings-form">
-                    <aside class="zr-only-desktop">
-                        <nav class="zr-sectionnav zr-settings-nav" aria-label="Settings topics" data-el="nav">
-                            <% settingsGroups.forEach((group) => { %>
-                            <div class="zr-settings-nav__group" data-group="<%= group.label %>">
-                                <p class="zr-settings-nav__label">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#<%= group.icon %>"/></svg>
-                                    <%= group.label %>
-                                </p>
-                                <% group.entries.forEach((entry) => { %>
-                                <a href="#<%= entry.id %>" data-entry-link="<%= entry.id %>" aria-current="<%= entry.id === settingsFirstEntry ? 'page' : 'false' %>">
-                                    <span class="zr-grow"><%= entry.title %></span>
-                                    <% if (entry.badge) { %><span class="zr-badge zr-badge--brand"><%= entry.badge %></span><% } %>
-                                    <span class="zr-settings-nav__dirty hidden" data-entry-dirty="<%= entry.id %>" title="Unsaved changes"></span>
-                                </a>
-                                <% }) %>
+                    <aside class="zr-settings__aside">
+                        <div class="zr-settings-side">
+                            <div class="zr-settings-find" role="search">
+                                <label for="settingsSearch" class="zr-settings-find__label">Find a setting</label>
+                                <div class="zr-settings-find__box">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-search"/></svg>
+                                    <input type="search" class="zr-input" data-el="search" id="settingsSearch"
+                                        placeholder="e.g. token limit, cron, tag"
+                                        aria-describedby="settingsSearchStatus"
+                                        autocomplete="off" spellcheck="false">
+                                </div>
+                                <p class="zr-settings-find__status" id="settingsSearchStatus" data-el="search-status" role="status" aria-live="polite"></p>
                             </div>
-                            <% }) %>
-                        </nav>
+                            <nav class="zr-sectionnav zr-settings-nav" aria-label="Settings topics" data-el="nav">
+                                <% settingsNavGroups.forEach((group) => { %>
+                                <div class="zr-settings-nav__group<%= group.featured ? ' zr-settings-nav__group--featured' : '' %>" data-nav-group data-group="<%= group.label %>">
+                                    <% if (!group.featured) { %>
+                                    <p class="zr-settings-nav__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#<%= group.icon %>"/></svg>
+                                        <%= group.label %>
+                                    </p>
+                                    <% } %>
+                                    <% group.entries.forEach((entry) => { %>
+                                    <a href="#<%= entry.id %>"<%- group.featured ? ' class="zr-settings-nav__featured"' : '' %> data-entry-link="<%= entry.id %>" aria-current="<%= entry.id === settingsFirstEntry ? 'page' : 'false' %>">
+                                        <span class="zr-grow"><%= entry.title %></span>
+                                        <% if (entry.badge) { %><span class="zr-badge zr-badge--brand"><%= entry.badge %></span><% } %>
+                                        <span class="zr-settings-nav__count hidden" data-entry-count="<%= entry.id %>"></span>
+                                        <span class="zr-settings-nav__dirty hidden" data-entry-dirty="<%= entry.id %>" title="Unsaved changes"></span>
+                                    </a>
+                                    <% }) %>
+                                </div>
+                                <% if (group.featured) { %>
+                                <p class="zr-settings-nav__caption" data-nav-caption>All options</p>
+                                <% } %>
+                                <% }) %>
+                            </nav>
+                        </div>
                     </aside>
 
                     <div class="zr-only-mobile zr-settings-picker">
                         <label for="settingsEntrySelect" class="zr-sr">Settings topic</label>
                         <select id="settingsEntrySelect" class="zr-input" data-el="select">
-                            <% settingsGroups.forEach((group) => { %>
+                            <% settingsNavGroups.forEach((group) => { %>
                             <% group.entries.forEach((entry) => { %>
-                            <option value="<%= entry.id %>" <%= entry.id === settingsFirstEntry ? 'selected' : '' %>><%= group.label %> › <%= entry.title %><%= entry.badge ? ' (' + entry.badge + ')' : '' %></option>
+                            <option value="<%= entry.id %>" <%= entry.id === settingsFirstEntry ? 'selected' : '' %>><%= group.featured ? entry.title : group.label + ' › ' + entry.title %><%= entry.badge ? ' (' + entry.badge + ')' : '' %></option>
                             <% }) %>
                             <% }) %>
                         </select>

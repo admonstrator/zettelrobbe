@@ -59,7 +59,8 @@ export default function settingsForm(root, { confirmDialog }) {
     restartNote.classList.toggle('hidden', !dirty.some(needsRestart));
 
     fields.forEach((field) => {
-      const row = field.closest('.zr-field');
+      // A switch marks its own row, not the field block it may sit in.
+      const row = field.closest('.zr-switchrow, .zr-checktile, .zr-field');
       if (!row) return;
       row.toggleAttribute('data-dirty', dirty.includes(field));
     });
