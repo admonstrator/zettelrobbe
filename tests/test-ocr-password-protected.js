@@ -119,6 +119,7 @@ async function runQueueItem({
     },
     resetFailedDocument: async () => true,
     removeFromOcrQueue: async () => true,
+    forgetOcrQueueHistory: async () => true,
   });
   injectModule(aiServiceFactoryModulePath, {
     getService: () => ({

@@ -100,11 +100,16 @@ class PdfUnlockService {
    * Takes the document out of the OCR queue and off the failed list, so the
    * next scan processes it from what Paperless-ngx now holds.
    *
+   * The queue history goes too: no OCR provider ever read the locked file,
+   * so OCR before the first analysis (OCR_BEFORE_AI) may still send the
+   * unlocked one, once.
+   *
    * @param {number} documentId
    * @returns {Promise<void>}
    */
   async _release(documentId) {
     await documentModel.removeFromOcrQueue(documentId);
+    await documentModel.forgetOcrQueueHistory(documentId);
     await documentModel.resetFailedDocument(documentId);
   }
 

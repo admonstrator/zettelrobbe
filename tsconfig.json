@@ -15,6 +15,7 @@
   "files": [
     "services/restartService.js",
     "services/ocrPrompt.js",
+    "services/ocrBeforeAi.js",
     "scripts/route-proof.js",
     "tests/test-route-table.js",
     "middleware/authGate.js",

@@ -982,6 +982,21 @@ router.get(
  *                 type: string
  *                 description: Run AI analysis directly after automatic OCR (yes/no)
  *                 example: "yes"
+ *               ocrBeforeAi:
+ *                 type: string
+ *                 enum: ["off", "tagged", "all"]
+ *                 description: >-
+ *                   OCR before the first AI analysis (OCR_BEFORE_AI). off sends a document to OCR
+ *                   only when its text is too short or the analysis fails; tagged sends documents not
+ *                   analysed yet that carry ocrBeforeAiTag to the OCR queue first; all sends every
+ *                   document not analysed yet.
+ *                   Each document goes through it at most once, and only while OCR is enabled.
+ *                   An unknown value is saved as off.
+ *                 example: "off"
+ *               ocrBeforeAiTag:
+ *                 type: string
+ *                 description: Name of the Paperless-ngx tag that tagged looks for (OCR_BEFORE_AI_TAG), matched case-insensitively. Empty saves the default needs-ocr.
+ *                 example: "needs-ocr"
  *               dateFormat:
  *                 type: string
  *                 description: How every date in the web interface is rendered

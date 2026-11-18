@@ -608,6 +608,30 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    version: 18,
+    description: 'Remember every document that was put into the OCR queue',
+    up: (database) => {
+      // A queue row is deleted when its work is done (text written back and
+      // analysed), when someone removes it on the OCR page and when an unlock
+      // releases it, so the queue cannot tell whether a document was ever
+      // sent to OCR. OCR before the first analysis (OCR_BEFORE_AI) sends a
+      // document at most once and asks this table. The rows in the queue
+      // today are the history it starts from; a row deleted before this
+      // migration left no trace to start from.
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS ocr_queue_history (
+          document_id INTEGER PRIMARY KEY,
+          first_reason TEXT,
+          first_queued_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      database.exec(`
+        INSERT OR IGNORE INTO ocr_queue_history (document_id, first_reason, first_queued_at)
+        SELECT document_id, reason, COALESCE(added_at, CURRENT_TIMESTAMP) FROM ocr_queue
+      `);
+    },
+  },
 ];
 
 /** Newest rows the name-mapping list keeps; older ones are pruned on insert. */
@@ -1846,9 +1870,8 @@ module.exports = {
       // be interleaved. The SELECT needs its WHERE clause even when nothing is
       // being skipped: SQLite requires one to tell the upsert's ON apart from
       // the ON of a join.
-      const result = db
-        .prepare(
-          `
+      const upsert = db.prepare(
+        `
         INSERT INTO ocr_queue (document_id, title, reason, status)
         SELECT ?, ?, ?, 'pending'
         WHERE ? = 0
@@ -1863,8 +1886,15 @@ module.exports = {
         WHERE ocr_queue.status IN ('pending', 'failed')
            OR (ocr_queue.status = 'done' AND ? = 1)
       `
-        )
-        .run(
+      );
+      // The queue row goes once its work is done; ocr_queue_history keeps
+      // the fact that the document was sent (wasEverQueuedForOcr). Written in
+      // the same transaction, so a queued document is always remembered.
+      const remember = db.prepare(
+        'INSERT OR IGNORE INTO ocr_queue_history (document_id, first_reason) VALUES (?, ?)'
+      );
+      return db.transaction(() => {
+        const result = upsert.run(
           documentId,
           title,
           reason,
@@ -1872,9 +1902,61 @@ module.exports = {
           documentId,
           isManualRequest ? 1 : 0
         );
-      return result.changes > 0;
+        if (result.changes > 0) {
+          remember.run(documentId, reason);
+        }
+        return result.changes > 0;
+      })();
     } catch (error) {
       console.error('[ERROR] adding to OCR queue:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Whether the document was ever put into the OCR queue, for any reason (by
+   * hand, short text, a failed analysis, OCR before AI): a queue row exists,
+   * whatever its status, or ocr_queue_history remembers one that is gone.
+   * OCR before the first analysis asks this to send a document at most once.
+   *
+   * A database error answers true: when in doubt, no second OCR run is
+   * bought (issue #322); the document is analysed on the text it has.
+   *
+   * @param {number} documentId
+   * @returns {Promise<boolean>}
+   */
+  async wasEverQueuedForOcr(documentId) {
+    try {
+      const row = db
+        .prepare(
+          `SELECT EXISTS (SELECT 1 FROM ocr_queue_history WHERE document_id = ?)
+               OR EXISTS (SELECT 1 FROM ocr_queue WHERE document_id = ?) AS queued`
+        )
+        .get(documentId, documentId);
+      return Number(row?.queued) === 1;
+    } catch (error) {
+      console.error('[ERROR] reading the OCR queue history:', error);
+      return true;
+    }
+  },
+
+  /**
+   * Forgets that the document was ever queued for OCR. Only for a document
+   * whose OCR never reached a provider: a password-protected PDF that was
+   * unlocked and released to the scan (services/pdfUnlockService.js), which
+   * treats it like a new document from then on.
+   *
+   * @param {number} documentId
+   * @returns {Promise<boolean>}
+   */
+  async forgetOcrQueueHistory(documentId) {
+    try {
+      const result = db
+        .prepare('DELETE FROM ocr_queue_history WHERE document_id = ?')
+        .run(documentId);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('[ERROR] clearing the OCR queue history:', error);
       return false;
     }
   },
@@ -2371,8 +2453,8 @@ module.exports = {
 
   /**
    * Drops every local record of a document that no longer exists in
-   * Paperless-ngx: processed, history, original snapshot, OCR queue, failed
-   * and ignored lists.
+   * Paperless-ngx: processed, history, original snapshot, OCR queue and its
+   * history, failed and ignored lists.
    *
    * @param {number} documentId
    */
@@ -2382,6 +2464,7 @@ module.exports = {
       'history_documents',
       'original_documents',
       'ocr_queue',
+      'ocr_queue_history',
       'failed_documents',
       'ignored_documents',
     ];

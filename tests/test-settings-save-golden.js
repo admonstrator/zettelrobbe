@@ -163,6 +163,8 @@ const PAGE_BODY = {
   ocrAutoProcessInterval: '*/15 * * * *',
   ocrAutoProcessBatchSize: '10',
   ocrAutoAnalyze: 'yes',
+  ocrBeforeAi: 'off',
+  ocrBeforeAiTag: 'needs-ocr',
   globalRateLimitWindowMs: '900000',
   globalRateLimitMax: '1000',
   trustProxy: '',
@@ -504,6 +506,34 @@ const SAVE_SCENARIOS = [
   {
     name: 'invalid ocr provider',
     body: page({ ocrProvider: 'tesseract' }),
+  },
+  {
+    name: 'ocr before ai: tagged with a tag of its own',
+    body: page({
+      ocrBeforeAi: ' Tagged ',
+      ocrBeforeAiTag: '  Scan-Me  ',
+    }),
+  },
+  {
+    name: 'ocr before ai: an unknown value saves off, an empty tag the default',
+    env: { OCR_BEFORE_AI: 'all', OCR_BEFORE_AI_TAG: 'old-tag' },
+    body: page({ ocrBeforeAi: 'always', ocrBeforeAiTag: '   ' }),
+  },
+  {
+    name: 'ocr before ai: fields absent keep the stored values',
+    env: { OCR_BEFORE_AI: 'all', OCR_BEFORE_AI_TAG: 'old-tag' },
+    body: (() => {
+      const body = page({});
+      delete body.ocrBeforeAi;
+      delete body.ocrBeforeAiTag;
+      return body;
+    })(),
+  },
+  {
+    name: 'ocr before ai pinned by the environment',
+    pinned: { OCR_BEFORE_AI: 'all' },
+    env: { OCR_BEFORE_AI: 'all' },
+    body: page({ ocrBeforeAi: 'off' }),
   },
   {
     name: 'ocr crosses from mistral to claude',
