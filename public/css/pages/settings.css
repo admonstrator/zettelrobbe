@@ -535,4 +535,202 @@
       font-size: var(--zr-fs-lg);
     }
   }
+
+  /* --- Quick start (partials/settings-quick-start.ejs) -------------------- */
+
+  /* The six decisions as one card of rows. A row is a button: the mark says
+     done or open, title and summary say what is set, the word at the end opens
+     it. Its controls are not .zr-field rows on purpose: the hairlines and hover
+     bands of the topics above stay out, and the settings search does not list
+     a setting twice. */
+  /* The measure of the mockup, so a switch never sits a screen away from its
+     label even where the topic itself runs wider. */
+  .zr-qs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    max-width: 760px;
+  }
+  .zr-qs__intro {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--zr-2) var(--zr-3);
+  }
+  .zr-qs__lead {
+    flex: 1 1 320px;
+    font-size: var(--zr-fs-md);
+    color: var(--zr-text-muted);
+  }
+  /* The card pads any child that is not one of its own parts (modules.css);
+     a step runs from edge to edge, so its hover band does too. */
+  .zr-qs__step {
+    padding: 0;
+  }
+  .zr-qs__step + .zr-qs__step {
+    border-top: 1px solid var(--zr-line);
+  }
+  .zr-qs__heading {
+    font: inherit;
+  }
+  .zr-qs__toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--zr-3);
+    width: 100%;
+    min-height: 60px;
+    padding: var(--zr-3) var(--zr-4);
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .zr-qs__toggle:hover {
+    background: var(--zr-surface-2);
+  }
+  /* Inset: the card clips anything drawn outside its edge. */
+  .zr-qs__toggle:focus-visible {
+    outline: 2px solid var(--zr-focus);
+    outline-offset: -2px;
+  }
+
+  /* The mark: the step number in a ring while open, a tick once done, a
+     warning when the stored setting fails, a dashed ring for an optional step
+     not in use. */
+  .zr-qs__mark {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 2px solid var(--zr-toggle-off);
+    border-radius: var(--zr-r-full);
+    color: var(--zr-text-muted);
+    font-size: var(--zr-fs-sm);
+    font-weight: 700;
+  }
+  .zr-qs__icon {
+    display: none;
+  }
+  .zr-qs__step[data-state='done'] .zr-qs__mark {
+    border-color: transparent;
+    background: var(--zr-ok-soft);
+    color: var(--zr-ok);
+  }
+  .zr-qs__step[data-state='problem'] .zr-qs__mark {
+    border-color: transparent;
+    background: var(--zr-warn-soft);
+    color: var(--zr-warn);
+  }
+  .zr-qs__step[data-state='skipped'] .zr-qs__mark {
+    border-style: dashed;
+  }
+  .zr-qs__step[data-state='done'] .zr-qs__icon--done,
+  .zr-qs__step[data-state='problem'] .zr-qs__icon--problem {
+    display: block;
+  }
+  .zr-qs__step[data-state='done'] .zr-qs__number,
+  .zr-qs__step[data-state='problem'] .zr-qs__number {
+    display: none;
+  }
+
+  .zr-qs__text {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .zr-qs__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zr-2);
+    font-size: var(--zr-fs-md);
+    font-weight: 600;
+  }
+  /* Filled by the module; the line keeps its height until then. */
+  .zr-qs__summary {
+    min-height: 1lh;
+    color: var(--zr-text-muted);
+    overflow-wrap: anywhere;
+  }
+  .zr-qs__step[data-state='problem'] .zr-qs__summary {
+    color: var(--zr-warn);
+  }
+  .zr-qs__action {
+    flex: none;
+    font-weight: 600;
+    color: var(--zr-brand-text);
+  }
+  /* Unsaved edits in this step, the same dot the topic list shows. */
+  .zr-qs__dirty {
+    display: none;
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: var(--zr-r-full);
+    background: var(--zr-brand);
+  }
+  .zr-qs__step[data-dirty] .zr-qs__dirty {
+    display: block;
+  }
+
+  /* The open step: its controls line up with the title, not with the mark. */
+  .zr-qs__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    padding: var(--zr-1) var(--zr-4) var(--zr-5)
+      calc(var(--zr-4) + 28px + var(--zr-3));
+  }
+  .zr-qs__field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .zr-qs__field--wide > .zr-textarea {
+    max-width: none;
+  }
+  /* Switches stand as rows of one box with a hairline between them. */
+  .zr-qs__switches {
+    border: 1px solid var(--zr-line);
+    border-radius: var(--zr-r-md);
+  }
+  .zr-qs__switch {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--zr-3);
+    padding: var(--zr-2) var(--zr-3);
+  }
+  .zr-qs__switch + .zr-qs__switch {
+    border-top: 1px solid var(--zr-line);
+  }
+  .zr-qs__switchtext {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .zr-qs__switch .zr-field__name {
+    cursor: pointer;
+  }
+  .zr-qs__more {
+    font-size: var(--zr-fs-sm);
+  }
+
+  /* A narrow card (phones, a narrow window) gives the controls the full width. */
+  @container (max-width: 520px) {
+    .zr-qs__toggle {
+      gap: var(--zr-2);
+      padding-inline: var(--zr-3);
+    }
+    .zr-qs__body {
+      padding-inline: var(--zr-3);
+    }
+  }
 }

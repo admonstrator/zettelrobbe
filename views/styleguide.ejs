@@ -72,6 +72,10 @@
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-login"/></svg>
                 Auth &amp; steps
             </a>
+            <a href="#sg-quick-start">
+                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-zap"/></svg>
+                Quick start rows
+            </a>
             <a href="#sg-actionbar">
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
                 Action bar
@@ -1532,6 +1536,91 @@
                         </div>
                     </form>
                 </section>
+            </div>
+        </section>
+
+        <!-- ── quick start rows ────────────────────────────────────────── -->
+        <section class="zr-module" id="sg-quick-start">
+            <div class="zr-module__head">
+                <h3 class="zr-module__title">Quick start rows</h3>
+                <span class="zr-module__meta">css/pages/settings.css</span>
+            </div>
+            <div class="zr-module__body zr-col">
+                <p class="zr-sm zr-muted">
+                    The decisions of the settings Quick start: one row per step, the mark says done
+                    (<code>data-state="done"</code>), open, <code>problem</code> or <code>skipped</code>; the row
+                    is a button with <code>aria-expanded</code> and opens its controls in place. On the settings
+                    page each control mirrors a real field (<code>data-mirror</code>) and carries no
+                    <code>name</code>; <code>js/modules/settings-quick-start.js</code> keeps both in step.
+                    Here the rows are static.
+                </p>
+                <div class="zr-qs">
+                    <div class="zr-module zr-qs__list">
+                        <div class="zr-qs__step" data-state="done">
+                            <h3 class="zr-qs__heading">
+                                <button type="button" class="zr-qs__toggle" aria-expanded="false">
+                                    <span class="zr-qs__mark" aria-hidden="true">
+                                        <svg class="zr-icon zr-icon--sm zr-qs__icon zr-qs__icon--done"><use href="/icons.svg#i-check"/></svg>
+                                        <span class="zr-qs__number">1</span>
+                                    </span>
+                                    <span class="zr-qs__text">
+                                        <span class="zr-qs__title">Paperless-ngx</span>
+                                        <span class="zr-qs__summary">http://paperless:8000 · user admin · connected</span>
+                                    </span>
+                                    <span class="zr-qs__action">Change</span>
+                                </button>
+                            </h3>
+                        </div>
+                        <div class="zr-qs__step zr-qs__step--open" data-state="open" data-dirty>
+                            <h3 class="zr-qs__heading">
+                                <button type="button" class="zr-qs__toggle" aria-expanded="true" aria-controls="sgQuickStartBody">
+                                    <span class="zr-qs__mark" aria-hidden="true">
+                                        <span class="zr-qs__number">2</span>
+                                    </span>
+                                    <span class="zr-qs__text">
+                                        <span class="zr-qs__title">What the AI fills in</span>
+                                        <span class="zr-qs__summary">Nothing switched on</span>
+                                    </span>
+                                    <span class="zr-qs__dirty"><span class="zr-sr">Unsaved changes.</span></span>
+                                    <span class="zr-qs__action">Close</span>
+                                </button>
+                            </h3>
+                            <div class="zr-qs__body" id="sgQuickStartBody">
+                                <div class="zr-qs__switches">
+                                    <div class="zr-qs__field zr-qs__switch">
+                                        <div class="zr-qs__switchtext">
+                                            <label for="sgQuickStartTitle" class="zr-field__name">Title</label>
+                                            <p class="zr-field__hint">A title from the content instead of the file name.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="sgQuickStartTitle">
+                                    </div>
+                                    <div class="zr-qs__field zr-qs__switch">
+                                        <div class="zr-qs__switchtext">
+                                            <label for="sgQuickStartTags" class="zr-field__name">Tags</label>
+                                            <p class="zr-field__hint">Set by the environment (ACTIVATE_TAGGING).</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="sgQuickStartTags" disabled>
+                                    </div>
+                                </div>
+                                <p class="zr-qs__more"><a class="zr-link zr-link--underline" href="#sg-quick-start">All options in Restrictions and limits</a></p>
+                            </div>
+                        </div>
+                        <div class="zr-qs__step" data-state="skipped">
+                            <h3 class="zr-qs__heading">
+                                <button type="button" class="zr-qs__toggle" aria-expanded="false">
+                                    <span class="zr-qs__mark" aria-hidden="true">
+                                        <span class="zr-qs__number">3</span>
+                                    </span>
+                                    <span class="zr-qs__text">
+                                        <span class="zr-qs__title">OCR for scans <span class="zr-badge">Optional</span></span>
+                                        <span class="zr-qs__summary">Off</span>
+                                    </span>
+                                    <span class="zr-qs__action">Change</span>
+                                </button>
+                            </h3>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 

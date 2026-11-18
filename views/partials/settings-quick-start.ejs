@@ -1,0 +1,198 @@
+<%#
+    Settings: Quick start (public/js/modules/settings-quick-start.js).
+
+    The six decisions Zettelrobbe needs, one row each, opening in place. Every
+    control here mirrors a real field of the form by its id (data-mirror) and
+    carries no name: the save sends the real fields only, and the module keeps
+    both in step. tests/test-settings-quick-start.js holds the partial to that.
+    data-mirror-scope tells modules/settings-form.js not to count these
+    controls as edits of their own.
+
+    Locals: configuredSecrets as GET /settings renders it, settingsGroups
+    (for the topic names the links use) and ocrKeyStored (whether the OCR key
+    the non-Claude providers read is stored). No value of the configuration is
+    rendered here: the module copies them from the real fields.
+%>
+<%
+    const qsEsc = (value) => String(value == null ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const qsGroups = Array.isArray(typeof settingsGroups !== 'undefined' ? settingsGroups : null) ? settingsGroups : [];
+    const qsTopic = (id) => {
+        const topic = qsGroups.flatMap((group) => group.entries || []).find((item) => item.id === id);
+        return qsEsc(topic ? topic.title : id);
+    };
+    const qsSecretsKnown = (typeof configuredSecrets === 'object' && configuredSecrets) ? configuredSecrets : {};
+    // Which secrets are stored on the server, by the id of their field. The
+    // values never reach the page; the rows only say whether there is one.
+    const qsSecrets = {
+        paperlessToken: Boolean(qsSecretsKnown.PAPERLESS_API_TOKEN),
+        openaiKey: Boolean(qsSecretsKnown.OPENAI_API_KEY),
+        customApiKey: Boolean(qsSecretsKnown.CUSTOM_API_KEY),
+        azureApiKey: Boolean(qsSecretsKnown.AZURE_API_KEY),
+        anthropicApiKey: Boolean(qsSecretsKnown.ANTHROPIC_API_KEY),
+        ocrApiKey: Boolean(typeof ocrKeyStored !== 'undefined' && ocrKeyStored)
+    };
+    const qsId = (name) => 'quickStart' + name.charAt(0).toUpperCase() + name.slice(1);
+    const qsLink = (href, text) => `<a class="zr-link zr-link--underline" href="#${href}">${text}</a>`;
+    // A hint is static markup written here, links included.
+    const qsHint = (hint) => hint ? `<p class="zr-field__hint">${hint}</p>` : '';
+    const qsNote = '<p class="zr-field__hint zr-qs__locked hidden" data-qs-note></p>';
+    const qsKeyHint = (stored, fallback) => stored ? 'Leave it empty to keep the stored key.' : fallback;
+
+    const qsInput = ({ target, label, type = 'text', hint = '', attrs = '' }) =>
+        `<div class="zr-qs__field" data-qs-field>`
+        + `<label for="${qsId(target)}" class="zr-field__name">${qsEsc(label)}</label>`
+        + `<input type="${type}" id="${qsId(target)}" class="zr-input" data-mirror="${target}" autocomplete="off" spellcheck="false"${attrs ? ' ' + attrs : ''}>`
+        + qsHint(hint) + qsNote
+        + '</div>';
+    const qsSelect = ({ target, label, hint = '' }) =>
+        `<div class="zr-qs__field" data-qs-field>`
+        + `<label for="${qsId(target)}" class="zr-field__name">${qsEsc(label)}</label>`
+        + `<select id="${qsId(target)}" class="zr-input" data-mirror="${target}"></select>`
+        + qsHint(hint) + qsNote
+        + '</div>';
+    const qsTextarea = ({ target, label, hint = '' }) =>
+        `<div class="zr-qs__field zr-qs__field--wide" data-qs-field>`
+        + `<label for="${qsId(target)}" class="zr-field__name">${qsEsc(label)}</label>`
+        + `<textarea id="${qsId(target)}" class="zr-textarea" rows="6" data-mirror="${target}" spellcheck="false"></textarea>`
+        + qsHint(hint) + qsNote
+        + '</div>';
+    const qsSwitch = ({ target, label, hint = '' }) =>
+        `<div class="zr-qs__field zr-qs__switch" data-qs-field>`
+        + '<div class="zr-qs__switchtext">'
+        + `<label for="${qsId(target)}" class="zr-field__name">${qsEsc(label)}</label>`
+        + qsHint(hint) + qsNote
+        + '</div>'
+        + `<input type="checkbox" class="zr-toggle" id="${qsId(target)}" data-mirror="${target}">`
+        + '</div>';
+    const qsMore = (href, text) => `<p class="zr-qs__more">${qsLink(href, text)}</p>`;
+
+    // The head of a step: a real button that opens and closes its body.
+    const qsStepHead = ({ step, number, title, optional = false }) => {
+        const base = qsId(step);
+        return `<h3 class="zr-qs__heading">`
+            + `<button type="button" class="zr-qs__toggle" id="${base}Toggle" data-qs-toggle aria-expanded="false" aria-controls="${base}Body">`
+            + '<span class="zr-qs__mark" aria-hidden="true">'
+            + '<svg class="zr-icon zr-icon--sm zr-qs__icon zr-qs__icon--done"><use href="/icons.svg#i-check"/></svg>'
+            + '<svg class="zr-icon zr-icon--sm zr-qs__icon zr-qs__icon--problem"><use href="/icons.svg#i-alert"/></svg>'
+            + `<span class="zr-qs__number">${number}</span>`
+            + '</span>'
+            + '<span class="zr-qs__text">'
+            + `<span class="zr-qs__title" id="${base}Title">${qsEsc(title)}${optional ? ' <span class="zr-badge">Optional</span>' : ''}</span>`
+            + '<span class="zr-qs__summary" data-qs-summary></span>'
+            + '</span>'
+            + '<span class="zr-sr" data-qs-state></span>'
+            + '<span class="zr-qs__dirty"><span class="zr-sr">Unsaved changes.</span></span>'
+            + '<span class="zr-qs__action" data-qs-action>Change</span>'
+            + '</button>'
+            + '</h3>';
+    };
+    const qsBodyOpen = (step) => `<div class="zr-qs__body hidden" id="${qsId(step)}Body" role="group" aria-labelledby="${qsId(step)}Title">`;
+    const qsFetchHint = (button) => `Missing a model? ${qsLink(button, 'Fetch models')} in ${qsTopic('ai-provider')} lists what the server offers.`;
+%>
+<div class="zr-qs" data-module="settings-quick-start" data-mirror-scope data-stored-secrets="<%= JSON.stringify(qsSecrets) %>">
+    <div class="zr-qs__intro">
+        <p class="zr-qs__lead">Six decisions Zettelrobbe needs before it processes your documents. Every other setting starts with a default and has its own topic.</p>
+        <span class="zr-badge zr-badge--brand zr-qs__count" data-qs-count></span>
+    </div>
+
+    <div class="zr-module zr-qs__list">
+        <div class="zr-qs__step" data-qs-step="paperless" data-state="open">
+            <%- qsStepHead({ step: 'paperless', number: 1, title: 'Paperless-ngx' }) %>
+            <%- qsBodyOpen('paperless') %>
+                <%- qsInput({ target: 'paperlessUrl', label: 'Address', attrs: 'inputmode="url"', hint: 'With the port and without a path, for example http://192.168.1.10:8000.' }) %>
+                <%- qsInput({ target: 'paperlessToken', label: 'API token', type: 'password', hint: qsSecrets.paperlessToken ? 'Leave it empty to keep the stored token.' : 'Paperless-ngx shows it in your profile, under API Auth Token.' }) %>
+                <%- qsInput({ target: 'paperlessUsername', label: 'User name', hint: 'The Paperless-ngx user the token belongs to.' }) %>
+                <%- qsMore('connection', 'All options in ' + qsTopic('connection')) %>
+            </div>
+        </div>
+
+        <div class="zr-qs__step" data-qs-step="ai" data-state="open">
+            <%- qsStepHead({ step: 'ai', number: 2, title: 'AI model' }) %>
+            <%- qsBodyOpen('ai') %>
+                <%- qsSelect({ target: 'aiProvider', label: 'Provider', hint: 'The service that reads your documents.' }) %>
+                <%# Each provider's fields show while that provider is selected,
+                    as they do under AI provider: the rows follow the real ones. %>
+                <%- qsInput({ target: 'openaiKey', label: 'API key', type: 'password', hint: qsKeyHint(qsSecrets.openaiKey, '') }) %>
+                <%- qsSelect({ target: 'openaiModel', label: 'Model' }) %>
+                <%- qsInput({ target: 'ollamaUrl', label: 'Server address', attrs: 'inputmode="url"', hint: 'Ollama listens on port 11434, for example http://192.168.1.10:11434.' }) %>
+                <%- qsSelect({ target: 'ollamaModel', label: 'Model', hint: qsFetchHint('fetchAiModelsBtn') }) %>
+                <%- qsInput({ target: 'customBaseUrl', label: 'Server address', attrs: 'inputmode="url"', hint: 'The address of the OpenAI-compatible API, usually ending in /v1.' }) %>
+                <%- qsInput({ target: 'customApiKey', label: 'API key', type: 'password', hint: qsKeyHint(qsSecrets.customApiKey, 'Leave it empty if the server needs no key.') }) %>
+                <%- qsSelect({ target: 'customModel', label: 'Model', hint: qsFetchHint('fetchCustomAiModelsBtn') }) %>
+                <%- qsInput({ target: 'azureEndpoint', label: 'Endpoint', attrs: 'inputmode="url"' }) %>
+                <%- qsInput({ target: 'azureApiKey', label: 'API key', type: 'password', hint: qsKeyHint(qsSecrets.azureApiKey, '') }) %>
+                <%- qsInput({ target: 'azureDeploymentName', label: 'Deployment', hint: 'The name you gave the model deployment in Azure.' }) %>
+                <%- qsInput({ target: 'anthropicApiKey', label: 'API key', type: 'password', hint: qsKeyHint(qsSecrets.anthropicApiKey, '') }) %>
+                <%- qsSelect({ target: 'anthropicModel', label: 'Model', hint: qsFetchHint('fetchAnthropicModelsBtn') }) %>
+                <%- qsMore('ai-provider', 'All options in ' + qsTopic('ai-provider')) %>
+            </div>
+        </div>
+
+        <div class="zr-qs__step" data-qs-step="fill" data-state="open">
+            <%- qsStepHead({ step: 'fill', number: 3, title: 'What the AI fills in' }) %>
+            <%- qsBodyOpen('fill') %>
+                <p class="zr-field__hint">Each switch is one field of a document. Switched off, Zettelrobbe leaves that field as it is.</p>
+                <div class="zr-qs__switches">
+                    <%- qsSwitch({ target: 'activateTitle', label: 'Title', hint: 'A title from the content instead of the file name.' }) %>
+                    <%- qsSwitch({ target: 'activateTagging', label: 'Tags', hint: 'The topics the document is about.' }) %>
+                    <%- qsSwitch({ target: 'activateCorrespondents', label: 'Correspondent', hint: 'Who sent the document.' }) %>
+                    <%- qsSwitch({ target: 'activateDocumentType', label: 'Document type', hint: 'Invoice, contract, letter and the like.' }) %>
+                    <%- qsSwitch({ target: 'activateCustomFields', label: 'Custom fields', hint: 'Values for the fields listed under ' + qsLink('custom-fields', qsTopic('custom-fields')) + '.' }) %>
+                </div>
+                <%- qsMore('restrictions', 'All options in ' + qsTopic('restrictions')) %>
+            </div>
+        </div>
+
+        <div class="zr-qs__step" data-qs-step="prompt" data-state="open">
+            <%- qsStepHead({ step: 'prompt', number: 4, title: 'Prompt' }) %>
+            <%- qsBodyOpen('prompt') %>
+                <div class="zr-alert zr-alert--info hidden" data-qs-prompt-tags>
+                    <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>
+                    <div class="zr-alert__body">
+                        <p class="zr-sm">Prompt tags are on. The model only matches each document against those tags and does not get the prompt below. <%- qsLink('usePromptTags', 'Change this') %> in <%= qsTopic('ai-behavior') %>.</p>
+                    </div>
+                </div>
+                <%- qsTextarea({ target: 'systemPrompt', label: 'Your prompt', hint: 'Tells the model what to look for and how to name things. Zettelrobbe adds its own rules for the answer after it.' }) %>
+                <%- qsMore('ai-behavior', 'Example prompt and all options in ' + qsTopic('ai-behavior')) %>
+            </div>
+        </div>
+
+        <div class="zr-qs__step" data-qs-step="ocr" data-state="skipped">
+            <%- qsStepHead({ step: 'ocr', number: 5, title: 'OCR for scans', optional: true }) %>
+            <%- qsBodyOpen('ocr') %>
+                <div class="zr-qs__switches">
+                    <%- qsSwitch({ target: 'mistralOcrEnabled', label: 'Use OCR', hint: 'Reads a scan again when its text from Paperless-ngx is too short or the analysis fails.' }) %>
+                </div>
+                <%- qsSelect({ target: 'ocrBeforeAi', label: 'OCR before the first analysis' }) %>
+                <%- qsInput({ target: 'ocrBeforeAiTag', label: 'OCR tag', hint: 'Documents with this Paperless-ngx tag go to OCR first.' }) %>
+                <div class="zr-alert zr-alert--warn hidden" data-qs-ocr-queue>
+                    <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
+                    <div class="zr-alert__body">
+                        <p class="zr-sm">These documents wait in the OCR queue until someone starts it on the OCR page. <%- qsLink('ocrAutoProcessEnabled', 'Process the queue automatically') %> in <%= qsTopic('ocr') %> does that on a schedule.</p>
+                    </div>
+                </div>
+                <%- qsMore('ocr', 'Provider, model, key and all options in ' + qsTopic('ocr')) %>
+            </div>
+        </div>
+
+        <div class="zr-qs__step" data-qs-step="run" data-state="open">
+            <%- qsStepHead({ step: 'run', number: 6, title: 'When it runs' }) %>
+            <%- qsBodyOpen('run') %>
+                <div class="zr-qs__field">
+                    <label for="quickStartSchedule" class="zr-field__name">Look for new documents</label>
+                    <select id="quickStartSchedule" class="zr-input" data-qs-schedule></select>
+                </div>
+                <div data-qs-cron>
+                    <%- qsInput({ target: 'scanInterval', label: 'Schedule (cron)', hint: '<span data-qs-cron-words></span>' }) %>
+                </div>
+                <div class="zr-qs__switches">
+                    <%- qsSwitch({ target: 'showTags', label: 'Only documents with certain tags', hint: '<span data-qs-run-tags class="hidden"><span data-qs-run-tag-list></span> ' + qsLink('tagInput', 'Choose the tags') + ' in ' + qsTopic('schedule') + '.</span>' }) %>
+                    <%- qsSwitch({ target: 'disableAutomaticProcessing', label: 'Stop automatic scans', hint: 'While this is on, Zettelrobbe does not look for new documents by itself.' }) %>
+                </div>
+                <%- qsMore('schedule', 'All options in ' + qsTopic('schedule')) %>
+            </div>
+        </div>
+    </div>
+</div>
