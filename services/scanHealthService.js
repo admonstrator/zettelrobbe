@@ -10,7 +10,11 @@
  * its outcome here, so /health, the dashboard and monitoring see the truth.
  *
  * The service holds state only — no I/O, no timers, no dependencies besides the
- * config. That keeps it free of circular requires and testable offline.
+ * config. That keeps it free of circular requires and testable offline. The
+ * next scheduled run is the one exception to "state only": it is asked of the
+ * real cron task through a provider function handed over in markArmed(), so
+ * the dashboard shows the time node-cron will actually fire at instead of a
+ * second parser's guess.
  */
 
 const config = require('../config/config');
@@ -56,6 +60,12 @@ function createInitialState() {
 class ScanHealthService {
   constructor() {
     this.state = createInitialState();
+    /**
+     * Asks the armed cron task for its next run. Kept outside `state` so
+     * getState() never copies a function into a payload.
+     * @type {(() => Date|null)|null}
+     */
+    this.nextRunProvider = null;
   }
 
   /** Failure threshold before the scanner counts as degraded. */
@@ -74,11 +84,15 @@ class ScanHealthService {
   /**
    * Records that the scan cron has been scheduled.
    * @param {string} scanInterval Cron expression the scheduler was armed with.
+   * @param {(() => Date|null)|null} [nextRunProvider] Returns the next time the
+   *   armed task fires — `() => task.getNextRun()` for a node-cron task.
    */
-  markArmed(scanInterval) {
+  markArmed(scanInterval, nextRunProvider = null) {
     this.state.automaticProcessingEnabled = true;
     this.state.armed = true;
     this.state.scanInterval = scanInterval || null;
+    this.nextRunProvider =
+      typeof nextRunProvider === 'function' ? nextRunProvider : null;
   }
 
   /** Records that automatic processing is switched off by configuration. */
@@ -86,6 +100,34 @@ class ScanHealthService {
     this.state.automaticProcessingEnabled = false;
     this.state.armed = false;
     this.state.scanInterval = null;
+    this.nextRunProvider = null;
+  }
+
+  /**
+   * When the armed scan task fires next, as an ISO string.
+   *
+   * Null whenever there is no honest answer: automatic processing is off, the
+   * scheduler is not armed, nobody handed over a provider, or the task could
+   * not name a time. Never throws — this feeds /health.
+   * @returns {string|null}
+   */
+  getNextRunAt() {
+    if (
+      !this.state.automaticProcessingEnabled ||
+      !this.state.armed ||
+      !this.nextRunProvider
+    ) {
+      return null;
+    }
+
+    try {
+      const next = this.nextRunProvider();
+      return next instanceof Date && !Number.isNaN(next.getTime())
+        ? next.toISOString()
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -170,6 +212,7 @@ class ScanHealthService {
   getState() {
     return {
       ...this.state,
+      nextRunAt: this.getNextRunAt(),
       failureThreshold: this.failureThreshold,
       degraded: this.isDegraded(),
       paperless: { ...this.state.paperless },
@@ -179,6 +222,7 @@ class ScanHealthService {
   /** Resets all state. Test helper — not used by the application. */
   reset() {
     this.state = createInitialState();
+    this.nextRunProvider = null;
   }
 }
 

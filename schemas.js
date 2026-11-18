@@ -435,6 +435,15 @@
  *           type: string
  *           format: date-time
  *           nullable: true
+ *         nextRunAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: |
+ *             When the armed scan task fires next, as reported by the
+ *             scheduler itself. Null when automatic processing is off
+ *             (DISABLE_AUTOMATIC_PROCESSING=yes) or the scheduler is not armed.
+ *           example: "2026-11-18T14:45:00.000Z"
  *         consecutiveFailures:
  *           type: integer
  *           description: Number of consecutive failed scan runs

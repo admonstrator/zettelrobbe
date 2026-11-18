@@ -869,7 +869,7 @@ async function startScanning() {
     // at startup must never leave the app running without a scan loop —
     // every scheduled run re-checks connectivity on its own.
     console.log('Configured scan interval:', config.scanInterval);
-    cron.schedule(config.scanInterval, async () => {
+    const scanTask = cron.schedule(config.scanInterval, async () => {
       console.log(`Starting scheduled scan at ${new Date().toISOString()}`);
       if (!(await setupService.isConfigured())) {
         console.warn('Scheduled scan skipped: setup is not completed.');
@@ -877,7 +877,12 @@ async function startScanning() {
       }
       await scanService.scanDocuments();
     });
-    scanHealthService.markArmed(config.scanInterval);
+    // The dashboard's "Next scan" asks this task, so it shows the time
+    // node-cron will really fire at. SCAN_INTERVAL is a restart key, so the
+    // task lives exactly as long as the process.
+    scanHealthService.markArmed(config.scanInterval, () =>
+      scanTask.getNextRun()
+    );
 
     // Detached on purpose: startup must not block while Paperless-ngx is still
     // coming up. unhandledRejection terminates the process, so catch here.
