@@ -386,10 +386,10 @@ class StubElement {
     });
   });
 
-  await test('Prompt: built-in, own (quoted, cut) or prompt tags only', () => {
+  await test('Prompt: none of your own, own (quoted, cut) or prompt tags only', () => {
     assert.deepStrictEqual(
       qs.summarizePrompt({ usePromptTags: false, systemPrompt: '  ' }),
-      { state: 'done', text: 'Built-in prompt' }
+      { state: 'done', text: 'No prompt of your own' }
     );
     assert.deepStrictEqual(
       qs.summarizePrompt({
@@ -483,7 +483,7 @@ class StubElement {
       }),
       {
         state: 'done',
-        text: 'Every 30 minutes · every document not processed yet',
+        text: 'Every 30 minutes · every document not analysed yet',
       }
     );
     assert.deepStrictEqual(
@@ -765,7 +765,7 @@ class StubElement {
     const row = new StubElement(['zr-field']);
     const hint = new StubElement(['zr-field__hint']);
     const sentence = new StubElement(['zr-field__locked'], {
-      textContent: ' · Set by the environment (SCAN_INTERVAL).',
+      textContent: ' Set by the environment (SCAN_INTERVAL).',
     });
     const field = new StubElement([], { disabled: true, dataset: {} });
     row.append(hint.append(sentence), field);
@@ -853,7 +853,10 @@ class StubElement {
       assert.ok(controls, button);
       assert.ok(html.includes(`id="${controls[1]}"`), `no body ${controls[1]}`);
     });
-    assert.match(html, /OCR for scans <span class="zr-badge">Optional<\/span>/);
+    assert.match(
+      html,
+      /OCR for scanned documents <span class="zr-badge">Optional<\/span>/
+    );
   });
 
   await test('Partial: every mirror names a field of the settings page, the summaries read the same ones', () => {

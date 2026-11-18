@@ -190,7 +190,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /Remove the inbox tag when a document is done/,
+        /Remove the inbox tags/,
         'the switch says what it does'
       );
       assert.match(
@@ -219,7 +219,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /Taken off a document after a successful analysis, whatever the analysis proposed\./
+        /Zettelrobbe takes these tags off a document once its analysis is written, also when the model proposed one of them\./
       );
     });
 

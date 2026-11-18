@@ -259,7 +259,7 @@ export function summarizePrompt({
   const excerpt = promptExcerpt(systemPrompt);
   return excerpt
     ? { state: 'done', text: `Your own prompt: “${excerpt}”` }
-    : { state: 'done', text: 'Built-in prompt' };
+    : { state: 'done', text: 'No prompt of your own' };
 }
 
 /**
@@ -340,7 +340,7 @@ export function summarizeRun({
         }
       : { state: 'open', text: `${when} · only tagged documents, no tag yet` };
   }
-  return { state: 'done', text: `${when} · every document not processed yet` };
+  return { state: 'done', text: `${when} · every document not analysed yet` };
 }
 
 /**

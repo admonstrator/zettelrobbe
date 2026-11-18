@@ -93,7 +93,7 @@
 %>
 <div class="zr-qs" data-module="settings-quick-start" data-mirror-scope data-stored-secrets="<%= JSON.stringify(qsSecrets) %>">
     <div class="zr-qs__intro">
-        <p class="zr-qs__lead">Six decisions Zettelrobbe needs before it processes your documents. Every other setting starts with a default and has its own topic.</p>
+        <p class="zr-qs__lead">Six decisions Zettelrobbe needs before it analyses your documents. Every other setting starts with a default and has its own topic.</p>
         <span class="zr-badge zr-badge--brand zr-qs__count" data-qs-count></span>
     </div>
 
@@ -160,17 +160,17 @@
         </div>
 
         <div class="zr-qs__step" data-qs-step="ocr" data-state="skipped">
-            <%- qsStepHead({ step: 'ocr', number: 5, title: 'OCR for scans', optional: true }) %>
+            <%- qsStepHead({ step: 'ocr', number: 5, title: 'OCR for scanned documents', optional: true }) %>
             <%- qsBodyOpen('ocr') %>
                 <div class="zr-qs__switches">
-                    <%- qsSwitch({ target: 'mistralOcrEnabled', label: 'Use OCR', hint: 'Reads a scan again when its text from Paperless-ngx is too short or the analysis fails.' }) %>
+                    <%- qsSwitch({ target: 'mistralOcrEnabled', label: 'Use OCR', hint: 'Reads a document again when its text from Paperless-ngx is too short or the analysis fails.' }) %>
                 </div>
                 <%- qsSelect({ target: 'ocrBeforeAi', label: 'OCR before the first analysis' }) %>
                 <%- qsInput({ target: 'ocrBeforeAiTag', label: 'OCR tag', hint: 'Documents with this Paperless-ngx tag go to OCR first.' }) %>
                 <div class="zr-alert zr-alert--warn hidden" data-qs-ocr-queue>
                     <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
                     <div class="zr-alert__body">
-                        <p class="zr-sm">These documents wait in the OCR queue until someone starts it on the OCR page. <%- qsLink('ocrAutoProcessEnabled', 'Process the queue automatically') %> in <%= qsTopic('ocr') %> does that on a schedule.</p>
+                        <p class="zr-sm">These documents wait in the OCR queue until someone starts it on the OCR page. Switch on <%- qsLink('ocrAutoProcessEnabled', 'Run the OCR queue on its own') %> in <%= qsTopic('ocr') %> to have it done on a schedule.</p>
                     </div>
                 </div>
                 <%- qsMore('ocr', 'Provider, model, key and all options in ' + qsTopic('ocr')) %>

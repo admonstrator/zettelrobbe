@@ -42,29 +42,29 @@
                     return;
                 }
 
-                apiKeyContainer.textContent = 'Not configured';
+                apiKeyContainer.textContent = 'No key yet';
                 apiKeyContainer.dataset.apiKey = '';
-                apiKeyContainer.title = 'No API key configured';
+                apiKeyContainer.title = 'No API key yet';
             } catch (error) {
                 console.error('Error loading API key:', error);
                 apiKeyContainer.textContent = 'Unavailable';
                 apiKeyContainer.dataset.apiKey = '';
-                apiKeyContainer.title = 'Failed to load API key';
-                showToast('Failed to load API key!', 'error');
+                apiKeyContainer.title = 'Could not load the API key';
+                showToast('Could not load the API key.', 'error');
             }
         }
 
         async function copyApiKey() {
             if (!apiKeyContainer.dataset.apiKey) {
-                showToast('No API key available to copy', 'error');
+                showToast('There is no API key to copy.', 'error');
                 return;
             }
 
             try {
                 await navigator.clipboard.writeText(apiKeyContainer.dataset.apiKey);
-                showToast('API key copied to clipboard!');
+                showToast('API key copied.');
             } catch (err) {
-                showToast('Failed to copy API key!', 'error');
+                showToast('Could not copy the API key.', 'error');
             }
         }
 
@@ -104,13 +104,13 @@
                     apiKeyContainer.dataset.apiKey = data.newKey;
                     apiKeyContainer.title = data.newKey;
 
-                    showToast('New API key generated!');
+                    showToast('New API key created.');
                 } else {
                     throw new Error('Failed to regenerate key');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showToast('Failed to regenerate API key!', 'error');
+                showToast('Could not create a new API key.', 'error');
             } finally {
                 regenerateBtn.disabled = false;
                 regenerateIcon.classList.remove('zr-icon--spin');

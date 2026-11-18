@@ -764,7 +764,7 @@ function startFakeAnthropic() {
 
       assert.match(
         html,
-        /id="ocrApiKeyAnthropicHint" class="zr-field__hint ">Empty uses the Anthropic API key from the AI provider/
+        /id="ocrApiKeyAnthropicHint" class="zr-field__hint ">Empty uses the Claude API key set under AI provider\./
       );
       assert.ok(
         html.includes(
