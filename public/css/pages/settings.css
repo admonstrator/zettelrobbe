@@ -1,6 +1,7 @@
 /* ==========================================================================
-   Settings: the custom-field add row and the two blocking overlays the
-   page puts up while the server restarts or a model is being tested.
+   Settings: the topic column and its rows, the topic list with "Find a
+   setting", the custom-field add row and the two blocking overlays the page
+   puts up while the server restarts or a model is being tested.
    @layer pages: above the framework layers, below utilities.
    ========================================================================== */
 
@@ -232,13 +233,76 @@
   /* --- one topic per view (js/modules/settings-nav.js) ------------------- */
 
   /* The topic list is wider than the old section list: the entries are names
-     ("Schedule and tag filters"), not single words. */
+     ("Schedule and tag filters"), not single words. The styleguide uses the
+     same frame for its own sections. */
   .zr-settings {
     grid-template-columns: 220px minmax(0, 1fr);
   }
+  /* On the settings page the open topic sits in a column of a readable width,
+     left next to the list, which also carries the search field. Across the
+     whole window a switch ended up a screen away from its label on a large
+     display; in the column it sits at the right edge of its row, flush with
+     the switches above and below. Nothing on the page needs more room: the
+     custom-field add row, the .env export (a 640px text box), the changelog
+     and the caching figures all fit. */
+  .zr-settings-page > .zr-settings {
+    --zr-settings-measure: 760px;
+
+    grid-template-columns: 236px minmax(0, var(--zr-settings-measure));
+  }
+
+  /* Search field and topic list follow the page as one; the list scrolls
+     inside it on a short window, under a search field that stays in reach. */
+  .zr-settings-side {
+    position: sticky;
+    top: calc(var(--zr-topbar-h) + var(--zr-4));
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+    max-height: calc(100dvh - var(--zr-topbar-h) - var(--zr-6));
+  }
+
+  /* "Find a setting" */
+  .zr-settings-find {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-1);
+  }
+  .zr-settings-find__label {
+    padding: 0 var(--zr-2);
+    font-size: var(--zr-fs-xs);
+    font-weight: 600;
+    color: var(--zr-text-faint);
+  }
+  .zr-settings-find__box {
+    position: relative;
+  }
+  .zr-settings-find__box > .zr-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--zr-text-faint);
+    pointer-events: none;
+  }
+  .zr-settings-find__box > .zr-input {
+    max-width: none;
+    padding-left: 30px;
+  }
+  /* What the search found, in a sentence. Rendered empty rather than hidden,
+     so a screen reader announces the first sentence it gets. */
+  .zr-settings-find__status {
+    padding: 0 var(--zr-2);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-muted);
+  }
 
   .zr-settings-nav {
+    position: static;
+    flex-direction: column;
     gap: var(--zr-3);
+    min-height: 0;
+    max-height: none;
   }
   .zr-settings-nav__group {
     display: flex;
@@ -264,82 +328,80 @@
     border-radius: var(--zr-r-full);
     background: var(--zr-brand);
   }
-  /* While searching, topics without a match step back but stay clickable. */
-  .zr-settings-nav__miss {
-    opacity: 0.4;
+  /* How many settings of a topic the search marks. */
+  .zr-settings-nav__count {
+    flex: none;
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: var(--zr-r-full);
+    background: var(--zr-brand-soft);
+    color: var(--zr-brand-text);
+    font-size: var(--zr-fs-xs);
+    font-weight: 600;
+    line-height: 18px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A featured entry (Quick start, `featured: true` in settingsGroups) stands
+     above the groups as a box of its own; open, it fills with the brand. The
+     caption under it heads every other entry. */
+  .zr-settings-nav__featured {
+    padding: 9px var(--zr-3);
+    border: 1px solid var(--zr-line-strong);
+    background: var(--zr-surface);
+    color: var(--zr-brand-text);
+    font-weight: 600;
+  }
+  .zr-settings-nav__featured:hover {
+    border-color: var(--zr-brand);
+    background: var(--zr-surface);
+    color: var(--zr-brand-text);
+  }
+  .zr-settings-nav__featured[aria-current='page'] {
+    border-color: var(--zr-brand);
+    background: var(--zr-brand);
+    color: var(--zr-on-brand);
+  }
+  .zr-settings-nav__featured[aria-current='page']
+    :is(.zr-badge, .zr-settings-nav__count) {
+    background: color-mix(in srgb, var(--zr-on-brand) 20%, transparent);
+    color: var(--zr-on-brand);
+  }
+  .zr-settings-nav__featured[aria-current='page'] .zr-settings-nav__dirty {
+    background: var(--zr-on-brand);
+  }
+  .zr-settings-nav__caption {
+    margin-top: var(--zr-1);
+    padding: var(--zr-3) var(--zr-2) 0;
+    border-top: 1px solid var(--zr-line);
+    font-size: var(--zr-fs-sm);
+    font-weight: 600;
+    color: var(--zr-text);
+  }
+
+  /* A row "Find a setting" matched, as long as the query stands. A row nested
+     in a block gets the tint a little past its edges; a row of the card is
+     drawn edge to edge already. */
+  .zr-settings-match {
+    border-radius: var(--zr-r-md);
+    background: var(--zr-brand-soft);
+    box-shadow: 0 0 0 var(--zr-2) var(--zr-brand-soft);
+  }
+  .zr-settings .zr-module > .zr-module__body.zr-col--loose > .zr-settings-match,
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > .zr-settings-match,
+  .zr-settings-page .zr-formgrid > .zr-checktile.zr-settings-match {
+    border-radius: 0;
+    background: var(--zr-brand-soft);
+    box-shadow: none;
   }
 
   .zr-settings-picker .zr-input {
     width: 100%;
-  }
-
-  /* The search sits above both columns; its results float over the page. */
-  .zr-settings-search__box {
-    position: relative;
-    flex: 1 1 320px;
-    max-width: 520px;
-  }
-  .zr-settings-search__box > .zr-icon {
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--zr-text-faint);
-    pointer-events: none;
-  }
-  .zr-settings-search__box > .zr-input {
-    width: 100%;
-    padding-left: 32px;
-  }
-  .zr-settings-search__results {
-    position: absolute;
-    z-index: 30;
-    top: calc(100% + var(--zr-1));
-    left: 0;
-    right: 0;
-    max-height: min(420px, 60dvh);
-    overflow-y: auto;
-    padding: var(--zr-1);
-    background: var(--zr-surface);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    box-shadow: var(--zr-shadow-lg);
-  }
-  .zr-settings-search__item {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0 var(--zr-2);
-    width: 100%;
-    padding: var(--zr-2);
-    border: 0;
-    border-radius: var(--zr-r-md);
-    background: transparent;
-    color: var(--zr-text);
-    text-align: left;
-    cursor: pointer;
-  }
-  .zr-settings-search__item:hover,
-  .zr-settings-search__item[aria-selected='true'] {
-    background: var(--zr-brand-soft);
-  }
-  .zr-settings-search__name {
-    font-weight: 600;
-  }
-  .zr-settings-search__path {
-    grid-column: 1;
-    font-size: var(--zr-fs-xs);
-    color: var(--zr-text-muted);
-  }
-  .zr-settings-search__key {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-    align-self: center;
-    font-family: var(--zr-font-mono);
-    font-size: var(--zr-fs-xs);
-    color: var(--zr-text-muted);
-  }
-  .zr-settings-search__empty {
-    padding: var(--zr-2);
   }
 
   /* The topic's own head: group label, then the topic as the page heading. */
@@ -448,11 +510,26 @@
   }
 
   @media (max-width: 860px) {
-    .zr-settings {
+    .zr-settings,
+    .zr-settings-page > .zr-settings {
       grid-template-columns: minmax(0, 1fr);
     }
-    .zr-settings-search__box {
-      max-width: none;
+    .zr-settings-side {
+      position: static;
+      max-height: none;
+    }
+    /* A phone picks its topic from the list under the search field; the
+       topic list appears only to show what a search found, as a list rather
+       than the scrolling strip the section nav becomes here. */
+    .zr-settings-page:not([data-searching]) .zr-settings-nav {
+      display: none;
+    }
+    .zr-settings-nav {
+      overflow: visible;
+      padding-bottom: 0;
+    }
+    .zr-settings-nav a {
+      white-space: normal;
     }
     .zr-settings-entry__title {
       font-size: var(--zr-fs-lg);

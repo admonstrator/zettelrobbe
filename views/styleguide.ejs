@@ -32,6 +32,10 @@
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-list"/></svg>
                 Forms
             </a>
+            <a href="#sg-settings">
+                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-sliders"/></svg>
+                Settings page
+            </a>
             <a href="#sg-alerts">
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
                 Alerts
@@ -423,6 +427,7 @@
 
                 <div class="zr-col zr-col--tight">
                     <span class="zr-label">Switch row — .zr-switchrow</span>
+                    <p class="zr-sm zr-muted">One setting that is on or off. A click anywhere on the row toggles it; the word next to the switch comes from forms.css and follows the checkbox.</p>
                     <div class="zr-switchrow">
                         <div class="zr-grow">
                             <label for="sgSwitchRow" class="zr-field__name">Disable automatic processing</label>
@@ -451,6 +456,131 @@
                             <span>Title generation</span>
                             <input type="checkbox" id="sgTileD" class="zr-toggle">
                         </label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── settings page ───────────────────────────────────────────── -->
+        <section class="zr-module" id="sg-settings">
+            <div class="zr-module__head">
+                <h3 class="zr-module__title">Settings page</h3>
+                <span class="zr-module__meta">css/pages/settings.css</span>
+            </div>
+            <div class="zr-module__body zr-col zr-col--loose">
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">Rows of one card</span>
+                    <p class="zr-sm zr-muted">
+                        In a settings card every field and every switch is a row, ruled off from the next by a hairline.
+                        The topic sits in a column of at most 760px next to the topic list, so a switch stays near its label.
+                        Shown: a field, a switch that is on, one with an unsaved change, one set by the environment, and a row "Find a setting" marked.
+                    </p>
+                    <section class="zr-module">
+                        <div class="zr-module__head">
+                            <h2 class="zr-module__title">Processing</h2>
+                        </div>
+                        <div class="zr-module__body zr-col zr-col--loose">
+                            <div class="zr-field zr-field--stacked">
+                                <label for="sgRowsInterval" class="zr-field__name">Scan interval (cron)</label>
+                                <input type="text" id="sgRowsInterval" class="zr-input" value="*/30 * * * *">
+                            </div>
+                            <div class="zr-switchrow">
+                                <div class="zr-grow">
+                                    <label for="sgRowsTagSwitch" class="zr-field__name">Add a tag to every processed document</label>
+                                    <p class="zr-field__hint">Shows in Paperless-ngx what Zettelrobbe has already handled.</p>
+                                </div>
+                                <input type="checkbox" class="zr-toggle" id="sgRowsTagSwitch" checked>
+                            </div>
+                            <div class="zr-switchrow" data-dirty>
+                                <div class="zr-grow">
+                                    <label for="sgRowsPromptSwitch" class="zr-field__name">Use specific tags in prompt</label>
+                                    <p class="zr-field__hint">Changed and not saved yet: the bar on the left says so.</p>
+                                </div>
+                                <input type="checkbox" class="zr-toggle" id="sgRowsPromptSwitch">
+                            </div>
+                            <div class="zr-switchrow">
+                                <div class="zr-grow">
+                                    <label for="sgRowsPinnedSwitch" class="zr-field__name">Use existing correspondents and tags</label>
+                                    <p class="zr-field__hint">Set by the environment (USE_EXISTING_DATA).</p>
+                                </div>
+                                <input type="checkbox" class="zr-toggle" id="sgRowsPinnedSwitch" checked disabled>
+                            </div>
+                            <div class="zr-switchrow zr-settings-match">
+                                <div class="zr-grow">
+                                    <label for="sgRowsMatchSwitch" class="zr-field__name">Skip copies of ignored documents</label>
+                                    <p class="zr-field__hint">Marked while a search for "ignored" stands.</p>
+                                </div>
+                                <input type="checkbox" class="zr-toggle" id="sgRowsMatchSwitch" checked>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">Topic list — .zr-settings-find, .zr-settings-nav</span>
+                    <p class="zr-sm zr-muted">
+                        "Find a setting" above the list narrows it to the topics with a match and counts them. An entry with
+                        <code class="zr-mono">featured: true</code> in <code class="zr-mono">settingsGroups</code> stands above the groups,
+                        "All options" heads the rest; open, it fills with the brand.
+                    </p>
+                    <div class="zr-row zr-row--wrap" style="align-items: flex-start; gap: var(--zr-5)">
+                        <div class="zr-col" style="width: 236px">
+                            <div class="zr-settings-find" role="search">
+                                <label for="sgFindIdle" class="zr-settings-find__label">Find a setting</label>
+                                <div class="zr-settings-find__box">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-search"/></svg>
+                                    <input type="search" class="zr-input" id="sgFindIdle" placeholder="e.g. token limit, cron, tag" autocomplete="off">
+                                </div>
+                            </div>
+                            <nav class="zr-sectionnav zr-settings-nav" aria-label="Sample topic list">
+                                <div class="zr-settings-nav__group zr-settings-nav__group--featured">
+                                    <a href="#sg-settings" class="zr-settings-nav__featured" aria-current="page">
+                                        <span class="zr-grow">Quick start</span>
+                                        <span class="zr-badge zr-badge--brand">5 of 6</span>
+                                    </a>
+                                </div>
+                                <p class="zr-settings-nav__caption">All options</p>
+                                <div class="zr-settings-nav__group">
+                                    <p class="zr-settings-nav__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-home"/></svg>
+                                        Basics
+                                    </p>
+                                    <a href="#sg-settings" aria-current="false"><span class="zr-grow">Paperless-ngx connection</span></a>
+                                    <a href="#sg-settings" aria-current="false">
+                                        <span class="zr-grow">Display</span>
+                                        <span class="zr-settings-nav__dirty" title="Unsaved changes"></span>
+                                    </a>
+                                </div>
+                            </nav>
+                        </div>
+                        <div class="zr-col" style="width: 236px">
+                            <div class="zr-settings-find" role="search">
+                                <label for="sgFindActive" class="zr-settings-find__label">Find a setting</label>
+                                <div class="zr-settings-find__box">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-search"/></svg>
+                                    <input type="search" class="zr-input" id="sgFindActive" value="token" autocomplete="off">
+                                </div>
+                                <p class="zr-settings-find__status">4 settings in 2 topics.</p>
+                            </div>
+                            <nav class="zr-sectionnav zr-settings-nav" aria-label="Sample topic list while searching">
+                                <div class="zr-settings-nav__group zr-settings-nav__group--featured">
+                                    <a href="#sg-settings" class="zr-settings-nav__featured" aria-current="false">
+                                        <span class="zr-grow">Quick start</span>
+                                        <span class="zr-settings-nav__count">1<span class="zr-sr"> matching setting</span></span>
+                                    </a>
+                                </div>
+                                <div class="zr-settings-nav__group">
+                                    <p class="zr-settings-nav__label">
+                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
+                                        Document analysis
+                                    </p>
+                                    <a href="#sg-settings" aria-current="page">
+                                        <span class="zr-grow">AI provider</span>
+                                        <span class="zr-settings-nav__count">3<span class="zr-sr"> matching settings</span></span>
+                                    </a>
+                                </div>
+                            </nav>
+                        </div>
                     </div>
                 </div>
             </div>

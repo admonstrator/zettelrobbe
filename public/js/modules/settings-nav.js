@@ -7,10 +7,13 @@
  * URL hash (#sso, #ai-provider), which makes reload and Back work, and the
  * hashes the page used before the regrouping still land on the right entry.
  *
- * It also owns the settings search, the unsaved-change dots in the topic list
+ * It also owns "Find a setting" above the topic list (the matching itself is
+ * in modules/settings-find.js), the unsaved-change dots in the topic list
  * (fed by modules/settings-form.js) and switching to the entry of a field the
  * save names in an error or the browser refuses as invalid.
  */
+
+import { describeResult, findSettings } from './settings-find.js';
 
 // Hashes of entries and sections that were renamed or merged. Section ids
 // (#sec-...) still on the page need no line here: any element id inside an
@@ -51,8 +54,8 @@ export function entryForHash(key, isEntry) {
   return alias && isEntry(alias) ? alias : null;
 }
 
-const MAX_RESULTS = 12;
 const ROW_SELECTOR = '.zr-field, .zr-switchrow, .zr-checktile';
+const MATCH_CLASS = 'zr-settings-match';
 const CONTROL_SELECTOR =
   'input:not([type="hidden"]), select, textarea, button, [tabindex]';
 
@@ -69,7 +72,8 @@ export default function settingsNav(root) {
   const links = [...root.querySelectorAll('[data-entry-link]')];
   const select = root.querySelector('[data-el="select"]');
   const search = root.querySelector('[data-el="search"]');
-  const results = root.querySelector('[data-el="results"]');
+  const searchStatus = root.querySelector('[data-el="search-status"]');
+  const nav = root.querySelector('[data-el="nav"]');
   const form = root.querySelector('#setupForm');
   const firstId = entries[0].dataset.entry;
   let current = null;
@@ -128,12 +132,12 @@ export default function settingsNav(root) {
     if (location.hash !== `#${id}`) {
       history.pushState(null, '', `#${id}`);
     }
-    show(id);
+    revealMatches(show(id));
   }
 
   function syncFromLocation() {
     const { id, target } = resolve(location.hash);
-    show(id, { scroll: !target });
+    const entry = show(id, { scroll: !target });
     // An old hash is rewritten to the new one, so the address bar and any
     // bookmark made from it name the topic as the list does.
     const key = location.hash.replace(/^#/, '');
@@ -141,6 +145,7 @@ export default function settingsNav(root) {
       history.replaceState(null, '', hashFor(id) || location.pathname);
     }
     if (target) reveal(target, { focus: false });
+    else revealMatches(entry);
   }
 
   window.addEventListener('hashchange', syncFromLocation);
@@ -278,11 +283,81 @@ export default function settingsNav(root) {
     return best;
   }
 
-  /* --- search ------------------------------------------------------------- */
+  /* --- find a setting ----------------------------------------------------- */
+
+  /** The text of a row's own label, without the badges or buttons in it. */
+  function labelOf(row) {
+    const labelEl = row.querySelector('label, .zr-field__name') || row;
+    return norm(
+      [...labelEl.childNodes]
+        .filter(
+          (node) =>
+            node.nodeType === Node.TEXT_NODE ||
+            !node.matches?.('.zr-badge, button')
+        )
+        .map((node) => node.textContent)
+        .join(' ')
+    );
+  }
 
   /**
-   * Every searchable row, built on demand: settings.js adds the env keys after
-   * this module mounts, and rows can appear later (custom fields).
+   * The hints a person sees on a row. Hints that take turns (the OCR key says
+   * one thing for Claude and another for the rest) are left out while their
+   * turn has not come.
+   */
+  function hintsOf(row) {
+    return [...row.querySelectorAll('.zr-field__hint')].filter((hint) => {
+      const hidden = hint.closest('.hidden');
+      return !hidden || hidden === row || !row.contains(hidden);
+    });
+  }
+
+  /**
+   * The row of the card a row belongs to: an AI option and the automatic
+   * processing switch are wrapped one row to a box, and the box is what the
+   * card lays out as its row.
+   */
+  function cardRowOf(row) {
+    const parent = row.parentElement;
+    if (
+      parent &&
+      parent.matches('.zr-field, .zr-settings-option') &&
+      parent.querySelectorAll(ROW_SELECTOR).length === 1
+    ) {
+      return parent;
+    }
+    return row;
+  }
+
+  /**
+   * What a match marks. A row on screen (a closed disclosure counts, it is
+   * opened) marks itself. A row a switch hides, such as the OCR fields while
+   * OCR is off, marks that switch: the block a switch shows sits right after
+   * it. A row hidden for another reason (the fields and options of a provider
+   * that is not selected) marks nothing and is not counted.
+   */
+  function markFor(row, entry) {
+    let hidden = null;
+    for (let node = row; node && node !== entry; node = node.parentElement) {
+      if (node.classList.contains('hidden')) hidden = node;
+    }
+    if (!hidden) return cardRowOf(row);
+    if (hidden.matches('[data-providers]')) return null;
+    let gate = hidden.previousElementSibling;
+    while (gate && gate.classList.contains('hidden')) {
+      gate = gate.previousElementSibling;
+    }
+    if (!gate) return null;
+    const gateRow = gate.matches('.zr-switchrow')
+      ? gate
+      : gate.querySelector(':scope > .zr-switchrow');
+    return gateRow ? cardRowOf(gateRow) : null;
+  }
+
+  /**
+   * Every setting row of every topic, read from the page each time: switches
+   * show and hide rows, settings.js adds the env keys after this module
+   * mounts, and rows can appear later (custom fields).
    */
   function indexRows() {
     const items = [];
@@ -291,20 +366,10 @@ export default function settingsNav(root) {
         // A field that wraps other fields (the OCR block) is a container, not
         // a setting of its own.
         if (row.matches('.zr-field') && row.querySelector(ROW_SELECTOR)) return;
-        const labelEl = row.querySelector('label, .zr-field__name') || row;
-        const label = norm(
-          [...labelEl.childNodes]
-            .filter(
-              (node) =>
-                node.nodeType === Node.TEXT_NODE ||
-                !node.matches?.('.zr-badge, button')
-            )
-            .map((node) => node.textContent)
-            .join(' ')
-        );
+        const label = labelOf(row);
         if (!label) return;
         const hint = norm(
-          [...row.querySelectorAll('.zr-field__hint')]
+          hintsOf(row)
             .map((p) => p.textContent)
             .join(' ')
         );
@@ -315,188 +380,155 @@ export default function settingsNav(root) {
               .concat(hint.match(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g) || [])
           ),
         ];
-        items.push({ entry, row, label, hint, envKeys });
+        const choices = [...row.querySelectorAll('select option')].map(
+          (option) => norm(option.textContent)
+        );
+        items.push({
+          entry,
+          row,
+          topic: entry.dataset.entry,
+          label,
+          hint,
+          envKeys,
+          choices,
+          mark: markFor(row, entry),
+        });
       });
     });
     return items;
   }
 
-  function matches(query) {
-    const words = norm(query).toLowerCase().split(' ').filter(Boolean);
-    if (!words.length) return [];
-    const scored = [];
+  const topics = entries.map((entry) => ({
+    id: entry.dataset.entry,
+    title: entry.dataset.title || '',
+    group: entry.dataset.group || '',
+  }));
+  let searching = false;
+  // Disclosures opened to show a match; closed again when the field is
+  // cleared, so the page looks as it did before the search.
+  const openedBySearch = new Set();
 
-    entries.forEach((entry) => {
-      const title =
-        `${entry.dataset.title} ${entry.dataset.group}`.toLowerCase();
-      if (words.every((word) => title.includes(word))) {
-        scored.push({ kind: 'entry', entry, score: 3 });
-      }
-    });
-
-    indexRows().forEach((item) => {
-      const label = item.label.toLowerCase();
-      const keys = item.envKeys.join(' ').toLowerCase();
-      // SCAN_INTERVAL is found by "scan interval" as well as by its own name.
-      const keysSpaced = keys.replace(/_/g, ' ');
-      const haystack = `${label} ${item.hint.toLowerCase()} ${keys} ${keysSpaced}`;
-      if (!words.every((word) => haystack.includes(word))) return;
-      const inLabel = words.every((word) => label.includes(word));
-      const inKey = words.every(
-        (word) => keys.includes(word) || keysSpaced.includes(word)
-      );
-      scored.push({
-        kind: 'field',
-        ...item,
-        score: inLabel ? 2 : inKey ? 1.5 : 1,
-      });
-    });
-
-    return scored.sort((a, b) => b.score - a.score).slice(0, MAX_RESULTS);
-  }
-
-  let active = -1;
-  let shown = [];
-
-  function closeResults() {
-    if (!results) return;
-    results.classList.add('hidden');
-    search.setAttribute('aria-expanded', 'false');
-    search.removeAttribute('aria-activedescendant');
-    active = -1;
-  }
-
-  function renderResults() {
+  function runSearch() {
+    if (!search) return;
     const query = search.value;
-    shown = matches(query);
-    filterNav(query);
-    results.replaceChildren();
-    if (!norm(query)) {
-      closeResults();
-      return;
-    }
+    const result = findSettings(
+      query,
+      topics,
+      indexRows().filter((item) => item.mark)
+    );
+    searching = result.active;
+    root.toggleAttribute('data-searching', searching);
 
-    if (!shown.length) {
-      const empty = document.createElement('p');
-      empty.className = 'zr-settings-search__empty zr-sm zr-muted';
-      empty.textContent =
-        'No setting matches. Try a word from its label or its environment variable.';
-      results.append(empty);
-    }
+    root
+      .querySelectorAll(`.${MATCH_CLASS}`)
+      .forEach((row) => row.classList.remove(MATCH_CLASS));
+    result.items.forEach((item) => item.mark.classList.add(MATCH_CLASS));
 
-    shown.forEach((item, index) => {
-      const option = document.createElement('button');
-      option.type = 'button';
-      option.className = 'zr-settings-search__item';
-      option.id = `settingsSearchOption${index}`;
-      option.setAttribute('role', 'option');
-      option.dataset.index = String(index);
-
-      const name = document.createElement('span');
-      name.className = 'zr-settings-search__name';
-      name.textContent =
-        item.kind === 'entry' ? item.entry.dataset.title : item.label;
-      const path = document.createElement('span');
-      path.className = 'zr-settings-search__path';
-      path.textContent =
-        item.kind === 'entry'
-          ? item.entry.dataset.group
-          : `${item.entry.dataset.group} › ${item.entry.dataset.title}`;
-      option.append(name, path);
-
-      if (item.kind === 'field' && item.envKeys.length) {
-        const key = document.createElement('code');
-        key.className = 'zr-settings-search__key';
-        key.textContent = item.envKeys[0];
-        option.append(key);
+    const counts = new Map(
+      result.topics.map((topic) => [topic.id, topic.count])
+    );
+    links.forEach((link) => {
+      const id = link.dataset.entryLink;
+      link.classList.toggle('hidden', searching && !counts.has(id));
+      const badge = link.querySelector('[data-entry-count]');
+      if (!badge) return;
+      const count = searching ? counts.get(id) || 0 : 0;
+      badge.classList.toggle('hidden', count === 0);
+      if (count === 0) {
+        badge.replaceChildren();
+        return;
       }
-      results.append(option);
+      // The number for the eye, the words for a screen reader.
+      const words = document.createElement('span');
+      words.className = 'zr-sr';
+      words.textContent =
+        count === 1 ? ' matching setting' : ' matching settings';
+      badge.replaceChildren(String(count), words);
     });
-
-    results.classList.remove('hidden');
-    search.setAttribute('aria-expanded', 'true');
-    setActive(shown.length ? 0 : -1);
-  }
-
-  function setActive(index) {
-    active = index;
-    [...results.querySelectorAll('[role="option"]')].forEach((option, i) =>
-      option.setAttribute('aria-selected', i === index ? 'true' : 'false')
-    );
-    if (index >= 0) {
-      search.setAttribute(
-        'aria-activedescendant',
-        `settingsSearchOption${index}`
+    nav?.querySelectorAll('[data-nav-group]').forEach((group) => {
+      group.classList.toggle(
+        'hidden',
+        searching && !group.querySelector('[data-entry-link]:not(.hidden)')
       );
-      results
-        .querySelector(`#settingsSearchOption${index}`)
-        ?.scrollIntoView({ block: 'nearest' });
-    } else {
-      search.removeAttribute('aria-activedescendant');
-    }
+    });
+    nav
+      ?.querySelectorAll('[data-nav-caption]')
+      .forEach((caption) => caption.classList.toggle('hidden', searching));
+    if (searchStatus) searchStatus.textContent = describeResult(result, query);
+
+    if (!searching) closeOpenedDisclosures();
   }
 
-  function pick(index) {
-    const item = shown[index];
-    if (!item) return;
-    closeResults();
-    if (item.kind === 'entry') {
-      go(item.entry.dataset.entry);
-      return;
-    }
-    reveal(item.row);
+  /**
+   * Shows the matches of the topic just opened: closed disclosures holding
+   * one are opened, and the first match is scrolled into view.
+   */
+  function revealMatches(entry) {
+    if (!searching || !entry) return;
+    const marked = [...entry.querySelectorAll(`.${MATCH_CLASS}`)];
+    if (!marked.length) return;
+    marked.forEach((row) => {
+      const details = row.closest('details');
+      if (details && !details.open) {
+        details.open = true;
+        openedBySearch.add(details);
+      }
+    });
+    marked[0].scrollIntoView({ block: 'center', behavior: 'auto' });
   }
 
-  /** Dims the topics that hold nothing matching the query. */
-  function filterNav(query) {
-    const hasQuery = Boolean(norm(query));
-    const hit = new Set(shown.map((item) => item.entry.dataset.entry));
-    links.forEach((link) =>
-      link.classList.toggle(
-        'zr-settings-nav__miss',
-        hasQuery && !hit.has(link.dataset.entryLink)
-      )
+  function closeOpenedDisclosures() {
+    openedBySearch.forEach((details) => {
+      details.open = false;
+    });
+    openedBySearch.clear();
+  }
+
+  function clearSearch() {
+    search.value = '';
+    runSearch();
+  }
+
+  /** The topics the list shows, in its order. */
+  function listedLinks() {
+    return links.filter(
+      (link) => !link.classList.contains('hidden') && !link.closest('.hidden')
     );
   }
 
-  if (search && results) {
-    search.addEventListener('input', renderResults);
-    search.addEventListener('focus', () => {
-      if (norm(search.value)) renderResults();
-    });
+  if (search) {
+    search.addEventListener('input', runSearch);
     search.addEventListener('keydown', (event) => {
-      const count = shown.length;
-      if (event.key === 'ArrowDown' && count) {
+      if (event.key === 'Escape' && search.value) {
         event.preventDefault();
-        if (results.classList.contains('hidden')) renderResults();
-        setActive((active + 1) % count);
-      } else if (event.key === 'ArrowUp' && count) {
-        event.preventDefault();
-        setActive((active - 1 + count) % count);
+        clearSearch();
       } else if (event.key === 'Enter') {
-        // Enter in the search field must never submit anything.
+        // Enter in the field opens the first topic listed and never submits
+        // the settings form.
         event.preventDefault();
-        if (active >= 0) pick(active);
-      } else if (event.key === 'Escape') {
-        if (!results.classList.contains('hidden')) {
+        const first = listedLinks()[0];
+        if (first) go(first.dataset.entryLink);
+      } else if (event.key === 'ArrowDown') {
+        const first = listedLinks()[0];
+        if (first) {
           event.preventDefault();
-          closeResults();
-        } else if (search.value) {
-          search.value = '';
-          renderResults();
+          first.focus();
         }
       }
     });
-    results.addEventListener('mousedown', (event) => {
-      // Keeps the focus in the field until the click has picked something.
-      event.preventDefault();
-    });
-    results.addEventListener('click', (event) => {
-      const option = event.target.closest('[role="option"]');
-      if (option) pick(Number(option.dataset.index));
-    });
-    document.addEventListener('click', (event) => {
-      if (!event.target.closest('.zr-settings-search')) closeResults();
+    // A browser that restores the field on Back finds the list as it was.
+    if (search.value) runSearch();
+  }
+
+  if (nav) {
+    nav.addEventListener('click', (event) => {
+      const link = event.target.closest('[data-entry-link]');
+      // The topic already open: no hash change follows, so its matches are
+      // shown from here.
+      if (link && searching && byId.get(link.dataset.entryLink) === current) {
+        event.preventDefault();
+        revealMatches(current);
+      }
     });
   }
 
