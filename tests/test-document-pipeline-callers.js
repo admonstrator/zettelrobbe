@@ -907,6 +907,7 @@ async function main() {
       'scan',
       'webhook',
       'rescan',
+      'unlock',
     ]);
   });
 
