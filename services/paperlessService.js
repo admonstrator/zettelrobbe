@@ -2362,6 +2362,33 @@ class PaperlessService {
     }
   }
 
+  /**
+   * The ids of every version of a document, the original included, as
+   * Paperless-ngx 3.0 and later list them under `versions`; null when the
+   * answer carries no such list.
+   *
+   * A version shows up here only once Paperless-ngx has stored it completely:
+   * its consumer writes the file, the archive copy and the text and creates
+   * the version in one database transaction, so an id that was not listed
+   * before means the new file and its text are there.
+   *
+   * @param {number} documentId
+   * @returns {Promise<number[]|null>}
+   */
+  async getDocumentVersionIds(documentId) {
+    this.initialize();
+    const response = await this.client.get(`/documents/${documentId}/`, {
+      params: { fields: 'id,versions' },
+    });
+    const versions = response.data?.versions;
+    if (!Array.isArray(versions)) return null;
+    return versions
+      .map((version) =>
+        Number(typeof version === 'object' ? version?.id : version)
+      )
+      .filter((id) => Number.isInteger(id) && id > 0);
+  }
+
   async searchForCorrespondentById(id) {
     try {
       const response = await this.client.get('/correspondents/', {

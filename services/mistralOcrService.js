@@ -1210,9 +1210,10 @@ class MistralOcrService {
    *
    * A password-protected PDF ends the run before any provider is called:
    * unlocked with a stored password (unlocked: true, the document leaves the
-   * queue), still waiting for Paperless-ngx to store a version unlocked
-   * moments ago (waiting: true, the item stays pending), or failed with the
-   * reason password_protected.
+   * queue, and the unlock's follow-up analyses it once this run has ended and
+   * Paperless-ngx has stored the unlocked version), still waiting for
+   * Paperless-ngx to store a version unlocked moments ago (waiting: true, the
+   * item stays pending), or failed with the reason password_protected.
    *
    * @param {number} documentId
    * @param {object} opts
@@ -1284,6 +1285,11 @@ class MistralOcrService {
       // for someone to unlock it.
       const fileBuffer = Buffer.from(base64, 'base64');
       if (await pdfPasswordService.needsPassword(fileBuffer)) {
+        // Unlocked moments ago, and Paperless-ngx still serves the locked
+        // file. The follow-up of that unlock keeps the scan away from the
+        // document, so this happens when OCR is started by hand meanwhile or
+        // after the follow-up gave up waiting: the row waits for a later try
+        // instead of a second unlock.
         if (pdfUnlockService.wasRecentlyUnlocked(normalizedDocumentId)) {
           await documentModel.updateOcrQueueStatus(
             normalizedDocumentId,
