@@ -6,6 +6,7 @@
 // "Remind me later", Escape and clicking the backdrop close it for the current
 // tab session without writing to the database, so it returns on the next start.
 // Following a link in the entries counts as "Remind me later" as well.
+// After an update the dialog opens with a notice that names the new version.
 
 (function () {
   'use strict';
@@ -69,6 +70,36 @@
     }
   });
 
+  // After an update (the status answers updated: true) the notice at the top
+  // of the main column says so: the new version, and quieter, the one the user
+  // came from. It then takes over the title's two jobs, the initial focus
+  // (one autofocus at a time) and the dialog's name, so a screen reader hears
+  // it first. Otherwise it stays hidden and the dialog is unchanged.
+  function showUpdateNotice(data) {
+    const notice = document.getElementById('changelogModalUpdate');
+    const title = document.getElementById('changelogModalTitle');
+    const versionEl = document.getElementById('changelogModalUpdateVersion');
+    if (!notice || !title || !versionEl) return;
+    if (data.updated !== true || !data.version) return;
+
+    versionEl.textContent = data.version;
+    const fromLine = document.getElementById('changelogModalUpdateFromLine');
+    const fromEl = document.getElementById('changelogModalUpdateFrom');
+    if (fromLine && fromEl) {
+      if (data.previousVersion) {
+        fromEl.textContent = data.previousVersion;
+        fromLine.classList.remove('hidden');
+      } else {
+        fromLine.classList.add('hidden');
+      }
+    }
+
+    notice.classList.remove('hidden');
+    title.removeAttribute('autofocus');
+    notice.setAttribute('autofocus', '');
+    modal.setAttribute('aria-labelledby', 'changelogModalUpdateTitle');
+  }
+
   function remindLater() {
     if (modal.open) {
       modal.close();
@@ -119,6 +150,7 @@
           });
         }
 
+        showUpdateNotice(data);
         modal.showModal();
       })
       .catch(function () {});

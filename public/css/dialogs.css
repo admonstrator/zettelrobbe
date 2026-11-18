@@ -236,8 +236,52 @@
     padding: 26px 28px 20px;
   }
 
+  /* After an update a notice opens the main column: one cheerful line with
+     the new version, the old one beside it in quieter type. It wraps to a
+     second line only where the column is narrow. With the pull on the gap
+     below it adds less than two lines of body text, which is all it may push
+     the buttons down on a laptop screen the dialog already fills. */
+  .zr-welcome__update {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: -4px;
+    padding: 7px 14px 7px 10px;
+    border-radius: 12px;
+    background: var(--zr-brand-soft);
+    animation: zr-welcome-rise 0.5s ease-out 0.2s both;
+  }
+
+  .zr-welcome__update-icon {
+    flex: none;
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .zr-welcome__update-text {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    margin: 0;
+    line-height: 1.35;
+  }
+
+  .zr-welcome__update-title {
+    color: var(--zr-brand-text);
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .zr-welcome__update-from {
+    color: var(--zr-text-muted);
+    font-size: 13px;
+  }
+
   /* The title takes the focus when the dialog opens (tabindex -1, autofocus),
-     so the dialog neither scrolls to nor rings the first link. */
+     so the dialog neither scrolls to nor rings the first link; after an update
+     the notice takes it instead. */
+  .zr-welcome__update:focus,
   .zr-welcome__title:focus {
     outline: none;
   }
@@ -499,6 +543,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .zr-welcome,
+    .zr-welcome__update,
     .zr-welcome__figures > div {
       animation: none;
     }
