@@ -607,7 +607,7 @@
                                         id: 'usePromptTags',
                                         label: 'Use prompt tags instead',
                                         checked: config.USE_PROMPT_TAGS === 'yes',
-                                        hint: 'The model gets only the tags below and picks from them; your prompt is not sent. It then proposes no document type and no custom fields.'
+                                        hint: 'Instead of your prompt, the model gets the tags below and picks from them.'
                                     }) %>
 
                                     <div id="promptTagsSection" class="<%= config.USE_PROMPT_TAGS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
