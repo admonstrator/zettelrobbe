@@ -245,6 +245,7 @@ const RELEASES = [
       'Improvement: The version number on the About page opens the welcome dialog again',
       'New: Settings open on a Quick start: the six decisions Zettelrobbe needs, each with its current value, changed in place',
       'Improvement: Settings topics keep to a readable column, and every switch shows On or Off right next to it instead of at the far edge of the window',
+      'Improvement: Every label and hint on the settings page says what the setting does to a document. The switches for title, tags, correspondent, document type and custom fields moved to "What the AI fills in", and the prompt has its own topic',
       'Improvement: "Find a setting" in the topic list searches all settings and marks the matches',
       'Improvement: Every list of values (tags, title patterns, sign-on scopes, the Tidy up vocabulary) is entered as removable pills; pasting "a, b, c" makes three',
     ],
