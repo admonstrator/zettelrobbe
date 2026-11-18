@@ -98,7 +98,7 @@ provider's built-in prompt (Claude's, or the short local one); Mistral takes non
 that needs a password stops the run before any provider call (`services/pdfPasswordService.js`, poppler's
 `pdfinfo`); `services/pdfUnlockService.js` finds the password (typed, or the `PDF_PASSWORDS` list) locally
 and has Paperless-ngx 3.0+ remove it (`POST /api/documents/remove_password/`, a new version of the same
-document), then releases the document to the normal scan. Zettelrobbe never writes a decrypted file itself.
+document), then releases the document; `services/unlockFollowUpService.js` waits until Paperless-ngx lists the new version and sends it through the pipeline once (caller profile `unlock`), with the next scan as the fallback. Zettelrobbe never writes a decrypted file itself.
 
 **Database:** `models/document.js` — better-sqlite3 at `data/documents.db`, WAL mode, prepared
 statements throughout. Key tables: `processed_documents`, `history_documents` (server-side paginated
