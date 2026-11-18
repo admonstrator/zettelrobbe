@@ -15,8 +15,10 @@ export default function settingsForm(root, { confirmDialog }) {
   const resetBtn = bar.querySelector('[data-el="reset"]');
   const restartNote = bar.querySelector('[data-el="restart"]');
 
+  // Controls inside [data-mirror-scope] (Quick start) edit a real field of the
+  // form and fire its events; counting them too would count one edit twice.
   const fields = [...form.querySelectorAll('input, select, textarea')].filter(
-    (field) => field.type !== 'hidden'
+    (field) => field.type !== 'hidden' && !field.closest('[data-mirror-scope]')
   );
   const initial = new Map(
     fields.map((field) => [

@@ -28,6 +28,10 @@
     // regrouping (#ai-tab, #sec-provider, ...) onto these. Every entry stays in
     // the one form: switching only toggles .hidden, so saving still sends all.
     const settingsGroups = [
+        // The first entry opens on a bare /settings (partials/settings-quick-start.ejs).
+        { label: 'Essentials', icon: 'i-zap', entries: [
+            { id: 'quick-start', title: 'Quick start', featured: true }
+        ] },
         { label: 'Basics', icon: 'i-home', entries: [
             { id: 'connection', title: 'Paperless-ngx connection' },
             { id: 'display', title: 'Display' }
@@ -157,6 +161,10 @@
                         data-locked-env-keys="<%= JSON.stringify(typeof lockedEnvKeys !== 'undefined' && Array.isArray(lockedEnvKeys) ? lockedEnvKeys : []) %>"
                         data-restart-keys="<%= JSON.stringify(typeof restartRequiredKeys !== 'undefined' && Array.isArray(restartRequiredKeys) ? restartRequiredKeys : []) %>"
                         data-boot-id="<%= typeof bootId === 'string' ? bootId : '' %>">
+                        <%- entryOpen('quick-start') %>
+                                <%- include('partials/settings-quick-start', { settingsGroups, ocrKeyStored: ocrKeyConfiguredDefault }) %>
+                        <%- entryClose() %>
+
                         <%- entryOpen('connection') %>
                                 <section class="zr-module" id="sec-connection">
                                     <div class="zr-module__head">
