@@ -345,6 +345,12 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
  *
  *       The status information can be used by UIs to display progress indicators
  *       and provide real-time feedback about background processing operations.
+ *
+ *       `scanner` also tells when the automatic scan runs: `scanInterval` is
+ *       the cron expression, `lastRunFinishedAt` the end of the last run and
+ *       `nextRunAt` the next time the armed scheduler fires (null when
+ *       automatic processing is off or the scheduler is not armed). The
+ *       dashboard counts down to it between two polls.
  *     tags:
  *       - Documents
  *       - System

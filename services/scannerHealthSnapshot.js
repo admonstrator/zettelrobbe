@@ -30,6 +30,9 @@ function buildScannerHealthSnapshot() {
       lastRunSource: scanner.lastRunSource,
       lastRunStatus: scanner.lastRunStatus,
       lastSuccessfulRunAt: scanner.lastSuccessfulRunAt,
+      // When the armed cron task fires next (ISO), null when automatic
+      // processing is off or the scheduler is not armed.
+      nextRunAt: scanner.nextRunAt ?? null,
       consecutiveFailures: scanner.consecutiveFailures,
       failureThreshold: scanner.failureThreshold,
       degraded: scanner.degraded,

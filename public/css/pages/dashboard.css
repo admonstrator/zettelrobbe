@@ -77,6 +77,30 @@
     }
   }
 
+  /* --- the scan clock -----------------------------------------------------
+     Last scan, next scan and the schedule under the Processing status donut.
+     A bare child of the module, so the module's fallback padding gives it its
+     sides and its bottom; the rule above it separates it from the chart. It
+     never shrinks in a sized tile — the chart body above clips first — and
+     every value stays on one line: the countdown changes every second and
+     must not make the card grow and shrink as its text gets longer. A value
+     too long for a narrow card ends in an ellipsis; the raw cron expression is
+     in the schedule's title. */
+  .scan-clock {
+    flex: none;
+    padding-top: var(--zr-1);
+    border-top: 1px solid var(--zr-line);
+  }
+  .scan-clock .zr-kv__k {
+    flex: none;
+  }
+  .scan-clock .zr-kv__v {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* --- the runner seal ----------------------------------------------------
      While a scan is on, the card shows the seal working through the pile: she
      reaches for the unread stack, a sheet lifts into her flippers, she holds
