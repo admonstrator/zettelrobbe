@@ -83,6 +83,7 @@ function load({
     removed: [],
     tried: [],
     releasedFromQueue: [],
+    historyForgotten: [],
     failedReset: [],
   };
 
@@ -104,6 +105,10 @@ function load({
   inject(documentModelPath, {
     removeFromOcrQueue: async (id) => {
       state.releasedFromQueue.push(id);
+      return true;
+    },
+    forgetOcrQueueHistory: async (id) => {
+      state.historyForgotten.push(id);
       return true;
     },
     resetFailedDocument: async (id) => {
@@ -154,6 +159,8 @@ async function run() {
     assert.deepStrictEqual(state.tried, [['right']]);
     assert.deepStrictEqual(state.removed, [{ id: 7, password: 'right' }]);
     assert.deepStrictEqual(state.releasedFromQueue, [7]);
+    // No provider read the locked file: OCR before AI may send it once more.
+    assert.deepStrictEqual(state.historyForgotten, [7]);
     assert.deepStrictEqual(state.failedReset, [7]);
     assert.strictEqual(service.wasRecentlyUnlocked(7), true);
     assert.strictEqual(service.wasRecentlyUnlocked(8), false);
@@ -176,6 +183,7 @@ async function run() {
     assert.match(listed.message, /2 stored/);
     assert.deepStrictEqual(state.removed, []);
     assert.deepStrictEqual(state.releasedFromQueue, []);
+    assert.deepStrictEqual(state.historyForgotten, []);
   });
 
   await test('Paperless-ngx before 3.0 is refused before any download', async () => {
