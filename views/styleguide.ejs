@@ -3,6 +3,7 @@
 <%- include('partials/shell/head-start', { pageTitle: 'Styleguide - Zettelrobbe' }) %>
     <%# window.zrDialog lives in this classic script; the settings and setup pages load it the same way. %>
     <script src="/js/dialogs.js"></script>
+    <script src="/js/chip-list.js"></script>
 <%- include('partials/shell/head-end') %>
 <%- include('partials/shell/body-open', {
     pageTitle: 'Styleguide',
@@ -233,28 +234,21 @@
                     </div>
                 </div>
 
-                <div class="zr-col zr-col--tight">
-                    <span class="zr-label">Chips</span>
-                    <div class="zr-chips">
-                        <div class="zr-chip">
-                            <span>invoice</span>
-                            <button type="button" class="zr-link" aria-label="Remove invoice">
-                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                            </button>
-                        </div>
-                        <div class="zr-chip">
-                            <span>household</span>
-                            <button type="button" class="zr-link" aria-label="Remove household">
-                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                            </button>
-                        </div>
-                        <div class="zr-chip">
-                            <span>tax-2026</span>
-                            <button type="button" class="zr-link" aria-label="Remove tax-2026">
-                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                            </button>
-                        </div>
-                    </div>
+                <%# Every field that holds several values is this list: partials/chip-list.ejs
+                    renders it, js/chip-list.js drives it (modules/tag-input.js here). %>
+                <div class="zr-col zr-col--tight" data-module="tag-input">
+                    <label for="sgChipInput" class="zr-label">Chips: a list of values</label>
+                    <%- include('partials/chip-list', {
+                        id: 'sgChipInput', addId: 'sgChipAdd', listId: 'sgChips',
+                        items: ['invoice', 'household', 'tax-2026'],
+                        placeholder: 'Tag name, then Enter'
+                    }) %>
+                    <label for="sgChipLockedInput" class="zr-label">Set by the environment</label>
+                    <%- include('partials/chip-list', {
+                        id: 'sgChipLockedInput', listId: 'sgChipsLocked',
+                        items: ['inbox', 'todo'], envKey: 'SG_TAGS', lockedEnvKeys: ['SG_TAGS'],
+                        placeholder: 'Tag name, then Enter'
+                    }) %>
                 </div>
 
                 <div class="zr-col zr-col--tight">
