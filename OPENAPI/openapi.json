@@ -6777,6 +6777,10 @@
                       "type": "boolean",
                       "description": "True when the PDF needs a password. Checked only for a\ndocument without text, or known from the OCR queue.\n"
                     },
+                    "unlocking": {
+                      "type": "boolean",
+                      "description": "True while the PDF still needs a password although it\nwas unlocked a moment ago: Paperless-ngx is still\nstoring the unlocked version.\n"
+                    },
                     "status": {
                       "type": "object",
                       "description": "Zettelrobbe's own records of the document",
