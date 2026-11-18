@@ -242,6 +242,7 @@ const RELEASES = [
       'New: The dashboard card "Processing status" shows the last scan, the next scheduled scan with a countdown and the schedule in words <a href="https://github.com/admonstrator/zettelrobbe/discussions/363">(see here)</a>',
       'New: After an update the welcome dialog says so at the top and names the version you came from',
       'Improvement: A password-protected PDF is analysed as soon as Paperless-ngx has stored the unlocked version, instead of waiting for the next scheduled scan',
+      'Improvement: The version number on the About page opens the welcome dialog again',
     ],
   },
 ];
