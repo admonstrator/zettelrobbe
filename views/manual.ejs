@@ -111,11 +111,11 @@
                                     <div class="zr-alert zr-alert--warn" role="status">
                                         <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>
                                         <div class="zr-alert__body">
-                                            <div class="zr-alert__title">This PDF needs a password</div>
+                                            <div id="unlockTitle" class="zr-alert__title">This PDF needs a password</div>
                                             <p id="unlockHint" class="zr-sm">Unlock it, then run OCR.</p>
                                         </div>
                                     </div>
-                                    <div class="zr-col zr-col--tight">
+                                    <div id="unlockForm" class="zr-col zr-col--tight">
                                         <label class="zr-label" for="unlockPassword">Password</label>
                                         <div class="zr-row">
                                             <input id="unlockPassword" class="zr-input zr-grow" type="password" autocomplete="off">

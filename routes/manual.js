@@ -33,6 +33,7 @@ const { toNameList } = require('../services/serviceUtils');
 const { isAuthenticated } = require('./auth.js');
 const dashboardStatsService = require('../services/dashboardStatsService');
 const pdfPasswordService = require('../services/pdfPasswordService');
+const pdfUnlockService = require('../services/pdfUnlockService');
 const mistralOcrService = require('../services/mistralOcrService');
 const config = require('../config/config.js');
 const router = express.Router();
@@ -126,6 +127,12 @@ const router = express.Router();
  *                   description: |
  *                     True when the PDF needs a password. Checked only for a
  *                     document without text, or known from the OCR queue.
+ *                 unlocking:
+ *                   type: boolean
+ *                   description: |
+ *                     True while the PDF still needs a password although it
+ *                     was unlocked a moment ago: Paperless-ngx is still
+ *                     storing the unlocked version.
  *                 status:
  *                   type: object
  *                   description: Zettelrobbe's own records of the document
@@ -218,6 +225,12 @@ router.get('/manual/preview/:id', isAuthenticated, async (req, res) => {
       }
     }
 
+    // Unlocked a moment ago and still locked: Paperless-ngx has not stored
+    // the unlocked version yet. The page says so instead of asking for the
+    // password a second time.
+    const unlocking =
+      !!locked && pdfUnlockService.wasRecentlyUnlocked(document.id);
+
     res.json({
       content,
       title: document.title,
@@ -233,6 +246,7 @@ router.get('/manual/preview/:id', isAuthenticated, async (req, res) => {
       mimeType: document.mime_type || null,
       hasArchive: !!document.archived_file_name,
       locked,
+      unlocking,
       status,
       paperlessLink: publicUrl
         ? `${publicUrl}/documents/${document.id}/details`

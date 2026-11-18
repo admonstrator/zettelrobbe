@@ -38,6 +38,13 @@
   // later call started is dropped, so a fast Next does not show an older one.
   let loadSeq = 0;
 
+  // How often the page asks whether Paperless-ngx has stored the unlocked
+  // version of the document it shows.
+  const UNLOCK_CHECK_MS = 10000;
+  const STORING_UNLOCKED =
+    'Paperless-ngx is still storing the unlocked version.';
+  let unlockTimer = null;
+
   // A browser set to download PDFs instead of showing them never fires the
   // frame's load event; after this long the loading line gives up.
   const FRAME_WAIT_MS = 30000;
@@ -224,9 +231,11 @@
         state.framePending = false;
         showEmpty(
           doc.locked ? 'No preview for a locked PDF' : 'No preview',
-          doc.locked
-            ? 'Unlock it first.'
-            : 'Paperless-ngx keeps no PDF of this file. Its text is under Text.'
+          doc.unlocking
+            ? STORING_UNLOCKED
+            : doc.locked
+              ? 'Unlock it first.'
+              : 'Paperless-ngx keeps no PDF of this file. Its text is under Text.'
         );
         return;
       }
@@ -246,11 +255,13 @@
     if (!content.trim()) {
       showEmpty(
         'Paperless-ngx has no text for this document',
-        doc.locked
-          ? 'Unlock it first, then run OCR.'
-          : state.ocrEnabled
-            ? 'Run OCR to read it.'
-            : 'Turn on OCR under Settings to read it.'
+        doc.unlocking
+          ? STORING_UNLOCKED
+          : doc.locked
+            ? 'Unlock it first, then run OCR.'
+            : state.ocrEnabled
+              ? 'Run OCR to read it.'
+              : 'Turn on OCR under Settings to read it.'
       );
       return;
     }
@@ -282,11 +293,21 @@
     const locked = has && doc.locked;
     const hasText = has && !!(doc.content || '').trim();
 
+    // Unlocked a moment ago, but Paperless-ngx is still storing the unlocked
+    // version: say that instead of asking for the password again.
+    const unlocking = locked && !!doc.unlocking;
+
     $('unlockBox').classList.toggle('hidden', !locked);
+    $('unlockForm').classList.toggle('hidden', unlocking);
+    $('unlockTitle').textContent = unlocking
+      ? 'Unlocked, waiting for Paperless-ngx'
+      : 'This PDF needs a password';
     $('unlockBtn').disabled = !state.unlockSupported;
-    $('unlockHint').textContent = state.unlockSupported
-      ? 'None of the stored passwords opens it. Unlock it, then run OCR.'
-      : 'Unlocking needs Paperless-ngx 3.0 or later.';
+    $('unlockHint').textContent = unlocking
+      ? `${STORING_UNLOCKED} This page shows the document as soon as it is there.`
+      : state.unlockSupported
+        ? 'None of the stored passwords opens it. Unlock it, then run OCR.'
+        : 'Unlocking needs Paperless-ngx 3.0 or later.';
 
     $('ocrBtn').disabled = !has || locked || !state.ocrEnabled;
     $('ocrHint').classList.toggle('hidden', state.ocrEnabled);
@@ -314,6 +335,7 @@
       if (seq !== loadSeq) return;
       state.fetching = null;
       state.doc = doc;
+      watchUnlock(doc);
       state.suggestion = null;
       $('manualDocumentSearchInput').value = doc.title || `Document ${doc.id}`;
       renderFacts(doc);
@@ -344,7 +366,31 @@
 
   const reloadDocument = () => state.doc && loadDocument(state.doc.id);
 
+  // While Paperless-ngx stores the unlocked version, ask now and then whether
+  // it is there, and load the document anew once it is. The check leaves the
+  // page alone until then, so nothing typed into the fields is lost.
+  function watchUnlock(doc) {
+    clearTimeout(unlockTimer);
+    if (!doc || !doc.unlocking) return;
+    unlockTimer = setTimeout(async () => {
+      const current = () => state.doc && state.doc.id === doc.id;
+      if (!current()) return;
+      try {
+        const fresh = await request(`/manual/preview/${doc.id}`);
+        if (!current()) return;
+        if (!fresh.unlocking) {
+          loadDocument(doc.id);
+          return;
+        }
+      } catch {
+        // Paperless-ngx is busy or away; the next check asks again.
+      }
+      if (current()) watchUnlock(state.doc);
+    }, UNLOCK_CHECK_MS);
+  }
+
   function clearDocument() {
+    clearTimeout(unlockTimer);
     state.doc = null;
     state.suggestion = null;
     state.framePending = false;

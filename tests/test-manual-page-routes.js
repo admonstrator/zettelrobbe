@@ -187,9 +187,30 @@ async function main() {
       const res = fakeResponse();
       await preview({ params: { id: '8' } }, res);
       assert.strictEqual(res.body.locked, true);
+      assert.strictEqual(
+        res.body.unlocking,
+        false,
+        'a locked document nobody unlocked asks for its password'
+      );
       assert.strictEqual(res.body.correspondent, null);
       assert.strictEqual(res.body.documentType, null);
       assert.strictEqual(calls.downloads, 1);
+    });
+
+    await test('a document unlocked a moment ago says it is being stored', async () => {
+      const pdfUnlockService = require('../services/pdfUnlockService');
+      documents = {
+        9: { id: 9, title: 'Unlocked', content: '', tags: [] },
+      };
+      pdfUnlockService._recentlyUnlocked.set(9, Date.now());
+      try {
+        const res = fakeResponse();
+        await preview({ params: { id: '9' } }, res);
+        assert.strictEqual(res.body.locked, true);
+        assert.strictEqual(res.body.unlocking, true);
+      } finally {
+        pdfUnlockService._recentlyUnlocked.delete(9);
+      }
     });
 
     await test('an unknown document is a 404, a bad id a 400', async () => {
