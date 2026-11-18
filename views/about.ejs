@@ -27,7 +27,13 @@
                     <div class="zr-col zr-col--tight">
                         <div class="zr-row zr-row--wrap">
                             <h2 class="about-hero__name">Zettelrobbe</h2>
-                            <span class="zr-badge zr-badge--brand zr-num"><%= supportInfo.appVersion %></span>
+                            <button
+                                type="button"
+                                class="zr-badge zr-badge--brand zr-num about-hero__version"
+                                data-open-welcome
+                                aria-haspopup="dialog"
+                                title="Show the welcome and What's new dialog again"
+                            ><%= supportInfo.appVersion %></button>
                         </div>
                         <p class="zr-muted">
                             Zettelrobbe reads the documents in your Paperless-ngx and fills in title, tags, correspondent,

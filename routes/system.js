@@ -365,7 +365,7 @@ router.get('/api/update-check', isAuthenticated, async (req, res) => {
  *                   example: v2026.11.04
  *                 entries:
  *                   type: array
- *                   description: Release notes of the current release (empty when show is false)
+ *                   description: Release notes of the current release, also when show is false, so the dialog can be opened again on request
  *                   items:
  *                     type: string
  *                 updated:
@@ -400,7 +400,7 @@ router.get('/api/changelog/status', isAuthenticated, async (req, res) => {
     return res.json({
       show,
       version: changelog.version,
-      entries: show ? changelog.entries : [],
+      entries: changelog.entries,
       updated,
       previousVersion: updated ? lastSeen : null,
     });

@@ -29,6 +29,10 @@
     font-weight: 700;
     letter-spacing: -0.01em;
   }
+  /* The version badge is a button: it opens the welcome dialog again. */
+  .about-hero__version:hover {
+    text-decoration: underline;
+  }
 
   /* The system facts: label left, value right, values may break anywhere so a
      long model name or commit never pushes the card wider. */

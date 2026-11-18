@@ -316,6 +316,7 @@ function createHarness(statusResponse, initialDeferredVersion = null) {
   );
 
   const closeBtn = {
+    classList: makeElement().classList,
     addEventListener(type, fn) {
       closeBtnListeners[type] = closeBtnListeners[type] || [];
       closeBtnListeners[type].push(fn);
@@ -413,7 +414,18 @@ function createHarness(statusResponse, initialDeferredVersion = null) {
     await new Promise((resolve) => setImmediate(resolve));
   }
 
+  // A click somewhere on the page; `matches` are the selectors the clicked
+  // element (or an ancestor) answers to.
+  async function clickOnPage(matches = []) {
+    const target = {
+      closest: (selector) => (matches.includes(selector) ? target : null),
+    };
+    (docListeners.click || []).forEach((fn) => fn({ target }));
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
   return {
+    clickOnPage,
     modal,
     versionEl,
     listEl,
@@ -624,6 +636,90 @@ async function testDeferredUpdateNoticeReturns() {
   );
 }
 
+// The version badge on the About page (data-open-welcome) opens the dialog
+// again, also when the release was confirmed long ago.
+async function testOpensAgainOnRequest() {
+  const about = fs.readFileSync(path.join(ROOT, 'views', 'about.ejs'), 'utf8');
+  assert.match(
+    about,
+    /<button[^>]*data-open-welcome[^>]*>\s*<%= supportInfo\.appVersion %>\s*<\/button>/,
+    'the version badge on the About page must be the button that opens the dialog'
+  );
+
+  const harness = createHarness({
+    show: false,
+    version: 'v2026.11.04',
+    entries: ['New: First feature'],
+    updated: false,
+    previousVersion: null,
+  });
+  await harness.triggerDOMContentLoaded();
+  assert.strictEqual(
+    harness.modal.open,
+    false,
+    'a confirmed release stays closed'
+  );
+
+  await harness.clickOnPage(['.somewhere-else']);
+  assert.strictEqual(harness.modal.open, false, 'only the trigger opens it');
+
+  await harness.clickOnPage(['[data-open-welcome]']);
+  assert.strictEqual(harness.modal.open, true, 'the trigger opens the dialog');
+  assert.strictEqual(harness.versionEl.textContent, 'v2026.11.04');
+  assert.strictEqual(harness.listEl.children.length, 1);
+  assert.strictEqual(
+    harness.notice.classList.contains('hidden'),
+    true,
+    'no update notice without an update'
+  );
+  assert.strictEqual(
+    harness.closeBtn.classList.contains('hidden'),
+    true,
+    '"Remind me later" has no meaning when the user asked for the dialog'
+  );
+
+  // Escape or a click on the backdrop: nothing is deferred, nothing stored.
+  harness.modal.close();
+  assert.strictEqual(
+    harness.sessionStorage.getItem('zr.welcomeDeferredVersion'),
+    null,
+    'closing a requested dialog must not defer the release for the tab'
+  );
+  assert.strictEqual(
+    harness.fetchCalls.some((c) => c.url === '/api/changelog/mark-seen'),
+    false
+  );
+
+  // It opens as often as it is asked for.
+  await harness.clickOnPage(['[data-open-welcome]']);
+  assert.strictEqual(harness.modal.showModalCalls, 2);
+
+  // After a real update the same trigger shows the notice, and the automatic
+  // opening keeps its "Remind me later".
+  const updated = createHarness(
+    {
+      show: true,
+      version: 'v2026.11.04',
+      entries: ['New: First feature'],
+      updated: true,
+      previousVersion: 'v2026.11.03',
+    },
+    'v2026.11.04'
+  );
+  await updated.triggerDOMContentLoaded();
+  assert.strictEqual(updated.modal.open, false, 'deferred for this tab');
+  await updated.clickOnPage(['[data-open-welcome]']);
+  assert.strictEqual(updated.modal.open, true);
+  assert.strictEqual(updated.notice.classList.contains('hidden'), false);
+  assert.strictEqual(updated.noticeFrom.textContent, 'v2026.11.03');
+  updated.modal.close();
+  assert.strictEqual(
+    updated.sessionStorage.getItem('zr.welcomeDeferredVersion'),
+    'v2026.11.04',
+    'the earlier "Remind me later" stays as it was'
+  );
+}
+
 // GET /api/changelog/status against a real users table in a temp directory.
 async function testStatusRouteUpdatedFlag() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zr-welcome-'));
@@ -692,7 +788,7 @@ async function testStatusRouteUpdatedFlag() {
     assert.deepStrictEqual(same, {
       show: false,
       version: changelog.version,
-      entries: [],
+      entries: changelog.entries,
       updated: false,
       previousVersion: null,
     });
@@ -716,6 +812,7 @@ async function run() {
   await testUpdateNoticeWithoutPreviousVersion();
   await testUpdateNoticeHiddenOtherwise();
   await testDeferredUpdateNoticeReturns();
+  await testOpensAgainOnRequest();
   await testStatusRouteUpdatedFlag();
 
   console.log('PASS test-welcome-changelog-modal');

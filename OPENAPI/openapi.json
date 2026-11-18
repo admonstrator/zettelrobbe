@@ -3120,7 +3120,7 @@
                     },
                     "entries": {
                       "type": "array",
-                      "description": "Release notes of the current release (empty when show is false)",
+                      "description": "Release notes of the current release, also when show is false, so the dialog can be opened again on request",
                       "items": {
                         "type": "string"
                       }
