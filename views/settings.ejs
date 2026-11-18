@@ -40,15 +40,15 @@
         { label: 'Document analysis', icon: 'i-cpu', entries: [
             { id: 'ai-provider', title: 'AI provider' },
             { id: 'ai-behavior', title: 'What the AI fills in' },
-            { id: 'restrictions', title: 'Restrictions and limits' },
+            { id: 'prompt', title: 'Prompt' },
+            { id: 'restrictions', title: 'Existing names only' },
             { id: 'custom-fields', title: 'Custom fields' },
             { id: 'external-data', title: 'External data' },
-            { id: 'ocr', title: 'OCR fallback' }
+            { id: 'ocr', title: 'OCR' }
         ] },
         { label: 'Processing', icon: 'i-clock', entries: [
             { id: 'schedule', title: 'Schedule and tag filters' },
-            { id: 'skip-rules', title: 'Skip rules', badge: 'New' },
-            { id: 'runtime', title: 'Runtime controls' }
+            { id: 'skip-rules', title: 'Skip rules', badge: 'New' }
         ] },
         { label: 'Tag tools', icon: 'i-tag', entries: [
             { id: 'tidy-up', title: 'Tidy up' }
@@ -59,8 +59,9 @@
             { id: 'api-key', title: 'API key' }
         ] },
         { label: 'System', icon: 'i-server', entries: [
+            { id: 'runtime', title: 'Server' },
             { id: 'caching', title: 'Caching and history' },
-            { id: 'quickstart', title: 'Quickstart auto-detect' },
+            { id: 'quickstart', title: 'Detect models' },
             { id: 'environment', title: 'Export' },
             { id: 'changelog', title: 'Changelog' }
         ] }
@@ -524,9 +525,24 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('ai-behavior') %>
-                                <section class="zr-module" id="sec-ai-behavior">
+                                <section class="zr-module" id="sec-ai-function-limits">
                                     <div class="zr-module__head">
-                                        <h2 class="zr-module__title">AI Behavior</h2>
+                                        <h2 class="zr-module__title">AI Function Limits</h2>
+                                    </div>
+                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-formgrid">
+                                        <label for="activateTagging" class="zr-checktile"><input type="checkbox" id="activateTagging" name="activateTagging" class="zr-toggle" <%= config.ACTIVATE_TAGGING === 'yes' ? 'checked' : '' %>><span>Tags Assignment</span></label>
+                                        <label for="activateCorrespondents" class="zr-checktile"><input type="checkbox" id="activateCorrespondents" name="activateCorrespondents" class="zr-toggle" <%= config.ACTIVATE_CORRESPONDENTS === 'yes' ? 'checked' : '' %>><span>Correspondent Detection</span></label>
+                                        <label for="activateDocumentType" class="zr-checktile"><input type="checkbox" id="activateDocumentType" name="activateDocumentType" class="zr-toggle" <%= config.ACTIVATE_DOCUMENT_TYPE === 'yes' ? 'checked' : '' %>><span>Document Type Classification</span></label>
+                                        <label for="activateTitle" class="zr-checktile"><input type="checkbox" id="activateTitle" name="activateTitle" class="zr-toggle" <%= config.ACTIVATE_TITLE === 'yes' ? 'checked' : '' %>><span>Title Generation</span></label>
+                                        <label for="activateCustomFields" class="zr-checktile"><input type="checkbox" id="activateCustomFields" name="activateCustomFields" class="zr-toggle" <%= config.ACTIVATE_CUSTOM_FIELDS === 'yes' ? 'checked' : '' %>><span>Custom Fields</span></label>
+                                    </div>
+                                    </div>
+                                </section>
+
+                                <section class="zr-module" id="sec-analysis-tags">
+                                    <div class="zr-module__head">
+                                        <h2 class="zr-module__title">Tags after the analysis</h2>
                                     </div>
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
@@ -539,23 +555,33 @@
                                         <label for="aiTagName" class="zr-field__name">AI-processed Tag Name</label>
                                         <input type="text" id="aiTagName" name="aiTagName" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>" class="zr-input" placeholder="ai-processed">
                                     </div>
-    
+
                                     <%- include('partials/settings-switch', {
-                                        id: 'usePromptTags',
-                                        label: 'Use specific tags in prompt',
-                                        checked: config.USE_PROMPT_TAGS === 'yes',
-                                        hint: 'The model only matches documents against the tags listed here. The prompt description below is not used while this is on.'
+                                        id: 'removeInboxTagsAfterProcessing',
+                                        label: 'Remove the inbox tag when a document is done',
+                                        hint: 'Takes every Paperless-ngx inbox tag off a document once its analysis is written.',
+                                        checked: config.REMOVE_INBOX_TAGS_AFTER_PROCESSING === 'yes'
                                     }) %>
-    
-                                    <div id="promptTagsSection" class="<%= config.USE_PROMPT_TAGS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
-                                        <label for="promptTagInput" class="zr-field__name">Prompt Tags</label>
+
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="removeTagInput" class="zr-field__name">Also remove these tags</label>
                                         <%- include('partials/chip-list', {
-                                            id: 'promptTagInput', addId: 'promptTagAddButton', listId: 'promptTagsContainer',
-                                            valueId: 'promptTags', items: config.PROMPT_TAGS, envKey: 'PROMPT_TAGS',
+                                            id: 'removeTagInput', addId: 'removeTagAddButton', listId: 'removeTagsContainer',
+                                            valueId: 'removeTags', items: config.REMOVE_TAGS_AFTER_PROCESSING, envKey: 'REMOVE_TAGS_AFTER_PROCESSING',
                                             placeholder: 'Tag name, then Enter'
                                         }) %>
+                                        <p class="zr-field__hint">Taken off a document after a successful analysis, whatever the analysis proposed.</p>
                                     </div>
-    
+                                    </div>
+                                </section>
+                        <%- entryClose() %>
+
+                        <%- entryOpen('prompt') %>
+                                <section class="zr-module" id="sec-ai-behavior">
+                                    <div class="zr-module__head">
+                                        <h2 class="zr-module__title">AI Behavior</h2>
+                                    </div>
+                                    <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="systemPrompt" class="zr-field__name">Prompt Description</label>
                                         <textarea id="systemPrompt" name="systemPrompt" rows="8" class="zr-textarea" placeholder="Describe how the AI should analyze your documents..."><%= config.SYSTEM_PROMPT %></textarea>
@@ -564,6 +590,28 @@
                                             Example
                                         </button>
                                         <p class="zr-field__hint">Tells the model what to look for and how to name things. Example inserts a starting point.</p>
+                                    </div>
+
+                                    <%- include('partials/settings-switch', {
+                                        id: 'useExistingData',
+                                        label: 'Use existing correspondents and tags',
+                                        checked: config.USE_EXISTING_DATA === 'yes'
+                                    }) %>
+
+                                    <%- include('partials/settings-switch', {
+                                        id: 'usePromptTags',
+                                        label: 'Use specific tags in prompt',
+                                        checked: config.USE_PROMPT_TAGS === 'yes',
+                                        hint: 'The model only matches documents against the tags listed here. The prompt description below is not used while this is on.'
+                                    }) %>
+
+                                    <div id="promptTagsSection" class="<%= config.USE_PROMPT_TAGS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
+                                        <label for="promptTagInput" class="zr-field__name">Prompt Tags</label>
+                                        <%- include('partials/chip-list', {
+                                            id: 'promptTagInput', addId: 'promptTagAddButton', listId: 'promptTagsContainer',
+                                            valueId: 'promptTags', items: config.PROMPT_TAGS, envKey: 'PROMPT_TAGS',
+                                            placeholder: 'Tag name, then Enter'
+                                        }) %>
                                     </div>
                                     </div>
                                 </section>
@@ -588,21 +636,6 @@
                                             <input type="checkbox" id="restrictToExistingDocumentTypes" name="restrictToExistingDocumentTypes" class="zr-toggle" <%= config.RESTRICT_TO_EXISTING_DOCUMENT_TYPES === 'yes' ? 'checked' : '' %>>
                                             <span>Restrict to Existing Document Types</span>
                                         </label>
-                                    </div>
-                                    </div>
-                                </section>
-
-                                <section class="zr-module" id="sec-ai-function-limits">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">AI Function Limits</h2>
-                                    </div>
-                                    <div class="zr-module__body zr-col zr-col--loose">
-                                    <div class="zr-formgrid">
-                                        <label for="activateTagging" class="zr-checktile"><input type="checkbox" id="activateTagging" name="activateTagging" class="zr-toggle" <%= config.ACTIVATE_TAGGING === 'yes' ? 'checked' : '' %>><span>Tags Assignment</span></label>
-                                        <label for="activateCorrespondents" class="zr-checktile"><input type="checkbox" id="activateCorrespondents" name="activateCorrespondents" class="zr-toggle" <%= config.ACTIVATE_CORRESPONDENTS === 'yes' ? 'checked' : '' %>><span>Correspondent Detection</span></label>
-                                        <label for="activateDocumentType" class="zr-checktile"><input type="checkbox" id="activateDocumentType" name="activateDocumentType" class="zr-toggle" <%= config.ACTIVATE_DOCUMENT_TYPE === 'yes' ? 'checked' : '' %>><span>Document Type Classification</span></label>
-                                        <label for="activateTitle" class="zr-checktile"><input type="checkbox" id="activateTitle" name="activateTitle" class="zr-toggle" <%= config.ACTIVATE_TITLE === 'yes' ? 'checked' : '' %>><span>Title Generation</span></label>
-                                        <label for="activateCustomFields" class="zr-checktile"><input type="checkbox" id="activateCustomFields" name="activateCustomFields" class="zr-toggle" <%= config.ACTIVATE_CUSTOM_FIELDS === 'yes' ? 'checked' : '' %>><span>Custom Fields</span></label>
                                     </div>
                                     </div>
                                 </section>
@@ -809,7 +842,7 @@
                                         <div id="ocrBeforeAiTagContainer" class="zr-field zr-field--stacked <%= ocrBeforeAiMode === 'tagged' ? '' : 'hidden' %>">
                                             <label for="ocrBeforeAiTag" class="zr-field__name">OCR Tag</label>
                                             <input type="text" id="ocrBeforeAiTag" name="ocrBeforeAiTag" value="<%= config.OCR_BEFORE_AI_TAG || 'needs-ocr' %>" class="zr-input" placeholder="needs-ocr" autocomplete="off" spellcheck="false">
-                                            <p class="zr-field__hint">The Paperless-ngx tag that sends a document to OCR first; upper and lower case do not matter. While no tag has this name, no document is sent. To take the tag off afterwards, add it to "Also remove these tags" under Schedule and tag filters.</p>
+                                            <p class="zr-field__hint">The Paperless-ngx tag that sends a document to OCR first; upper and lower case do not matter. While no tag has this name, no document is sent. To take the tag off afterwards, add it to "Also remove these tags" under What the AI fills in.</p>
                                         </div>
                                         <div id="ocrBeforeAiQueueNote" class="zr-alert <%= ocrQueueRunsItself ? 'zr-alert--info' : 'zr-alert--warn' %> <%= ocrBeforeAiMode === 'off' ? 'hidden' : '' %>">
                                             <svg class="zr-icon" aria-hidden="true"><use id="ocrBeforeAiQueueIcon" href="/icons.svg#<%= ocrQueueRunsItself ? 'i-info' : 'i-alert' %>"/></svg>
@@ -873,6 +906,10 @@
                                         <span id="ocrTestState" class="zr-badge">Not tested</span>
                                     </div>
                                     </div>
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="minContentLength" class="zr-field__name">Minimum content length</label>
+                                        <input type="number" id="minContentLength" name="minContentLength" value="<%= config.MIN_CONTENT_LENGTH || 10 %>" class="zr-input">
+                                    </div>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -897,12 +934,6 @@
                                             <input type="checkbox" class="zr-toggle" id="disableAutomaticProcessing" <%= config.DISABLE_AUTOMATIC_PROCESSING === 'yes' ? 'checked' : '' %>>
                                         </div>
                                     </div>
-    
-                                    <%- include('partials/settings-switch', {
-                                        id: 'useExistingData',
-                                        label: 'Use existing correspondents and tags',
-                                        checked: config.USE_EXISTING_DATA === 'yes'
-                                    }) %>
                                     </div>
                                 </section>
 
@@ -933,23 +964,6 @@
                                             valueId: 'ignoreTags', items: config.IGNORE_TAGS, envKey: 'IGNORE_TAGS',
                                             placeholder: 'Tag name, then Enter'
                                         }) %>
-                                    </div>
-
-                                    <%- include('partials/settings-switch', {
-                                        id: 'removeInboxTagsAfterProcessing',
-                                        label: 'Remove the inbox tag when a document is done',
-                                        hint: 'Takes every Paperless-ngx inbox tag off a document once its analysis is written.',
-                                        checked: config.REMOVE_INBOX_TAGS_AFTER_PROCESSING === 'yes'
-                                    }) %>
-
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="removeTagInput" class="zr-field__name">Also remove these tags</label>
-                                        <%- include('partials/chip-list', {
-                                            id: 'removeTagInput', addId: 'removeTagAddButton', listId: 'removeTagsContainer',
-                                            valueId: 'removeTags', items: config.REMOVE_TAGS_AFTER_PROCESSING, envKey: 'REMOVE_TAGS_AFTER_PROCESSING',
-                                            placeholder: 'Tag name, then Enter'
-                                        }) %>
-                                        <p class="zr-field__hint">Taken off a document after a successful analysis, whatever the analysis proposed.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -1015,10 +1029,6 @@
                                                 <option value="always" <%= String(config.COOKIE_SECURE_MODE || 'auto').toLowerCase() === 'always' ? 'selected' : '' %>>always</option>
                                                 <option value="never" <%= String(config.COOKIE_SECURE_MODE || 'auto').toLowerCase() === 'never' ? 'selected' : '' %>>never</option>
                                             </select>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="minContentLength" class="zr-field__name">Minimum content length</label>
-                                            <input type="number" id="minContentLength" name="minContentLength" value="<%= config.MIN_CONTENT_LENGTH || 10 %>" class="zr-input">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="paperlessAiPort" class="zr-field__name">Zettelrobbe Port</label>
@@ -1408,7 +1418,7 @@
                         <%- entryOpen('quickstart') %>
                                 <section class="zr-module" id="sec-quickstart-auto-detect">
                                     <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Quickstart auto-detect</h2>
+                                        <h2 class="zr-module__title">Detect models</h2>
                                     </div>
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <p class="zr-field__hint">Finds the models on a local AI server (LM Studio, Ollama or OpenAI-compatible). Nothing is saved until you apply them to <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR fallback</a>.</p>

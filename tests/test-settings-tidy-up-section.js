@@ -287,9 +287,9 @@ function sliceBetween(source, from, to) {
         ['mobile', mobilePicker, (id) => `value="${id}"`],
       ].forEach(([label, nav, needle]) => {
         assert.ok(
-          nav.indexOf(needle('runtime')) < nav.indexOf(needle('tidy-up')) &&
+          nav.indexOf(needle('skip-rules')) < nav.indexOf(needle('tidy-up')) &&
             nav.indexOf(needle('tidy-up')) < nav.indexOf(needle('account')),
-          `the ${label} topic list must list Tidy up after runtime and before account`
+          `the ${label} topic list must list Tidy up after skip rules and before account`
         );
       });
 

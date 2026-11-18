@@ -213,6 +213,7 @@ const TESTS = {
   'settings-switch-row': 'test-settings-switch-row.js',
   'settings-find': 'test-settings-find.js',
   'settings-layout': 'test-settings-layout.js',
+  'settings-topics': 'test-settings-topics.js',
 };
 
 const AREAS = {
@@ -406,6 +407,7 @@ const AREAS = {
     'settings-find',
     'settings-layout',
     'settings-quick-start',
+    'settings-topics',
   ],
 };
 
