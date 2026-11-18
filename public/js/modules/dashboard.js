@@ -10,12 +10,17 @@ import { renderDonut } from './donut.js';
 import { renderSpark } from './spark.js';
 import { renderBarList } from './bar-list.js';
 import { formatTimeAgo, updateScannerHealthBanner } from './scanner-health.js';
+import { describeScanSchedule } from './scan-schedule.js';
 import { escapeHtml } from './text-utils.js';
 import { formatDate } from './date-format.js';
 
 const STATS_URL = '/api/dashboard/stats';
 const STATUS_URL = '/api/processing-status';
 const STATUS_INTERVAL_MS = 3000;
+// The scan clock re-renders from the last status body, no request involved.
+// Half a second rather than one: a one-second timer drifts against the
+// countdown's second boundaries and now and then skips or repeats a second.
+const SCAN_CLOCK_TICK_MS = 500;
 // Status polls between two attempts to recover a failing statistics endpoint.
 const STATS_RETRY_POLLS = 10;
 const REQUEST_TIMEOUT_MS = 15000;
@@ -426,6 +431,63 @@ export default function dashboard(root, { toast }) {
     if (firstPass.stats && firstPass.status) delete root.dataset.loading;
   }
 
+  /* --- scan clock ------------------------------------------------------ */
+
+  // Last scan, next scan with a countdown, and the schedule in words, in the
+  // Processing status card. The countdown moves every second between two polls
+  // by re-rendering the last status body; it only ticks while there is a next
+  // time to count down to and the tab is visible.
+  let scanStatus = null;
+  let scanTick = null;
+
+  // Written only on a change, so an unchanged line is not touched twice a
+  // second.
+  function setTextOnChange(id, value) {
+    const el = byId(id);
+    if (el && el.textContent !== value) el.textContent = value;
+  }
+
+  function syncScanTick(counting) {
+    const wanted = Boolean(counting) && !document.hidden;
+    if (wanted && !scanTick) {
+      scanTick = setInterval(renderScanClock, SCAN_CLOCK_TICK_MS);
+    } else if (!wanted && scanTick) {
+      clearInterval(scanTick);
+      scanTick = null;
+    }
+  }
+
+  function renderScanClock() {
+    if (!scanStatus) return;
+    const view = describeScanSchedule(scanStatus, {
+      formatDay: (date) => formatDate(date),
+    });
+
+    setTextOnChange('scanLastRun', view.last);
+    setTextOnChange('scanNextRun', view.next);
+    setTextOnChange('scanSchedule', view.schedule);
+    const schedule = byId('scanSchedule');
+    if (schedule && schedule.title !== view.scheduleTitle) {
+      if (view.scheduleTitle) schedule.title = view.scheduleTitle;
+      else schedule.removeAttribute('title');
+    }
+
+    syncScanTick(view.counting);
+  }
+
+  function updateScanClock(data) {
+    scanStatus = data;
+    renderScanClock();
+  }
+
+  // A hidden tab has nobody to count down for; coming back renders at once
+  // instead of waiting for the next tick.
+  function onVisibilityChange() {
+    if (document.hidden) syncScanTick(false);
+    else renderScanClock();
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange);
+
   /* --- runner status ---------------------------------------------------- */
 
   let lastSeenProcessedDocId = null;
@@ -528,6 +590,7 @@ export default function dashboard(root, { toast }) {
         },
         data
       );
+      updateScanClock(data);
       setText('processedToday', formatNumber(data.processedToday));
       markFresh('status');
     } catch (error) {
@@ -644,6 +707,8 @@ export default function dashboard(root, { toast }) {
   return {
     destroy() {
       clearInterval(statusTimer);
+      syncScanTick(false);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     },
   };
 }
