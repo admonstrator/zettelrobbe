@@ -243,6 +243,10 @@ const RELEASES = [
       'New: After an update the welcome dialog says so at the top and names the version you came from',
       'Improvement: A password-protected PDF is analysed as soon as Paperless-ngx has stored the unlocked version, instead of waiting for the next scheduled scan',
       'Improvement: The version number on the About page opens the welcome dialog again',
+      'New: Settings open on a Quick start: the six decisions Zettelrobbe needs, each with its current value, changed in place',
+      'Improvement: Settings topics keep to a readable column, and every switch shows On or Off right next to it instead of at the far edge of the window',
+      'Improvement: "Find a setting" in the topic list searches all settings and marks the matches',
+      'Improvement: Every list of values (tags, title patterns, sign-on scopes, the Tidy up vocabulary) is entered as removable pills; pasting "a, b, c" makes three',
     ],
   },
 ];

@@ -168,7 +168,16 @@ scripts (`public/js/*.js`) cannot import ES modules — they reach the kernel th
 `window.__zrToast` / `window.zrDialog` (see `failed.js` for the six-line adapter) and must never
 build their own toast host.
 
-**Settings page:** the AI provider and Tidy up sections render their fields from `AI_OPTIONS`
+**Settings page:** one form, one topic per view, in a bounded column (`--zr-settings-measure`).
+The first topic is Quick start (`views/partials/settings-quick-start.ejs`,
+`public/js/modules/settings-quick-start.js`): six rows whose summaries are computed from the real
+fields, and whose controls carry no `name` — each mirrors a real field (`data-mirror="<id>"`) and
+fires its events, so never add a second named control there. "Find a setting"
+(`public/js/modules/settings-find.js`, wired in `settings-nav.js`) searches the DOM that is there.
+A switch row is `views/partials/settings-switch.ejs`; its On/Off word is drawn in CSS. A field that
+holds several values is `views/partials/chip-list.ejs` driven by `public/js/chip-list.js`
+(`window.zrChipList`, a classic script shared by settings, the wizard and Tidy up); the value still
+posts through one hidden input. The AI provider and Tidy up sections render their fields from `AI_OPTIONS`
 (`aiOptions` local); each section has one closed "Advanced options" disclosure
 (`public/js/modules/settings-advanced.js` remembers the choice per browser), and options carry
 `data-providers` so they follow the provider switch. Every settings key has one entry in
