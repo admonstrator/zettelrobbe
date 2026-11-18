@@ -75,6 +75,7 @@ const TESTS = {
   'settings-quickstart-persistence': 'test-settings-quickstart-persistence.js',
   'settings-tidy-up-section': 'test-settings-tidy-up-section.js',
   'settings-nav-active': 'test-settings-nav-active.js',
+  'settings-quick-start': 'test-settings-quick-start.js',
   'settings-ai-options': 'test-settings-ai-options.js',
   'setup-preset-manual-reset': 'test-setup-preset-manual-reset.js',
   'rate-limiting': 'test-rate-limiting.js',
@@ -394,6 +395,7 @@ const AREAS = {
     'settings-catalog',
     'settings-ocr-key-lock',
     'settings-nav-active',
+    'settings-quick-start',
   ],
 };
 
