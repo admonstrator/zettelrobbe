@@ -177,8 +177,7 @@ class SetupWizard {
     this.populateInitialValues();
     this.populateAiPresets();
     this.bindEvents();
-    this.renderIncludeTags();
-    this.renderExcludeTags();
+    this.attachTagLists();
     this.updateMfaPanelVisibility();
     this.toggleIncludeTagField();
     this.toggleMistralFields();
@@ -547,37 +546,6 @@ class SetupWizard {
     this.scanAllDocuments.addEventListener('change', () =>
       this.toggleIncludeTagField()
     );
-    if (this.addIncludeTagBtn) {
-      this.addIncludeTagBtn.addEventListener('click', () =>
-        this.addIncludeTag(this.includeTag.value)
-      );
-    }
-    if (this.includeTag) {
-      this.includeTag.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter') {
-          return;
-        }
-
-        event.preventDefault();
-        this.addIncludeTag(this.includeTag.value);
-      });
-    }
-
-    if (this.addExcludeTagBtn) {
-      this.addExcludeTagBtn.addEventListener('click', () =>
-        this.addExcludeTag(this.excludeTagInput.value)
-      );
-    }
-    if (this.excludeTagInput) {
-      this.excludeTagInput.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter') {
-          return;
-        }
-        event.preventDefault();
-        this.addExcludeTag(this.excludeTagInput.value);
-      });
-    }
-
     this.testPaperlessBtn.addEventListener('click', () =>
       this.testPaperlessConnection()
     );
@@ -943,72 +911,37 @@ class SetupWizard {
     );
   }
 
-  addIncludeTag(value) {
-    const normalized = String(value || '').trim();
-    if (!normalized) {
+  // Both tag lists are pills from /js/chip-list.js, the code the settings
+  // page uses too: Enter, a comma or Add adds, a pasted list is split, a
+  // repeated tag is not added twice. The arrays stay the wizard's model;
+  // the lists only report back into them.
+  attachTagLists() {
+    if (!window.zrChipList) {
       return;
     }
-
-    if (!this.includeTags.includes(normalized)) {
-      this.includeTags.push(normalized);
-      this.renderIncludeTags();
-    }
-
-    this.includeTag.value = '';
-  }
-
-  removeIncludeTag(tag) {
-    this.includeTags = this.includeTags.filter((entry) => entry !== tag);
-    this.renderIncludeTags();
-  }
-
-  renderIncludeTags() {
-    if (!this.includeTagsContainer) {
-      return;
-    }
-
-    this.includeTagsContainer.innerHTML = '';
-    const tags = this.getEffectiveIncludeTags();
-
-    if (tags.length === 0) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      hint.textContent = 'No include tags selected.';
-      this.includeTagsContainer.appendChild(hint);
-      return;
-    }
-
-    tags.forEach((tag) => {
-      this.includeTagsContainer.appendChild(
-        this.createTagChip(tag, () => this.removeIncludeTag(tag))
-      );
+    this.includeTagList = window.zrChipList.attach(this.includeTagsContainer, {
+      input: this.includeTag,
+      addButton: this.addIncludeTagBtn,
+      values: this.getEffectiveIncludeTags(),
+      onChange: (values) => {
+        this.includeTags = values;
+      },
+    });
+    this.excludeTagList = window.zrChipList.attach(this.excludeTagsContainer, {
+      input: this.excludeTagInput,
+      addButton: this.addExcludeTagBtn,
+      values: this.excludeTags,
+      onChange: (values) => {
+        this.excludeTags = values;
+      },
     });
   }
 
-  // One chip shape for both tag lists. Tag names are user input, so the label
-  // goes in as a text node rather than through innerHTML.
-  createTagChip(tag, onRemove) {
-    const chip = document.createElement('div');
-    chip.className = 'zr-chip';
-
-    const label = document.createElement('span');
-    label.textContent = tag;
-    chip.appendChild(label);
-
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.setAttribute('aria-label', `Remove tag ${tag}`);
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    icon.setAttribute('class', 'zr-icon zr-icon--sm');
-    icon.setAttribute('aria-hidden', 'true');
-    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-    use.setAttribute('href', '/icons.svg#i-x');
-    icon.appendChild(use);
-    removeBtn.appendChild(icon);
-    removeBtn.addEventListener('click', onRemove);
-
-    chip.appendChild(removeBtn);
-    return chip;
+  // A tag typed but not yet added counts, instead of being dropped when the
+  // wizard moves on.
+  commitTypedTags() {
+    this.includeTagList?.commit();
+    this.excludeTagList?.commit();
   }
 
   toggleMistralFields() {
@@ -1442,43 +1375,6 @@ class SetupWizard {
     }
 
     return Array.from(new Set([...normalizedManualTags, processedTag]));
-  }
-
-  addExcludeTag(value) {
-    const normalized = String(value || '').trim();
-    if (!normalized) {
-      return;
-    }
-
-    if (!this.excludeTags.includes(normalized)) {
-      this.excludeTags.push(normalized);
-      this.renderExcludeTags();
-    }
-
-    this.excludeTagInput.value = '';
-  }
-
-  removeExcludeTag(tag) {
-    this.excludeTags = this.excludeTags.filter((entry) => entry !== tag);
-    this.renderExcludeTags();
-  }
-
-  renderExcludeTags() {
-    this.excludeTagsContainer.innerHTML = '';
-
-    if (this.excludeTags.length === 0) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      hint.textContent = 'No excluded tags selected.';
-      this.excludeTagsContainer.appendChild(hint);
-      return;
-    }
-
-    this.excludeTags.forEach((tag) => {
-      this.excludeTagsContainer.appendChild(
-        this.createTagChip(tag, () => this.removeExcludeTag(tag))
-      );
-    });
   }
 
   applyPreset(preset) {
@@ -2352,6 +2248,7 @@ class SetupWizard {
       // Metadata loads by itself after the connection test and is only there to
       // offer tag suggestions, so a missing load is not worth blocking on — a
       // fresh Paperless install legitimately has no tags at all.
+      this.commitTypedTags();
 
       if (
         !this.scanAllDocuments.checked &&
@@ -2660,6 +2557,7 @@ class SetupWizard {
   }
 
   buildFinalizePayload() {
+    this.commitTypedTags();
     const scanAll = this.scanAllDocuments.checked;
     const signatures = this.connectionSignatures();
     // Tells the server which connections the wizard already proved reachable

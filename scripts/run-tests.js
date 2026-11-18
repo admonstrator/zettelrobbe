@@ -54,6 +54,7 @@ const TESTS = {
   'form-control-styling': 'test-form-control-styling.js',
   'settings-tag-input-wiring': 'test-settings-tag-input-wiring.js',
   'chip-list': 'test-chip-list.js',
+  'settings-list-fields': 'test-settings-list-fields.js',
   'settings-custom-fields-selector-sync':
     'test-settings-custom-fields-selector-sync.js',
   'icon-sizing': 'test-icon-sizing.js',
@@ -268,6 +269,7 @@ const AREAS = {
     'form-control-styling',
     'settings-tag-input-wiring',
     'chip-list',
+    'settings-list-fields',
     'settings-custom-fields-selector-sync',
     'icon-sizing',
     'mobile-toolbar-grid',

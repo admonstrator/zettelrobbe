@@ -3,6 +3,7 @@
 <%- include('partials/shell/head-start', { pageTitle: 'Settings' }) %>
     <script src="/vendor/sortable/Sortable.min.js"></script>
     <script src="/js/dialogs.js"></script>
+    <script src="/js/chip-list.js"></script>
 <%- include('partials/shell/head-end') %>
 <%- include('partials/shell/body-open', {
     pageTitle: 'Settings',
@@ -522,24 +523,11 @@
     
                                     <div id="promptTagsSection" class="<%= config.USE_PROMPT_TAGS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
                                         <label for="promptTagInput" class="zr-field__name">Prompt Tags</label>
-                                        <div class="zr-inputgroup">
-                                            <input type="text" id="promptTagInput" class="zr-input" placeholder="Enter a tag and press Enter">
-                                            <button type="button" id="promptTagAddButton" class="zr-btn zr-btn--primary">
-                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                                Add
-                                            </button>
-                                        </div>
-                                        <div id="promptTagsContainer" class="zr-chips">
-                                            <% if (config.PROMPT_TAGS && Array.isArray(config.PROMPT_TAGS) && config.PROMPT_TAGS.length > 0) { %>
-                                                <% config.PROMPT_TAGS.forEach(tag => { %>
-                                                    <div class="zr-chip">
-                                                        <span><%= tag %></span>
-                                                        <button type="button" class="zr-link"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
-                                                    </div>
-                                                <% }); %>
-                                            <% } %>
-                                        </div>
-                                        <input type="hidden" id="promptTags" name="promptTags" value="<%= Array.isArray(config.PROMPT_TAGS) ? config.PROMPT_TAGS.join(',') : '' %>">
+                                        <%- include('partials/chip-list', {
+                                            id: 'promptTagInput', addId: 'promptTagAddButton', listId: 'promptTagsContainer',
+                                            valueId: 'promptTags', items: config.PROMPT_TAGS, envKey: 'PROMPT_TAGS',
+                                            placeholder: 'Tag name, then Enter'
+                                        }) %>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
@@ -905,46 +893,20 @@
     
                                     <div id="tagsInputSection" class="<%= config.PROCESS_PREDEFINED_DOCUMENTS === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
                                         <label for="tagInput" class="zr-field__name">Tags</label>
-                                        <div class="zr-inputgroup">
-                                            <input type="text" id="tagInput" class="zr-input" placeholder="Enter a tag and press Enter">
-                                            <button type="button" id="tagAddButton" class="zr-btn zr-btn--primary">
-                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                                Add
-                                            </button>
-                                        </div>
-                                        <div id="tagsContainer" class="zr-chips">
-                                            <% if (config.TAGS && Array.isArray(config.TAGS) && config.TAGS.length > 0) { %>
-                                                <% config.TAGS.forEach(tag => { %>
-                                                    <div class="zr-chip">
-                                                        <span><%= tag %></span>
-                                                        <button type="button" class="zr-link"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
-                                                    </div>
-                                                <% }); %>
-                                            <% } %>
-                                        </div>
-                                        <input type="hidden" id="tags" name="tags" value="<%= Array.isArray(config.TAGS) ? config.TAGS.join(',') : '' %>">
+                                        <%- include('partials/chip-list', {
+                                            id: 'tagInput', addId: 'tagAddButton', listId: 'tagsContainer',
+                                            valueId: 'tags', items: config.TAGS, envKey: 'TAGS',
+                                            placeholder: 'Tag name, then Enter'
+                                        }) %>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
                                         <label for="ignoreTagInput" class="zr-field__name">Ignore Tags</label>
-                                        <div class="zr-inputgroup">
-                                            <input type="text" id="ignoreTagInput" class="zr-input" placeholder="Tag name, then Enter">
-                                            <button type="button" id="ignoreTagAddButton" class="zr-btn zr-btn--primary">
-                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                                Add
-                                            </button>
-                                        </div>
-                                        <div id="ignoreTagsContainer" class="zr-chips">
-                                            <% if (config.IGNORE_TAGS && Array.isArray(config.IGNORE_TAGS) && config.IGNORE_TAGS.length > 0) { %>
-                                                <% config.IGNORE_TAGS.forEach(tag => { %>
-                                                    <div class="zr-chip">
-                                                        <span><%= tag %></span>
-                                                        <button type="button" class="zr-link"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
-                                                    </div>
-                                                <% }); %>
-                                            <% } %>
-                                        </div>
-                                        <input type="hidden" id="ignoreTags" name="ignoreTags" value="<%= Array.isArray(config.IGNORE_TAGS) ? config.IGNORE_TAGS.join(',') : '' %>">
+                                        <%- include('partials/chip-list', {
+                                            id: 'ignoreTagInput', addId: 'ignoreTagAddButton', listId: 'ignoreTagsContainer',
+                                            valueId: 'ignoreTags', items: config.IGNORE_TAGS, envKey: 'IGNORE_TAGS',
+                                            placeholder: 'Tag name, then Enter'
+                                        }) %>
                                     </div>
 
                                     <%- include('partials/settings-switch', {
@@ -956,24 +918,11 @@
 
                                     <div class="zr-field zr-field--stacked">
                                         <label for="removeTagInput" class="zr-field__name">Also remove these tags</label>
-                                        <div class="zr-inputgroup">
-                                            <input type="text" id="removeTagInput" class="zr-input" placeholder="Tag name, then Enter">
-                                            <button type="button" id="removeTagAddButton" class="zr-btn zr-btn--primary">
-                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                                Add
-                                            </button>
-                                        </div>
-                                        <div id="removeTagsContainer" class="zr-chips">
-                                            <% if (config.REMOVE_TAGS_AFTER_PROCESSING && Array.isArray(config.REMOVE_TAGS_AFTER_PROCESSING) && config.REMOVE_TAGS_AFTER_PROCESSING.length > 0) { %>
-                                                <% config.REMOVE_TAGS_AFTER_PROCESSING.forEach(tag => { %>
-                                                    <div class="zr-chip">
-                                                        <span><%= tag %></span>
-                                                        <button type="button" class="zr-link"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
-                                                    </div>
-                                                <% }); %>
-                                            <% } %>
-                                        </div>
-                                        <input type="hidden" id="removeTags" name="removeTags" value="<%= Array.isArray(config.REMOVE_TAGS_AFTER_PROCESSING) ? config.REMOVE_TAGS_AFTER_PROCESSING.join(',') : '' %>">
+                                        <%- include('partials/chip-list', {
+                                            id: 'removeTagInput', addId: 'removeTagAddButton', listId: 'removeTagsContainer',
+                                            valueId: 'removeTags', items: config.REMOVE_TAGS_AFTER_PROCESSING, envKey: 'REMOVE_TAGS_AFTER_PROCESSING',
+                                            placeholder: 'Tag name, then Enter'
+                                        }) %>
                                         <p class="zr-field__hint">Taken off a document after a successful analysis, whatever the analysis proposed.</p>
                                     </div>
                                     </div>
@@ -996,23 +945,12 @@
 
                                     <div class="zr-field zr-field--stacked">
                                         <label for="ignoreTitlePatternInput" class="zr-field__name">Skip titles containing</label>
-                                        <div class="zr-inputgroup">
-                                            <input type="text" id="ignoreTitlePatternInput" class="zr-input" placeholder="Part of a title or file name, then Enter">
-                                            <button type="button" id="ignoreTitlePatternAddButton" class="zr-btn zr-btn--primary">
-                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                                Add
-                                            </button>
-                                        </div>
-                                        <div id="ignoreTitlePatternsContainer" class="zr-chips">
-                                            <% (Array.isArray(config.IGNORE_TITLE_PATTERNS) ? config.IGNORE_TITLE_PATTERNS : []).forEach(pattern => { %>
-                                                <div class="zr-chip">
-                                                    <span><%= pattern %></span>
-                                                    <button type="button" class="zr-link"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
-                                                </div>
-                                            <% }); %>
-                                        </div>
-                                        <input type="hidden" id="ignoreTitlePatterns" name="ignoreTitlePatterns" value="<%= Array.isArray(config.IGNORE_TITLE_PATTERNS) ? config.IGNORE_TITLE_PATTERNS.join(',') : '' %>">
-                                        <p class="zr-field__hint">Matched anywhere in the title or the original file name, upper or lower case alike.</p>
+                                        <%- include('partials/chip-list', {
+                                            id: 'ignoreTitlePatternInput', addId: 'ignoreTitlePatternAddButton', listId: 'ignoreTitlePatternsContainer',
+                                            valueId: 'ignoreTitlePatterns', items: config.IGNORE_TITLE_PATTERNS, envKey: 'IGNORE_TITLE_PATTERNS',
+                                            placeholder: 'Part of a title or file name, then Enter'
+                                        }) %>
+                                        <p class="zr-field__hint">Matched anywhere in the title or the original file name, upper or lower case alike. A comma ends a pattern, so a pattern cannot contain one.</p>
                                     </div>
 
                                     <%- include('partials/settings-switch', {
@@ -1313,8 +1251,13 @@
                                     </summary>
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
-                                        <label for="oidcScopes" class="zr-field__name">Scopes</label>
-                                        <input type="text" id="oidcScopes" name="oidcScopes" value="<%= config.OIDC_SCOPES || 'openid profile email' %>" class="zr-input" placeholder="openid profile email" autocomplete="off" spellcheck="false">
+                                        <label for="oidcScopeInput" class="zr-field__name">Scopes</label>
+                                        <%- include('partials/chip-list', {
+                                            id: 'oidcScopeInput', addId: 'oidcScopeAddButton', listId: 'oidcScopesContainer',
+                                            valueId: 'oidcScopes', items: String(config.OIDC_SCOPES || 'openid profile email').split(/\s+/),
+                                            separator: ' ', envKey: 'OIDC_SCOPES', spellcheck: false,
+                                            placeholder: 'Scope, then Enter'
+                                        }) %>
                                         <p class="zr-field__hint">OIDC_SCOPES · openid is always added; keep email, it carries the address · Default: openid profile email</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
