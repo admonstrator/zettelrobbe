@@ -3,9 +3,10 @@
 
 /**
  * One document, from "is it due?" to "here is what the model made of it". The
- * scheduled scan (services/scanService.js), a webhook delivery and a rescan
- * asked for by hand (services/webhookQueueService.js) all go through
- * processDocument() below.
+ * scheduled scan (services/scanService.js), a webhook delivery, a rescan
+ * asked for by hand and a PDF that was just unlocked
+ * (services/webhookQueueService.js, services/unlockFollowUpService.js) all go
+ * through processDocument() below.
  * Writing the result back to Paperless-ngx stays with the callers, which do it
  * through services/documentProcessingService.js.
  *
@@ -41,7 +42,7 @@ const {
  * @typedef {{ id: number, title: string } & Record<string, any>} PipelineDocument
  */
 
-/** @typedef {'scan'|'webhook'|'rescan'} PipelineSource */
+/** @typedef {'scan'|'webhook'|'rescan'|'unlock'} PipelineSource */
 
 /**
  * How one caller treats a document: only the differences that are meant.
@@ -64,14 +65,25 @@ const {
  *   no loop brings it back.
  * @property {boolean} applyOcrBeforeAi - send the document through the OCR
  *   queue before its first analysis when OCR_BEFORE_AI applies to it. The
- *   scan and the webhook meet a new document there. Off for a rescan: the
- *   person asked for an analysis now, of a document that was analysed
- *   before, and can send it to OCR by hand instead.
+ *   scan, the webhook and the unlock follow-up meet a new document there.
+ *   Off for a rescan: the person asked for an analysis now, of a document
+ *   that was analysed before, and can send it to OCR by hand instead.
  */
 
 /**
- * The three callers. A rescan by hand is the webhook path without the ignored
+ * The four callers. A rescan by hand is the webhook path without the ignored
  * list, the skip rules and OCR before the first analysis.
+ *
+ * The unlock follow-up (services/unlockFollowUpService.js) analyses a PDF
+ * whose password was just removed, once Paperless-ngx has stored the
+ * unlocked version. It has the switches of the webhook, because to the
+ * pipeline it is a new document that just got a file it can read: an
+ * ignored document stays ignored (unlocking is not asking for an analysis by
+ * hand), the skip rules and OCR before the first analysis apply (no OCR
+ * provider ever read the locked file), and no retries are counted (one
+ * unlock, one follow-up; the scan counts its own). It has a name of its own
+ * so a change to what a webhook delivery does is not silently a change to
+ * what an unlock does.
  *
  * @type {Readonly<Record<PipelineSource, Readonly<CallerProfile>>>}
  */
@@ -96,6 +108,13 @@ const CALLER_PROFILES = Object.freeze({
     applySkipRules: false,
     trackRetries: false,
     applyOcrBeforeAi: false,
+  }),
+  unlock: Object.freeze({
+    logAlreadyProcessed: true,
+    checkIgnoredList: true,
+    applySkipRules: true,
+    trackRetries: false,
+    applyOcrBeforeAi: true,
   }),
 });
 

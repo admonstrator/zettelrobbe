@@ -11,10 +11,13 @@
  * document keeps its ID and metadata; Paperless-ngx reads the text of the new
  * version itself.
  *
- * Afterwards the document leaves the OCR queue and the failed list, so the
- * scan treats it like any other document: enough text from Paperless-ngx
- * means AI analysis, too little means the OCR queue again, this time with a
- * file that opens.
+ * Afterwards the document leaves the OCR queue and the failed list and is
+ * processed like a new document as soon as Paperless-ngx has stored the
+ * unlocked version (services/unlockFollowUpService.js): enough text from
+ * Paperless-ngx means AI analysis, too little means the OCR queue again, this
+ * time with a file that opens. When that does not happen (the wait runs out,
+ * the process restarts, automatic processing is off), the next scan takes
+ * the document, which nothing holds back any more.
  */
 
 /* config/config.js builds most of its getters at runtime, which the type
@@ -34,6 +37,33 @@ const { parsePasswordList } = require('./pdfPasswordService');
  * file within this window waits instead of unlocking it a second time.
  */
 const RECENT_UNLOCK_MS = 30 * 60 * 1000;
+
+/**
+ * What the person is told after a successful unlock, by what happens next.
+ */
+const NEXT_STEP = Object.freeze({
+  unlocked:
+    'Unlocked. The document is analysed as soon as Paperless-ngx has stored the unlocked version.',
+  unlockedManual:
+    'Unlocked. Paperless-ngx keeps the unlocked file as a new version. Automatic processing is off, so the document waits for a scan you start by hand.',
+  notLocked:
+    'This document does not need a password (any more). It is analysed right away.',
+  notLockedManual:
+    'This document does not need a password (any more). Automatic processing is off, so it waits for a scan you start by hand.',
+  stillStoring:
+    'Paperless-ngx is still storing the unlocked version of this document. It is analysed as soon as that version is there.',
+});
+
+/**
+ * The follow-up of an unlock. Required when needed rather than at the top:
+ * it reaches the OCR service through the pipeline, and the OCR service
+ * requires this module for its own runs.
+ *
+ * @returns {typeof import('./unlockFollowUpService.js')}
+ */
+function followUps() {
+  return require('./unlockFollowUpService.js');
+}
 
 /**
  * @typedef {'unlocked'|'not_locked'|'no_match'|'no_passwords'|'unsupported'|'rejected'|'forbidden'|'busy'|'failed'} UnlockOutcome
@@ -98,7 +128,8 @@ class PdfUnlockService {
 
   /**
    * Takes the document out of the OCR queue and off the failed list, so the
-   * next scan processes it from what Paperless-ngx now holds.
+   * follow-up, or else the next scan, processes it from what Paperless-ngx
+   * now holds.
    *
    * The queue history goes too: no OCR provider ever read the locked file,
    * so OCR before the first analysis (OCR_BEFORE_AI) may still send the
@@ -114,9 +145,32 @@ class PdfUnlockService {
   }
 
   /**
+   * The version ids Paperless-ngx lists for the document before its password
+   * is removed, for the follow-up to recognise the new one by. Null when they
+   * cannot be read; the follow-up then asks the file itself.
+   *
+   * @param {number} documentId
+   * @returns {Promise<number[]|null>}
+   */
+  async _versionsBefore(documentId) {
+    try {
+      return await paperlessService.getDocumentVersionIds(documentId);
+    } catch (error) {
+      console.warn(
+        `[OCR] Could not read the versions of document ${documentId} (${error instanceof Error ? error.message : String(error)}); the follow-up checks the file instead`
+      );
+      return null;
+    }
+  }
+
+  /**
    * Unlocks one document with the given password or the stored list.
    * Never throws for a document that simply stays locked; the outcome says
    * what happened.
+   *
+   * A successful unlock starts the follow-up that processes the document as
+   * soon as Paperless-ngx has stored the unlocked version, unless automatic
+   * processing is off. The answer does not wait for it.
    *
    * @param {number} documentId
    * @param {UnlockOptions} [options]
@@ -132,6 +186,11 @@ class PdfUnlockService {
 
     if (this._busy.has(documentId)) {
       return result('busy', 'This document is being unlocked right now.');
+    }
+    // Unlocked moments ago: the file Paperless-ngx serves is still the
+    // locked one, and a second removal would only add a second version.
+    if (followUps().isWaiting(documentId)) {
+      return result('busy', NEXT_STEP.stillStoring);
     }
     if (!options.fromOcrRun) {
       // Required here rather than at the top: the OCR service requires this
@@ -170,9 +229,16 @@ class PdfUnlockService {
         console.log(
           `[OCR] Document ${documentId} no longer needs a password; released for processing`
         );
+        // The file Paperless-ngx serves is its latest version, and it opens:
+        // nothing to wait for.
+        const followUp = followUps().schedule(documentId, {
+          versionStored: true,
+        });
         return result(
           'not_locked',
-          'This document does not need a password (any more). It is processed with the next scan.'
+          followUp === 'automatic_processing_off'
+            ? NEXT_STEP.notLockedManual
+            : NEXT_STEP.notLocked
         );
       }
 
@@ -185,6 +251,10 @@ class PdfUnlockService {
             : `None of the ${candidates.length} stored password(s) opens the PDF.`
         );
       }
+
+      const versionsBefore = followUps().isAutomaticProcessingOff()
+        ? null
+        : await this._versionsBefore(documentId);
 
       try {
         await paperlessService.removePassword(documentId, password);
@@ -207,9 +277,15 @@ class PdfUnlockService {
       console.log(
         `[OCR] Document ${documentId} unlocked in Paperless-ngx (${typed ? 'typed password' : 'stored password'})`
       );
+      // Straight after the release, with nothing sent over the network in
+      // between: the follow-up claims the document before a running scan
+      // can reach it with the old text.
+      const followUp = followUps().schedule(documentId, { versionsBefore });
       return result(
         'unlocked',
-        'Unlocked. Paperless-ngx keeps the unlocked file as a new version of the document and reads its text; the next scan analyses it.'
+        followUp === 'automatic_processing_off'
+          ? NEXT_STEP.unlockedManual
+          : NEXT_STEP.unlocked
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -224,7 +300,8 @@ class PdfUnlockService {
 
   /**
    * Tries the stored passwords on every OCR queue item marked as password
-   * protected, one after the other.
+   * protected, one after the other. Each unlocked document gets its own
+   * follow-up; the webhook queue analyses them one at a time.
    *
    * @param {(item: { title: string } & UnlockResult, index: number, total: number) => void} [onItem]
    * @returns {Promise<{ total: number, unlocked: number, stillLocked: number }>}

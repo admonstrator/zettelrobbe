@@ -5,7 +5,9 @@
  * The in-memory queue behind the webhook and the manual rescan: documents are
  * pushed here and processed one at a time, outside the scheduled scan of
  * server.js. Both go through services/documentPipeline.js like the scan; a
- * webhook entry as source 'webhook', a rescan entry as source 'rescan'.
+ * webhook entry as source 'webhook', a rescan entry as source 'rescan', and a
+ * PDF that was just unlocked (services/unlockFollowUpService.js) as source
+ * 'unlock'.
  *
  * The queue and its "is processing" flag must exist once: two copies would
  * process the same document twice in parallel.
@@ -30,6 +32,9 @@ const { toNameList } = require('./serviceUtils');
  * @typedef {object} QueueEntry
  * @property {QueuedDocument} document
  * @property {boolean} applySkipRules - true for webhook deliveries, false for a rescan by hand
+ * @property {import('./documentPipeline.js').PipelineSource} [source] - the
+ *   caller profile, when it is neither of those two; without it applySkipRules
+ *   picks 'webhook' or 'rescan'
  */
 
 class WebhookQueueService {
@@ -57,11 +62,15 @@ class WebhookQueueService {
    * processQueue() for that.
    *
    * @param {QueuedDocument} document
-   * @param {{ applySkipRules: boolean }} options
+   * @param {{ applySkipRules: boolean, source?: import('./documentPipeline.js').PipelineSource }} options
    * @returns {void}
    */
-  enqueue(document, { applySkipRules }) {
-    this.documentQueue.push({ document, applySkipRules });
+  enqueue(document, { applySkipRules, source }) {
+    this.documentQueue.push(
+      source
+        ? { document, applySkipRules, source }
+        : { document, applySkipRules }
+    );
   }
 
   /** @returns {number} documents waiting in the queue */
@@ -118,9 +127,11 @@ class WebhookQueueService {
       const getExternalApiData = documentPipeline.externalApiDataForRun();
 
       while (this.documentQueue.length > 0) {
-        const { document: doc, applySkipRules } = /** @type {QueueEntry} */ (
-          this.documentQueue.shift()
-        );
+        const {
+          document: doc,
+          applySkipRules,
+          source,
+        } = /** @type {QueueEntry} */ (this.documentQueue.shift());
 
         // The scan may be on this document right now and writes its result
         // back itself; a second analysis would be paid twice.
@@ -138,7 +149,7 @@ class WebhookQueueService {
             existingCorrespondentNames,
             existingDocumentTypesList,
             {
-              source: applySkipRules ? 'webhook' : 'rescan',
+              source: source || (applySkipRules ? 'webhook' : 'rescan'),
               customPrompt: customPrompt || null,
               getExternalApiData,
             }

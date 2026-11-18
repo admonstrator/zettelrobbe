@@ -3,22 +3,30 @@
  *
  * pdfUnlockService checks passwords locally and hands only the one that opens
  * the file to Paperless-ngx, which stores the unlocked file as a new version.
- * Afterwards the document leaves the OCR queue and the failed list, so the
- * next scan processes it. These tests pin that order and every outcome on the
- * way, with Paperless-ngx, the database and pdfinfo replaced.
+ * Afterwards the document leaves the OCR queue and the failed list, and its
+ * follow-up (services/unlockFollowUpService.js, replaced here) processes it
+ * once Paperless-ngx has stored that version. These tests pin that order and
+ * every outcome on the way, with Paperless-ngx, the database, pdfinfo and the
+ * follow-up replaced.
  *
  * Covers:
  * 1. A typed password that opens the file reaches Paperless-ngx, the document
- *    is released and counts as just unlocked
+ *    is released and counts as just unlocked, and its follow-up starts with
+ *    the versions read before the removal
  * 2. The stored list is tried when no password is typed
  * 3. A password that does not open the file never reaches Paperless-ngx
  * 4. Paperless-ngx before 3.0 is refused before any download
  * 5. A file that no longer needs a password is released without a request
+ *    and processed right away
  * 6. Paperless-ngx refusing the password is reported, nothing is released
  * 7. No password and no stored list: nothing is downloaded
  * 8. A document OCR is reading right now is left alone
  * 9. The list run works through every locked queue item
- * 10. paperlessService.removePassword(): the request and its error mapping
+ * 10. Automatic processing off: no follow-up, and the message says so
+ * 11. A document whose follow-up still waits is not unlocked a second time
+ * 12. Versions that cannot be read do not stop the unlock
+ * 13. paperlessService.removePassword(): the request and its error mapping
+ * 14. paperlessService.getDocumentVersionIds(): the request and the answer
  */
 
 'use strict';
@@ -32,6 +40,8 @@ const pdfPasswordServicePath =
   require.resolve('../services/pdfPasswordService');
 const mistralOcrServicePath = require.resolve('../services/mistralOcrService');
 const pdfUnlockServicePath = require.resolve('../services/pdfUnlockService');
+const unlockFollowUpServicePath =
+  require.resolve('../services/unlockFollowUpService');
 
 let passed = 0;
 let failed = 0;
@@ -69,6 +79,10 @@ const FILE = Buffer.from('%PDF-1.7 locked');
  * @param {string|null} [options.version] the Paperless-ngx version
  * @param {Error|null} [options.removeError] what removePassword throws
  * @param {boolean} [options.ocrBusy] OCR is reading the document
+ * @param {boolean} [options.automaticOff] DISABLE_AUTOMATIC_PROCESSING=yes
+ * @param {number[]} [options.waiting] documents whose follow-up still waits
+ * @param {number[]|null} [options.versions] the version ids Paperless-ngx lists
+ * @param {Error|null} [options.versionsError] what reading them throws
  */
 function load({
   stored = '',
@@ -77,6 +91,10 @@ function load({
   version = '3.4.2',
   removeError = null,
   ocrBusy = false,
+  automaticOff = false,
+  waiting = [],
+  versions = [70],
+  versionsError = null,
 } = {}) {
   const state = {
     downloads: [],
@@ -85,6 +103,9 @@ function load({
     releasedFromQueue: [],
     historyForgotten: [],
     failedReset: [],
+    scheduled: [],
+    versionReads: [],
+    order: [],
   };
 
   for (const modulePath of [
@@ -94,6 +115,7 @@ function load({
     pdfPasswordServicePath,
     mistralOcrServicePath,
     pdfUnlockServicePath,
+    unlockFollowUpServicePath,
   ]) {
     delete require.cache[modulePath];
   }
@@ -105,6 +127,7 @@ function load({
   inject(documentModelPath, {
     removeFromOcrQueue: async (id) => {
       state.releasedFromQueue.push(id);
+      state.order.push('release');
       return true;
     },
     forgetOcrQueueHistory: async (id) => {
@@ -132,6 +155,13 @@ function load({
     removePassword: async (id, password) => {
       if (removeError) throw removeError;
       state.removed.push({ id, password });
+      state.order.push('remove');
+    },
+    getDocumentVersionIds: async (id) => {
+      state.versionReads.push(id);
+      state.order.push('versions');
+      if (versionsError) throw versionsError;
+      return versions;
     },
   });
   inject(pdfPasswordServicePath, {
@@ -145,9 +175,30 @@ function load({
   inject(mistralOcrServicePath, {
     isDocumentActivelyProcessing: () => ocrBusy,
   });
+  inject(unlockFollowUpServicePath, {
+    isAutomaticProcessingOff: () => automaticOff,
+    isWaiting: (id) => waiting.includes(id),
+    schedule: (id, options) => {
+      state.scheduled.push({ id, ...options });
+      state.order.push('schedule');
+      return automaticOff ? 'automatic_processing_off' : 'scheduled';
+    },
+  });
 
   const service = require('../services/pdfUnlockService');
   return { service, state };
+}
+
+/** Runs fn with the console quiet; the warnings are expected. */
+async function quietly(fn) {
+  const saved = { warn: console.warn, log: console.log };
+  console.warn = () => {};
+  console.log = () => {};
+  try {
+    return await fn();
+  } finally {
+    Object.assign(console, saved);
+  }
 }
 
 async function run() {
@@ -164,6 +215,20 @@ async function run() {
     assert.deepStrictEqual(state.failedReset, [7]);
     assert.strictEqual(service.wasRecentlyUnlocked(7), true);
     assert.strictEqual(service.wasRecentlyUnlocked(8), false);
+    // The versions are read before the removal, the follow-up starts after
+    // the release, and the message no longer promises the next scan.
+    assert.deepStrictEqual(state.order, [
+      'versions',
+      'remove',
+      'release',
+      'schedule',
+    ]);
+    assert.deepStrictEqual(state.scheduled, [{ id: 7, versionsBefore: [70] }]);
+    assert.match(
+      result.message,
+      /analysed as soon as Paperless-ngx has stored the unlocked version/
+    );
+    assert.doesNotMatch(result.message, /next scan/);
   });
 
   await test('without a typed password the stored list is tried', async () => {
@@ -202,6 +267,11 @@ async function run() {
     assert.deepStrictEqual(state.removed, []);
     assert.deepStrictEqual(state.releasedFromQueue, [7]);
     assert.deepStrictEqual(state.failedReset, [7]);
+    // The file it serves already opens: nothing to wait for.
+    assert.deepStrictEqual(state.versionReads, []);
+    assert.deepStrictEqual(state.scheduled, [{ id: 7, versionStored: true }]);
+    assert.match(result.message, /analysed right away/);
+    assert.doesNotMatch(result.message, /next scan/);
   });
 
   await test('Paperless-ngx refusing the password is reported', async () => {
@@ -212,6 +282,7 @@ async function run() {
     assert.strictEqual(result.outcome, 'rejected');
     assert.deepStrictEqual(state.releasedFromQueue, []);
     assert.strictEqual(service.wasRecentlyUnlocked(7), false);
+    assert.deepStrictEqual(state.scheduled, [], 'no follow-up');
   });
 
   await test('no password and no stored list: nothing is downloaded', async () => {
@@ -251,6 +322,48 @@ async function run() {
       state.removed.map((r) => r.id),
       [11, 12]
     );
+    assert.deepStrictEqual(
+      state.scheduled.map((entry) => entry.id),
+      [11, 12]
+    );
+  });
+
+  await test('automatic processing off: no follow-up, a scan by hand', async () => {
+    const { service, state } = load({ automaticOff: true });
+    const unlocked = await service.unlock(7, { password: 'right' });
+    assert.strictEqual(unlocked.outcome, 'unlocked');
+    assert.deepStrictEqual(state.versionReads, [], 'nothing to compare with');
+    assert.deepStrictEqual(state.releasedFromQueue, [7]);
+    assert.match(unlocked.message, /Automatic processing is off/);
+    assert.match(unlocked.message, /scan you start by hand/);
+
+    const open = load({ automaticOff: true, locked: false });
+    const notLocked = await open.service.unlock(8, { password: 'right' });
+    assert.strictEqual(notLocked.outcome, 'not_locked');
+    assert.match(notLocked.message, /scan you start by hand/);
+  });
+
+  await test('a document whose follow-up still waits is not unlocked twice', async () => {
+    const { service, state } = load({ waiting: [7] });
+    const result = await service.unlock(7, { password: 'right' });
+    assert.strictEqual(result.outcome, 'busy');
+    assert.match(result.message, /still storing the unlocked version/);
+    assert.deepStrictEqual(state.downloads, []);
+    assert.deepStrictEqual(state.removed, []);
+    assert.deepStrictEqual(state.scheduled, []);
+  });
+
+  await test('versions that cannot be read do not stop the unlock', async () => {
+    const { service, state } = load({
+      versionsError: new Error('socket hang up'),
+    });
+    const result = await quietly(() =>
+      service.unlock(7, { password: 'right' })
+    );
+    assert.strictEqual(result.outcome, 'unlocked');
+    assert.deepStrictEqual(state.removed, [{ id: 7, password: 'right' }]);
+    // The follow-up asks the file itself instead.
+    assert.deepStrictEqual(state.scheduled, [{ id: 7, versionsBefore: null }]);
   });
 
   await test('removePassword() asks for a new version and maps refusals', async () => {
@@ -297,6 +410,40 @@ async function run() {
         return true;
       });
     }
+    delete require.cache[paperlessServicePath];
+    delete require.cache[configPath];
+  });
+
+  await test('getDocumentVersionIds() reads the version list of one document', async () => {
+    for (const modulePath of [configPath, paperlessServicePath]) {
+      delete require.cache[modulePath];
+    }
+    const paperlessService = require('../services/paperlessService.js');
+    const gets = [];
+    let data = {
+      id: 42,
+      versions: [
+        { id: 57, added: '2026-11-18T10:00:00Z', is_root: false },
+        { id: 42, added: '2026-11-01T08:00:00Z', is_root: true },
+      ],
+    };
+    paperlessService.initialize = () => {};
+    paperlessService.client = {
+      get: async (url, options) => {
+        gets.push({ url, options });
+        return { data };
+      },
+    };
+    assert.deepStrictEqual(
+      await paperlessService.getDocumentVersionIds(42),
+      [57, 42]
+    );
+    assert.deepStrictEqual(gets, [
+      { url: '/documents/42/', options: { params: { fields: 'id,versions' } } },
+    ]);
+    // An answer without a version list: nothing to compare with.
+    data = { id: 42 };
+    assert.strictEqual(await paperlessService.getDocumentVersionIds(42), null);
     delete require.cache[paperlessServicePath];
     delete require.cache[configPath];
   });
