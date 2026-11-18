@@ -33,76 +33,185 @@
      wall of controls: nothing says where a setting starts or ends. Rows get what
      rows get everywhere else in the app — a hairline between them and a hover
      band — drawn the way .zr-table draws them, from card edge to card edge, which
-     the body's own padding has to be undone for.
+     the body's own padding has to be undone for. A switch is a row like any
+     other: it used to draw a grey box of its own, and a card of switches was a
+     stack of islands.
 
      Scoped to a card's own body: the changelog uses .zr-module__body as a bare
      layout wrapper outside any .zr-module, where the release timeline brings its
      own rhythm and there is no card box for a full-bleed band to bleed into. */
   .zr-settings .zr-module > .zr-module__body.zr-col--loose {
     gap: 0;
+    padding-block: 0;
   }
-  /* With the gap gone the rows space themselves, and they ask whether anything is
-     rendered above them with the general sibling combinator rather than the
-     adjacent one: half of this form is toggled with .hidden and the custom-field
-     list is an empty box until a field is added, so the row below one of those
-     would otherwise be spaced and ruled off against nothing. */
+  /* Each row carries its own air, the same above and below, so the hover band
+     and the click area of a switch row cover the whole row, from one hairline to
+     the next. The inset is part of the row at rest, not only under the pointer:
+     added on hover, every row would shift sideways as its band appears. */
   .zr-settings
     .zr-module
     > .zr-module__body.zr-col--loose
-    > *:not(.hidden, #customFieldsList:not(:has(*)))
-    ~ * {
-    margin-top: var(--zr-4);
-  }
-  /* A switch tile, an alert or a lone button draws a box of its own, which makes
-     it the exception to both rules below: it keeps the spacing the gap used to
-     give it, and it never carries a hairline — the line would run along its own
-     border, and the padding that comes with the line would push its content off
-     centre. One switch row is wrapped in a field instead of coming from the
-     partial, which is what the :has() catches. */
-  .zr-settings
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > *:not(.zr-switchrow, .zr-alert, .zr-btn, :has(> .zr-switchrow)) {
-    /* The inset is part of the row at rest, not only under the pointer: added on
-       hover, every row would shift sideways as its band appears. */
+    > *:not(.zr-alert, .zr-btn) {
     margin-inline: calc(var(--zr-3) * -1);
-    padding-inline: var(--zr-3);
+    padding: var(--zr-3);
   }
+  /* An alert or a lone button draws a box of its own: it keeps air around it
+     and never carries a hairline, which would run along its own border. */
+  .zr-settings
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    > :is(.zr-alert, .zr-btn) {
+    margin-block: var(--zr-3);
+  }
+  /* Rows ask whether anything is rendered above them with the general sibling
+     combinator rather than the adjacent one: half of this form is toggled with
+     .hidden and the custom-field list is an empty box until a field is added,
+     so the row below one of those would otherwise be ruled off against
+     nothing. */
   .zr-settings
     .zr-module
     > .zr-module__body.zr-col--loose
     > *:not(.hidden, #customFieldsList:not(:has(*)))
-    ~ *:not(.zr-switchrow, .zr-alert, .zr-btn, :has(> .zr-switchrow)) {
+    ~ *:not(.zr-alert, .zr-btn) {
     border-top: 1px solid var(--zr-line);
-    padding-top: var(--zr-3);
-    margin-top: var(--zr-3);
+  }
+  /* Empty, the custom-field list is no row at all; its padding would leave a
+     gap where nothing is. */
+  #customFieldsList:not(:has(*)) {
+    display: none;
   }
 
-  /* The OCR block is a whole list of settings inside one .zr-field, so its rows
-     are not the body's rows and none of the above reaches them — they were left
-     5px apart, the spacing meant for a label and its input. They at least get the
-     air the body gives its own rows. */
-  .zr-settings .zr-module__body > .zr-field--stacked:has(.zr-field--stacked) {
-    gap: var(--zr-4);
-  }
-
-  /* Only the fields light up: a hint or a heading is nothing to point at. A field
-     holding other fields is a wrapper rather than a row — #ocrFieldsContainer is
-     a .zr-field around the entire OCR block, and lighting that up would paint
-     half the card. */
-  .zr-settings
+  /* Some rows of a card are blocks of rows: the OCR block (#ocrFieldsContainer,
+     a .zr-field around the whole of it), a provider's fields, the options a
+     switch shows. Their rows are ruled off as the card's own are, edge to edge;
+     the block itself carries only the line above it, and a block inside a
+     block adds nothing of its own. Before, the sixteen settings of the OCR
+     block were one row with nothing between them but air. The page only: the
+     styleguide lays out its samples with the same classes. */
+  .zr-settings-page
     .zr-module
     > .zr-module__body.zr-col--loose
-    > .zr-field--stacked:not(:has(.zr-field--stacked, .zr-switchrow)):hover {
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked)) {
+    gap: 0;
+    margin-inline: 0;
+    padding: 0;
+  }
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    > :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked)) {
+    margin-inline: calc(var(--zr-3) * -1);
+  }
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :not(
+      .zr-alert,
+      .zr-btn,
+      .zr-col--loose,
+      .zr-field--stacked:has(> .zr-field--stacked)
+    ) {
+    padding: var(--zr-3);
+  }
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :is(.zr-alert, .zr-btn) {
+    margin: var(--zr-3);
+  }
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :not(.hidden)
+    ~ :not(.zr-alert, .zr-btn) {
+    border-top: 1px solid var(--zr-line);
+  }
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :is(
+      .zr-field--stacked:not(:has(.zr-field--stacked)),
+      .zr-switchrow,
+      .zr-settings-option
+    ):not(.zr-settings-match):hover {
     background: var(--zr-surface-2);
   }
-  /* The unsaved-change marker hangs one body padding to the left of its field —
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :is(.zr-field, .zr-switchrow)[data-dirty]::before {
+    left: 0;
+  }
+
+  /* Only a row that is one setting lights up: a field, a switch row, or the box
+     that holds one AI option. A hint or a heading is nothing to point at, and a
+     field holding other fields is a wrapper rather than a row:
+     #ocrFieldsContainer is a .zr-field around the entire OCR block, and lighting
+     that up would paint half the card. A row "Find a setting" marked keeps its
+     mark under the pointer. */
+  .zr-settings
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    > :is(
+      .zr-field--stacked:not(:has(.zr-field--stacked), #customFieldsList),
+      .zr-switchrow,
+      .zr-settings-option
+    ):not(.zr-settings-match):hover {
+    background: var(--zr-surface-2);
+  }
+  /* The unsaved-change marker hangs one body padding to the left of its row —
      which, measured from a full-bleed row, is outside the card, where the
      module's overflow: hidden eats it. Zero puts it back on the same pixel. */
   .zr-settings
     .zr-module
     > .zr-module__body.zr-col--loose
-    > .zr-field[data-dirty]:not(:has(> .zr-switchrow))::before {
+    > :is(.zr-field, .zr-switchrow)[data-dirty]::before {
+    left: 0;
+  }
+
+  /* On/off tiles (the restrictions, the AI functions) are rows of their card as
+     well: one column instead of a grid of boxes, a hairline between them, the
+     state word and the switch on the right edge like every other switch. The
+     styleguide shows the tile itself, so this stays on the settings page. */
+  .zr-settings-page .zr-formgrid:has(> .zr-checktile > .zr-toggle) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .zr-settings-page
+    .zr-module
+    > .zr-module__body.zr-col--loose
+    > .zr-formgrid:has(> .zr-checktile > .zr-toggle) {
+    padding-block: 0;
+  }
+  .zr-settings-page .zr-formgrid > .zr-checktile:has(> .zr-toggle) {
+    gap: var(--zr-3);
+    margin-inline: calc(var(--zr-3) * -1);
+    padding: var(--zr-3);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--zr-text);
+    font-weight: 600;
+  }
+  .zr-settings-page
+    .zr-formgrid
+    > .zr-checktile:has(> .zr-toggle)
+    ~ .zr-checktile:has(> .zr-toggle) {
+    border-top: 1px solid var(--zr-line);
+  }
+  .zr-settings-page
+    .zr-formgrid
+    > .zr-checktile:has(> .zr-toggle):not(.zr-settings-match):hover {
+    background: var(--zr-surface-2);
+  }
+  .zr-settings-page .zr-formgrid > .zr-checktile[data-dirty]::before {
     left: 0;
   }
 

@@ -238,22 +238,83 @@
     flex: 1;
   }
 
-  /* switch with a label block next to it, as used throughout the settings form */
+  /* A setting that is on or off, as one row: its name and hint on the left,
+     the state as a word and the switch on the right. It used to be a grey box
+     of its own, which on the settings page made every switch a separate
+     island; it is a row now, and the card it sits in draws the lines between
+     its rows (pages/settings.css). */
   .zr-switchrow {
+    position: relative;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: var(--zr-3);
-    padding: var(--zr-2) var(--zr-3);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-md);
-    background: var(--zr-surface-2);
-  }
-  .zr-switchrow .zr-toggle {
-    margin-top: 2px;
+    cursor: pointer;
   }
   .zr-switchrow .zr-field__name {
     cursor: pointer;
     display: block;
+  }
+  /* A click anywhere on the row toggles the switch. The label of the checkbox
+     is stretched over the row rather than wrapped around it (a <label> may
+     not hold the hint paragraph), so the checkbox stays the one control and
+     its name stays the label alone. The switch itself paints above the
+     stretched box: it is positioned and comes later. */
+  .zr-switchrow label::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+  .zr-switchrow > .zr-toggle {
+    order: 2;
+  }
+  .zr-switchrow:has(.zr-toggle:disabled),
+  .zr-switchrow:has(.zr-toggle:disabled) .zr-field__name {
+    cursor: default;
+  }
+
+  /* The state as a word next to the switch, for every switch that sits in a
+     row or a tile. It comes from here rather than from the markup, so the
+     rows written by hand and the tiles show it as the partial's rows do, and
+     it follows the checkbox whatever moves it: a click, settings.js, Discard.
+     The empty alternative text keeps it out of the accessibility tree; the
+     checkbox already says whether it is on. */
+  .zr-switchrow::after,
+  .zr-checktile:has(> .zr-toggle)::after {
+    content: 'Off' / '';
+    order: 1;
+    flex: none;
+    /* A tile spreads its items apart; the word keeps to the switch. */
+    margin-left: auto;
+    min-width: 3ch;
+    text-align: right;
+    font-size: var(--zr-fs-sm);
+    font-weight: 600;
+    color: var(--zr-text-faint);
+  }
+  .zr-switchrow:has(.zr-toggle:checked)::after,
+  .zr-checktile:has(> .zr-toggle:checked)::after {
+    content: 'On' / '';
+    color: var(--zr-brand-text);
+  }
+  /* A switch set by the environment is dimmed, and so is its word. */
+  .zr-switchrow:has(.zr-toggle:disabled)::after,
+  .zr-checktile:has(> .zr-toggle:disabled)::after {
+    opacity: 0.6;
+  }
+  /* A row with a change that is not saved yet, marked like a field. */
+  .zr-checktile[data-dirty] {
+    position: relative;
+  }
+  .zr-switchrow[data-dirty]::before,
+  .zr-checktile[data-dirty]::before {
+    content: '';
+    position: absolute;
+    left: calc(-1 * var(--zr-3));
+    top: var(--zr-2);
+    bottom: var(--zr-2);
+    width: 2px;
+    border-radius: 2px;
+    background: var(--zr-brand);
   }
 
   /* bordered checkbox tile */
