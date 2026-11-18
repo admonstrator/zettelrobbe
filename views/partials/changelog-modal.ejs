@@ -44,6 +44,20 @@
         </div>
     </div>
     <div class="zr-welcome__main">
+        <!-- Shown only after an update (the status answers updated: true). The
+             script then moves the focus (autofocus) and the dialog's name from
+             the title to this notice, so a screen reader hears it first. -->
+        <div id="changelogModalUpdate" class="zr-welcome__update hidden" tabindex="-1">
+            <span class="zr-welcome__update-icon" aria-hidden="true">🎉</span>
+            <p class="zr-welcome__update-text">
+                <span id="changelogModalUpdateTitle" class="zr-welcome__update-title">
+                    Hooray, Zettelrobbe was updated to <span id="changelogModalUpdateVersion"></span>
+                </span>
+                <span id="changelogModalUpdateFromLine" class="zr-welcome__update-from">
+                    You were on <span id="changelogModalUpdateFrom"></span> before.
+                </span>
+            </p>
+        </div>
         <h2 id="changelogModalTitle" class="zr-welcome__title" tabindex="-1" autofocus>
             Free to use. You name the price.
         </h2>

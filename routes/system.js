@@ -337,7 +337,13 @@ router.get('/api/update-check', isAuthenticated, async (req, res) => {
  * /api/changelog/status:
  *   get:
  *     summary: Check whether the What's New modal should be shown
- *     description: Returns show=true when the authenticated user has not yet seen the current release changelog.
+ *     description: |
+ *       Returns show=true when the authenticated user has not yet seen the current release changelog.
+ *
+ *       `updated` is true when the user confirmed the dialog for another release, so an update is
+ *       why it shows again; `previousVersion` then names that release. A user who never confirmed the
+ *       dialog (a fresh installation or a new account) gets `updated: false` and `previousVersion: null`.
+ *       API-key callers and sessions without a username get `{ show: false }` only.
  *     tags:
  *       - Changelog
  *     security:
@@ -345,6 +351,31 @@ router.get('/api/update-check', isAuthenticated, async (req, res) => {
  *     responses:
  *       200:
  *         description: Changelog status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 show:
+ *                   type: boolean
+ *                   description: Whether the dialog should open
+ *                 version:
+ *                   type: string
+ *                   description: The current release
+ *                   example: v2026.11.04
+ *                 entries:
+ *                   type: array
+ *                   description: Release notes of the current release (empty when show is false)
+ *                   items:
+ *                     type: string
+ *                 updated:
+ *                   type: boolean
+ *                   description: True when the user last confirmed the dialog for a different release
+ *                 previousVersion:
+ *                   type: string
+ *                   nullable: true
+ *                   description: The release the user last confirmed, set only when updated is true
+ *                   example: v2026.11.03
  *       401:
  *         description: Not authenticated
  */
@@ -361,11 +392,17 @@ router.get('/api/changelog/status', isAuthenticated, async (req, res) => {
 
     const lastSeen = await documentModel.getLastSeenChangelogVersion(username);
     const show = lastSeen !== changelog.version;
+    // A stored version the user confirmed earlier that differs from the
+    // running one means an update brought the dialog back. No stored version
+    // is a fresh installation or a new account: welcome, not "updated".
+    const updated = show && typeof lastSeen === 'string' && lastSeen !== '';
 
     return res.json({
       show,
       version: changelog.version,
       entries: show ? changelog.entries : [],
+      updated,
+      previousVersion: updated ? lastSeen : null,
     });
   } catch (error) {
     console.error('[ERROR] GET /api/changelog/status:', error);
