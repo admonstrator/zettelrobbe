@@ -309,45 +309,14 @@ const ITEMS = [
 
   await test('a featured entry is listed above the groups, then "All options"', async () => {
     const { mountRouter } = require('./helpers/mount-router');
-    const ejs = require('ejs');
     const harness = await mountRouter({ user: { username: 'admin' } });
     try {
-      // The locals GET /settings renders with, to render the view once more
-      // with one entry flagged the way the Quick start topic will be.
-      let captured = null;
-      const original = harness.app.render.bind(harness.app);
-      harness.app.render = (name, options, callback) => {
-        if (name === 'settings') captured = options;
-        return original(name, options, callback);
-      };
+      // The Quick start topic is the featured entry of the page.
       const response = await fetch(`${harness.base}/settings`, {
         headers: harness.authHeaders(),
       });
       assert.strictEqual(response.status, 200);
-      const plain = await response.text();
-      assert.ok(captured, 'GET /settings rendered the view');
-      assert.ok(!plain.includes('zr-settings-nav__featured'));
-      assert.ok(
-        !plain.includes('All options'),
-        'no caption without a featured entry'
-      );
-
-      const viewPath = path.join(root, 'views', 'settings.ejs');
-      const source = fs
-        .readFileSync(viewPath, 'utf8')
-        .replace(
-          "{ id: 'display', title: 'Display' }",
-          "{ id: 'display', title: 'Display', featured: true }"
-        );
-      assert.ok(source.includes("title: 'Display', featured: true"));
-      // What Express hands the view: the app's locals, the response's
-      // (theme and the rest of the shell) and the route's own.
-      const locals = {
-        ...harness.app.locals,
-        ...(captured._locals || {}),
-        ...captured,
-      };
-      const html = ejs.render(source, locals, { filename: viewPath });
+      const html = await response.text();
 
       const nav = html.slice(
         html.indexOf('<nav class="zr-sectionnav zr-settings-nav"'),
@@ -357,7 +326,7 @@ const ITEMS = [
         )
       );
       const featured = nav.indexOf(
-        '<a href="#display" class="zr-settings-nav__featured" data-entry-link="display"'
+        '<a href="#quick-start" class="zr-settings-nav__featured" data-entry-link="quick-start"'
       );
       assert.ok(featured !== -1, 'the featured link has its class');
       assert.ok(
@@ -366,13 +335,18 @@ const ITEMS = [
         'featured entry, then the caption, then the groups'
       );
       assert.strictEqual(
-        (nav.match(/data-entry-link="display"/g) || []).length,
+        (nav.match(/data-entry-link="quick-start"/g) || []).length,
         1,
         'listed once, not again under its group'
       );
       assert.ok(
-        nav.includes('data-entry-link="connection"'),
-        'Basics keeps its other entry'
+        !nav.includes('Essentials'),
+        'a group that holds only the featured entry shows no label'
+      );
+      assert.ok(
+        nav.includes('data-entry-link="connection"') &&
+          nav.includes('data-entry-link="display"'),
+        'Basics keeps its entries'
       );
 
       const picker = html.slice(
@@ -385,8 +359,12 @@ const ITEMS = [
       const options = [
         ...picker.matchAll(/<option value="([a-z-]+)"[^>]*>([^<]*)</g),
       ];
-      assert.strictEqual(options[0][1], 'display', 'first in the phone picker');
-      assert.strictEqual(options[0][2], 'Display', 'by its title alone');
+      assert.strictEqual(
+        options[0][1],
+        'quick-start',
+        'first in the phone picker'
+      );
+      assert.strictEqual(options[0][2], 'Quick start', 'by its title alone');
       assert.ok(picker.includes('>Basics › Paperless-ngx connection<'));
     } finally {
       await harness.close();
