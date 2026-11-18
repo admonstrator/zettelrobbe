@@ -1548,6 +1548,39 @@ function initializeFormHandlers() {
     });
   }
 
+  // OCR before the first analysis: one hint per value, the tag field only
+  // for "tagged", and the queue note says who works the queue, which follows
+  // the automatic processing switch.
+  const ocrBeforeAiSelect = document.getElementById('ocrBeforeAi');
+  const toggleOcrBeforeAiFields = () => {
+    if (!ocrBeforeAiSelect) return;
+    const mode = ocrBeforeAiSelect.value;
+    const queueRunsItself = ocrAutoProcessValueInput?.value === 'yes';
+    [
+      ['ocrBeforeAiHintOff', mode === 'off'],
+      ['ocrBeforeAiHintTagged', mode === 'tagged'],
+      ['ocrBeforeAiHintAll', mode === 'all'],
+      ['ocrBeforeAiTagContainer', mode === 'tagged'],
+      ['ocrBeforeAiQueueNote', mode !== 'off'],
+      ['ocrBeforeAiQueueManual', !queueRunsItself],
+      ['ocrBeforeAiQueueAuto', queueRunsItself],
+    ].forEach(([id, shown]) => {
+      document.getElementById(id)?.classList.toggle('hidden', !shown);
+    });
+    const queueNote = document.getElementById('ocrBeforeAiQueueNote');
+    queueNote?.classList.toggle('zr-alert--info', queueRunsItself);
+    queueNote?.classList.toggle('zr-alert--warn', !queueRunsItself);
+    document
+      .getElementById('ocrBeforeAiQueueIcon')
+      ?.setAttribute(
+        'href',
+        `/icons.svg#${queueRunsItself ? 'i-info' : 'i-alert'}`
+      );
+  };
+  ocrBeforeAiSelect?.addEventListener('change', toggleOcrBeforeAiFields);
+  ocrAutoProcessValueInput?.addEventListener('change', toggleOcrBeforeAiFields);
+  toggleOcrBeforeAiFields();
+
   const quickstartUrlInput = document.getElementById('settingsQuickstartUrl');
   const quickstartApiKeyInput = document.getElementById(
     'settingsQuickstartApiKey'
@@ -3312,6 +3345,8 @@ function initializeRuntimeOverridePills() {
       envKey: 'OCR_AUTO_PROCESS_BATCH_SIZE',
     },
     { selector: '#ocrAutoAnalyze', envKey: 'OCR_AUTO_ANALYZE' },
+    { selector: '#ocrBeforeAi', envKey: 'OCR_BEFORE_AI' },
+    { selector: '#ocrBeforeAiTag', envKey: 'OCR_BEFORE_AI_TAG' },
     { selector: '#pdfPasswords', envKey: 'PDF_PASSWORDS' },
     {
       selector: '#ocrValidationTimeout',

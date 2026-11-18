@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { stripTrailingSlashes } = require('../services/serviceUtils');
+const { normalizeOcrBeforeAiMode } = require('../services/ocrBeforeAi');
 const currentDir = decodeURIComponent(process.cwd());
 const envPath = path.join(currentDir, 'data', '.env');
 const migratedEnvPath = path.join(currentDir, 'data', '.env.migrated');
@@ -567,6 +568,11 @@ const mistralOcr = liveBlock({
   // content write-back leaves the OCR text local-only, where a regular
   // scan would never pick it up.
   autoAnalyze: () => envBool('OCR_AUTO_ANALYZE', 'yes'),
+  // OCR before the first AI analysis (services/ocrBeforeAi.js): off (OCR
+  // only as a fallback), tagged (documents carrying ocrBeforeAiTag) or all.
+  // Anything else reads as off. Does nothing while OCR is switched off.
+  ocrBeforeAi: () => normalizeOcrBeforeAiMode(env('OCR_BEFORE_AI', 'off')),
+  ocrBeforeAiTag: () => env('OCR_BEFORE_AI_TAG', 'needs-ocr').trim(),
   // Passwords tried on PDFs that cannot be opened without one, stored as a
   // JSON array; services/pdfPasswordService.js reads it into a list.
   pdfPasswords: () => process.env.PDF_PASSWORDS || '',

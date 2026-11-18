@@ -156,6 +156,8 @@ const TESTS = {
   'log-secret-redaction': 'test-log-secret-redaction.js',
   'ocr-queue-requeue-guard': 'test-ocr-queue-requeue-guard.js',
   'ocr-queue-add-endpoint': 'test-ocr-queue-add-endpoint.js',
+  'ocr-before-ai': 'test-ocr-before-ai.js',
+  'ocr-before-ai-once': 'test-ocr-before-ai-once.js',
   'entity-merge-model': 'test-entity-merge-model.js',
   'entity-name-matcher': 'test-entity-name-matcher.js',
   'duplicate-merge-service': 'test-duplicate-merge-service.js',
@@ -246,6 +248,8 @@ const AREAS = {
     'ocr-empty-result-guard',
     'ocr-queue-requeue-guard',
     'ocr-queue-add-endpoint',
+    'ocr-before-ai',
+    'ocr-before-ai-once',
   ],
   observability: [
     'changelog-releases',

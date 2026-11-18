@@ -40,6 +40,12 @@ const {
   serializePasswordList,
 } = require('./pdfPasswordService');
 const { normalizeOcrPrompt } = require('./ocrPrompt');
+const {
+  OCR_BEFORE_AI_MODES,
+  DEFAULT_OCR_BEFORE_AI_MODE,
+  DEFAULT_OCR_BEFORE_AI_TAG,
+  parseOcrBeforeAiMode,
+} = require('./ocrBeforeAi');
 const { REASONING_EFFORT_LEVELS } = require('./aiProviderRules');
 
 /**
@@ -1127,6 +1133,36 @@ const CATALOG = Object.freeze([
       default: 'yes',
       field: 'ocrAutoAnalyze',
       parse: yesNoString,
+      ...PS,
+    }),
+    setting('OCR_BEFORE_AI', {
+      type: 'enum',
+      default: DEFAULT_OCR_BEFORE_AI_MODE,
+      values: OCR_BEFORE_AI_MODES,
+      field: 'ocrBeforeAi',
+      // An unknown value is saved as off, the behaviour without the setting:
+      // a typo must not send every document to a paid OCR service.
+      parse: (raw) => {
+        if (raw === undefined) return {};
+        const mode = parseOcrBeforeAiMode(raw);
+        if (mode) return { value: mode };
+        return {
+          value: DEFAULT_OCR_BEFORE_AI_MODE,
+          warning: `[WARN] Invalid OCR_BEFORE_AI value: ${String(raw)}. Using default: ${DEFAULT_OCR_BEFORE_AI_MODE}`,
+        };
+      },
+      ...PS,
+    }),
+    setting('OCR_BEFORE_AI_TAG', {
+      type: 'string',
+      default: DEFAULT_OCR_BEFORE_AI_TAG,
+      field: 'ocrBeforeAiTag',
+      // A cleared field brings the default back rather than a tag no
+      // document can carry.
+      parse: (raw) =>
+        typeof raw === 'string'
+          ? { value: raw.trim() || DEFAULT_OCR_BEFORE_AI_TAG }
+          : {},
       ...PS,
     }),
     setting('PDF_PASSWORDS', {

@@ -179,6 +179,8 @@
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>AI failed (unknown)',
       manual:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-user"/></svg>Manual',
+      ocr_before_ai:
+        '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-scan"/></svg>OCR before analysis',
     };
 
     if (reasonMap[reason]) {

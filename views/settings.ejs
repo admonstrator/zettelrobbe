@@ -773,6 +773,39 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <%
+                                        // OCR before the first analysis (OCR_BEFORE_AI). An unknown stored
+                                        // value reads as off, as config/config.js reads it.
+                                        const ocrBeforeAiStored = String(config.OCR_BEFORE_AI || 'off').trim().toLowerCase();
+                                        const ocrBeforeAiMode = ['off', 'tagged', 'all'].includes(ocrBeforeAiStored) ? ocrBeforeAiStored : 'off';
+                                        const ocrQueueRunsItself = (config.OCR_AUTO_PROCESS_ENABLED || 'no') === 'yes';
+                                    %>
+                                    <div id="ocrBeforeAiContainer" class="zr-col zr-col--loose">
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="ocrBeforeAi" class="zr-field__name">OCR Before the First Analysis</label>
+                                            <select id="ocrBeforeAi" name="ocrBeforeAi" class="zr-input">
+                                                <option value="off" <%= ocrBeforeAiMode === 'off' ? 'selected' : '' %>>Off: OCR only when needed</option>
+                                                <option value="tagged" <%= ocrBeforeAiMode === 'tagged' ? 'selected' : '' %>>Documents with a tag</option>
+                                                <option value="all" <%= ocrBeforeAiMode === 'all' ? 'selected' : '' %>>Every document not analysed yet</option>
+                                            </select>
+                                            <p id="ocrBeforeAiHintOff" class="zr-field__hint <%= ocrBeforeAiMode === 'off' ? '' : 'hidden' %>">Documents are analysed with the text Paperless-ngx recognised. OCR only steps in when that text is too short or the analysis fails.</p>
+                                            <p id="ocrBeforeAiHintTagged" class="zr-field__hint <%= ocrBeforeAiMode === 'tagged' ? '' : 'hidden' %>">Documents not analysed yet that carry the tag below go to the OCR queue first and are analysed once OCR has read them. All other documents are analysed right away.</p>
+                                            <p id="ocrBeforeAiHintAll" class="zr-field__hint <%= ocrBeforeAiMode === 'all' ? '' : 'hidden' %>">Every document Zettelrobbe has not analysed yet goes to the OCR queue first and is analysed once OCR has read it. A local model costs only time. A paid OCR service such as Mistral or Claude bills one OCR run per document, which adds up quickly, above all on the first scan of an existing archive.</p>
+                                        </div>
+                                        <div id="ocrBeforeAiTagContainer" class="zr-field zr-field--stacked <%= ocrBeforeAiMode === 'tagged' ? '' : 'hidden' %>">
+                                            <label for="ocrBeforeAiTag" class="zr-field__name">OCR Tag</label>
+                                            <input type="text" id="ocrBeforeAiTag" name="ocrBeforeAiTag" value="<%= config.OCR_BEFORE_AI_TAG || 'needs-ocr' %>" class="zr-input" placeholder="needs-ocr" autocomplete="off" spellcheck="false">
+                                            <p class="zr-field__hint">The Paperless-ngx tag that sends a document to OCR first; upper and lower case do not matter. While no tag has this name, no document is sent. To take the tag off afterwards, add it to "Also remove these tags" under Schedule and tag filters.</p>
+                                        </div>
+                                        <div id="ocrBeforeAiQueueNote" class="zr-alert <%= ocrQueueRunsItself ? 'zr-alert--info' : 'zr-alert--warn' %> <%= ocrBeforeAiMode === 'off' ? 'hidden' : '' %>">
+                                            <svg class="zr-icon" aria-hidden="true"><use id="ocrBeforeAiQueueIcon" href="/icons.svg#<%= ocrQueueRunsItself ? 'i-info' : 'i-alert' %>"/></svg>
+                                            <div class="zr-alert__body zr-col">
+                                                <p id="ocrBeforeAiQueueManual" class="zr-sm <%= ocrQueueRunsItself ? 'hidden' : '' %>">Automatic OCR processing is off, so these documents wait in the OCR queue until someone presses "Process All Pending" on the OCR page. Switch on "Process OCR Queue Automatically" below to have it done on a schedule.</p>
+                                                <p id="ocrBeforeAiQueueAuto" class="zr-sm <%= ocrQueueRunsItself ? '' : 'hidden' %>">These documents wait in the OCR queue until its next automatic run.</p>
+                                                <p class="zr-sm">Each document goes through OCR first at most once. Documents that had OCR before, and rescans you start by hand, are analysed directly.</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div id="ocrAutoProcessContainer" class="zr-col zr-col--loose">
                                         <%- include('partials/settings-switch', {
                                             id: 'ocrAutoProcessEnabled',

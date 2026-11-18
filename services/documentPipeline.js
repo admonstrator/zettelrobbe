@@ -26,6 +26,7 @@ const paperlessService = require('./paperlessService.js');
 const AIServiceFactory = require('./aiServiceFactory');
 const mistralOcrService = require('./mistralOcrService');
 const skipRuleService = require('./skipRuleService');
+const { OCR_BEFORE_AI_REASON, documentCarriesTag } = require('./ocrBeforeAi');
 const {
   shouldQueueForOcrOnAiError,
   classifyOcrQueueReasonFromAiError,
@@ -61,11 +62,16 @@ const {
  *   every unprocessed document on every tick and would retry forever. A
  *   webhook or a rescan is one delivery or one click for one document, and
  *   no loop brings it back.
+ * @property {boolean} applyOcrBeforeAi - send the document through the OCR
+ *   queue before its first analysis when OCR_BEFORE_AI applies to it. The
+ *   scan and the webhook meet a new document there. Off for a rescan: the
+ *   person asked for an analysis now, of a document that was analysed
+ *   before, and can send it to OCR by hand instead.
  */
 
 /**
  * The three callers. A rescan by hand is the webhook path without the ignored
- * list and the skip rules.
+ * list, the skip rules and OCR before the first analysis.
  *
  * @type {Readonly<Record<PipelineSource, Readonly<CallerProfile>>>}
  */
@@ -75,18 +81,21 @@ const CALLER_PROFILES = Object.freeze({
     checkIgnoredList: true,
     applySkipRules: true,
     trackRetries: true,
+    applyOcrBeforeAi: true,
   }),
   webhook: Object.freeze({
     logAlreadyProcessed: true,
     checkIgnoredList: true,
     applySkipRules: true,
     trackRetries: false,
+    applyOcrBeforeAi: true,
   }),
   rescan: Object.freeze({
     logAlreadyProcessed: true,
     checkIgnoredList: false,
     applySkipRules: false,
     trackRetries: false,
+    applyOcrBeforeAi: false,
   }),
 });
 
@@ -204,9 +213,10 @@ class DocumentPipeline {
   /**
    * Checks whether the document is due, fetches it and has the AI service
    * analyse it. Returns null when the document is skipped (already processed,
-   * failed before, ignored, not editable, matched by a skip rule, too short,
-   * waiting for OCR, out of attempts). Throws when the analysis failed; the
-   * failure is recorded, or the document queued for OCR, before it throws.
+   * failed before, ignored, not editable, matched by a skip rule, sent to OCR
+   * before its first analysis, too short, waiting for OCR, out of attempts).
+   * Throws when the analysis failed; the failure is recorded, or the document
+   * queued for OCR, before it throws.
    *
    * @param {PipelineDocument} doc
    * @param {string[]} existingTags - tag names
@@ -290,6 +300,29 @@ class DocumentPipeline {
     ) {
       this.forgetAttempts(profile, doc.id);
       return null;
+    }
+
+    // OCR before the first analysis (OCR_BEFORE_AI). After the skip rules, so
+    // an ignored document costs neither OCR nor AI; before the short-content
+    // branch, which would queue the same document under another reason. With
+    // OCR switched off the setting does nothing.
+    if (profile.applyOcrBeforeAi && mistralOcrService.isEnabled()) {
+      const step = await this.ocrBeforeAiStep(doc, originalData);
+      if (step === 'queue') {
+        const added = await this.queueForOcr(doc, OCR_BEFORE_AI_REASON);
+        if (added) {
+          // The analysis will read new text; failures on the old one no
+          // longer count against it.
+          this.forgetAttempts(profile, doc.id);
+          console.info(
+            `Document ${doc.id} queued for OCR before its first analysis (${OCR_BEFORE_AI_REASON})`
+          );
+        }
+        return null;
+      }
+      if (step === 'analyse') {
+        content = await this.textAfterOcr(doc.id, content);
+      }
     }
 
     // Read per document: a saved MIN_CONTENT_LENGTH applies to the next one.
@@ -455,6 +488,93 @@ class DocumentPipeline {
       this.retryTracker.set(doc.id, attempts + 1);
     }
     throw new Error(`[ERROR] Document analysis failed: ${aiErrorMessage}`);
+  }
+
+  /**
+   * What OCR before the first analysis (OCR_BEFORE_AI) asks of a document
+   * that is about to be analysed:
+   *
+   * - 'none': the setting is off, or the document lacks the tag `tagged`
+   *   looks for
+   * - 'queue': it applies and the document was never sent to OCR; it goes to
+   *   the OCR queue now and is analysed once OCR has read it
+   * - 'analyse': it applies, but the document was sent to OCR before (by
+   *   this setting, by hand or as a fallback). That run is over, failed or
+   *   was removed from the queue, so the document is analysed now and never
+   *   queued again.
+   *
+   * At most once per document: ocr_queue_history remembers every document
+   * that was ever queued, also after its queue row is gone (done and written
+   * back, removed on the OCR page). A row that is still pending or
+   * processing never gets this far (isWaitingForOcr).
+   *
+   * `tagged` matches the tag by name, case-insensitively, through the cached
+   * tag list of paperlessService rather than one request per document. A
+   * name no tag has matches nothing. A tag list that cannot be read throws:
+   * the document is left for the next run instead of being analysed on the
+   * text it was meant to have replaced first.
+   *
+   * @param {PipelineDocument} doc
+   * @param {any} originalData - the document as Paperless-ngx holds it
+   * @returns {Promise<'none'|'queue'|'analyse'>}
+   */
+  async ocrBeforeAiStep(doc, originalData) {
+    const mode = config.mistralOcr?.ocrBeforeAi;
+    if (mode !== 'tagged' && mode !== 'all') {
+      return 'none';
+    }
+
+    if (mode === 'tagged') {
+      const tagName = String(config.mistralOcr?.ocrBeforeAiTag || '').trim();
+      if (!tagName) {
+        return 'none';
+      }
+      /** @type {any[]} */
+      let tags;
+      try {
+        tags = await paperlessService.getTags();
+      } catch (error) {
+        throw new Error(
+          `Could not read the Paperless-ngx tag list to look for the OCR tag "${tagName}": ${/** @type {Error} */ (error).message}`,
+          { cause: error }
+        );
+      }
+      const documentTags = originalData?.tags ?? doc.tags;
+      if (!documentCarriesTag(documentTags, tagName, tags)) {
+        return 'none';
+      }
+    }
+
+    return (await documentModel.wasEverQueuedForOcr(doc.id))
+      ? 'analyse'
+      : 'queue';
+  }
+
+  /**
+   * The text an analysis after OCR reads: normally what Paperless-ngx holds,
+   * which is the OCR text once the run wrote it back. When Paperless-ngx
+   * refused the write-back, the OCR text exists only in the queue row, and
+   * the analysis reads it from there rather than the text OCR was meant to
+   * replace.
+   *
+   * @param {number} documentId
+   * @param {any} content - the text Paperless-ngx holds
+   * @returns {Promise<any>}
+   */
+  async textAfterOcr(documentId, content) {
+    const queueItem = await documentModel.getOcrQueueItem(documentId);
+    const ocrText = queueItem?.ocr_text;
+    if (
+      queueItem?.wrote_back === 0 &&
+      typeof ocrText === 'string' &&
+      ocrText.trim()
+    ) {
+      console.info(
+        `Document ${documentId}: analysing the text of its OCR run, which Paperless-ngx did not accept`
+      );
+      return ocrText;
+    }
+    return content;
   }
 
   /**
