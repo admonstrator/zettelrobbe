@@ -128,7 +128,7 @@ class FormManager {
     const value = parseInt(this.tokenLimit.value, 10);
     if (isNaN(value) || value < 1) {
       this.tokenLimit.setCustomValidity(
-        'Token Limit must be a positive integer.'
+        'Document length limit: a whole number above 0.'
       );
     } else {
       this.tokenLimit.setCustomValidity('');
@@ -139,7 +139,7 @@ class FormManager {
     const value = parseInt(this.responseTokens.value, 10);
     if (isNaN(value) || value < 0) {
       this.responseTokens.setCustomValidity(
-        'Response tokens must be a non-negative integer.'
+        'Answer length: a whole number, 0 or more.'
       );
     } else {
       this.responseTokens.setCustomValidity('');
@@ -479,7 +479,7 @@ function initializeFormHandlers() {
   const testOcrBtn = document.getElementById('testOcrBtn');
   const ocrTestState = document.getElementById('ocrTestState');
 
-  const setButtonLoading = (button, loading, loadingText = 'Loading...') => {
+  const setButtonLoading = (button, loading, loadingText = 'Loading…') => {
     if (!button) return;
     if (loading) {
       if (!button.dataset.originalHtml) {
@@ -577,7 +577,7 @@ function initializeFormHandlers() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) {
       throw new Error(
-        result.error || result.message || 'Model discovery failed'
+        result.error || result.message || 'Could not load the models.'
       );
     }
 
@@ -724,15 +724,15 @@ function initializeFormHandlers() {
   };
 
   const buildTimeoutUiMessage = (scope, timeoutMs, originalMessage = '') => {
-    const normalizedScope = String(scope || 'Request').trim();
+    const normalizedScope = String(scope || 'The request').trim();
     const timeoutPart =
       Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
-        ? ` after ${Number(timeoutMs)}ms`
+        ? ` after ${Number(timeoutMs) / 1000} seconds`
         : '';
     const original = String(originalMessage || '').trim();
     return original
-      ? `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed. Original error: ${original}`
-      : `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed.`;
+      ? `${normalizedScope} took too long${timeoutPart}. Check that the server is reachable, or raise the timeout. The error was: ${original}`
+      : `${normalizedScope} took too long${timeoutPart}. Check that the server is reachable, or raise the timeout.`;
   };
 
   const getTimeoutAwareErrorDetails = (scope, error, timeoutMs) => {
@@ -760,8 +760,8 @@ function initializeFormHandlers() {
       if (provider !== 'ollama') {
         await zrDialog({
           icon: 'info',
-          title: 'Switch provider',
-          text: 'Use this button with AI Provider set to Ollama.',
+          title: 'Ollama is not selected',
+          text: 'This button lists the models while Ollama is the AI provider.',
         });
         return;
       }
@@ -769,8 +769,8 @@ function initializeFormHandlers() {
       if (!apiUrl) {
         await zrDialog({
           icon: 'warning',
-          title: 'Missing URL',
-          text: 'Please enter the Ollama API URL first.',
+          title: 'No server address',
+          text: 'Enter the server address of Ollama first.',
         });
         return;
       }
@@ -790,25 +790,25 @@ function initializeFormHandlers() {
 
         populateModelSelect(ollamaModelInput, models, 'Select Ollama model');
         const resolvedInfo = result.resolvedApiUrl
-          ? `\nResolved API URL: ${result.resolvedApiUrl}`
+          ? `\nAddress in use: ${result.resolvedApiUrl}`
           : '';
         await zrDialog({
           icon: 'success',
           title: 'Models loaded',
-          text: `${models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.'}${resolvedInfo}`,
+          text: `${models.length > 0 ? `Models found: ${models.length}.` : 'The server lists no model.'}${resolvedInfo}`,
         });
         refreshAiProviderChoice();
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
-          'AI model discovery',
+          'Loading the models',
           error,
           null
         );
         await zrDialog({
           icon: 'error',
           title: errorDetails.isTimeout
-            ? 'AI timeout reached'
-            : 'Loading failed',
+            ? 'The server took too long'
+            : 'Models not loaded',
           text: errorDetails.message,
         });
       } finally {
@@ -828,8 +828,8 @@ function initializeFormHandlers() {
       if (provider !== 'custom') {
         await zrDialog({
           icon: 'info',
-          title: 'Switch provider',
-          text: 'Use this button with AI Provider set to Custom.',
+          title: 'OpenAI-compatible is not selected',
+          text: 'This button lists the models while an OpenAI-compatible server is the AI provider.',
         });
         return;
       }
@@ -837,8 +837,8 @@ function initializeFormHandlers() {
       if (!apiUrl) {
         await zrDialog({
           icon: 'warning',
-          title: 'Missing URL',
-          text: 'Please enter the custom base URL first.',
+          title: 'No server address',
+          text: 'Enter the server address first.',
         });
         return;
       }
@@ -858,25 +858,25 @@ function initializeFormHandlers() {
 
         populateModelSelect(customModelInput, models, 'Select custom model');
         const resolvedInfo = result.resolvedApiUrl
-          ? `\nResolved API URL: ${result.resolvedApiUrl}`
+          ? `\nAddress in use: ${result.resolvedApiUrl}`
           : '';
         await zrDialog({
           icon: 'success',
           title: 'Models loaded',
-          text: `${models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.'}${resolvedInfo}`,
+          text: `${models.length > 0 ? `Models found: ${models.length}.` : 'The server lists no model.'}${resolvedInfo}`,
         });
         refreshAiProviderChoice();
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
-          'AI model discovery',
+          'Loading the models',
           error,
           null
         );
         await zrDialog({
           icon: 'error',
           title: errorDetails.isTimeout
-            ? 'AI timeout reached'
-            : 'Loading failed',
+            ? 'The server took too long'
+            : 'Models not loaded',
           text: errorDetails.message,
         });
       } finally {
@@ -917,7 +917,7 @@ function initializeFormHandlers() {
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.success) {
           throw new Error(
-            result.error || result.message || 'Model discovery failed'
+            result.error || result.message || 'Could not load the models.'
           );
         }
 
@@ -929,13 +929,13 @@ function initializeFormHandlers() {
           icon: result.live === false ? 'warning' : 'success',
           title:
             result.live === false ? 'Suggested models shown' : 'Models loaded',
-          text: result.message || `Found ${models.length} model(s).`,
+          text: result.message || `Models found: ${models.length}.`,
         });
       } catch (error) {
         fillAnthropicModelSelect(anthropicSuggestedModelIds);
         await zrDialog({
           icon: 'error',
-          title: 'Loading failed',
+          title: 'Models not loaded',
           text: String(error?.message || error),
         });
       } finally {
@@ -984,8 +984,8 @@ function initializeFormHandlers() {
       if (['custom', 'ollama'].includes(provider) && !connection.apiUrl) {
         await zrDialog({
           icon: 'warning',
-          title: 'Missing URL',
-          text: 'Please enter the API URL under AI provider first.',
+          title: 'No server address',
+          text: 'Enter the server address under AI provider first.',
         });
         return;
       }
@@ -1011,20 +1011,20 @@ function initializeFormHandlers() {
           text:
             result.message ||
             (result.models.length > 0
-              ? `Found ${result.models.length} model(s).`
-              : 'No models found.'),
+              ? `Models found: ${result.models.length}.`
+              : 'The server lists no model.'),
         });
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
-          'AI model discovery',
+          'Loading the models',
           error,
           null
         );
         await zrDialog({
           icon: 'error',
           title: errorDetails.isTimeout
-            ? 'AI timeout reached'
-            : 'Loading failed',
+            ? 'The server took too long'
+            : 'Models not loaded',
           text: errorDetails.message,
         });
       } finally {
@@ -1252,7 +1252,7 @@ function initializeFormHandlers() {
     const count = Number(pdfPasswordsDeleteBtn.dataset.count) || 0;
     const answer = await zrDialog({
       icon: 'warning',
-      title: 'Delete All Passwords',
+      title: 'Delete all passwords?',
       text: `${count === 1 ? 'The stored PDF password is' : `All ${count} stored PDF passwords are`} deleted. Locked documents can then only be unlocked with a password typed in again.`,
       showCancelButton: true,
       confirmButtonText: 'Delete',
@@ -1449,15 +1449,15 @@ function initializeFormHandlers() {
       if (!baseUrl) {
         await zrDialog({
           icon: 'warning',
-          title: 'URL required',
-          text: 'Enter the base URL of your AI server first.',
+          title: 'No server address',
+          text: 'Enter the address of the AI server first.',
         });
         return;
       }
 
-      setButtonLoading(quickstartDetectBtn, true, 'Detecting...');
+      setButtonLoading(quickstartDetectBtn, true, 'Detecting…');
       if (quickstartStateLabel) {
-        quickstartStateLabel.textContent = 'Detecting...';
+        quickstartStateLabel.textContent = 'Detecting…';
       }
 
       try {
@@ -1472,7 +1472,7 @@ function initializeFormHandlers() {
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.success) {
           throw new Error(
-            result.error || result.message || 'Quickstart detection failed'
+            result.error || result.message || 'Could not detect the server.'
           );
         }
 
@@ -1491,9 +1491,7 @@ function initializeFormHandlers() {
         populateModelSelect(
           quickstartAiModelSelect,
           textModels,
-          textModels.length > 0
-            ? 'Select AI model'
-            : 'No text-capable models found'
+          textModels.length > 0 ? 'Select AI model' : 'No model for text found'
         );
         if (quickstartDetection?.suggestedAiModel && quickstartAiModelSelect) {
           quickstartAiModelSelect.value = quickstartDetection.suggestedAiModel;
@@ -1519,7 +1517,7 @@ function initializeFormHandlers() {
         }
 
         if (quickstartHint) {
-          quickstartHint.textContent = result.message || 'Detection complete.';
+          quickstartHint.textContent = result.message || 'Detection done.';
         }
         if (quickstartResults) {
           quickstartResults.classList.remove('hidden');
@@ -1539,14 +1537,14 @@ function initializeFormHandlers() {
           quickstartStateLabel.textContent = 'Detection failed';
         }
         const errorDetails = getTimeoutAwareErrorDetails(
-          'Quickstart detection',
+          'Detecting the server',
           error,
           null
         );
         await zrDialog({
           icon: 'error',
           title: errorDetails.isTimeout
-            ? 'Detection timeout reached'
+            ? 'The server took too long'
             : 'Detection failed',
           text: errorDetails.message,
         });
@@ -1560,8 +1558,8 @@ function initializeFormHandlers() {
     if (!quickstartDetection) {
       await zrDialog({
         icon: 'warning',
-        title: 'Detection required',
-        text: 'Run detection first.',
+        title: 'Nothing detected yet',
+        text: 'Press Detect models first.',
       });
       return null;
     }
@@ -1570,8 +1568,8 @@ function initializeFormHandlers() {
     if (!selectedAiModel) {
       await zrDialog({
         icon: 'warning',
-        title: 'No AI model selected',
-        text: 'Choose an AI model before applying.',
+        title: 'No model chosen',
+        text: 'Choose a model for the analysis first.',
       });
       return null;
     }
@@ -1665,8 +1663,8 @@ function initializeFormHandlers() {
 
       if (quickstartApplyHint) {
         quickstartApplyHint.textContent = applied.appliedOcr
-          ? 'AI and OCR fields were prefilled — review the OCR tab, then save.'
-          : 'AI fields were prefilled — review, then save.';
+          ? 'AI provider and OCR are filled in. Check them, then save.'
+          : 'AI provider is filled in. Check it, then save.';
       }
     });
   }
@@ -1731,9 +1729,7 @@ function initializeFormHandlers() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(
-          result.error || result.message || `${scope} test failed`
-        );
+        throw new Error(result.error || result.message || `${scope} failed.`);
       }
       return {
         success: Boolean(result.success),
@@ -1758,18 +1754,18 @@ function initializeFormHandlers() {
       setQuickstartTestRowState(
         'modelTestAiRow',
         'pending',
-        `AI model "${applied.aiModel}": testing...`
+        `AI model "${applied.aiModel}": testing…`
       );
       setQuickstartTestRowState(
         'modelTestOcrRow',
         applied.appliedOcr ? 'pending' : 'skipped',
         applied.appliedOcr
-          ? `OCR model "${applied.ocrModel}": waiting...`
-          : 'OCR fallback disabled — test skipped.'
+          ? `OCR model "${applied.ocrModel}": waiting…`
+          : 'OCR is off, so there is nothing to test.'
       );
       toggleModelTestOverlay(
         true,
-        'Validating the selected models against your AI server…'
+        'Testing the chosen models on the AI server…'
       );
 
       const aiResult = await runQuickstartModelTest(
@@ -1780,13 +1776,13 @@ function initializeFormHandlers() {
           token: applied.apiKey,
           model: applied.aiModel,
         },
-        'AI connection test'
+        'The AI test'
       );
       setQuickstartTestRowState(
         'modelTestAiRow',
         aiResult.success ? 'success' : 'error',
         aiResult.success
-          ? `AI model "${applied.aiModel}": connection valid`
+          ? `AI model "${applied.aiModel}": works`
           : `AI model "${applied.aiModel}": test failed`
       );
 
@@ -1795,22 +1791,22 @@ function initializeFormHandlers() {
         setQuickstartTestRowState(
           'modelTestOcrRow',
           'pending',
-          `OCR model "${applied.ocrModel}": testing...`
+          `OCR model "${applied.ocrModel}": testing…`
         );
         ocrResult = await runQuickstartModelTest(
           '/api/settings/ocr/test',
           ocrTestPayload(),
-          'OCR connection test'
+          'The OCR test'
         );
         setQuickstartTestRowState(
           'modelTestOcrRow',
           ocrResult.success ? 'success' : 'error',
           ocrResult.success
-            ? `OCR model "${applied.ocrModel}": connection valid`
+            ? `OCR model "${applied.ocrModel}": works`
             : `OCR model "${applied.ocrModel}": test failed`
         );
         if (ocrResult.success) {
-          setOcrTestPill('success', 'Connection valid');
+          setOcrTestPill('success', 'Works');
         } else {
           setOcrTestPill('error', 'Test failed');
         }
@@ -1836,7 +1832,7 @@ function initializeFormHandlers() {
         await zrDialog({
           icon: 'error',
           title: 'Model test failed',
-          text: `${failures.join('\n')}\n\nAdjust the model selection and try again.`,
+          text: `${failures.join('\n')}\n\nChoose another model and try again.`,
         });
         return;
       }
@@ -1852,7 +1848,7 @@ function initializeFormHandlers() {
     testOcrBtn.addEventListener('click', async () => {
       const enabled = ocrEnabledSelect?.value === 'yes';
       if (!enabled) {
-        setOcrTestPill('success', 'Disabled (skipped)');
+        setOcrTestPill('success', 'OCR is off');
         return;
       }
 
@@ -1862,7 +1858,7 @@ function initializeFormHandlers() {
       testOcrBtn.disabled = true;
       testOcrBtn.innerHTML =
         '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg><span>Testing...</span>';
-      setOcrTestPill('loading', 'Testing...');
+      setOcrTestPill('loading', 'Testing…');
 
       try {
         const response = await fetch('/api/settings/ocr/test', {
@@ -1875,33 +1871,35 @@ function initializeFormHandlers() {
 
         const result = await response.json();
         if (!response.ok || !result.success) {
-          throw new Error(result.error || result.message || 'OCR test failed');
+          throw new Error(
+            result.error || result.message || 'The OCR test failed.'
+          );
         }
 
         if (result.resolvedApiUrl && ocrApiUrlInput) {
           ocrApiUrlInput.value = String(result.resolvedApiUrl).trim();
         }
 
-        setOcrTestPill('success', 'Connection valid');
+        setOcrTestPill('success', 'Works');
         await zrDialog({
           icon: 'success',
-          title: 'OCR test successful',
-          text: result.message || 'OCR provider is reachable.',
+          title: 'OCR works',
+          text: result.message || 'The OCR provider answered.',
         });
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
-          'OCR response',
+          'The OCR test',
           error,
           payload.setupOcrValidationTimeoutMs
         );
         setOcrTestPill(
           'error',
-          errorDetails.isTimeout ? 'Timeout reached' : 'Test failed'
+          errorDetails.isTimeout ? 'Too slow' : 'Test failed'
         );
         await zrDialog({
           icon: 'error',
           title: errorDetails.isTimeout
-            ? 'OCR timeout reached'
+            ? 'The OCR server took too long'
             : 'OCR test failed',
           text: errorDetails.message,
         });
@@ -1948,7 +1946,7 @@ function initializeFormHandlers() {
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.success) {
           throw new Error(
-            result.error || result.message || 'Model discovery failed'
+            result.error || result.message || 'Could not load the models.'
           );
         }
 
@@ -1983,19 +1981,20 @@ function initializeFormHandlers() {
             result.live === false
               ? 'Suggested models shown'
               : 'OCR models loaded',
-          text: models.length > 0 ? result.message : 'No models found.',
+          text:
+            models.length > 0 ? result.message : 'The server lists no model.',
         });
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
-          'OCR model discovery',
+          'Loading the OCR models',
           error,
           getOcrValidationTimeoutMs()
         );
         await zrDialog({
           icon: 'error',
           title: errorDetails.isTimeout
-            ? 'OCR timeout reached'
-            : 'Loading failed',
+            ? 'The OCR server took too long'
+            : 'Models not loaded',
           text: errorDetails.message,
         });
       } finally {
@@ -2072,7 +2071,7 @@ function initializeFormHandlers() {
 
       const result = await response.json();
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to load thumbnail cache stats');
+        throw new Error(result.error || 'Could not read the thumbnail cache.');
       }
 
       renderThumbnailCacheStats(result.data || {});
@@ -2111,7 +2110,7 @@ function initializeFormHandlers() {
     }
     setRestartProgress(
       6,
-      initialMessage || 'Saving changes and waiting for server health check…'
+      initialMessage || 'Saving and waiting for Zettelrobbe to start again…'
     );
   }
 
@@ -2167,7 +2166,7 @@ function initializeFormHandlers() {
   async function waitForServerRecovery() {
     const timeoutMs = 180000;
     const startedAt = Date.now();
-    setRestartProgress(12, 'Restart in progress… checking server health.');
+    setRestartProgress(12, 'Restarting. Waiting for Zettelrobbe to answer…');
     startRestartProgressInterval();
 
     while (Date.now() - startedAt < timeoutMs) {
@@ -2176,7 +2175,7 @@ function initializeFormHandlers() {
         const healthy = await isRestartedServerHealthy();
         if (healthy) {
           stopRestartProgressInterval();
-          setRestartProgress(100, 'Server is back. Reloading page…');
+          setRestartProgress(100, 'Zettelrobbe is back. Reloading the page…');
           await delay(500);
           window.location.reload();
           return;
@@ -2189,7 +2188,7 @@ function initializeFormHandlers() {
     stopRestartProgressInterval();
     setRestartProgress(
       95,
-      'Still waiting for server. You can retry the health check or reload manually.'
+      'Zettelrobbe has not answered yet. Check again or reload the page.'
     );
     if (restartOverlayActions) {
       restartOverlayActions.classList.remove('hidden');
@@ -2222,7 +2221,7 @@ function initializeFormHandlers() {
         // Disable button and show loading state
         btn.disabled = true;
         btn.innerHTML =
-          '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Clearing Cache...';
+          '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Clearing…';
 
         const response = await fetch('/api/settings/clear-tag-cache', {
           method: 'POST',
@@ -2236,20 +2235,22 @@ function initializeFormHandlers() {
         if (result.success) {
           await zrDialog({
             icon: 'success',
-            title: 'Cache Cleared!',
-            text: result.message || 'Tag cache has been cleared successfully.',
+            title: 'Tag cache cleared',
+            text:
+              result.message ||
+              'Zettelrobbe reads the tags from Paperless-ngx again.',
             timer: 2000,
             showConfirmButton: false,
           });
         } else {
-          throw new Error(result.error || 'Failed to clear cache');
+          throw new Error(result.error || 'Could not clear the tag cache.');
         }
       } catch (error) {
         console.error('Error clearing tag cache:', error);
         await zrDialog({
           icon: 'error',
           title: 'Error',
-          text: error.message || 'Failed to clear tag cache. Please try again.',
+          text: error.message || 'Could not clear the tag cache.',
         });
       } finally {
         // Restore button state
@@ -2276,11 +2277,11 @@ function initializeFormHandlers() {
       const confirmResult = await zrDialog({
         icon: 'warning',
         title: 'Clear thumbnail cache?',
-        text: 'This will delete all locally cached thumbnail previews. They will be downloaded again when needed.',
+        text: 'Zettelrobbe deletes the stored previews and fetches each one from Paperless-ngx again when it is needed.',
         showCancelButton: true,
         confirmButtonColor: '#d33',
         cancelButtonColor: '#3085d6',
-        confirmButtonText: 'Yes, clear thumbnail cache',
+        confirmButtonText: 'Clear',
       });
 
       if (!confirmResult.isConfirmed) {
@@ -2292,7 +2293,7 @@ function initializeFormHandlers() {
       try {
         clearThumbnailCacheBtn.disabled = true;
         clearThumbnailCacheBtn.innerHTML =
-          '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Clearing...';
+          '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Clearing…';
 
         const response = await fetch('/api/settings/thumbnail-cache/clear', {
           method: 'POST',
@@ -2303,7 +2304,9 @@ function initializeFormHandlers() {
 
         const result = await response.json();
         if (!response.ok || !result.success) {
-          throw new Error(result.error || 'Failed to clear thumbnail cache');
+          throw new Error(
+            result.error || 'Could not clear the thumbnail cache.'
+          );
         }
 
         renderThumbnailCacheStats(result.remaining || {});
@@ -2317,8 +2320,8 @@ function initializeFormHandlers() {
         console.error('Error clearing thumbnail cache:', error);
         await zrDialog({
           icon: 'error',
-          title: 'Action failed',
-          text: error.message || 'Failed to clear thumbnail cache.',
+          title: 'Not cleared',
+          text: error.message || 'Could not clear the thumbnail cache.',
         });
       } finally {
         clearThumbnailCacheBtn.disabled = false;
@@ -2340,7 +2343,7 @@ function initializeFormHandlers() {
 
       btn.disabled = true;
       btn.innerHTML =
-        '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Running...';
+        '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Cleaning up…';
       if (resultDiv) {
         resultDiv.className = 'mt-3';
         resultDiv.innerHTML =
@@ -2395,21 +2398,21 @@ function initializeFormHandlers() {
           if (resultDiv) {
             if (lastEvent.skipped) {
               resultDiv.innerHTML =
-                '<span class="zr-sm zr-warn-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg> Skipped: a scan or reconciliation is already in progress.</span>';
+                '<span class="zr-sm zr-warn-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg> Not run: a scan or another clean-up is going on.</span>';
             } else if (lastEvent.removed > 0) {
-              resultDiv.innerHTML = `<span class="zr-sm zr-ok-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg> Removed ${lastEvent.removed} stale entr${lastEvent.removed === 1 ? 'y' : 'ies'} in ${lastEvent.durationMs}ms.</span>`;
+              resultDiv.innerHTML = `<span class="zr-sm zr-ok-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg> Removed ${lastEvent.removed} record${lastEvent.removed === 1 ? '' : 's'} of deleted documents in ${lastEvent.durationMs} ms.</span>`;
             } else {
               resultDiv.innerHTML =
-                '<span class="zr-sm zr-ok-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg> No stale entries found.</span>';
+                '<span class="zr-sm zr-ok-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg> No record of a deleted document found.</span>';
             }
           }
         } else if (lastEvent && lastEvent.type === 'error') {
-          throw new Error(lastEvent.error || 'Reconciliation failed.');
+          throw new Error(lastEvent.error || 'The clean-up failed.');
         }
       } catch (error) {
         console.error('Error during reconciliation:', error);
         if (resultDiv) {
-          resultDiv.innerHTML = `<span class="zr-sm zr-danger-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg> ${error.message || 'Reconciliation failed.'}</span>`;
+          resultDiv.innerHTML = `<span class="zr-sm zr-danger-text"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg> ${error.message || 'The clean-up failed.'}</span>`;
         }
       } finally {
         btn.disabled = false;
@@ -2430,7 +2433,7 @@ function initializeFormHandlers() {
     const originalBtnText = submitBtn.innerHTML;
     submitBtn.disabled = true;
     submitBtn.innerHTML =
-      '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Saving...';
+      '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Saving…';
 
     try {
       // Text typed into a list but not added yet is saved, not dropped.
@@ -2628,16 +2631,15 @@ function initializeFormHandlers() {
 
         if (result.restart) {
           showRestartOverlay(
-            result.message ||
-              'Settings saved. Restarting… waiting for the server to come back.'
+            result.message || 'Settings saved. Zettelrobbe restarts…'
           );
           await waitForServerRecovery();
         } else if (typeof window.__zrToast === 'function') {
           // Applied at once: the page stays where it is.
-          window.__zrToast('Settings saved', { tone: 'ok' });
+          window.__zrToast('Settings saved.', { tone: 'ok' });
         }
       } else {
-        throw new Error(result.error || 'An unknown error occurred');
+        throw new Error(result.error || 'The settings were not saved.');
       }
     } catch (error) {
       await zrDialog({
@@ -2671,13 +2673,13 @@ function normalizeSystemPromptNewlines() {
 
 function mapPublicUrlSourceToLabel(source) {
   const sourceMap = {
-    manual_override: 'Manual override',
-    paperless_api: 'Paperless API',
-    api_url_fallback: 'API URL fallback',
-    unavailable: 'Unavailable',
+    manual_override: 'Taken from the field below.',
+    paperless_api: 'Reported by Paperless-ngx.',
+    api_url_fallback: 'Taken from the Paperless-ngx address.',
+    unavailable: 'No address found.',
   };
 
-  return sourceMap[source] || 'Unknown';
+  return sourceMap[source] || 'Source unknown.';
 }
 
 async function refreshDetectedPublicUrlStatus() {
@@ -2694,20 +2696,20 @@ async function refreshDetectedPublicUrlStatus() {
   }
 
   valueElement.textContent = 'Loading…';
-  metaElement.textContent = 'Resolving public URL…';
+  metaElement.textContent = 'Asking Paperless-ngx…';
 
   try {
     const response = await fetch('/api/settings/paperless-public-url');
     const result = await response.json();
 
     if (!result.success) {
-      throw new Error(result.error || 'Failed to resolve public URL');
+      throw new Error(result.error || 'Could not find the public address.');
     }
 
-    valueElement.textContent = result.publicUrl || 'Not available';
-    metaElement.textContent = `Source: ${mapPublicUrlSourceToLabel(result.source)}`;
+    valueElement.textContent = result.publicUrl || 'None found';
+    metaElement.textContent = mapPublicUrlSourceToLabel(result.source);
   } catch (error) {
-    valueElement.textContent = 'Not available';
+    valueElement.textContent = 'None found';
     metaElement.textContent = `Error: ${error.message}`;
   } finally {
     if (refreshButton) {
@@ -2746,13 +2748,13 @@ class URLValidator {
       const url = new URL(this.urlInput.value);
 
       if (!['http:', 'https:'].includes(url.protocol)) {
-        throw new Error('The URL must start with http:// or https://');
+        throw new Error('The address has to start with http:// or https://.');
       }
 
       // Prüfe auf zusätzliche Pfade oder Parameter
       if (url.pathname !== '/' || url.search || url.hash) {
         throw new Error(
-          'The URL must not contain any paths, parameters, or trailing slashes after the port.'
+          'The address ends after the port: no path, no parameters, no slash at the end.'
         );
       }
 
@@ -2765,10 +2767,10 @@ class URLValidator {
       this.isShowingError = true;
       const result = await zrDialog({
         icon: 'warning',
-        title: 'Invalid URL',
+        title: 'Check the address',
         text: error.message,
         showCancelButton: true,
-        confirmButtonText: 'Confirm anyway',
+        confirmButtonText: 'Keep it',
         cancelButtonText: 'Fix it',
         customClass: {
           container: 'z-50',
@@ -2790,8 +2792,8 @@ class URLValidator {
     } catch {
       zrDialog({
         icon: 'error',
-        title: 'Invalid URL',
-        text: 'Please enter a valid URL. ( http[s]://your-paperless-instance:8000 )',
+        title: 'Check the address',
+        text: 'Enter an address such as http://192.168.1.10:8000.',
         customClass: {
           container: 'z-50',
         },
@@ -2813,12 +2815,12 @@ class URLValidator {
  */
 const FIELD_HELP = {
   urlHelp: {
-    title: 'Paperless-ngx API URL',
+    title: 'Paperless-ngx address',
     html: `
       <div class="zr-prose">
-        <p>The URL points at the Paperless-ngx host itself, without a path:
-          <code>http://your-host:8000</code>. The <code>/api</code> endpoint is
-          appended automatically.</p>
+        <p>The address of Paperless-ngx itself, without a path:
+          <code>http://your-host:8000</code>. Zettelrobbe adds
+          <code>/api</code> on its own.</p>
         <p><strong>Requirements</strong></p>
         <ul>
           <li>Starts with <code>http://</code> or <code>https://</code></li>
@@ -2840,15 +2842,15 @@ const FIELD_HELP = {
     title: 'Tag cache lifetime',
     html: `
       <div class="zr-prose">
-        <p>How long the tag list from Paperless-ngx is reused before it is
-          fetched again. During batch processing this is the difference between
-          one request and one per document.</p>
+        <p>How long Zettelrobbe reuses the tag list from Paperless-ngx before
+          it fetches it again. During a scan this is the difference between one
+          request and one per document.</p>
         <ul>
-          <li><strong>60–180 s</strong> — new tags show up quickly, more API
-            calls</li>
-          <li><strong>300 s</strong> — the default, balanced</li>
-          <li><strong>600–3600 s</strong> — fewest API calls, new tags take
-            longer to appear</li>
+          <li><strong>60 to 180 s</strong>: new tags show up quickly, with more
+            requests to Paperless-ngx</li>
+          <li><strong>300 s</strong>: the default</li>
+          <li><strong>600 to 3600 s</strong>: the fewest requests, new tags
+            take longer to show up</li>
         </ul>
       </div>`,
   },
@@ -2984,7 +2986,8 @@ function lockEnvField(setupForm, fieldElement, envKey, notedContainers) {
   targets.forEach((hint) => {
     const sentence = document.createElement('span');
     sentence.className = 'zr-field__locked';
-    sentence.textContent = hint.textContent.trim() ? ` · ${note}` : note;
+    // Hints are full sentences; the note follows as one more.
+    sentence.textContent = hint.textContent.trim() ? ` ${note}` : note;
     hint.append(sentence);
   });
 }
@@ -3467,18 +3470,18 @@ class MfaSettingsManager {
       const troubleshootingUrl = this.getMfaTroubleshootingUrl();
       this.setTokenHint(
         'error',
-        `Invalid or expired code (${this.invalidTotpAttempts} attempts). Recovery guide: ${troubleshootingUrl}`
+        `The code is wrong or has expired (${this.invalidTotpAttempts} attempts). Help: ${troubleshootingUrl}`
       );
       this.setMessage(
         'error',
-        `Authentication code is invalid. See troubleshooting: ${troubleshootingUrl}`
+        `The code is wrong. Help: ${troubleshootingUrl}`
       );
       return;
     }
 
     this.setTokenHint(
       'error',
-      'Invalid or expired code. Wait for the next code and check your device time.'
+      'The code is wrong or has expired. Wait for the next code and check the clock of your device.'
     );
   }
 
@@ -3541,8 +3544,8 @@ class MfaSettingsManager {
 
     if (this.verifyBtnLabel) {
       this.verifyBtnLabel.textContent = this.enabled
-        ? 'Validate Code'
-        : 'Validate & Activate';
+        ? 'Check code'
+        : 'Check and switch on';
     }
 
     if (this.provisioningBox) {
@@ -3619,7 +3622,7 @@ class MfaSettingsManager {
       return;
     }
 
-    this.setLoading(this.enableBtn, true, 'Starting...');
+    this.setLoading(this.enableBtn, true, 'Starting…');
     try {
       const result = await this.request('/api/settings/mfa/setup', {
         currentPassword: password,
@@ -3638,7 +3641,7 @@ class MfaSettingsManager {
       this.setupReady = true;
       this.setMessage(
         'info',
-        'Setup started. Scan the QR code and then use Validate & Activate with your code.'
+        'Scan the QR code with your authenticator app, enter its code and press Check and switch on.'
       );
     } catch (error) {
       this.setupReady = false;
@@ -3664,29 +3667,26 @@ class MfaSettingsManager {
     this.clearTokenHint();
 
     if (!token) {
-      this.setMessage('error', 'Enter an authenticator code to validate.');
+      this.setMessage('error', 'Enter the code from your authenticator app.');
       this.setTokenHint(
         'error',
-        'Please enter the 6-digit code from your authenticator app.'
+        'Enter the 6-digit code from your authenticator app.'
       );
       return;
     }
 
     if (!this.enabled && !this.setupReady) {
-      this.setMessage(
-        'error',
-        'Click Enable MFA first to start setup and generate a QR code.'
-      );
+      this.setMessage('error', 'Press Enable MFA first. It shows the QR code.');
       return;
     }
 
-    this.setLoading(this.verifyBtn, true, 'Validating...');
+    this.setLoading(this.verifyBtn, true, 'Checking…');
     try {
       if (!this.enabled) {
         if (!password) {
           this.setMessage(
             'error',
-            'Enter your current password to complete activation.'
+            'Enter your current password to switch MFA on.'
           );
           return;
         }
@@ -3711,27 +3711,21 @@ class MfaSettingsManager {
           this.tokenInput.value = '';
         }
         this.invalidTotpAttempts = 0;
-        this.setTokenHint('success', 'Code accepted. MFA is now active.');
-        this.setMessage(
-          'success',
-          result.message || 'MFA enabled successfully.'
-        );
+        this.setTokenHint('success', 'Code accepted. MFA is on.');
+        this.setMessage('success', result.message || 'MFA is on.');
       } else {
         const result = await this.request('/api/settings/mfa/verify', {
           token,
         });
         this.invalidTotpAttempts = 0;
         this.setTokenHint('success', 'Code is valid.');
-        this.setMessage(
-          'success',
-          result.message || 'Authentication code is valid.'
-        );
+        this.setMessage('success', result.message || 'The code is valid.');
       }
     } catch (error) {
       if (this.isInvalidTotpError(error)) {
         this.handleInvalidTotpAttempt();
       } else {
-        this.setTokenHint('error', 'Validation failed. Please try again.');
+        this.setTokenHint('error', 'The check failed. Try again.');
       }
       if (this.invalidTotpAttempts < 3 || !this.isInvalidTotpError(error)) {
         this.setMessage('error', error.message);
@@ -3751,7 +3745,7 @@ class MfaSettingsManager {
     if (!password || !token) {
       this.setMessage(
         'error',
-        'Current password and authenticator code are required to disable MFA.'
+        'To switch MFA off, enter your current password and a code from the app.'
       );
       return;
     }
@@ -3759,7 +3753,7 @@ class MfaSettingsManager {
     const confirmResult = await zrDialog({
       icon: 'warning',
       title: 'Disable MFA?',
-      text: 'Your account will no longer require a TOTP code at login.',
+      text: 'Signing in no longer asks for a code from the app.',
       showCancelButton: true,
       confirmButtonColor: '#d33',
       cancelButtonColor: '#3085d6',
@@ -3770,7 +3764,7 @@ class MfaSettingsManager {
       return;
     }
 
-    this.setLoading(this.disableBtn, true, 'Disabling...');
+    this.setLoading(this.disableBtn, true, 'Switching off…');
     try {
       const result = await this.request('/api/settings/mfa/disable', {
         currentPassword: password,
@@ -3792,7 +3786,7 @@ class MfaSettingsManager {
       if (this.tokenInput) {
         this.tokenInput.value = '';
       }
-      this.setMessage('success', result.message || 'MFA disabled.');
+      this.setMessage('success', result.message || 'MFA is off.');
     } catch (error) {
       if (this.isInvalidTotpError(error)) {
         this.handleInvalidTotpAttempt();
@@ -3811,13 +3805,13 @@ class MfaSettingsManager {
     this.clearMessage();
 
     if (!this.setupReady || this.enabled) {
-      this.setMessage('error', 'Start MFA setup first to copy the secret.');
+      this.setMessage('error', 'Press Enable MFA first to get a secret key.');
       return;
     }
 
     const secret = String(this.secretInput?.value || '').trim();
     if (!secret) {
-      this.setMessage('error', 'No secret key available to copy.');
+      this.setMessage('error', 'There is no secret key to copy.');
       return;
     }
 
@@ -3829,17 +3823,17 @@ class MfaSettingsManager {
         this.secretInput?.select();
         const copied = document.execCommand('copy');
         if (!copied) {
-          throw new Error('Copy command was not accepted by the browser.');
+          throw new Error('The browser did not allow copying.');
         }
         this.secretInput?.setSelectionRange(0, 0);
         this.secretInput?.blur();
       }
 
-      this.setMessage('success', 'Secret key copied to clipboard.');
+      this.setMessage('success', 'Secret key copied.');
     } catch (error) {
       this.setMessage(
         'error',
-        error.message || 'Unable to copy the secret key.'
+        error.message || 'Could not copy the secret key.'
       );
     }
   }
@@ -3848,16 +3842,13 @@ class MfaSettingsManager {
     this.clearMessage();
 
     if (!this.setupReady || this.enabled) {
-      this.setMessage(
-        'error',
-        'Start MFA setup first to download the QR code.'
-      );
+      this.setMessage('error', 'Press Enable MFA first to get a QR code.');
       return;
     }
 
     const qrDataUrl = String(this.qrImage?.src || '').trim();
     if (!qrDataUrl) {
-      this.setMessage('error', 'No QR code available to download.');
+      this.setMessage('error', 'There is no QR code to download.');
       return;
     }
 
@@ -3875,7 +3866,7 @@ class MfaSettingsManager {
     } catch (error) {
       this.setMessage(
         'error',
-        error.message || 'Unable to download the QR code.'
+        error.message || 'Could not download the QR code.'
       );
     }
   }
@@ -3988,8 +3979,8 @@ function addCustomField() {
   if (!fieldName) {
     zrDialog({
       icon: 'warning',
-      title: 'Invalid Field Name',
-      text: 'Please enter a field name',
+      title: 'No field name',
+      text: 'Enter a name for the field.',
     });
     return;
   }
@@ -4002,8 +3993,8 @@ function addCustomField() {
   if (existingFields.includes(fieldName)) {
     zrDialog({
       icon: 'warning',
-      title: 'Duplicate Field',
-      text: 'A field with this name already exists',
+      title: 'Field already listed',
+      text: 'A field with this name is on the list already.',
     });
     return;
   }
@@ -4022,13 +4013,13 @@ function addCustomField() {
 window.removeCustomField = function removeCustomField(button) {
   const fieldItem = button.closest('.custom-field-item');
   zrDialog({
-    title: 'Delete Field?',
-    text: 'Are you sure you want to delete this custom field?',
+    title: 'Remove this field?',
+    text: 'Zettelrobbe stops filling it in. The field stays in Paperless-ngx.',
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#d33',
     cancelButtonColor: '#3085d6',
-    confirmButtonText: 'Yes, delete it!',
+    confirmButtonText: 'Remove',
   }).then((result) => {
     if (result.isConfirmed) {
       fieldItem.remove();

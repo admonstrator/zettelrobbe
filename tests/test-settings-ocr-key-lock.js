@@ -163,12 +163,12 @@ function buildPage(lockedEnvKeys, provider) {
   const hint = new StubElement('p', {
     id: 'ocrApiKeyHint',
     className: 'zr-field__hint',
-    textContent: 'Optional for local and custom providers',
+    textContent: 'Needed for Mistral, optional for a local server.',
   });
   const anthropicHint = new StubElement('p', {
     id: 'ocrApiKeyAnthropicHint',
     className: 'zr-field__hint hidden',
-    textContent: 'Empty uses the Anthropic API key from the AI provider',
+    textContent: 'Empty uses the Claude API key set under AI provider.',
   });
   keyField.append(keyInput, hint, anthropicHint);
   setupForm.append(providerField, keyField);
@@ -205,7 +205,7 @@ function buildPage(lockedEnvKeys, provider) {
   return { keyInput, notes, switchTo };
 }
 
-const NOTE = (key) => `· Set by the environment (${key}).`;
+const NOTE = (key) => `Set by the environment (${key}).`;
 
 async function main() {
   await test('GET /settings lists a pinned MISTRAL_API_KEY as locked', async () => {

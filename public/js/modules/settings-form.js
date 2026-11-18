@@ -93,7 +93,7 @@ export default function settingsForm(root, { confirmDialog }) {
   resetBtn.addEventListener('click', async () => {
     const confirmed = await confirmDialog({
       title: 'Discard changes?',
-      body: 'All unsaved edits on this page are reverted to the values currently in use.',
+      body: 'Every unsaved change on this page goes back to the value in use.',
       confirmLabel: 'Discard',
       tone: 'danger',
     });

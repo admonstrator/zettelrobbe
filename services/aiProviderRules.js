@@ -359,7 +359,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'TOKEN_LIMIT',
     label: 'Document length limit',
-    help: 'How much of a document is sent to the model, in tokens; longer ones are shortened. Match it to what the model accepts.',
+    help: 'How much of a document is sent to the model, in tokens. Zettelrobbe shortens a longer one. Match it to what the model accepts.',
     level: 'advanced',
     providers: null,
     defaultValue: '128000',
@@ -377,7 +377,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_TEMPERATURE_GENERATION',
     label: 'Generation creativity',
-    help: 'The same for free-text tasks such as the playground and Tidy up, whose answers may be worded freely.',
+    help: 'How varied free-text answers outside the analysis may be, from 0 to 2. Tidy up always asks with 0.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.7',
@@ -386,7 +386,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_REASONING_EFFORT',
     label: 'Thinking effort',
-    help: 'How long a reasoning model such as o3, gpt-5 or Magistral thinks before answering. Empty sends nothing; other models may reject the setting.',
+    help: 'How long a reasoning model such as o3, gpt-5 or Magistral thinks before answering. Empty sends nothing. Other models may reject the setting.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom'],
     defaultValue: '',
@@ -395,7 +395,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_EFFORT',
     label: 'Thinking effort',
-    help: 'How much the model thinks before answering. Higher helps hard documents but is slower and costlier; empty keeps the model default.',
+    help: 'How much the model thinks before answering. Higher helps hard documents and costs more time and tokens. Empty keeps the model default.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '',
@@ -440,7 +440,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'OLLAMA_THINK',
     label: 'Let the model think',
-    help: 'Lets reasoning models such as Qwen3 think before answering: better on hard cases, but slower. Needs a larger answer length.',
+    help: 'Lets reasoning models such as Qwen3 think before answering. That helps on hard cases and takes longer. Needs a larger answer length.',
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: 'false',
@@ -449,7 +449,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'OLLAMA_API_KEY',
     label: 'API key',
-    help: 'Only for an Ollama server behind a proxy that asks for a token; a plain install needs none.',
+    help: 'Only for an Ollama server behind a proxy that asks for a token. A plain install needs none.',
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: '',
@@ -482,8 +482,8 @@ const AI_OPTIONS = Object.freeze([
   },
   {
     key: 'DUPLICATES_GUARD_NEW_NAMES',
-    label: 'Reuse an existing name instead of creating a near-duplicate',
-    help: 'A proposed name that exists in another spelling (case, umlauts, legal form, plural, word order) becomes the existing one; a mere typo is only logged.',
+    label: 'Reuse names that exist in another spelling',
+    help: 'When an analysis proposes a name that exists in another spelling (case, umlauts, legal form, plural, word order), Zettelrobbe uses the existing one. A mere typo is only logged.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
@@ -501,7 +501,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_TOKEN_BUDGET',
     label: 'Token budget per run',
-    help: 'The most tokens one Tidy up run may spend; it then stops and keeps its answers. 0 means no limit.',
+    help: 'The most tokens one Tidy up run may spend. It then stops and keeps its answers. 0 means no limit.',
     level: 'advanced',
     providers: null,
     defaultValue: '200000',
@@ -510,7 +510,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_IDLE_STOP_SECONDS',
     label: 'Stop an unwatched run after (seconds)',
-    help: 'A run nobody has watched for this long stops itself, so a closed browser tab cannot leave the model running; 0 means never.',
+    help: 'A run nobody has watched for this long stops itself, so a closed browser tab cannot leave the model running. 0 means never.',
     level: 'advanced',
     providers: null,
     defaultValue: '60',
@@ -528,7 +528,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_CONCURRENCY',
     label: 'Requests at once',
-    help: 'Model requests running in parallel; 0 picks one for Ollama, three for hosted providers. More is faster, not cheaper.',
+    help: 'Model requests running in parallel. 0 picks one for Ollama and three for hosted providers. More is faster, not cheaper.',
     level: 'advanced',
     providers: null,
     defaultValue: '0',

@@ -17,7 +17,10 @@ import { describeResult, findSettings } from './settings-find.js';
 
 // Hashes of entries and sections that were renamed or merged. Section ids
 // (#sec-...) still on the page need no line here: any element id inside an
-// entry resolves to that entry. The ones below name something that is gone.
+// entry resolves to that entry, also after its section moved to another
+// topic (#sec-ai-function-limits opens What the AI fills in, #sec-ai-behavior
+// opens Prompt). The ones below name something that is gone.
+// tests/test-settings-topics.js pins where every old address lands.
 export const ENTRY_ALIASES = Object.freeze({
   // Before the regrouping into one topic per view.
   'system-tab': 'connection',

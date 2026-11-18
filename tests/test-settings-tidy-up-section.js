@@ -287,9 +287,9 @@ function sliceBetween(source, from, to) {
         ['mobile', mobilePicker, (id) => `value="${id}"`],
       ].forEach(([label, nav, needle]) => {
         assert.ok(
-          nav.indexOf(needle('runtime')) < nav.indexOf(needle('tidy-up')) &&
+          nav.indexOf(needle('skip-rules')) < nav.indexOf(needle('tidy-up')) &&
             nav.indexOf(needle('tidy-up')) < nav.indexOf(needle('account')),
-          `the ${label} topic list must list Tidy up after runtime and before account`
+          `the ${label} topic list must list Tidy up after skip rules and before account`
         );
       });
 
@@ -337,8 +337,8 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /These settings only govern what the model does on the Tidy up page when you ask it\.\s+Finding, merging and splitting work without them; nothing here runs on its own\./,
-        'the two-sentence intro says what the section is for'
+        /Finding, merging and splitting names work without the model\. The model only answers\s+when you start a run on the Tidy up page\. Reusing names that exist in another spelling\s+also applies to every analysis\./,
+        'the intro says what the section is for and what also applies to every analysis'
       );
       assert.strictEqual(
         countOccurrences(section, '<details'),
@@ -687,7 +687,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         guard,
-        /Reuse an existing name instead of creating a near-duplicate/,
+        /Reuse names that exist in another spelling/,
         'the switch must say what it switches'
       );
       // The hint has to name the tiers, or "the same word in another
@@ -697,7 +697,7 @@ function sliceBetween(source, from, to) {
         'the hint must name the spellings the guard treats as the same word'
       );
       assert.ok(
-        /a mere typo is only logged/.test(guard),
+        /A mere typo is only logged/.test(guard),
         'the hint must say that a fuzzy match is not mapped, only recorded'
       );
       assert.ok(
@@ -1328,7 +1328,7 @@ function sliceBetween(source, from, to) {
 
       assert.match(
         section,
-        /Finding, merging and splitting work without them/,
+        /Finding, merging and splitting names work without the model/,
         'the section must say that splitting works without a model'
       );
     });

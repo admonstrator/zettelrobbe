@@ -4,7 +4,9 @@
  * The two "done" settings on the settings page.
  *
  * REMOVE_INBOX_TAGS_AFTER_PROCESSING and REMOVE_TAGS_AFTER_PROCESSING sit in
- * the Tag Filters section under Ignore Tags. This test holds the path
+ * the section "Tags after the analysis" of the topic What the AI fills in,
+ * after the AI-processed tag: they decide what is written to a document,
+ * not which documents are processed. This test holds the path
  * together through the real router: the rendered fields with the configured
  * values, the POST that stores them, the lock an injected value puts on them,
  * the .env export group, the wiring in public/js/settings.js, and that
@@ -143,18 +145,35 @@ function sliceBetween(source, from, to) {
     });
 
   try {
-    await test('both fields render under Ignore Tags with the configured values', async () => {
+    await test('both fields render after the AI-processed tag with the configured values', async () => {
       const html = await getSettingsPage();
-      const section = sliceBetween(html, 'id="sec-tag-filters"', '</section>');
+      const section = sliceBetween(
+        html,
+        'id="sec-analysis-tags"',
+        '</section>'
+      );
+      assert.ok(
+        html.indexOf('id="entry-ai-behavior"') <
+          html.indexOf('id="sec-analysis-tags"') &&
+          html.indexOf('id="sec-analysis-tags"') <
+            html.indexOf('id="entry-prompt"'),
+        'the section sits in What the AI fills in'
+      );
+      assert.ok(
+        !sliceBetween(html, 'id="sec-tag-filters"', '</section>').includes(
+          'removeTagInput'
+        ),
+        'the tag filters no longer hold the list'
+      );
 
-      const ignoreAt = section.indexOf('id="ignoreTagInput"');
+      const markerAt = section.indexOf('data-switch-target="aiProcessedTag"');
       const switchAt = section.indexOf(
         'data-switch-target="removeInboxTagsAfterProcessing"'
       );
       const listAt = section.indexOf('id="removeTagInput"');
       assert.ok(
-        ignoreAt !== -1 && ignoreAt < switchAt && switchAt < listAt,
-        'Ignore Tags, then the switch, then the list'
+        markerAt !== -1 && markerAt < switchAt && switchAt < listAt,
+        'the AI-processed tag, then the switch, then the list'
       );
 
       assert.ok(
@@ -171,7 +190,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /Remove the inbox tag when a document is done/,
+        /Remove the inbox tags/,
         'the switch says what it does'
       );
       assert.match(
@@ -200,7 +219,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /Taken off a document after a successful analysis, whatever the analysis proposed\./
+        /Zettelrobbe takes these tags off a document once its analysis is written, also when the model proposed one of them\./
       );
     });
 
