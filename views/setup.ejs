@@ -2,6 +2,7 @@
 <html lang="en" data-theme="<%= theme || 'light' %>">
 <%- include('partials/shell/head-start', { pageTitle: 'Initial Setup - Zettelrobbe' }) %>
 <script src="/js/dialogs.js"></script>
+<script src="/js/chip-list.js"></script>
 <%- include('partials/shell/head-end') %>
 <body>
     <div class="zr-setup">
@@ -247,27 +248,21 @@
                              include filter has no effect in that mode. -->
                         <div id="includeTagsSection" class="zr-field zr-field--stacked">
                             <label for="includeTag" class="zr-field__name">Tags used to select documents for processing</label>
-                            <div class="zr-inputgroup">
-                                <input id="includeTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="Type a tag and press Enter">
-                                <button type="button" id="addIncludeTagBtn" class="zr-btn zr-btn--primary">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                    Add
-                                </button>
-                            </div>
-                            <p class="zr-field__hint">Press Enter to confirm a tag.</p>
-                            <div id="includeTagsContainer" class="zr-chips"></div>
+                            <%- include('partials/chip-list', {
+                                id: 'includeTag', addId: 'addIncludeTagBtn', listId: 'includeTagsContainer',
+                                items: [], datalist: 'paperlessTagsDatalist', emptyText: 'No include tags selected.',
+                                placeholder: 'Tag name, then Enter'
+                            }) %>
+                            <p class="zr-field__hint">Enter or a comma adds the tag. Pasted text is split at commas and line breaks.</p>
                         </div>
 
                         <div class="zr-field zr-field--stacked">
                             <label for="excludeTagInput" class="zr-field__name">Excluded tags</label>
-                            <div class="zr-inputgroup">
-                                <input id="excludeTagInput" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="Select a tag to exclude">
-                                <button type="button" id="addExcludeTagBtn" class="zr-btn zr-btn--primary">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                    Add
-                                </button>
-                            </div>
-                            <div id="excludeTagsContainer" class="zr-chips"></div>
+                            <%- include('partials/chip-list', {
+                                id: 'excludeTagInput', addId: 'addExcludeTagBtn', listId: 'excludeTagsContainer',
+                                items: [], datalist: 'paperlessTagsDatalist', emptyText: 'No excluded tags selected.',
+                                placeholder: 'Tag name, then Enter'
+                            }) %>
                         </div>
 
                         <div class="zr-field zr-field--stacked">

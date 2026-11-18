@@ -17,8 +17,18 @@ export default function settingsForm(root, { confirmDialog }) {
 
   // Controls inside [data-mirror-scope] (Quick start) edit a real field of the
   // form and fire its events; counting them too would count one edit twice.
+  // A list of pills posts through a hidden input (/js/chip-list.js), which
+  // fires input and change when a pill is added or removed: it counts as a
+  // field. Every other hidden input mirrors a visible control.
+  const listValues = new Set(
+    [...form.querySelectorAll('[data-chip-list][data-chip-value]')].map(
+      (list) => list.dataset.chipValue
+    )
+  );
   const fields = [...form.querySelectorAll('input, select, textarea')].filter(
-    (field) => field.type !== 'hidden' && !field.closest('[data-mirror-scope]')
+    (field) =>
+      (field.type !== 'hidden' || listValues.has(field.id)) &&
+      !field.closest('[data-mirror-scope]')
   );
   const initial = new Map(
     fields.map((field) => [
@@ -60,11 +70,14 @@ export default function settingsForm(root, { confirmDialog }) {
       : 'All changes saved';
     restartNote.classList.toggle('hidden', !dirty.some(needsRestart));
 
+    // A row can hold several fields (a list's text field and its hidden
+    // value): it is marked when any of them changed.
+    const dirtyRows = new Set(dirty.map((field) => field.closest('.zr-field')));
     fields.forEach((field) => {
       // A switch marks its own row, not the field block it may sit in.
       const row = field.closest('.zr-switchrow, .zr-checktile, .zr-field');
       if (!row) return;
-      row.toggleAttribute('data-dirty', dirty.includes(field));
+      row.toggleAttribute('data-dirty', dirtyRows.has(row));
     });
 
     // The topic list marks the topics holding these, since only one topic is

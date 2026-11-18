@@ -259,14 +259,14 @@ class FormManager {
       return;
     }
 
+    // Switched off, the list keeps its pills, so switching back on brings
+    // them back; the save sends it empty then (see the submit handler).
     const showTags = this.showTags.value;
     const tagsInputSection = document.getElementById('tagsInputSection');
-    const tagsInput = document.getElementById('tags');
 
     if (showTags === 'yes') {
       tagsInputSection.classList.remove('hidden');
     } else {
-      if (tagsInput) tagsInput.value = '';
       tagsInputSection.classList.add('hidden');
     }
   }
@@ -353,161 +353,17 @@ class FormManager {
   }
 }
 
-// Tags Management
-/* The add button is addressed by id. It used to be found by walking up to a
-   `.space-y-2` ancestor — a Tailwind class that no view has carried since the
-   move to the zr system, so closest() returned null, addTagButton stayed
-   undefined and the guard below skipped initialize() entirely. That took the
-   whole field down with it: the Add button did nothing, Enter fell through to
-   the form and saved instead of adding a tag, and existing chips could not be
-   removed. Both the Tags and the Ignore Tags field were affected. */
-class TagsManager {
-  constructor(
-    tagInputId,
-    tagsContainerId,
-    tagsHiddenInputId,
-    addButtonId = null,
-    noun = 'tag'
-  ) {
-    // What a chip is called in the dialogs: a tag, or a title pattern.
-    this.noun = noun;
-    this.tagInput = document.getElementById(tagInputId); //'tagInput'
-    this.tagsContainer = document.getElementById(tagsContainerId); // tagsContainer
-    this.tagsHiddenInput = document.getElementById(tagsHiddenInputId); // tagsHiddenInput
-    this.addTagButton = addButtonId
-      ? document.getElementById(addButtonId)
-      : null;
-
-    // The input and its chip list are what the field needs to work. A missing
-    // add button costs the button, not Enter and not chip removal.
-    if (this.tagInput && this.tagsContainer) {
-      this.initialize();
-
-      // Initialize existing tags with proper event handlers
-      this.initializeExistingTags();
-    }
-  }
-
-  initialize() {
-    if (this.addTagButton) {
-      this.addTagButton.addEventListener('click', () => this.addTag());
-    }
-
-    if (this.tagInput) {
-      this.tagInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          this.addTag();
-        }
-      });
-    }
-  }
-
-  initializeExistingTags() {
-    const existingTags = this.tagsContainer.querySelectorAll('.zr-chip');
-    existingTags.forEach((tagElement) => {
-      const removeButton = tagElement.querySelector('button');
-      if (removeButton) {
-        this.initializeTagRemoval(removeButton);
-      }
-    });
-  }
-
-  // Set by the environment lock (lockChipField): the list is read-only.
-  isLocked() {
-    return this.tagsContainer?.dataset?.locked === 'true';
-  }
-
-  initializeTagRemoval(button) {
-    button.addEventListener('click', async () => {
-      if (this.isLocked()) return;
-      const result = await zrDialog({
-        title: `Remove ${this.noun}`,
-        text: `Are you sure you want to remove this ${this.noun}?`,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Yes, remove it',
-        cancelButtonText: 'Cancel',
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6',
-        customClass: {
-          container: 'my-swal',
-        },
-      });
-
-      if (result.isConfirmed) {
-        const tagElement = button.closest('.zr-chip');
-        if (tagElement) {
-          tagElement.remove();
-          this.updateHiddenInput();
-        }
-      }
-    });
-  }
-
-  async addTag() {
-    if (!this.tagInput || this.tagInput.disabled || this.isLocked()) return;
-
-    const tagText = this.tagInput.value.trim();
-    const specialChars = /[,;:\n\r\\/]/;
-
-    if (specialChars.test(tagText)) {
-      await zrDialog({
-        title: 'Invalid Characters',
-        text: `A ${this.noun} cannot contain commas, semi-colons, colons, or line breaks.`,
-        icon: 'warning',
-        confirmButtonText: 'OK',
-        confirmButtonColor: '#3085d6',
-        customClass: {
-          container: 'my-swal',
-        },
-      });
-      return;
-    }
-
-    if (tagText) {
-      const tag = this.createTagElement(tagText);
-      this.tagsContainer.appendChild(tag);
-      this.updateHiddenInput();
-      this.tagInput.value = '';
-    }
-  }
-
-  createTagElement(text) {
-    const tag = document.createElement('div');
-    tag.className = 'zr-chip';
-
-    const tagText = document.createElement('span');
-    tagText.textContent = text;
-
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    // Matches the server-rendered chips in settings.ejs; an added chip used to
-    // get an unstyled remove button next to styled ones.
-    removeButton.className = 'zr-link';
-    removeButton.disabled = this.isLocked();
-    removeButton.innerHTML =
-      '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>';
-
-    this.initializeTagRemoval(removeButton);
-
-    tag.appendChild(tagText);
-    tag.appendChild(removeButton);
-
-    return tag;
-  }
-
-  updateHiddenInput() {
-    if (!this.tagsHiddenInput || !this.tagsContainer) return;
-
-    const tags = Array.from(
-      this.tagsContainer.querySelectorAll('.zr-chip span')
-    )
-      .map((span) => span.textContent.trim())
-      .filter((tag) => tag); // Remove any empty tags
-
-    this.tagsHiddenInput.value = tags.join(',');
-  }
+// Lists of values
+/* Every list on the page (tags, ignore tags, tags to remove, prompt tags,
+   title patterns, single sign-on scopes) is a row of removable pills,
+   rendered by views/partials/chip-list.ejs and driven by /js/chip-list.js,
+   which the setup wizard and Tidy up share. Each list keeps the hidden input
+   the form has always posted, in the format it always had: the values
+   joined with a comma, the scopes with a space. A list pinned by the
+   environment is locked by lockChipField below. */
+function initializeChipLists() {
+  const form = document.getElementById('setupForm');
+  if (form && window.zrChipList) window.zrChipList.attachAll(form);
 }
 
 // Prompt Management
@@ -570,32 +426,7 @@ For the language:
 
 function initializeCoreSettings() {
   new FormManager();
-  new TagsManager('tagInput', 'tagsContainer', 'tags', 'tagAddButton');
-  new TagsManager(
-    'ignoreTagInput',
-    'ignoreTagsContainer',
-    'ignoreTags',
-    'ignoreTagAddButton'
-  );
-  new TagsManager(
-    'removeTagInput',
-    'removeTagsContainer',
-    'removeTags',
-    'removeTagAddButton'
-  );
-  new TagsManager(
-    'ignoreTitlePatternInput',
-    'ignoreTitlePatternsContainer',
-    'ignoreTitlePatterns',
-    'ignoreTitlePatternAddButton',
-    'title pattern'
-  );
-  new TagsManager(
-    'promptTagInput',
-    'promptTagsContainer',
-    'promptTags',
-    'promptTagAddButton'
-  );
+  initializeChipLists();
   new PromptManager();
 }
 
@@ -2602,7 +2433,14 @@ function initializeFormHandlers() {
       '<svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Saving...';
 
     try {
+      // Text typed into a list but not added yet is saved, not dropped.
+      window.zrChipList?.commitAll(setupForm);
       const formData = new FormData(setupForm);
+      // "Process only specific pre-tagged documents" switched off saves an
+      // empty tag list; the pills stay on the page for switching back on.
+      if (document.getElementById('showTags')?.value === 'no') {
+        formData.set('tags', '');
+      }
       //remove from formData.systemPrompt all ` chars
       if (formData.get('systemPrompt')) {
         formData.set(
@@ -3063,7 +2901,7 @@ function annotateEnvKeys(fieldMappings) {
    locked, the whole field is — otherwise a pinned list could still be changed
    on the page and the save would silently drop the change, because a
    protected key is never written. The chip list carries data-locked, which
-   TagsManager and the chip styles honour. A field without a chip list is
+   /js/chip-list.js and the chip styles honour. A field without a chip list is
    left alone; its buttons (reveal, fetch models) do not write the value. */
 function lockChipField(fieldElement) {
   const field = fieldElement.closest('.zr-field');
@@ -3394,7 +3232,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#oidcClientSecret', envKey: 'OIDC_CLIENT_SECRET' },
     { selector: '#oidcAdminEmail', envKey: 'OIDC_ADMIN_EMAIL' },
     { selector: '#oidcRedirectUri', envKey: 'OIDC_REDIRECT_URI' },
-    { selector: '#oidcScopes', envKey: 'OIDC_SCOPES' },
+    { selector: '#oidcScopeInput', envKey: 'OIDC_SCOPES' },
     { selector: '#oidcEmailClaim', envKey: 'OIDC_EMAIL_CLAIM' },
     {
       selector: '#oidcAllowUnverifiedEmail',

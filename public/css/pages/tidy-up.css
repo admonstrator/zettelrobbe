@@ -867,7 +867,7 @@
     gap: var(--zr-1);
   }
 
-  .tidy-vocab__field .zr-textarea {
+  .tidy-vocab__field .zr-inputgroup {
     max-width: none;
   }
 

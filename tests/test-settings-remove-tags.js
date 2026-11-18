@@ -280,9 +280,13 @@ function sliceBetween(source, from, to) {
         path.join(__dirname, '..', 'public', 'js', 'settings.js'),
         'utf8'
       );
+      // The list names its parts in the markup; settings.js attaches every
+      // list of the form through the shared /js/chip-list.js.
+      assert.match(source, /window\.zrChipList\.attachAll\(form\)/);
+      const html = await getSettingsPage();
       assert.match(
-        source,
-        /new TagsManager\(\s*'removeTagInput',\s*'removeTagsContainer',\s*'removeTags',\s*'removeTagAddButton'\s*\)/
+        html,
+        /id="removeTagsContainer" class="zr-chips" role="list" data-chip-list data-chip-input="removeTagInput" data-chip-add="removeTagAddButton" data-chip-value="removeTags"/
       );
       assert.match(
         source,
@@ -329,14 +333,21 @@ function sliceBetween(source, from, to) {
         /lockEnvField\(setupForm, fieldElement, pinnedBy, notedContainers\)/
       );
 
-      const manager = sliceBetween(source, 'class TagsManager', '\n}\n');
-      assert.match(manager, /dataset\?\.locked === 'true'/);
+      // The shared list code honours the mark (tests/test-chip-list.js drives it).
+      const chipList = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'js', 'chip-list.js'),
+        'utf8'
+      );
       assert.match(
-        manager,
-        /async addTag\(\) \{\s*if \(!this\.tagInput \|\| this\.tagInput\.disabled \|\| this\.isLocked\(\)\) return;/,
+        chipList,
+        /const isLocked = \(\) => list\.dataset\.locked === 'true';/
+      );
+      assert.match(
+        chipList,
+        /const canAdd = \(\) => !isLocked\(\) && !\(input && input\.disabled\);/,
         'Enter in a locked input adds nothing'
       );
-      assert.match(manager, /removeButton\.disabled = this\.isLocked\(\);/);
+      assert.match(chipList, /remove\.disabled = locked;/);
 
       const css = fs.readFileSync(
         path.join(__dirname, '..', 'public', 'css', 'badges.css'),
@@ -347,7 +358,7 @@ function sliceBetween(source, from, to) {
         /\.zr-chips\[data-locked\] \.zr-chip button \{\s*display: none;/
       );
 
-      // Each chip field's Add button is addressable, and the managers use it.
+      // Each chip field's Add button is addressable, and its list names it.
       const html = await getSettingsPage();
       [
         ['tagInput', 'tagAddButton'],
@@ -355,14 +366,23 @@ function sliceBetween(source, from, to) {
         ['removeTagInput', 'removeTagAddButton'],
         ['ignoreTitlePatternInput', 'ignoreTitlePatternAddButton'],
         ['promptTagInput', 'promptTagAddButton'],
+        ['oidcScopeInput', 'oidcScopeAddButton'],
       ].forEach(([input, button]) => {
         assert.ok(html.includes(`id="${button}"`), `${button} is rendered`);
-        assert.match(
-          source,
-          new RegExp(`new TagsManager\\(\\s*'${input}',[^)]*'${button}'`),
+        assert.ok(
+          html.includes(`data-chip-input="${input}" data-chip-add="${button}"`),
           `${input} is wired to ${button}`
         );
       });
+      // A list the environment pins renders locked before any script runs.
+      assert.match(
+        html,
+        /id="ignoreTagsContainer" class="zr-chips" role="list"[^>]*data-locked="true"/
+      );
+      assert.ok(
+        !/id="tagsContainer"[^>]*data-locked/.test(html),
+        'a free list is not locked'
+      );
       [
         ["'#tagInput'", "'TAGS'"],
         ["'#ignoreTagInput'", "'IGNORE_TAGS'"],
@@ -438,7 +458,7 @@ function sliceBetween(source, from, to) {
             const input = document.getElementById('ignoreTagInput');
             input.value = 'sneaked-in';
             input.dispatchEvent(
-              new KeyboardEvent('keypress', { key: 'Enter', bubbles: true })
+              new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
             );
             document.getElementById('ignoreTagAddButton').click();
             document

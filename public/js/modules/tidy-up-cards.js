@@ -218,8 +218,7 @@ function splitBody(s, view) {
   const edit = view.edits[s.id] || {};
   const typeName =
     edit.typeName !== undefined ? edit.typeName : s.typeName || '';
-  const topics =
-    edit.topicNames !== undefined ? edit.topicNames : s.topicNames || [];
+  const topicsInput = `tidy-topics-${s.id}`;
   const vocab = view.vocabulary;
   const existing = new Set((view.documentTypes || []).map((t) => t.name));
   const names = [];
@@ -241,10 +240,14 @@ function splitBody(s, view) {
         <span class="zr-sm zr-muted">Document type</span>
         <select class="zr-select" data-act="type" aria-label="Document type for ${esc(s.from[0]?.name || '')}">${options}</select>
       </label>
-      <label class="tidy-split__field">
-        <span class="zr-sm zr-muted">Topic tags</span>
-        <input type="text" class="zr-input" data-act="topics" value="${esc(topics.join(', '))}" placeholder="Comma separated" aria-label="Topic tags for ${esc(s.from[0]?.name || '')}">
-      </label>
+      <div class="tidy-split__field" data-topic-field>
+        <label class="zr-sm zr-muted" for="${esc(topicsInput)}">Topic tags</label>
+        <div class="zr-inputgroup">
+          <input type="text" class="zr-input" id="${esc(topicsInput)}" data-act="topics" autocomplete="off" placeholder="Tag name, then Enter" aria-label="Topic tags for ${esc(s.from[0]?.name || '')}">
+          <button type="button" class="zr-btn" data-el="add-topic">Add</button>
+        </div>
+        <div class="zr-chips" data-el="topics"></div>
+      </div>
     </div>
     <p class="zr-sm zr-muted tidy-split__note">Type names come from a short list the model proposed for your archive${
       examples.length ? ` (${examples.map(esc).join(', ')}…)` : ''

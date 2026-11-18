@@ -432,9 +432,17 @@ async function browserTests(playwright) {
           await split.locator('select[data-act="type"]').inputValue(),
           'Invoice'
         );
+        // The topic tags are pills (public/js/chip-list.js); the field is
+        // for adding one.
+        assert.deepStrictEqual(
+          await split
+            .locator('[data-el="topics"] .zr-chip > span')
+            .allTextContents(),
+          ['Car']
+        );
         assert.strictEqual(
           await split.locator('input[data-act="topics"]').inputValue(),
-          'Car'
+          ''
         );
 
         // Details is closed, and is the only place with a percentage.
