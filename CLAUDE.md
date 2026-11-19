@@ -161,6 +161,11 @@ in the wrong file silently loses (or wins) no matter how specific it is, and eve
 layered — one unlayered rule would outrank the lot. Only two link positions in `head-start.ejs` are
 load-bearing: tokens.css first, and buttons.css before forms.css.
 
+**One page rhythm.** Every page puts its content in one `.zr-stack` that starts at `--zr-page-pad`;
+the distance between two cards comes only from `--zr-card-gap` (both in `tokens.css`, 16px, 12px on
+a phone). No view or page stylesheet sets its own margin or gap between cards;
+`tests/test-page-rhythm.js` checks that.
+
 **Page behaviour is one ES module per job.** `public/js/zr.js` is the kernel: theme, drawer, rail,
 active nav, the toast, and a registry that imports `public/js/modules/<name>.js` for each
 `data-module="<name>"` it finds. A page therefore costs its own modules and nothing else. Classic
@@ -168,8 +173,9 @@ scripts (`public/js/*.js`) cannot import ES modules — they reach the kernel th
 `window.__zrToast` / `window.zrDialog` (see `failed.js` for the six-line adapter) and must never
 build their own toast host.
 
-**Settings page:** one form, one topic per view, topic list and topic as one block next
-to the rail (`--zr-settings-inset`, at most 96px; `--zr-settings-list`, `--zr-settings-measure`). The window does not scroll on this page:
+**Settings page:** one form, one topic per view, the topic list (a card) and the topic as
+one block at the page padding (`--zr-settings-list`, `--zr-settings-measure`); every section of a
+topic is a `.zr-module` with its title in the card head. The window does not scroll on this page:
 `.zr-settings-scroll` is the one scroll region and the save bar (`.zr-actionbar`) is a layout row
 below it, present only with unsaved changes, so it never covers a field
 (`tests/test-settings-save-bar-browser.js` measures that in headless Chrome and self-skips without
