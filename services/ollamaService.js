@@ -170,7 +170,7 @@ class OllamaService {
           existingTags,
           existingCorrespondentList,
           existingDocumentTypesList,
-          options
+          validatedExternalApiData
         );
       } else {
         // Parse CUSTOM_FIELDS for custom prompt
@@ -308,6 +308,9 @@ class OllamaService {
    * @param {Array} existingTags - List of existing tags
    * @param {Array} existingCorrespondent - List of existing correspondents
    * @param {Array} existingDocumentTypes - List of existing document types
+   * @param {string|null} [externalApiText] - the external API data as
+   *   analyzeDocument() validated and truncated it. It used to be validated
+   *   here a second time without await, and the prompt read "[object Promise]".
    * @returns {string} Formatted prompt
    */
   _buildPrompt(
@@ -315,7 +318,7 @@ class OllamaService {
     existingTags = [],
     existingCorrespondent = [],
     existingDocumentTypes = [],
-    options = {}
+    externalApiText = null
   ) {
     let systemPrompt;
 
@@ -392,23 +395,6 @@ class OllamaService {
       systemPrompt = process.env.SYSTEM_PROMPT + '\n\n' + mustHavePrompt;
     }
 
-    // Get validated external API data if available
-    let validatedExternalApiData = null;
-    if (options.externalApiData) {
-      try {
-        validatedExternalApiData = this._validateAndTruncateExternalApiData(
-          options.externalApiData
-        );
-        console.log('[DEBUG] External API data validated and included');
-      } catch (error) {
-        console.warn(
-          '[WARNING] External API data validation failed:',
-          error.message
-        );
-        validatedExternalApiData = null;
-      }
-    }
-
     // Process placeholder replacements in system prompt
     systemPrompt = RestrictionPromptService.processRestrictionsInPrompt(
       systemPrompt,
@@ -417,9 +403,10 @@ class OllamaService {
       existingDocumentTypes
     );
 
-    // Include validated external API data if available
-    if (validatedExternalApiData) {
-      systemPrompt += `\n\nAdditional context from external API:\n${validatedExternalApiData}`;
+    // After the restrictions and before USE_PROMPT_TAGS, as in
+    // services/analysisPrompt.js.
+    if (typeof externalApiText === 'string' && externalApiText) {
+      systemPrompt += `\n\nAdditional context from external API:\n${externalApiText}`;
     }
 
     if (process.env.USE_PROMPT_TAGS === 'yes') {
