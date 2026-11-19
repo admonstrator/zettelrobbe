@@ -469,78 +469,128 @@
             </div>
             <div class="zr-module__body zr-col zr-col--loose">
                 <div class="zr-col zr-col--tight">
-                    <span class="zr-label">A section and its rows — .zr-settings-section, .zr-settings-card</span>
+                    <span class="zr-label">A topic and its sections — .zr-settings-entry, .zr-settings-section, .zr-settings-disclosure</span>
                     <p class="zr-sm zr-muted">
-                        A section is a card like the cards of every other page: its title in the card head, a button for the
-                        whole section beside it if it has one, one line on what it holds under the head. A topic stacks its
-                        cards in a .zr-stack under its title and lead, which stand on the page. In the card every setting is a row,
-                        ruled off by a hairline, and every control ends on the same right edge. The form of a row follows the type of
-                        its control: a switch, a number, a select or a short text sits beside its label; an address, a secret, a list
-                        of pills, a textarea or a control with a button beside it sits under its label across the row. Shown: both forms,
-                        a switch with an unsaved change, one set by the environment, and a row "Find a setting" marked.
+                        A topic is one card like the cards of every other page (.zr-module.zr-settings-entry): its head names it,
+                        with the group as a quiet line, the title and one sentence on what the topic is for; its body holds the
+                        sections, one block after the other. A section is a block, not a card: its title, a button for the whole
+                        section beside it if it has one, one line on what it holds, then its rows. A section after another one is
+                        ruled off from card edge to card edge. A section that folds (.zr-settings-disclosure: Advanced options, a
+                        release of the changelog) has a summary row for its head. In a section every setting is a row, ruled off by
+                        a hairline, and every control ends on the same right edge. The form of a row follows the type of its
+                        control: a switch, a number, a select or a short text sits beside its label; an address, a secret, a list
+                        of pills, a textarea or a control with a button beside it sits under its label across the row. Shown: both
+                        forms, a switch with an unsaved change, one set by the environment, and a row "Find a setting" marked.
                     </p>
                     <div style="max-width: 720px">
-                        <section class="zr-module zr-settings-card zr-settings-section" aria-labelledby="sgSectionTitle">
-                            <div class="zr-module__head">
-                                <h4 class="zr-module__title zr-settings-section__title" id="sgSectionTitle">Tags after the analysis</h4>
-                            </div>
-                            <p class="zr-settings-section__desc">What Zettelrobbe adds to a document or takes off it once its analysis is written.</p>
-                            <div class="zr-module__body zr-col zr-col--loose">
-                                <div class="zr-switchrow">
-                                    <div class="zr-grow">
-                                        <label for="sgRowsTagSwitch" class="zr-field__name">Tag analysed documents</label>
-                                        <p class="zr-field__hint">Adds the tag below to every analysed document.</p>
+                        <section class="zr-settings-entry zr-module" aria-labelledby="sgEntryTitle">
+                            <header class="zr-module__head zr-settings-entry__head">
+                                <p class="zr-settings-entry__group">Document analysis</p>
+                                <div class="zr-settings-entry__titlerow">
+                                    <h4 class="zr-settings-entry__title" id="sgEntryTitle">What the AI fills in</h4>
+                                </div>
+                                <p class="zr-settings-entry__lead">Which fields of a document Zettelrobbe writes, and which tags it adds or takes off once the analysis is written.</p>
+                            </header>
+                            <div class="zr-module__body zr-module__body--tight zr-settings-entry__body">
+                                <section class="zr-settings-section" aria-labelledby="sgSectionFields">
+                                    <div class="zr-settings-section__head">
+                                        <h5 class="zr-settings-section__title" id="sgSectionFields">Fields of a document</h5>
                                     </div>
-                                    <input type="checkbox" class="zr-toggle" id="sgRowsTagSwitch" checked>
-                                </div>
-                                <div class="zr-field zr-field--stacked">
-                                    <label for="sgRowsTagName" class="zr-field__name">Tag name</label>
-                                    <input type="text" id="sgRowsTagName" class="zr-input" value="ai-processed">
-                                    <p class="zr-field__hint">A short text: beside its label.</p>
-                                </div>
-                                <div class="zr-field zr-field--stacked">
-                                    <label for="sgRowsLimit" class="zr-field__name">Page limit</label>
-                                    <input type="number" id="sgRowsLimit" class="zr-input" value="40">
-                                    <p class="zr-field__hint">A number: beside its label.</p>
-                                </div>
-                                <div class="zr-field zr-field--stacked">
-                                    <label for="sgRowsUrl" class="zr-field__name">Server address</label>
-                                    <input type="text" id="sgRowsUrl" class="zr-input" value="http://ollama.lan:11434" inputmode="url">
-                                    <p class="zr-field__hint">An address: under its label, across the row.</p>
-                                </div>
-                                <div class="zr-field zr-field--stacked">
-                                    <label for="sgRowsPills" class="zr-field__name">Also remove these tags</label>
-                                    <div class="zr-inputgroup">
-                                        <input type="text" id="sgRowsPills" class="zr-input" placeholder="Tag name, then Enter">
-                                        <button type="button" class="zr-btn zr-btn--primary">
-                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                            Add
-                                        </button>
+                                    <p class="zr-settings-section__desc">Switched off, Zettelrobbe leaves that field as it is.</p>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsFieldTags" class="zr-field__name">Tags</label>
+                                                <p class="zr-field__hint">Adds the tags the model picks to the ones the document already has.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsFieldTags" checked>
+                                        </div>
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsFieldTitle" class="zr-field__name">Title</label>
+                                                <p class="zr-field__hint">Replaces the title with one the model writes from the content.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsFieldTitle">
+                                        </div>
                                     </div>
-                                    <div class="zr-chips" role="list"><span class="zr-chip" role="listitem"><span>needs-ocr</span><button type="button" aria-label="Remove needs-ocr"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button></span></div>
-                                    <p class="zr-field__hint">A list of pills: its Add button ends on the same edge as the switches.</p>
-                                </div>
-                                <div class="zr-switchrow" data-dirty>
-                                    <div class="zr-grow">
-                                        <label for="sgRowsInboxSwitch" class="zr-field__name">Remove the inbox tags</label>
-                                        <p class="zr-field__hint">Changed and not saved yet: the bar on the left says so.</p>
+                                </section>
+                                <section class="zr-settings-section" aria-labelledby="sgSectionTitle">
+                                    <div class="zr-settings-section__head">
+                                        <h5 class="zr-settings-section__title" id="sgSectionTitle">Tags after the analysis</h5>
                                     </div>
-                                    <input type="checkbox" class="zr-toggle" id="sgRowsInboxSwitch">
-                                </div>
-                                <div class="zr-switchrow">
-                                    <div class="zr-grow">
-                                        <label for="sgRowsPinnedSwitch" class="zr-field__name">Send the existing names</label>
-                                        <p class="zr-field__hint">Set by the environment (USE_EXISTING_DATA).</p>
+                                    <p class="zr-settings-section__desc">What Zettelrobbe adds to a document or takes off it once its analysis is written.</p>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsTagSwitch" class="zr-field__name">Tag analysed documents</label>
+                                                <p class="zr-field__hint">Adds the tag below to every analysed document.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsTagSwitch" checked>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsTagName" class="zr-field__name">Tag name</label>
+                                            <input type="text" id="sgRowsTagName" class="zr-input" value="ai-processed">
+                                            <p class="zr-field__hint">A short text: beside its label.</p>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsLimit" class="zr-field__name">Page limit</label>
+                                            <input type="number" id="sgRowsLimit" class="zr-input" value="40">
+                                            <p class="zr-field__hint">A number: beside its label.</p>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsUrl" class="zr-field__name">Server address</label>
+                                            <input type="text" id="sgRowsUrl" class="zr-input" value="http://ollama.lan:11434" inputmode="url">
+                                            <p class="zr-field__hint">An address: under its label, across the row.</p>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsPills" class="zr-field__name">Also remove these tags</label>
+                                            <div class="zr-inputgroup">
+                                                <input type="text" id="sgRowsPills" class="zr-input" placeholder="Tag name, then Enter">
+                                                <button type="button" class="zr-btn zr-btn--primary">
+                                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
+                                                    Add
+                                                </button>
+                                            </div>
+                                            <div class="zr-chips" role="list"><span class="zr-chip" role="listitem"><span>needs-ocr</span><button type="button" aria-label="Remove needs-ocr"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button></span></div>
+                                            <p class="zr-field__hint">A list of pills: its Add button ends on the same edge as the switches.</p>
+                                        </div>
+                                        <div class="zr-switchrow" data-dirty>
+                                            <div class="zr-grow">
+                                                <label for="sgRowsInboxSwitch" class="zr-field__name">Remove the inbox tags</label>
+                                                <p class="zr-field__hint">Changed and not saved yet: the bar on the left says so.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsInboxSwitch">
+                                        </div>
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsPinnedSwitch" class="zr-field__name">Send the existing names</label>
+                                                <p class="zr-field__hint">Set by the environment (USE_EXISTING_DATA).</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsPinnedSwitch" checked disabled>
+                                        </div>
+                                        <div class="zr-switchrow zr-settings-match">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsMatchSwitch" class="zr-field__name">Skip copies of ignored documents</label>
+                                                <p class="zr-field__hint">Marked while a search for "ignored" stands.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsMatchSwitch" checked>
+                                        </div>
                                     </div>
-                                    <input type="checkbox" class="zr-toggle" id="sgRowsPinnedSwitch" checked disabled>
-                                </div>
-                                <div class="zr-switchrow zr-settings-match">
-                                    <div class="zr-grow">
-                                        <label for="sgRowsMatchSwitch" class="zr-field__name">Skip copies of ignored documents</label>
-                                        <p class="zr-field__hint">Marked while a search for "ignored" stands.</p>
+                                </section>
+                                <details class="zr-settings-section zr-settings-disclosure">
+                                    <summary class="zr-settings-section__head zr-settings-disclosure__summary">
+                                        <h5 class="zr-settings-section__title">Advanced options</h5>
+                                        <span class="zr-field__hint zr-grow">Options most archives leave at their defaults.</span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-disclosure__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </summary>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsAnswer" class="zr-field__name">Answer length</label>
+                                            <input type="number" id="sgRowsAnswer" class="zr-input" value="1500">
+                                            <p class="zr-field__hint">The longest answer the model may write for one document, in tokens.</p>
+                                        </div>
                                     </div>
-                                    <input type="checkbox" class="zr-toggle" id="sgRowsMatchSwitch" checked>
-                                </div>
+                                </details>
                             </div>
                         </section>
                     </div>
@@ -1626,74 +1676,88 @@
                     is a button with <code>aria-expanded</code> and opens its controls in place. On the settings
                     page each control mirrors a real field (<code>data-mirror</code>) and carries no
                     <code>name</code>; <code>js/modules/settings-quick-start.js</code> keeps both in step.
-                    Here the rows are static.
+                    The rows are the body of the Quick start topic card, from card edge to card edge under its
+                    head. Here they are static.
                 </p>
-                <div class="zr-qs">
-                    <div class="zr-module zr-qs__list">
-                        <div class="zr-qs__step" data-state="done">
-                            <h3 class="zr-qs__heading">
-                                <button type="button" class="zr-qs__toggle" aria-expanded="false">
-                                    <span class="zr-qs__mark" aria-hidden="true">
-                                        <svg class="zr-icon zr-icon--sm zr-qs__icon zr-qs__icon--done"><use href="/icons.svg#i-check"/></svg>
-                                        <span class="zr-qs__number">1</span>
-                                    </span>
-                                    <span class="zr-qs__text">
-                                        <span class="zr-qs__title">Paperless-ngx</span>
-                                        <span class="zr-qs__summary">http://paperless:8000 · user admin · connected</span>
-                                    </span>
-                                    <span class="zr-qs__action">Change</span>
-                                </button>
-                            </h3>
-                        </div>
-                        <div class="zr-qs__step zr-qs__step--open" data-state="open" data-dirty>
-                            <h3 class="zr-qs__heading">
-                                <button type="button" class="zr-qs__toggle" aria-expanded="true" aria-controls="sgQuickStartBody">
-                                    <span class="zr-qs__mark" aria-hidden="true">
-                                        <span class="zr-qs__number">2</span>
-                                    </span>
-                                    <span class="zr-qs__text">
-                                        <span class="zr-qs__title">What the AI fills in</span>
-                                        <span class="zr-qs__summary">Nothing switched on</span>
-                                    </span>
-                                    <span class="zr-qs__dirty"><span class="zr-sr">Unsaved changes.</span></span>
-                                    <span class="zr-qs__action">Close</span>
-                                </button>
-                            </h3>
-                            <div class="zr-qs__body" id="sgQuickStartBody">
-                                <div class="zr-qs__switches">
-                                    <div class="zr-qs__field zr-qs__switch">
-                                        <div class="zr-qs__switchtext">
-                                            <label for="sgQuickStartTitle" class="zr-field__name">Title</label>
-                                            <p class="zr-field__hint">A title from the content instead of the file name.</p>
-                                        </div>
-                                        <input type="checkbox" class="zr-toggle" id="sgQuickStartTitle">
+                <div style="max-width: 720px">
+                    <section class="zr-settings-entry zr-module" aria-labelledby="sgQuickStartTopic">
+                        <header class="zr-module__head zr-settings-entry__head">
+                            <div class="zr-settings-entry__titlerow">
+                                <h4 class="zr-settings-entry__title" id="sgQuickStartTopic">Quick start</h4>
+                                <span class="zr-badge zr-badge--brand">1 of 3 done</span>
+                            </div>
+                            <p class="zr-settings-entry__lead">Six decisions Zettelrobbe needs before it analyses your documents. Every other setting starts with a default and has its own topic.</p>
+                        </header>
+                        <div class="zr-module__body zr-module__body--tight zr-settings-entry__body">
+                            <div class="zr-qs">
+                                <div class="zr-qs__list">
+                                    <div class="zr-qs__step" data-state="done">
+                                        <h3 class="zr-qs__heading">
+                                            <button type="button" class="zr-qs__toggle" aria-expanded="false">
+                                                <span class="zr-qs__mark" aria-hidden="true">
+                                                    <svg class="zr-icon zr-icon--sm zr-qs__icon zr-qs__icon--done"><use href="/icons.svg#i-check"/></svg>
+                                                    <span class="zr-qs__number">1</span>
+                                                </span>
+                                                <span class="zr-qs__text">
+                                                    <span class="zr-qs__title">Paperless-ngx</span>
+                                                    <span class="zr-qs__summary">http://paperless:8000 · user admin · connected</span>
+                                                </span>
+                                                <span class="zr-qs__action">Change</span>
+                                            </button>
+                                        </h3>
                                     </div>
-                                    <div class="zr-qs__field zr-qs__switch">
-                                        <div class="zr-qs__switchtext">
-                                            <label for="sgQuickStartTags" class="zr-field__name">Tags</label>
-                                            <p class="zr-field__hint">Set by the environment (ACTIVATE_TAGGING).</p>
+                                    <div class="zr-qs__step zr-qs__step--open" data-state="open" data-dirty>
+                                        <h3 class="zr-qs__heading">
+                                            <button type="button" class="zr-qs__toggle" aria-expanded="true" aria-controls="sgQuickStartBody">
+                                                <span class="zr-qs__mark" aria-hidden="true">
+                                                    <span class="zr-qs__number">2</span>
+                                                </span>
+                                                <span class="zr-qs__text">
+                                                    <span class="zr-qs__title">What the AI fills in</span>
+                                                    <span class="zr-qs__summary">Nothing switched on</span>
+                                                </span>
+                                                <span class="zr-qs__dirty"><span class="zr-sr">Unsaved changes.</span></span>
+                                                <span class="zr-qs__action">Close</span>
+                                            </button>
+                                        </h3>
+                                        <div class="zr-qs__body" id="sgQuickStartBody">
+                                            <div class="zr-qs__switches">
+                                                <div class="zr-qs__field zr-qs__switch">
+                                                    <div class="zr-qs__switchtext">
+                                                        <label for="sgQuickStartTitle" class="zr-field__name">Title</label>
+                                                        <p class="zr-field__hint">A title from the content instead of the file name.</p>
+                                                    </div>
+                                                    <input type="checkbox" class="zr-toggle" id="sgQuickStartTitle">
+                                                </div>
+                                                <div class="zr-qs__field zr-qs__switch">
+                                                    <div class="zr-qs__switchtext">
+                                                        <label for="sgQuickStartTags" class="zr-field__name">Tags</label>
+                                                        <p class="zr-field__hint">Set by the environment (ACTIVATE_TAGGING).</p>
+                                                    </div>
+                                                    <input type="checkbox" class="zr-toggle" id="sgQuickStartTags" disabled>
+                                                </div>
+                                            </div>
+                                            <p class="zr-qs__more"><a class="zr-link zr-link--underline" href="#sg-quick-start">All options in Restrictions and limits</a></p>
                                         </div>
-                                        <input type="checkbox" class="zr-toggle" id="sgQuickStartTags" disabled>
+                                    </div>
+                                    <div class="zr-qs__step" data-state="skipped">
+                                        <h3 class="zr-qs__heading">
+                                            <button type="button" class="zr-qs__toggle" aria-expanded="false">
+                                                <span class="zr-qs__mark" aria-hidden="true">
+                                                    <span class="zr-qs__number">3</span>
+                                                </span>
+                                                <span class="zr-qs__text">
+                                                    <span class="zr-qs__title">OCR for scans <span class="zr-badge">Optional</span></span>
+                                                    <span class="zr-qs__summary">Off</span>
+                                                </span>
+                                                <span class="zr-qs__action">Change</span>
+                                            </button>
+                                        </h3>
                                     </div>
                                 </div>
-                                <p class="zr-qs__more"><a class="zr-link zr-link--underline" href="#sg-quick-start">All options in Restrictions and limits</a></p>
                             </div>
                         </div>
-                        <div class="zr-qs__step" data-state="skipped">
-                            <h3 class="zr-qs__heading">
-                                <button type="button" class="zr-qs__toggle" aria-expanded="false">
-                                    <span class="zr-qs__mark" aria-hidden="true">
-                                        <span class="zr-qs__number">3</span>
-                                    </span>
-                                    <span class="zr-qs__text">
-                                        <span class="zr-qs__title">OCR for scans <span class="zr-badge">Optional</span></span>
-                                        <span class="zr-qs__summary">Off</span>
-                                    </span>
-                                    <span class="zr-qs__action">Change</span>
-                                </button>
-                            </h3>
-                        </div>
-                    </div>
+                    </section>
                 </div>
             </div>
         </section>

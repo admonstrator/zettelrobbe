@@ -162,9 +162,11 @@ function esc(value) {
 /** [start, end) of every advanced disclosure on the page. */
 function disclosureRanges(html) {
   const ranges = [];
-  // A card of rows like the sections above it (zr-settings-card).
+  // A section of the topic card that folds, its rows like the rows of the
+  // sections above it; data-advanced tells it from Advanced of single
+  // sign-on.
   const pattern =
-    /<details class="zr-module zr-settings-card zr-settings-advanced"[^>]*>/g;
+    /<details class="zr-settings-section zr-settings-disclosure"[^>]*\sdata-advanced[^>]*>/g;
   let match;
   while ((match = pattern.exec(html))) {
     const end = html.indexOf('</details>', match.index);

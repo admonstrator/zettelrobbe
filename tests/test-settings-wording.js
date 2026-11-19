@@ -206,11 +206,10 @@ function stringLiterals(source) {
     // Words that keep their capitals wherever they stand.
     const proper =
       /^(AI|API|OCR|PDF|DPI|MFA|URI|URL|ID|OpenID|Connect|JSON|HTTP|TOTP|SSO|OIDC|E-mail|Paperless-ngx|Zettelrobbe|OpenAI|OpenAI-compatible|Ollama|Azure|Anthropic|Claude|Mistral|LM|Studio|Tidy|QR|REST|S256|PKCE|\(DPI\)|\(MFA\)|\(JSON\)|\(cron\)|\(ms\)|\(seconds\)|\(optional\))$/;
-    // A section title sits in the head of its card, with both classes.
+    // A section title heads its block of the topic card, a section that
+    // folds (Advanced options) included.
     const sectionTitles = [
-      ...page.matchAll(
-        /class="zr-module__title zr-settings-section__title"[^>]*>([^<]+)</g
-      ),
+      ...page.matchAll(/class="zr-settings-section__title"[^>]*>([^<]+)</g),
     ];
     assert.ok(
       sectionTitles.length >= 25,

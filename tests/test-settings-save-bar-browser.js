@@ -20,7 +20,9 @@
  * Also: a field the browser refuses, and a "Find a setting" match, rest
  * between the bars; a list of pills and a Quick start mirror are counted and
  * named once; with the group of the open topic open the topic list fits a
- * window 720px high.
+ * window 720px high; at 1477px and on a phone the page draws two cards, the
+ * topic list and the open topic, and no text or box of the settings column
+ * outside the topic's card.
  *
  * Needs Chrome (CHROME_PATH, or Google Chrome where macOS installs it);
  * without it the runner skips this test.
@@ -154,6 +156,42 @@ const PROBE = String.raw`(async () => {
   }
   out.windowScrolls = document.scrollingElement.scrollHeight > innerHeight + 1;
   return out;
+})()`;
+
+/**
+ * Runs in the page: the cards the settings column draws and what it draws
+ * outside them. Every piece of text with a box on screen, and every element
+ * with one, has to sit in the one card of the open topic.
+ */
+const ONE_CARD = String.raw`(() => {
+  const shown = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+  const main = document.querySelector('.zr-settings__main');
+  const cards = [...main.querySelectorAll('.zr-module')].filter(shown);
+  const card = cards[0] || null;
+  const holds = (node) => Boolean(card) && card.contains(node);
+  const texts = [];
+  const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.textContent.trim() || holds(node)) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    if ([...range.getClientRects()].some((r) => r.width > 0 && r.height > 0)) {
+      texts.push(node.textContent.trim().slice(0, 40));
+    }
+  }
+  const boxes = [...main.querySelectorAll('*')]
+    .filter((el) => shown(el) && !holds(el) && !(card && el.contains(card)))
+    .map((el) => el.tagName + '.' + el.className);
+  const list = document.querySelector('.zr-settings__aside > .zr-module').getBoundingClientRect();
+  const r = card ? card.getBoundingClientRect() : null;
+  return {
+    cards: cards.length,
+    allCards: [...document.querySelectorAll('.zr-settings .zr-module')].filter(shown).length,
+    texts,
+    boxes,
+    sideBySide: r ? list.right <= r.left && Math.round(r.top - list.top) === 0 : null,
+    below: r ? list.bottom <= r.top : null,
+  };
 })()`;
 
 const BETWEEN_BARS = String.raw`((el) => {
@@ -311,6 +349,38 @@ const BETWEEN_BARS = String.raw`((el) => {
       });
     }
 
+    // Two cards and nothing outside them: the topic list on the left (on a
+    // phone above), the open topic in one card on the right.
+    for (const size of [
+      { width: 1477, height: 900 },
+      { width: 375, height: 760, mobile: true },
+    ]) {
+      await browser.viewport(size.width, size.height, { mobile: size.mobile });
+      for (const topic of [
+        'quick-start',
+        'ai-provider',
+        'ai-behavior',
+        'ocr',
+        'set-by-environment',
+        'changelog',
+        'sso',
+        'account',
+        'api-key',
+      ]) {
+        await browser.goto(url(topic));
+        const seen = await browser.evaluate(ONE_CARD);
+        await test(`${size.width}px, ${topic}: the topic is one card, nothing outside it`, () => {
+          assert.strictEqual(seen.cards, 1, `${seen.cards} cards`);
+          assert.strictEqual(seen.allCards, 2, 'the topic list and the topic');
+          assert.deepStrictEqual(seen.texts, [], 'text outside the card');
+          assert.deepStrictEqual(seen.boxes, [], 'boxes outside the card');
+          if (size.mobile) assert.ok(seen.below, 'the topic under the list');
+          else assert.ok(seen.sideBySide, 'list and topic side by side');
+        });
+      }
+    }
+
+    await browser.viewport(1280, 720);
     await browser.goto(url('ai-behavior'));
     const named = await browser.evaluate(`(async () => {
       const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
