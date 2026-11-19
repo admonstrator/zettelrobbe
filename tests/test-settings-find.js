@@ -239,7 +239,11 @@ const ITEMS = [
   const navJs = read('public', 'js', 'modules', 'settings-nav.js');
   const navBlock = view.slice(
     view.indexOf('<div class="zr-settings-page"'),
-    view.indexOf('<div class="zr-col zr-col--loose zr-settings__main">')
+    view.indexOf('<div class="zr-stack zr-settings__main">')
+  );
+  assert.ok(
+    navBlock.includes('</aside>'),
+    'the block ends after the topic list'
   );
 
   await test('the field sits above the topic list, labelled "Find a setting"', () => {

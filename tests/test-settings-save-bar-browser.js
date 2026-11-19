@@ -301,9 +301,10 @@ const BETWEEN_BARS = String.raw`((el) => {
 
     for (const topic of ['ai-behavior', 'runtime', 'account']) {
       await browser.goto(url(topic));
+      // The whole card of the topic list, not only the list inside it.
       const list = await browser.evaluate(`(() => {
-        const nav = document.querySelector('[data-el="nav"]').getBoundingClientRect();
-        return { bottom: Math.round(nav.bottom), height: innerHeight };
+        const card = document.querySelector('[data-el="nav"]').closest('.zr-module').getBoundingClientRect();
+        return { bottom: Math.round(card.bottom), height: innerHeight };
       })()`);
       await test(`the topic list fits a window 720px high (${topic} open)`, () => {
         assert.ok(list.bottom <= list.height, `ends at ${list.bottom}px`);

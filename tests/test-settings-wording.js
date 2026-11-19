@@ -206,10 +206,21 @@ function stringLiterals(source) {
     // Words that keep their capitals wherever they stand.
     const proper =
       /^(AI|API|OCR|PDF|DPI|MFA|URI|URL|ID|OpenID|Connect|JSON|HTTP|TOTP|SSO|OIDC|E-mail|Paperless-ngx|Zettelrobbe|OpenAI|OpenAI-compatible|Ollama|Azure|Anthropic|Claude|Mistral|LM|Studio|Tidy|QR|REST|S256|PKCE|\(DPI\)|\(MFA\)|\(JSON\)|\(cron\)|\(ms\)|\(seconds\)|\(optional\))$/;
+    // A section title sits in the head of its card, with both classes.
+    const sectionTitles = [
+      ...page.matchAll(
+        /class="zr-module__title zr-settings-section__title"[^>]*>([^<]+)</g
+      ),
+    ];
+    assert.ok(
+      sectionTitles.length >= 25,
+      `only ${sectionTitles.length} section titles found`
+    );
     const names = [
       ...page.matchAll(
         /class="(?:zr-field__name|zr-module__title|zr-settings-entry__title|zr-settings-section__title)"[^>]*>([^<]+)</g
       ),
+      ...sectionTitles,
       ...page.matchAll(/class="zr-checktile">[\s\S]*?<span>([^<]+)<\/span>/g),
     ]
       .map((m) => decode(m[1]).trim().replace(/\s+/g, ' '))

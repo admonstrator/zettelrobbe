@@ -19,14 +19,15 @@
  *    changes; its Save button belongs to the form from outside it
  * 3. The phone: one column, the topic list only while searching, the frame
  *    ends on the tab bar
- * 4. No scrollbar of its own in the topic list: nothing sticky, no height
- *    cap, no overflow; groups that fold, each heading a real button
+ * 4. The topic list is a card with no scrollbar of its own: nothing sticky,
+ *    no height cap, no overflow; groups that fold, each heading a real button
  * 5. Which groups are open (openGroups) and the scroll keys on a page where
  *    nothing has the focus (scrollStep), from the shipped module
  * 6. One right edge per card: no control capped inside a settings card, the
  *    row form decided by the type of the control, the rule in the comment
- * 7. Sections: the title and one line above the card, no header bar inside;
- *    every topic says in one sentence what it is for
+ * 7. Sections are cards like those of every other page: the title in the card
+ *    head, one line under it, no card in a card; a topic stacks them with the
+ *    card gap; every topic says in one sentence what it is for
  * 8. The rows of a card: the same air above and below, blocks ruled off
  * 9. The styleguide shows the row forms, the topic list and the save bar
  */
@@ -142,8 +143,12 @@ function body(source, selector) {
       '<div class="zr-settings-scroll" data-el="scroller">',
       '<div class="zr-settings">',
       '<aside class="zr-settings__aside">',
-      '<div class="zr-col zr-col--loose zr-settings__main">',
-      '<form id="setupForm"',
+      '<div class="zr-module">',
+      '<div class="zr-module__body zr-settings-side">',
+      '<div class="zr-only-mobile zr-settings-picker">',
+      '</aside>',
+      '<div class="zr-stack zr-settings__main">',
+      '<form id="setupForm" class="zr-stack"',
       '</form>',
       '<div class="zr-settings-scroll__reserve" data-el="reserve" aria-hidden="true"></div>',
       '<div class="zr-actionbar" id="settingsSaveRow"',
@@ -221,11 +226,21 @@ function body(source, selector) {
       /display: none;/
     );
     assert.match(body(phone, '.zr-settings-nav a'), /white-space: normal;/);
-    // The picker stays.
+    // The picker stays, in the card of the topic list under the field.
     assert.ok(
       view.includes(
         '<select id="settingsEntrySelect" class="zr-input" data-el="select">'
       )
+    );
+    const aside = view.slice(
+      view.indexOf('<aside class="zr-settings__aside">'),
+      view.indexOf('</aside>')
+    );
+    assert.ok(aside.includes('id="settingsEntrySelect"'), 'picker in the card');
+    assert.ok(
+      aside.indexOf('id="settingsSearch"') <
+        aside.indexOf('id="settingsEntrySelect"'),
+      'under the field'
     );
     // The phone starts at the page padding too.
     assert.match(
@@ -236,7 +251,12 @@ function body(source, selector) {
 
   // ── 4. The topic list ────────────────────────────────────────────────────
 
-  await test('the topic list has no scrollbar of its own', () => {
+  await test('the topic list is a card with no scrollbar of its own', () => {
+    assert.match(
+      html,
+      /<aside class="zr-settings__aside">\s*<div class="zr-module">\s*<div class="zr-module__body zr-settings-side">/,
+      'field and list in a card, like the cards of every other page'
+    );
     const side = body(desktop, '.zr-settings-side');
     assert.doesNotMatch(side, /sticky|max-height|overflow/);
     const nav = body(desktop, '.zr-settings-nav');
@@ -425,40 +445,108 @@ function body(source, selector) {
 
   // ── 7. Sections and topics ───────────────────────────────────────────────
 
-  await test('a section names itself above its card, with one line', () => {
+  await test('a section is a card: its title in the head, one line under it', () => {
     const sections = [
       ...html.matchAll(
-        /<section class="zr-settings-section" id="([^"]+)"[^>]*>([\s\S]*?)<\/section>/g
+        /<section class="zr-module zr-settings-card zr-settings-section" id="([^"]+)"[^>]*>([\s\S]*?)<\/section>/g
       ),
     ];
     assert.ok(sections.length >= 25, `only ${sections.length} sections`);
     sections.forEach(([, id, inner]) => {
       assert.match(
         inner,
-        /^\s*<div class="zr-settings-section__head">/,
-        `${id}: the head first`
+        /^\s*<div class="zr-module__head">/,
+        `${id}: the card head first`
       );
       assert.match(
         inner,
-        /<h3 class="zr-settings-section__title" id="[^"]+">[^<]+<\/h3>/,
-        `${id}: a title`
+        /^\s*<div class="zr-module__head">\s*<h3 class="zr-module__title zr-settings-section__title" id="[^"]+">[^<]+<\/h3>/,
+        `${id}: the title in the head`
       );
       assert.match(
         inner,
-        /<p class="zr-settings-section__desc">[^<]{12,}/,
-        `${id}: one line`
-      );
-      assert.match(
-        inner,
-        /<div class="zr-module zr-settings-card">/,
-        `${id}: then the card`
+        /<\/div>\s*<p class="zr-settings-section__desc">[^<]{12,}/,
+        `${id}: one line under the head`
       );
       assert.doesNotMatch(
         inner,
-        /<div class="zr-module__head">/,
-        `${id}: no header bar`
+        /class="zr-module[ "]/,
+        `${id}: no card in the card`
       );
     });
+    // Nothing of a section stands on the page any more, and nothing else
+    // does: every section of the form is one of these cards.
+    assert.ok(!html.includes('zr-settings-section__head'));
+    const form = html.slice(
+      html.indexOf('<form id="setupForm"'),
+      html.indexOf('</form>')
+    );
+    assert.strictEqual(
+      (form.match(/<section class="zr-settings-section/g) || []).length,
+      0,
+      'a section outside a card'
+    );
+    // The head starts at the inset of the rows; a long title wraps.
+    assert.match(
+      body(desktop, '.zr-settings-card > .zr-module__head'),
+      /padding-inline: var\(--zr-row-x\);/
+    );
+    assert.match(
+      body(
+        desktop,
+        '.zr-settings-section > .zr-module__head > .zr-settings-section__title'
+      ),
+      /white-space: normal;/
+    );
+    assert.match(
+      body(desktop, '.zr-settings-section__desc'),
+      /padding: var\(--zr-row-y\) var\(--zr-row-x\) 0;/
+    );
+  });
+
+  await test('"Advanced options", Quick start and the changelog are cards too', () => {
+    const advanced = [
+      ...html.matchAll(
+        /<details class="zr-module zr-settings-card (?:zr-settings-advanced|zr-sso-advanced)"[^>]*>\s*<summary class="zr-module__head">\s*<h3 class="zr-module__title">([^<]+)<\/h3>/g
+      ),
+    ];
+    assert.ok(advanced.length >= 3, `only ${advanced.length} disclosures`);
+    assert.match(
+      html,
+      /<div class="zr-qs"[^>]*>\s*<div class="zr-module zr-qs__list">/,
+      'Quick start: its steps in one card'
+    );
+    assert.match(
+      html,
+      /<section class="zr-module zr-settings-card zr-settings-section" id="sec-release-history"/
+    );
+    // A release is a panel in that card, not a card of its own.
+    assert.match(
+      flat(read('public', 'css', 'pages', 'settings-changelog.css')),
+      /\.changelog-details \{ border: 1px solid var\(--zr-line\); border-radius: 0\.625rem; background: var\(--zr-surface-2\);/
+    );
+  });
+
+  await test('a topic is a column of cards, the card gap between them', () => {
+    const topics = [
+      ...html.matchAll(/<section class="zr-settings-entry([^"]*)" id="entry-/g),
+    ];
+    assert.ok(topics.length >= 20);
+    topics.forEach(([, classes]) => {
+      assert.match(classes, /^ zr-stack( hidden)?$/, classes);
+    });
+    // The wrappers two topic modules put around their cards are columns too.
+    assert.ok(
+      html.includes('<div class="zr-stack" data-module="settings-sso">')
+    );
+    assert.ok(
+      html.includes('<div class="zr-stack" data-module="settings-environment">')
+    );
+    assert.doesNotMatch(
+      css,
+      /\.zr-settings-entry[,\s>{][^{}]*\{[^}]*gap:/,
+      'no distance of its own between the cards of a topic'
+    );
   });
 
   await test('every topic says in one sentence what it is for', () => {
@@ -526,8 +614,22 @@ function body(source, selector) {
       'not laid out like the page'
     );
     assert.ok(styleguide.includes('id="sg-settings"'));
-    assert.ok(styleguide.includes('class="zr-settings-section"'));
-    assert.ok(styleguide.includes('class="zr-module zr-settings-card"'));
+    assert.ok(
+      styleguide.includes(
+        'class="zr-module zr-settings-card zr-settings-section"'
+      ),
+      'a section as a card'
+    );
+    assert.ok(
+      styleguide.includes(
+        'class="zr-module__title zr-settings-section__title"'
+      ),
+      'its title in the card head'
+    );
+    assert.ok(
+      styleguide.includes('<div class="zr-module__body zr-settings-side">'),
+      'the topic list in a card'
+    );
     assert.ok(
       styleguide.includes('inputmode="url"'),
       'a row of the below form'
