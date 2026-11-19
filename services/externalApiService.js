@@ -113,6 +113,137 @@ function applyTransform(data, transform) {
   return value;
 }
 
+/*
+ * Redirects. Left to itself, axios follows up to 21 of them and checks none:
+ * a public endpoint could send the request on to a private address, localhost
+ * or the cloud metadata service, and a custom header such as X-Api-Key went
+ * along to whatever host a redirect named. So the service follows them itself.
+ * Every hop has to pass validateApiUrl with the options the entered address
+ * got, before a request goes to it; an https request never continues over
+ * plain http; and the configured headers go only to the origin the user
+ * entered.
+ */
+
+/** Redirects followed at most; the next one is refused. */
+const MAX_REDIRECTS = 5;
+/** The answers that send the request on to the address in Location. */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** A redirect the service does not follow. */
+class RedirectRefusedError extends Error {
+  /**
+   * @param {string} address - as addressForLog() prints it
+   * @param {string} reason
+   */
+  constructor(address, reason) {
+    super(`redirect to ${address} refused: ${reason}`);
+    this.name = 'RedirectRefusedError';
+  }
+}
+
+/**
+ * An address for a log line: without user name, password, query string and
+ * fragment, which can carry a key.
+ *
+ * @param {URL} url
+ * @returns {string}
+ */
+function addressForLog(url) {
+  const shown = new URL(url.href);
+  shown.username = '';
+  shown.password = '';
+  shown.search = '';
+  shown.hash = '';
+  return shown.href;
+}
+
+/**
+ * Sends the request and follows its redirects as described above. One
+ * timeout covers the whole chain, as it did while axios followed.
+ *
+ * @param {{ method: string, url: string, headers: unknown, timeout: number, data?: unknown }} request
+ * @param {boolean} allowPrivateIPs - EXTERNAL_API_ALLOW_PRIVATE_IPS, as for the entered address
+ * @returns {Promise<{ status: number, data: unknown }>} the answer that is not a redirect
+ */
+async function requestCheckingRedirects(request, allowPrivateIPs) {
+  const enteredOrigin = new URL(request.url).origin;
+  const deadline = Date.now() + request.timeout;
+  let { method, url, data } = request;
+
+  for (let redirects = 0; ; redirects += 1) {
+    const current = new URL(url);
+    const timeLeft = deadline - Date.now();
+    if (timeLeft <= 0) {
+      throw new Error(`timeout of ${request.timeout}ms exceeded`);
+    }
+
+    const options = {
+      method,
+      url,
+      headers: current.origin === enteredOrigin ? request.headers : {},
+      timeout: timeLeft,
+      maxRedirects: 0,
+      validateStatus: (status) =>
+        (status >= 200 && status < 300) || REDIRECT_STATUSES.has(status),
+    };
+    if (data !== undefined) {
+      options.data = data;
+    }
+
+    const response = await axios(options);
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      return response;
+    }
+
+    const location = response.headers?.location;
+    if (!location) {
+      // What axios reports for an answer it does not accept.
+      const error = new Error(
+        `Request failed with status code ${response.status}`
+      );
+      error.response = response;
+      throw error;
+    }
+
+    let target;
+    try {
+      target = new URL(String(location), url);
+    } catch {
+      throw new RedirectRefusedError(String(location), 'Not a valid address');
+    }
+    if (redirects >= MAX_REDIRECTS) {
+      throw new RedirectRefusedError(
+        addressForLog(target),
+        `More than ${MAX_REDIRECTS} redirects in a row`
+      );
+    }
+    if (current.protocol === 'https:' && target.protocol === 'http:') {
+      throw new RedirectRefusedError(
+        addressForLog(target),
+        'An https request does not continue over http'
+      );
+    }
+    const check = await validateApiUrl(target.href, { allowPrivateIPs });
+    if (!check.valid) {
+      throw new RedirectRefusedError(addressForLog(target), check.error);
+    }
+
+    // As axios did: 301 and 302 turn a POST into a GET, 303 turns anything
+    // but GET and HEAD into a GET. The body stays behind.
+    const verb = String(method).toUpperCase();
+    if (
+      ((response.status === 301 || response.status === 302) &&
+        verb === 'POST') ||
+      (response.status === 303 && verb !== 'GET' && verb !== 'HEAD')
+    ) {
+      method = 'GET';
+      data = undefined;
+    }
+    console.debug(`[DEBUG] External API redirects to ${addressForLog(target)}`);
+    url = target.href;
+  }
+}
+
 /**
  * Service for fetching data from external APIs to enrich AI prompts
  */
@@ -121,8 +252,8 @@ class ExternalApiService {
    * Fetch data from the configured external API: one request, no retry.
    * @returns {Promise<unknown>} the answer, or the part EXTERNAL_API_TRANSFORM
    *   picks from it (a number or boolean as text); null when the feature is
-   *   off, the address is refused, or the call fails or times out, and the
-   *   analysis then runs without it
+   *   off, the address or one of its redirects is refused, or the call fails
+   *   or times out, and the analysis then runs without it
    */
   async fetchData() {
     try {
@@ -207,8 +338,8 @@ class ExternalApiService {
         options.data = parsedBody;
       }
 
-      // Make the request
-      const response = await axios(options);
+      // Make the request; every redirect passes the same check as the URL
+      const response = await requestCheckingRedirects(options, allowPrivateIPs);
       const data = applyTransform(response.data, transform);
 
       // A number or a boolean goes into the prompt as text. As a value, 0 and
@@ -218,6 +349,10 @@ class ExternalApiService {
       }
       return data;
     } catch (error) {
+      if (error instanceof RedirectRefusedError) {
+        console.error(`[ERROR] External API ${error.message}`);
+        return null;
+      }
       console.error(
         '[ERROR] Failed to fetch data from external API:',
         error.message
