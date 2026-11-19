@@ -2433,7 +2433,11 @@ function initializeFormHandlers() {
   setupForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const submitBtn = setupForm.querySelector('button[type="submit"]');
+    // The save button sits in the save bar outside the form (form="setupForm").
+    const submitBtn =
+      e.submitter ||
+      document.querySelector('button[type="submit"][form="setupForm"]') ||
+      setupForm.querySelector('button[type="submit"]');
     const originalBtnText = submitBtn.innerHTML;
     submitBtn.disabled = true;
     submitBtn.innerHTML =
@@ -3923,9 +3927,12 @@ function updateCustomFieldsJson() {
     })
     .filter(Boolean);
 
-  document.getElementById('customFieldsJson').value = JSON.stringify({
+  const json = document.getElementById('customFieldsJson');
+  json.value = JSON.stringify({
     custom_fields: fields,
   });
+  // The save bar counts the list as one unsaved change ("Custom fields").
+  json.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function createFieldElement(fieldName, data_type, currency = null) {

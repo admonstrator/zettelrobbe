@@ -933,9 +933,28 @@ class StubElement {
     assert.match(view, /include\('partials\/settings-quick-start'/);
   });
 
-  await test('settings-form.js leaves the mirrors out of the unsaved-change count', () => {
-    const source = read('public', 'js', 'modules', 'settings-form.js');
-    assert.match(source, /!field\.closest\('\[data-mirror-scope\]'\)/);
+  await test('settings-form.js leaves the mirrors out of the unsaved-change count', async () => {
+    const { countsAsSetting } = await import(
+      path.join(root, 'public', 'js', 'modules', 'settings-form.js')
+    );
+    // A Quick start control: inside [data-mirror-scope], so the real field it
+    // mirrors is what the save bar counts.
+    const field = (scope, extra = {}) => ({
+      type: 'text',
+      id: 'quickStartPaperlessUrl',
+      closest: (selector) =>
+        selector.includes(scope) ? { matches: () => true } : null,
+      hasAttribute: () => false,
+      ...extra,
+    });
+    assert.strictEqual(
+      countsAsSetting(field('[data-mirror-scope]'), new Set()),
+      false
+    );
+    assert.strictEqual(
+      countsAsSetting(field('nothing', { id: 'paperlessUrl' }), new Set()),
+      true
+    );
   });
 
   await test('The settings page renders with Quick start shown and every other topic hidden', async () => {

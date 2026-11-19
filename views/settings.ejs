@@ -33,43 +33,46 @@
     // public/js/modules/settings-nav.js maps the hashes the page used before the
     // regrouping (#ai-tab, #sec-provider, ...) onto these. Every entry stays in
     // the one form: switching only toggles .hidden, so saving still sends all.
+    // A group's key names it in the topic list (its fold state); an entry's
+    // lead is the sentence under its title that says what the topic is for.
     const settingsGroups = [
-        // The first entry opens on a bare /settings (partials/settings-quick-start.ejs).
-        { label: 'Essentials', icon: 'i-zap', entries: [
-            { id: 'quick-start', title: 'Quick start', featured: true }
+        // The first entry opens on a bare /settings (partials/settings-quick-start.ejs,
+        // which brings its own lead).
+        { key: 'essentials', label: 'Essentials', icon: 'i-zap', entries: [
+            { id: 'quick-start', title: 'Quick start', featured: true, lead: 'Six decisions Zettelrobbe needs before it analyses your documents. Every other setting starts with a default and has its own topic.' }
         ] },
-        { label: 'Basics', icon: 'i-home', entries: [
-            { id: 'connection', title: 'Paperless-ngx connection' },
-            { id: 'display', title: 'Display' }
+        { key: 'basics', label: 'Basics', icon: 'i-home', entries: [
+            { id: 'connection', title: 'Paperless-ngx connection', lead: 'Where Zettelrobbe reaches Paperless-ngx, with which token, and which address the links to a document open.' },
+            { id: 'display', title: 'Display', lead: 'How Zettelrobbe writes dates on its pages.' }
         ] },
-        { label: 'Document analysis', icon: 'i-cpu', entries: [
-            { id: 'ai-provider', title: 'AI provider' },
-            { id: 'ai-behavior', title: 'What the AI fills in' },
-            { id: 'prompt', title: 'Prompt' },
-            { id: 'restrictions', title: 'Existing names only' },
-            { id: 'custom-fields', title: 'Custom fields' },
-            { id: 'external-data', title: 'External data' },
-            { id: 'ocr', title: 'OCR' }
+        { key: 'analysis', label: 'Document analysis', icon: 'i-cpu', entries: [
+            { id: 'ai-provider', title: 'AI provider', lead: 'The service and the model that read your documents, and how much of a document they get.' },
+            { id: 'ai-behavior', title: 'What the AI fills in', lead: 'Which fields of a document Zettelrobbe writes, and which tags it adds or takes off once the analysis is written.' },
+            { id: 'prompt', title: 'Prompt', lead: 'What the model is told with every document, and which names of Paperless-ngx it gets with it.' },
+            { id: 'restrictions', title: 'Existing names only', lead: 'Whether the model may create tags, correspondents and document types, or only use the ones Paperless-ngx has.' },
+            { id: 'custom-fields', title: 'Custom fields', lead: 'The custom fields of Paperless-ngx the model fills in for every document.' },
+            { id: 'external-data', title: 'External data', lead: 'An address Zettelrobbe asks before an analysis, and whose answer the model gets along with your prompt.' },
+            { id: 'ocr', title: 'OCR', lead: 'When Zettelrobbe sends a document to OCR, which service reads it, and how many pages of a PDF it reads.' }
         ] },
-        { label: 'Processing', icon: 'i-clock', entries: [
-            { id: 'schedule', title: 'Schedule and tag filters' },
-            { id: 'skip-rules', title: 'Skip rules', badge: 'New' }
+        { key: 'processing', label: 'Processing', icon: 'i-clock', entries: [
+            { id: 'schedule', title: 'Schedule and tag filters', lead: 'When Zettelrobbe looks for documents it has not analysed yet, and which of them a scan takes or passes over.' },
+            { id: 'skip-rules', title: 'Skip rules', badge: 'New', lead: 'Documents that go to the ignored list before Zettelrobbe sends them to OCR or to the model.' }
         ] },
-        { label: 'Tag tools', icon: 'i-tag', entries: [
-            { id: 'tidy-up', title: 'Tidy up' }
+        { key: 'tags', label: 'Tag tools', icon: 'i-tag', entries: [
+            { id: 'tidy-up', title: 'Tidy up', lead: 'How the model takes part in Tidy up, and how much a run may spend.' }
         ] },
-        { label: 'Sign-in and security', icon: 'i-shield', entries: [
-            { id: 'account', title: 'Account and two-factor' },
-            { id: 'sso', title: 'Single sign-on', badge: 'New' },
-            { id: 'api-key', title: 'API key' }
+        { key: 'security', label: 'Sign-in and security', icon: 'i-shield', entries: [
+            { id: 'account', title: 'Account and two-factor', lead: 'A code from an authenticator app as a second step when you sign in.' },
+            { id: 'sso', title: 'Single sign-on', badge: 'New', lead: 'Signing in through an OpenID Connect provider, next to signing in with the password.' },
+            { id: 'api-key', title: 'API key', lead: 'The key the REST API and the Paperless-ngx post-consume script sign in with.' }
         ] },
-        { label: 'System', icon: 'i-server', entries: [
-            { id: 'runtime', title: 'Server' },
-            { id: 'caching', title: 'Caching and history' },
-            { id: 'quickstart', title: 'Detect models' },
-            { id: 'set-by-environment', title: 'Set by the environment', count: environmentTopic ? environmentTopic.count : 0 },
-            { id: 'environment', title: 'Export' },
-            { id: 'changelog', title: 'Changelog' }
+        { key: 'system', label: 'System', icon: 'i-server', entries: [
+            { id: 'runtime', title: 'Server', lead: 'How the server of Zettelrobbe runs: its port, the proxy in front of it, its cookies, how many requests it takes and how much it logs.' },
+            { id: 'caching', title: 'Caching and history', lead: 'The tags and previews Zettelrobbe keeps to answer faster, and when it removes its records of documents deleted in Paperless-ngx.' },
+            { id: 'quickstart', title: 'Detect models', lead: 'Asks an AI server which models it offers and fills in the ones you pick under AI provider and OCR.' },
+            { id: 'set-by-environment', title: 'Set by the environment', count: environmentTopic ? environmentTopic.count : 0, lead: 'Which settings the environment decides, usually the lines of your docker-compose file, and how to take them over into the stored settings.' },
+            { id: 'environment', title: 'Export', lead: 'The configuration in use as a .env file, to move this instance or to copy its settings.' },
+            { id: 'changelog', title: 'Changelog', lead: 'What changed in each release, newest first.' }
         ] }
     ];
     const settingsFirstEntry = settingsGroups[0].entries[0].id;
@@ -93,32 +96,59 @@
     const entryOpen = (id) => {
         const group = settingsGroups.find((g) => g.entries.some((e) => e.id === id));
         const entry = group.entries.find((e) => e.id === id);
+        // Single sign-on says whether the running configuration works; Quick
+        // start how many of its steps are done (modules/settings-quick-start.js).
         const pill = id === 'sso'
             ? `<span class="zr-badge ${oidcPill.tone} zr-settings-entry__status" id="oidcStatusPill" title="Status of the running configuration">${settingsEsc(oidcPill.text)}</span>`
-            : '';
+            : entry.featured
+                ? '<span class="zr-badge zr-badge--brand zr-qs__count" data-qs-count></span>'
+                : '';
+        // A featured entry stands outside the groups, so it names none.
+        const groupLine = entry.featured ? '' : `<p class="zr-settings-entry__group">${settingsEsc(group.label)}</p>`;
+        // A topic opens with its group as a quiet line, its title and one
+        // sentence on what it is for. The title takes the focus when the
+        // save bar it came from goes away (modules/settings-form.js).
+        const lead = entry.lead ? `<p class="zr-settings-entry__lead">${settingsEsc(entry.lead)}</p>` : '';
         return `<section class="zr-settings-entry zr-col zr-col--loose${id === settingsFirstEntry ? '' : ' hidden'}" id="entry-${id}" data-entry="${id}" data-group="${settingsEsc(group.label)}" data-title="${settingsEsc(entry.title)}" aria-labelledby="entry-${id}-title">
                             <header class="zr-settings-entry__head">
-                                <p class="zr-label">${settingsEsc(group.label)}</p>
+                                ${groupLine}
                                 <div class="zr-settings-entry__titlerow">
-                                    <h2 class="zr-settings-entry__title" id="entry-${id}-title">${settingsEsc(entry.title)}</h2>
+                                    <h2 class="zr-settings-entry__title" id="entry-${id}-title" tabindex="-1">${settingsEsc(entry.title)}</h2>
                                     ${pill}
                                 </div>
+                                ${lead}
                             </header>`;
     };
     const entryClose = () => '</section>';
+
+    // The head of a section: its title and one line on what it holds, above
+    // the card (<div class="zr-module zr-settings-card">) that holds the rows.
+    // The section element itself is written out where it stands, with its
+    // id, so an old link to #sec-... lands on its title. `action` is a
+    // button that acts on the whole section. `desc` may carry a link.
+    const sectionHead = (id, title, desc, action = '') => `<div class="zr-settings-section__head">
+                                        <div class="zr-settings-section__text">
+                                            <h3 class="zr-settings-section__title" id="${id}-title">${settingsEsc(title)}</h3>
+                                            ${desc ? `<p class="zr-settings-section__desc">${desc}</p>` : ''}
+                                        </div>
+                                        ${action}
+                                    </div>`;
 %>
 <%
     // The topic list: an entry with `featured: true` (Quick start) stands
-    // above the groups on its own, and "All options" heads the groups below
-    // it, which list every other entry. The phone picker follows the same
-    // order.
+    // above the groups on its own, ruled off from them; every other entry is
+    // listed under its group. A group heading is a button that folds its
+    // topics in and out (public/js/modules/settings-nav.js opens the group
+    // of the open topic). The phone picker follows the same order.
     const settingsFeatured = settingsGroups.flatMap((group) => group.entries.filter((entry) => entry.featured));
-    const settingsNavGroups = (settingsFeatured.length ? [{ featured: true, label: '', icon: '', entries: settingsFeatured }] : [])
-        .concat(settingsGroups.map((group) => ({ featured: false, label: group.label, icon: group.icon, entries: group.entries.filter((entry) => !entry.featured) })))
+    const settingsNavGroups = (settingsFeatured.length ? [{ featured: true, key: 'featured', label: '', icon: '', entries: settingsFeatured }] : [])
+        .concat(settingsGroups.map((group) => ({ featured: false, key: group.key, label: group.label, icon: group.icon, entries: group.entries.filter((entry) => !entry.featured) })))
         .filter((group) => group.entries.length);
 %>
             <div class="zr-settings-page" data-module="settings-nav">
-                <div class="zr-settings" data-module="settings-form">
+                <div class="zr-settings-frame" data-module="settings-form">
+                <div class="zr-settings-scroll" data-el="scroller">
+                <div class="zr-settings">
                     <aside class="zr-settings__aside">
                         <div class="zr-settings-side">
                             <div class="zr-settings-find" role="search">
@@ -134,12 +164,16 @@
                             </div>
                             <nav class="zr-sectionnav zr-settings-nav" aria-label="Settings topics" data-el="nav">
                                 <% settingsNavGroups.forEach((group) => { %>
-                                <div class="zr-settings-nav__group<%= group.featured ? ' zr-settings-nav__group--featured' : '' %>" data-nav-group data-group="<%= group.label %>">
+                                <div class="zr-settings-nav__group<%= group.featured ? ' zr-settings-nav__group--featured' : '' %>" data-nav-group="<%= group.key %>" data-group="<%= group.label %>">
                                     <% if (!group.featured) { %>
-                                    <p class="zr-settings-nav__label">
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#<%= group.icon %>"/></svg>
-                                        <%= group.label %>
-                                    </p>
+                                    <button type="button" class="zr-settings-nav__toggle" id="settingsNavToggle-<%= group.key %>" aria-expanded="false" aria-controls="settingsNavItems-<%= group.key %>" data-nav-toggle="<%= group.key %>">
+                                        <span class="zr-grow"><%= group.label %></span>
+                                        <span class="zr-settings-nav__count hidden" data-group-count="<%= group.key %>"></span>
+                                        <span class="zr-settings-nav__dirty hidden" data-group-dirty="<%= group.key %>" title="Unsaved changes"><span class="zr-sr">Unsaved changes</span></span>
+                                        <span class="zr-settings-nav__size"><%= group.entries.length %><span class="zr-sr"><%= group.entries.length === 1 ? ' topic' : ' topics' %></span></span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-nav__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </button>
+                                    <div class="zr-settings-nav__items" id="settingsNavItems-<%= group.key %>" role="group" aria-labelledby="settingsNavToggle-<%= group.key %>" hidden>
                                     <% } %>
                                     <% group.entries.forEach((entry) => { %>
                                     <a href="#<%= entry.id %>"<%- group.featured ? ' class="zr-settings-nav__featured"' : '' %> data-entry-link="<%= entry.id %>" aria-current="<%= entry.id === settingsFirstEntry ? 'page' : 'false' %>">
@@ -150,10 +184,10 @@
                                         <span class="zr-settings-nav__dirty hidden" data-entry-dirty="<%= entry.id %>" title="Unsaved changes"></span>
                                     </a>
                                     <% }) %>
+                                    <% if (!group.featured) { %>
+                                    </div>
+                                    <% } %>
                                 </div>
-                                <% if (group.featured) { %>
-                                <p class="zr-settings-nav__caption" data-nav-caption>All options</p>
-                                <% } %>
                                 <% }) %>
                             </nav>
                         </div>
@@ -193,10 +227,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('connection') %>
-                                <section class="zr-module" id="sec-connection">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Connection</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-connection" aria-labelledby="sec-connection-title">
+                                    <%- sectionHead('sec-connection', 'Connection', 'Zettelrobbe reads your documents and writes its results through the API of Paperless-ngx.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="paperlessUrl" class="zr-field__name">
@@ -205,7 +238,7 @@
                                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-help"/></svg>
                                             </button>
                                         </label>
-                                        <input type="text" id="paperlessUrl" name="paperlessUrl" value="<%= config.PAPERLESS_API_URL %>" class="zr-input" placeholder="http://your-paperless-instance:8000" required>
+                                        <input type="text" id="paperlessUrl" name="paperlessUrl" value="<%= config.PAPERLESS_API_URL %>" class="zr-input" placeholder="http://your-paperless-instance:8000" inputmode="url" required>
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
@@ -222,7 +255,7 @@
     
                                     <div class="zr-field zr-field--stacked">
                                         <label for="paperlessPublicUrl" class="zr-field__name">Public address (optional)</label>
-                                        <input type="text" id="paperlessPublicUrl" name="paperlessPublicUrl" value="<%= config.PAPERLESS_PUBLIC_URL || '' %>" class="zr-input" placeholder="https://paperless.example.com">
+                                        <input type="text" id="paperlessPublicUrl" name="paperlessPublicUrl" value="<%= config.PAPERLESS_PUBLIC_URL || '' %>" class="zr-input" placeholder="https://paperless.example.com" inputmode="url">
                                         <p class="zr-field__hint">Links to a document in Paperless-ngx open at this address. Empty, Zettelrobbe uses the one Paperless-ngx reports, or else the address above.</p>
                                     </div>
     
@@ -239,16 +272,15 @@
                                         <% } %>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('display') %>
-                                <section class="zr-module" id="sec-display">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Display</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-display" aria-labelledby="sec-display-title">
+                                    <%- sectionHead('sec-display', 'Dates', 'Applies to every page of Zettelrobbe. Paperless-ngx keeps its own format.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <div class="zr-formgrid">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="dateFormat" class="zr-field__name">Date format</label>
                                             <select id="dateFormat" name="dateFormat" class="zr-input">
@@ -283,7 +315,7 @@
                                 ANTHROPIC_MAX_TOKENS: { id: 'anthropicMaxTokens', type: 'number', attrs: 'min="1" step="1"' },
                                 ANTHROPIC_STRUCTURED_OUTPUT: { id: 'anthropicStructuredOutput', type: 'switch' },
                                 ANTHROPIC_PROMPT_CACHING: { id: 'anthropicPromptCaching', type: 'switch' },
-                                ANTHROPIC_API_URL: { id: 'anthropicApiUrl', type: 'text', placeholder: 'https://api.anthropic.com', attrs: 'autocomplete="off" spellcheck="false"' },
+                                ANTHROPIC_API_URL: { id: 'anthropicApiUrl', type: 'text', placeholder: 'https://api.anthropic.com', attrs: 'autocomplete="off" spellcheck="false" inputmode="url"' },
                                 OLLAMA_THINK: { id: 'ollamaThink', type: 'switch' },
                                 OLLAMA_API_KEY: { id: 'ollamaApiKey', type: 'secret', placeholder: 'Optional' },
                                 AZURE_API_VERSION: { id: 'azureApiVersion', type: 'text', attrs: 'autocomplete="off" spellcheck="false"' },
@@ -350,27 +382,15 @@
                                 const shown = providers.includes(aiSelectedProvider);
                                 return `<div class="zr-settings-option${shown ? '' : ' hidden'}" data-ai-option="${settingsEsc(option.key)}" data-level="${settingsEsc(option.level)}" data-providers="${settingsEsc(providers.join(','))}">${field}</div>`;
                             };
-                            // Short controls (numbers, selects) share the two-column grid;
-                            // switches and text fields take the full width, as elsewhere.
-                            const aiOptionBlock = (list) => {
-                                let html = '';
-                                let run = [];
-                                const flush = () => {
-                                    if (run.length) html += `<div class="zr-formgrid">${run.map(aiOptionField).join('')}</div>`;
-                                    run = [];
-                                };
-                                list.forEach((option) => {
-                                    if (['number', 'select'].includes(aiOptionControls[option.key].type)) run.push(option);
-                                    else { flush(); html += aiOptionField(option); }
-                                });
-                                flush();
-                                return html;
-                            };
+                            // One option, one row of its card: pages/settings.css lays a
+                            // short control (number, select, switch) beside its label and a
+                            // long one under it, so every control ends on the card's edge.
+                            const aiOptionBlock = (list) => list.map(aiOptionField).join('');
                             // One closed disclosure per section; settings-advanced opens or
                             // closes all of them together and remembers the choice.
-                            const aiAdvanced = (id, summary, list) => list.length ? `<details class="zr-module zr-settings-advanced" id="${id}" data-advanced data-module="settings-advanced">
+                            const aiAdvanced = (id, summary, list) => list.length ? `<details class="zr-module zr-settings-card zr-settings-advanced" id="${id}" data-advanced data-module="settings-advanced">
                                     <summary class="zr-module__head">
-                                        <h2 class="zr-module__title">Advanced options</h2>
+                                        <h3 class="zr-module__title">Advanced options</h3>
                                         <span class="zr-field__hint zr-grow">${settingsEsc(summary)}</span>
                                         <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
                                     </summary>
@@ -378,10 +398,9 @@
                                 </details>` : '';
                         %>
                         <%- entryOpen('ai-provider') %>
-                                <section class="zr-module" id="sec-provider">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Provider</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-provider" aria-labelledby="sec-provider-title">
+                                    <%- sectionHead('sec-provider', 'Provider', 'Zettelrobbe sends every document it analyses to this service.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="aiProvider" class="zr-field__name">AI provider</label>
@@ -423,7 +442,7 @@
                                     <div id="ollamaSettings" class="zr-col zr-col--loose <%= aiBlockHidden('ollama') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="ollamaUrl" class="zr-field__name">Server address</label>
-                                            <input type="text" id="ollamaUrl" name="ollamaUrl" value="<%= config.OLLAMA_API_URL %>" class="zr-input" placeholder="http://localhost:11434">
+                                            <input type="text" id="ollamaUrl" name="ollamaUrl" value="<%= config.OLLAMA_API_URL %>" class="zr-input" placeholder="http://localhost:11434" inputmode="url">
                                             <p class="zr-field__hint">Ollama listens on port 11434, for example http://192.168.1.10:11434. In Docker, localhost does not reach Ollama on the host.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
@@ -444,7 +463,7 @@
                                     <div id="customSettings" class="zr-col zr-col--loose <%= aiBlockHidden('custom') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="customBaseUrl" class="zr-field__name">Server address</label>
-                                            <input type="text" id="customBaseUrl" name="customBaseUrl" value="<%= config.CUSTOM_BASE_URL %>" class="zr-input" placeholder="http://localhost:8080/v1">
+                                            <input type="text" id="customBaseUrl" name="customBaseUrl" value="<%= config.CUSTOM_BASE_URL %>" class="zr-input" placeholder="http://localhost:8080/v1" inputmode="url">
                                             <p class="zr-field__hint">The address of the OpenAI-compatible API, usually ending in /v1.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
@@ -473,7 +492,7 @@
                                     <div id="azureSettings" class="zr-col zr-col--loose <%= aiBlockHidden('azure') %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureEndpoint" class="zr-field__name">Endpoint</label>
-                                            <input type="text" id="azureEndpoint" name="azureEndpoint" value="<%= config.AZURE_ENDPOINT %>" class="zr-input" placeholder="https://your-resource.openai.azure.com">
+                                            <input type="text" id="azureEndpoint" name="azureEndpoint" value="<%= config.AZURE_ENDPOINT %>" class="zr-input" placeholder="https://your-resource.openai.azure.com" inputmode="url">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="azureApiKey" class="zr-field__name">Azure API key</label>
@@ -522,31 +541,60 @@
                                     </div>
                                     <%- aiOptionBlock(aiOptionsIn('provider', 'basic')) %>
                                     </div>
+                                    </div>
                                 </section>
                                 <%- aiAdvanced('sec-provider-advanced', 'Lengths, creativity and options of single providers. The defaults suit most archives.', aiOptionsIn('provider', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('ai-behavior') %>
-                                <section class="zr-module" id="sec-ai-function-limits">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Fields of a document</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-ai-function-limits" aria-labelledby="sec-ai-function-limits-title">
+                                    <%- sectionHead('sec-ai-function-limits', 'Fields of a document', 'Switched off, Zettelrobbe leaves that field as it is. The created date is always taken from the analysis.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">Each switch is one field of a document. Switched off, Zettelrobbe leaves that field as it is. The created date is always taken from the analysis.</p>
-                                    <div class="zr-formgrid">
-                                        <label for="activateTagging" class="zr-checktile"><input type="checkbox" id="activateTagging" name="activateTagging" class="zr-toggle" <%= config.ACTIVATE_TAGGING === 'yes' ? 'checked' : '' %>><span>Tags</span></label>
-                                        <label for="activateCorrespondents" class="zr-checktile"><input type="checkbox" id="activateCorrespondents" name="activateCorrespondents" class="zr-toggle" <%= config.ACTIVATE_CORRESPONDENTS === 'yes' ? 'checked' : '' %>><span>Correspondent</span></label>
-                                        <label for="activateDocumentType" class="zr-checktile"><input type="checkbox" id="activateDocumentType" name="activateDocumentType" class="zr-toggle" <%= config.ACTIVATE_DOCUMENT_TYPE === 'yes' ? 'checked' : '' %>><span>Document type</span></label>
-                                        <label for="activateTitle" class="zr-checktile"><input type="checkbox" id="activateTitle" name="activateTitle" class="zr-toggle" <%= config.ACTIVATE_TITLE === 'yes' ? 'checked' : '' %>><span>Title</span></label>
-                                        <label for="activateCustomFields" class="zr-checktile"><input type="checkbox" id="activateCustomFields" name="activateCustomFields" class="zr-toggle" <%= config.ACTIVATE_CUSTOM_FIELDS === 'yes' ? 'checked' : '' %>><span>Custom fields</span></label>
+                                    <%# The five switches post their own checkbox (name, "on"), as
+                                        they always did; only the row around them changed. %>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="activateTagging" class="zr-field__name">Tags</label>
+                                            <p class="zr-field__hint">Adds the tags the model picks to the ones the document already has.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="activateTagging" name="activateTagging" <%= config.ACTIVATE_TAGGING === 'yes' ? 'checked' : '' %>>
+                                    </div>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="activateCorrespondents" class="zr-field__name">Correspondent</label>
+                                            <p class="zr-field__hint">Sets the correspondent the model names. Without one from the model, the document keeps its own.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="activateCorrespondents" name="activateCorrespondents" <%= config.ACTIVATE_CORRESPONDENTS === 'yes' ? 'checked' : '' %>>
+                                    </div>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="activateDocumentType" class="zr-field__name">Document type</label>
+                                            <p class="zr-field__hint">Sets the document type the model picks, such as Invoice or Contract.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="activateDocumentType" name="activateDocumentType" <%= config.ACTIVATE_DOCUMENT_TYPE === 'yes' ? 'checked' : '' %>>
+                                    </div>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="activateTitle" class="zr-field__name">Title</label>
+                                            <p class="zr-field__hint">Replaces the title with one the model writes from the content.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="activateTitle" name="activateTitle" <%= config.ACTIVATE_TITLE === 'yes' ? 'checked' : '' %>>
+                                    </div>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="activateCustomFields" class="zr-field__name">Custom fields</label>
+                                            <p class="zr-field__hint">Fills in the fields listed under <a href="#custom-fields" class="zr-link zr-link--underline">Custom fields</a> with values the model reads from the document.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="activateCustomFields" name="activateCustomFields" <%= config.ACTIVATE_CUSTOM_FIELDS === 'yes' ? 'checked' : '' %>>
+                                    </div>
                                     </div>
                                     </div>
                                 </section>
 
-                                <section class="zr-module" id="sec-analysis-tags">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Tags after the analysis</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-analysis-tags" aria-labelledby="sec-analysis-tags-title">
+                                    <%- sectionHead('sec-analysis-tags', 'Tags after the analysis', 'What Zettelrobbe adds to a document or takes off it once its analysis is written.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'aiProcessedTag',
@@ -577,14 +625,14 @@
                                         <p class="zr-field__hint">Zettelrobbe takes these tags off a document once its analysis is written, also when the model proposed one of them.</p>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('prompt') %>
-                                <section class="zr-module" id="sec-ai-behavior">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">What the model is told</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-ai-behavior" aria-labelledby="sec-ai-behavior-title">
+                                    <%- sectionHead('sec-ai-behavior', 'What the model is told', 'Your own instructions to the model, and the names of Paperless-ngx it may reuse.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="systemPrompt" class="zr-field__name">Your prompt</label>
@@ -619,41 +667,46 @@
                                         }) %>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('restrictions') %>
-                                <section class="zr-module" id="sec-restrictions">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Tags, correspondents and document types</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-restrictions" aria-labelledby="sec-restrictions-title">
+                                    <%- sectionHead('sec-restrictions', 'Tags, correspondents and document types', 'Switched on, the model may only use a name that already exists in Paperless-ngx. Zettelrobbe leaves out a new name the model proposes instead of creating it.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">Switched on, the model may only use a name that already exists in Paperless-ngx. Zettelrobbe leaves out a new name the model proposes instead of creating it.</p>
-                                    <div class="zr-formgrid">
-                                        <label for="restrictToExistingTags" class="zr-checktile">
-                                            <input type="checkbox" id="restrictToExistingTags" name="restrictToExistingTags" class="zr-toggle" <%= config.RESTRICT_TO_EXISTING_TAGS === 'yes' ? 'checked' : '' %>>
-                                            <span>Only existing tags</span>
-                                        </label>
-                                        <label for="restrictToExistingCorrespondents" class="zr-checktile">
-                                            <input type="checkbox" id="restrictToExistingCorrespondents" name="restrictToExistingCorrespondents" class="zr-toggle" <%= config.RESTRICT_TO_EXISTING_CORRESPONDENTS === 'yes' ? 'checked' : '' %>>
-                                            <span>Only existing correspondents</span>
-                                        </label>
-                                        <label for="restrictToExistingDocumentTypes" class="zr-checktile">
-                                            <input type="checkbox" id="restrictToExistingDocumentTypes" name="restrictToExistingDocumentTypes" class="zr-toggle" <%= config.RESTRICT_TO_EXISTING_DOCUMENT_TYPES === 'yes' ? 'checked' : '' %>>
-                                            <span>Only existing document types</span>
-                                        </label>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="restrictToExistingTags" class="zr-field__name">Only existing tags</label>
+                                            <p class="zr-field__hint">A tag Paperless-ngx does not have is left out. %RESTRICTED_TAGS% in your prompt gives the model the list of your tags.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="restrictToExistingTags" name="restrictToExistingTags" <%= config.RESTRICT_TO_EXISTING_TAGS === 'yes' ? 'checked' : '' %>>
+                                    </div>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="restrictToExistingCorrespondents" class="zr-field__name">Only existing correspondents</label>
+                                            <p class="zr-field__hint">A correspondent Paperless-ngx does not have is left out, and the document keeps its own. %RESTRICTED_CORRESPONDENTS% in your prompt gives the model the list.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="restrictToExistingCorrespondents" name="restrictToExistingCorrespondents" <%= config.RESTRICT_TO_EXISTING_CORRESPONDENTS === 'yes' ? 'checked' : '' %>>
+                                    </div>
+                                    <div class="zr-switchrow">
+                                        <div class="zr-grow">
+                                            <label for="restrictToExistingDocumentTypes" class="zr-field__name">Only existing document types</label>
+                                            <p class="zr-field__hint">A document type Paperless-ngx does not have is left out. %RESTRICTED_DOCUMENT_TYPES% in your prompt gives the model the list.</p>
+                                        </div>
+                                        <input type="checkbox" class="zr-toggle" id="restrictToExistingDocumentTypes" name="restrictToExistingDocumentTypes" <%= config.RESTRICT_TO_EXISTING_DOCUMENT_TYPES === 'yes' ? 'checked' : '' %>>
+                                    </div>
                                     </div>
                                     </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('custom-fields') %>
-                                <section class="zr-module" id="sec-custom-fields">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Custom fields</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-custom-fields" aria-labelledby="sec-custom-fields-title">
+                                    <%- sectionHead('sec-custom-fields', 'Fields the model fills in', 'The model fills in a value for each field listed here. Saving the settings creates a field that Paperless-ngx does not have yet.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">The model fills in a value for each field listed here. Saving the settings creates a field that Paperless-ngx does not have yet.</p>
                                     <div id="customFieldsList" class="zr-field zr-field--stacked">
                                         <% let _parsedCustomFields = []; try { const _cf = JSON.parse(config.CUSTOM_FIELDS || '{}'); if (Array.isArray(_cf.custom_fields)) _parsedCustomFields = _cf.custom_fields; } catch(e) {} %>
                                         <% if (_parsedCustomFields.length > 0) { %>
@@ -670,7 +723,9 @@
                                         <% } %>
                                     </div>
     
-                                    <div class="zr-row zr-row--wrap customfield-add">
+                                    <%# Name, type and Add only build the list; the save sends the
+                                        list (#customFieldsJson), not these. %>
+                                    <div class="zr-row zr-row--wrap customfield-add" data-not-a-setting>
                                         <div class="zr-grow"><input type="text" id="newFieldName" class="zr-input" placeholder="Field name"></div>
                                         <div>
                                             <select id="newFieldType" onchange="toggleCurrencySelect()" class="zr-input">
@@ -694,16 +749,16 @@
                                         </div>
                                         <div><button type="button" onclick="addCustomField()" class="zr-btn zr-btn--primary zr-btn--block">Add</button></div>
                                     </div>
-                                    <input type="hidden" id="customFieldsJson" name="customFields" value='<%= config.CUSTOM_FIELDS || "{\"custom_fields\":[]}" %>'>
+                                    <input type="hidden" id="customFieldsJson" name="customFields" value='<%= config.CUSTOM_FIELDS || "{\"custom_fields\":[]}" %>' data-setting-label="Custom fields">
+                                    </div>
                                     </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('external-data') %>
-                                <section class="zr-module" id="sec-external-api">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">External API</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-external-api" aria-labelledby="sec-external-api-title">
+                                    <%- sectionHead('sec-external-api', 'External API', 'Data from another service that the model reads along with each document.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
@@ -716,7 +771,7 @@
                                     <div id="externalApiSettings" class="zr-col zr-col--loose <%= config.EXTERNAL_API_ENABLED === 'yes' ? '' : 'hidden' %>">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="externalApiUrl" class="zr-field__name">Address</label>
-                                            <input type="text" id="externalApiUrl" name="externalApiUrl" value="<%= config.EXTERNAL_API_URL || '' %>" class="zr-input">
+                                            <input type="text" id="externalApiUrl" name="externalApiUrl" value="<%= config.EXTERNAL_API_URL || '' %>" class="zr-input" inputmode="url">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="externalApiMethod" class="zr-field__name">HTTP method</label>
@@ -753,14 +808,14 @@
                                         }) %>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('ocr') %>
-                                <section class="zr-module" id="sec-ocr-fallback">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">OCR</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-ocr-fallback" aria-labelledby="sec-ocr-fallback-title">
+                                    <%- sectionHead('sec-ocr-fallback', 'Reading with OCR', 'OCR reads the text of a document again when Paperless-ngx recognised too little of it or the analysis failed.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'mistralOcrEnabled',
@@ -779,7 +834,7 @@
                                     </div>
                                     <div id="ocrApiUrlContainer" class="zr-field zr-field--stacked">
                                         <label for="ocrApiUrl" class="zr-field__name">Server address (optional)</label>
-                                        <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Leave empty to use provider default" data-placeholder-default="Leave empty to use provider default" data-placeholder-anthropic="Optional proxy URL">
+                                        <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Leave empty to use provider default" data-placeholder-default="Leave empty to use provider default" data-placeholder-anthropic="Optional proxy URL" inputmode="url">
                                         <p id="ocrApiUrlAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>">Only for a proxy. Empty uses the API address set for Claude under AI provider, else api.anthropic.com.</p>
                                     </div>
                                     <div id="ocrApiKeyContainer" class="zr-field zr-field--stacked">
@@ -904,11 +959,8 @@
                                         <% } %>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
-                                        <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout</label>
-                                        <div class="zr-row">
-                                            <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || '' %>" class="zr-input">
-                                            <span class="zr-xs zr-faint" style="white-space: nowrap">seconds</span>
-                                        </div>
+                                        <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout (seconds)</label>
+                                        <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || '' %>" class="zr-input">
                                         <p class="zr-field__hint">How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch models wait as long.</p>
                                     </div>
                                     <div class="zr-row zr-row--wrap">
@@ -925,14 +977,14 @@
                                         <p class="zr-field__hint">In characters. A document with less text goes to the OCR queue, or to the failed list while OCR is off.</p>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('schedule') %>
-                                <section class="zr-module" id="sec-processing">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Schedule</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-processing" aria-labelledby="sec-processing-title">
+                                    <%- sectionHead('sec-processing', 'Schedule', 'When Zettelrobbe looks for new documents by itself.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="scanInterval" class="zr-field__name">Scan schedule (cron)</label>
@@ -950,12 +1002,12 @@
                                         </div>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
 
-                                <section class="zr-module" id="sec-tag-filters">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Tag filters</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-tag-filters" aria-labelledby="sec-tag-filters-title">
+                                    <%- sectionHead('sec-tag-filters', 'Tag filters', 'Which documents a scan takes, by their tags.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'showTags',
@@ -983,17 +1035,15 @@
                                         <p class="zr-field__hint">A scan passes over every document that carries one of these tags.</p>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('skip-rules') %>
-                                <section class="zr-module" id="sec-skip-rules">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Documents that skip OCR and AI</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-skip-rules" aria-labelledby="sec-skip-rules-title">
+                                    <%- sectionHead('sec-skip-rules', 'Documents that skip OCR and AI', 'A matching document goes to the <a href="/ignored" class="zr-link zr-link--underline">ignored list</a>. Take it off that list to process it anyway.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">A matching document goes to the <a href="/ignored">ignored list</a>. Take it off that list to process it anyway.</p>
-
                                     <div class="zr-field zr-field--stacked">
                                         <label for="maxPageCount" class="zr-field__name">Page limit</label>
                                         <input type="number" id="maxPageCount" name="maxPageCount" min="0" step="1" value="<%= config.MAX_PAGE_COUNT || 0 %>" class="zr-input">
@@ -1017,16 +1067,15 @@
                                         hint: 'Also skips documents whose text matches one on the ignored list, even as a newly generated PDF.'
                                     }) %>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('runtime') %>
-                                <section class="zr-module" id="sec-runtime-controls">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Server</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-runtime-controls" aria-labelledby="sec-runtime-controls-title">
+                                    <%- sectionHead('sec-runtime-controls', 'Port, proxy and limits', 'Saving a change here restarts Zettelrobbe.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <div class="zr-formgrid">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="globalRateLimitWindowMs" class="zr-field__name">Rate limit window (ms)</label>
                                             <input type="number" id="globalRateLimitWindowMs" name="globalRateLimitWindowMs" value="<%= config.GLOBAL_RATE_LIMIT_WINDOW_MS || 900000 %>" class="zr-input">
@@ -1070,17 +1119,12 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('tidy-up') %>
-                                <section class="zr-module" id="sec-tidy-up">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Tidy up</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-tidy-up" aria-labelledby="sec-tidy-up-title">
+                                    <%- sectionHead('sec-tidy-up', 'The model in Tidy up', 'Finding, merging and splitting names work without the model. The model only answers when you start a run on the Tidy up page. Reusing names that exist in another spelling also applies to every analysis.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">
-                                        Finding, merging and splitting names work without the model. The model only answers
-                                        when you start a run on the Tidy up page. Reusing names that exist in another spelling
-                                        also applies to every analysis.
-                                    </p>
                                     <%- aiOptionBlock(aiOptionsIn('tidy-up', 'basic')) %>
+                                    </div>
                                     </div>
                                 </section>
                                 <%- aiAdvanced('sec-tidy-up-advanced', 'What a run may spend, what the model reads and how large its requests are.', aiOptionsIn('tidy-up', 'advanced')) %>
@@ -1091,11 +1135,11 @@
                                      parser, and getElementById('mfaSettingsSection')
                                      returning null silently disabled the whole MFA
                                      state machine. -->
-                                <section class="zr-module" id="mfaSettingsSection" data-mfa-available="<%= mfaSettings && mfaSettings.available ? 'yes' : 'no' %>" data-mfa-enabled="<%= mfaSettings && mfaSettings.enabled ? 'yes' : 'no' %>" data-mfa-username="<%= mfaSettings && mfaSettings.username ? mfaSettings.username : '' %>">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Two-factor sign-in (MFA)</h2>
-                                    </div>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                <section class="zr-settings-section" id="mfaSettingsSection" aria-labelledby="mfaSettingsSection-title" data-mfa-available="<%= mfaSettings && mfaSettings.available ? 'yes' : 'no' %>" data-mfa-enabled="<%= mfaSettings && mfaSettings.enabled ? 'yes' : 'no' %>" data-mfa-username="<%= mfaSettings && mfaSettings.username ? mfaSettings.username : '' %>">
+                                    <%- sectionHead('mfaSettingsSection', 'Two-factor sign-in (MFA)', 'Applies to the account you are signed in with.') %>
+                                    <div class="zr-module zr-settings-card">
+                                    <%# Nothing here is a setting the save sends: MFA has its own requests. %>
+                                    <div class="zr-module__body zr-col zr-col--loose" data-not-a-setting>
     
                                     <% if (!(mfaSettings && mfaSettings.available)) { %>
                                         <div class="zr-alert zr-alert--warn">
@@ -1119,7 +1163,7 @@
                                                 <p class="zr-field__hint">Needed to switch MFA on or off.</p>
                                             </div>
     
-                                            <div class="zr-formgrid">
+                                            <div class="zr-row zr-row--wrap">
                                                 <button type="button" id="mfaEnableBtn" class="zr-btn zr-btn--primary">
                                                     <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>
                                                     <span>Enable MFA</span>
@@ -1171,15 +1215,15 @@
                                         </div>
                                     <% } %>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('sso') %>
                                 <div class="zr-col zr-col--loose" data-module="settings-sso">
-                                <section class="zr-module" id="sec-sso-provider">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Enable single sign-on</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-sso-provider" aria-labelledby="sec-sso-provider-title">
+                                    <%- sectionHead('sec-sso-provider', 'Enable single sign-on', 'Where Zettelrobbe sends you to sign in, and how it identifies itself there.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'oidcEnabled',
@@ -1227,14 +1271,13 @@
                                         <div class="hidden" data-el="test-result" role="status" aria-live="polite"></div>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
 
-                                <section class="zr-module" id="sec-sso-access">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Who may sign in</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-sso-access" aria-labelledby="sec-sso-access-title">
+                                    <%- sectionHead('sec-sso-access', 'Who may sign in', 'Single sign-on opens the one administrator account, only for the matching e-mail address. Restrict the application at the provider too.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">Single sign-on opens the one administrator account, only for the matching e-mail address. Restrict the application at the provider too.</p>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcAdminEmail" class="zr-field__name">Administrator e-mail</label>
                                         <input type="text" inputmode="email" id="oidcAdminEmail" name="oidcAdminEmail" value="<%= config.OIDC_ADMIN_EMAIL || '' %>" class="zr-input" placeholder="you@example.com" autocomplete="off" spellcheck="false">
@@ -1252,12 +1295,12 @@
                                         hint: 'OIDC_ALLOW_UNVERIFIED_EMAIL · Only for a provider that never confirms addresses. Restrict the application at the provider then. Default: off.'
                                     }) %>
                                     </div>
+                                    </div>
                                 </section>
 
-                                <section class="zr-module" id="sec-sso-button">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Login button</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-sso-button" aria-labelledby="sec-sso-button-title">
+                                    <%- sectionHead('sec-sso-button', 'Login button', 'How the button for single sign-on looks on the login page.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-sso-preview" aria-label="Preview of the login button">
                                         <p class="zr-label">Preview</p>
@@ -1270,7 +1313,6 @@
                                             </span>
                                         </div>
                                     </div>
-                                    <div class="zr-formgrid">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonText" class="zr-field__name">Text</label>
                                             <input type="text" id="oidcButtonText" name="oidcButtonText" value="<%= config.OIDC_BUTTON_TEXT || '' %>" class="zr-input" maxlength="60" placeholder="Sign in with SSO">
@@ -1278,7 +1320,7 @@
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="oidcButtonIcon" class="zr-field__name">Icon</label>
-                                            <input type="text" id="oidcButtonIcon" name="oidcButtonIcon" value="<%= config.OIDC_BUTTON_ICON || '' %>" class="zr-input" placeholder="Key icon" autocomplete="off" spellcheck="false">
+                                            <input type="text" id="oidcButtonIcon" name="oidcButtonIcon" value="<%= config.OIDC_BUTTON_ICON || '' %>" class="zr-input" placeholder="Key icon" autocomplete="off" spellcheck="false" inputmode="url">
                                             <p class="zr-field__hint">OIDC_BUTTON_ICON · An https:// image URL, a path on this server such as /favicon.png, or none. Empty shows the key icon.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
@@ -1301,9 +1343,9 @@
                                     </div>
                                 </section>
 
-                                <details class="zr-module zr-sso-advanced" id="sec-sso-advanced">
+                                <details class="zr-module zr-settings-card zr-sso-advanced" id="sec-sso-advanced">
                                     <summary class="zr-module__head">
-                                        <h2 class="zr-module__title">Advanced</h2>
+                                        <h3 class="zr-module__title">Advanced</h3>
                                         <span class="zr-field__hint zr-grow">Scopes and token authentication</span>
                                         <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
                                     </summary>
@@ -1335,12 +1377,10 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('api-key') %>
-                                <section class="zr-module" id="sec-api-key">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">API key</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-api-key" aria-labelledby="sec-api-key-title">
+                                    <%- sectionHead('sec-api-key', 'Your key', 'Click the key to copy it. Regenerate replaces it with a new one.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col">
-                                        <p class="zr-sm zr-muted">The REST API and the Paperless-ngx post-consume script sign in with this key. Click it to copy it.</p>
                                         <div class="zr-inputgroup">
                                             <div id="apiKeyContainer" class="zr-input zr-mono zr-apikey" data-api-key=""
                                                 title="Click to copy API key" role="button" tabindex="0">Loading…</div>
@@ -1350,17 +1390,17 @@
                                             </button>
                                         </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('caching') %>
-                                <section class="zr-module" id="sec-caching">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Caching</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-caching" aria-labelledby="sec-caching-title">
+                                    <%- sectionHead('sec-caching', 'Caching', 'Zettelrobbe keeps the tags of Paperless-ngx for a while and the previews of documents on disk, so its pages load faster.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
-                                        <label for="tagCacheTTL" class="zr-row">
+                                        <label for="tagCacheTTL" class="zr-field__name">
                                             Tag cache lifetime (seconds)
                                             <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon" id="tagCacheTTLHelp">
                                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-help"/></svg>
@@ -1385,7 +1425,7 @@
                                             </button>
                                         </div>
     
-                                        <div class="zr-formgrid">
+                                        <div class="zr-row zr-row--wrap zr-settings-figures">
                                             <div >
                                                 <p class="zr-field__hint">Files</p>
                                                 <p id="thumbnailCacheFileCount" class="zr-module__title">-</p>
@@ -1403,29 +1443,24 @@
                                     </div>
     
                                     </div>
+                                    </div>
                                 </section>
 
-                                <section class="zr-module" id="sec-history-reconciliation">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">History clean-up</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-history-reconciliation" aria-labelledby="sec-history-reconciliation-title">
+                                    <%- sectionHead('sec-history-reconciliation', 'History clean-up', 'Zettelrobbe removes its records of documents that were deleted in Paperless-ngx. A run waits for a scan to finish first. Paperless-ngx itself is not changed.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-sm zr-muted">
-                                        Zettelrobbe removes its records of documents that were deleted in Paperless-ngx.
-                                        A run waits for a scan to finish first. Paperless-ngx itself is not changed.
-                                    </p>
-                                    <div class="zr-formgrid">
                                         <%- include('partials/settings-switch', {
                                             id: 'reconciliationEnabled',
                                             label: 'Clean up on a schedule',
-                                            checked: String(config.RECONCILIATION_ENABLED || 'yes').toLowerCase() === 'yes'
+                                            checked: String(config.RECONCILIATION_ENABLED || 'yes').toLowerCase() === 'yes',
+                                            hint: 'Runs the clean-up on the schedule below. Off, it runs only when you press Clean up now.'
                                         }) %>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="reconciliationInterval" class="zr-field__name">Clean-up schedule (cron)</label>
                                             <input type="text" id="reconciliationInterval" name="reconciliationInterval" value="<%= config.RECONCILIATION_INTERVAL || '0 * * * *' %>" class="zr-input" placeholder="0 * * * *">
                                             <p class="zr-field__hint">Every hour by default.</p>
                                         </div>
-                                    </div>
                                     <div>
                                         <button type="button" id="forceReconcileBtn" class="zr-btn">
                                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
@@ -1434,16 +1469,15 @@
                                         <div id="reconcileResult" class="hidden"></div>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
                         <%- entryOpen('quickstart') %>
-                                <section class="zr-module" id="sec-quickstart-auto-detect">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Detect models</h2>
-                                    </div>
+                                <section class="zr-settings-section" id="sec-quickstart-auto-detect" aria-labelledby="sec-quickstart-auto-detect-title">
+                                    <%- sectionHead('sec-quickstart-auto-detect', 'Ask an AI server', 'Works with Ollama, LM Studio and other OpenAI-compatible servers. Apply fills in <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR</a>. Nothing is saved until you apply the models and save.') %>
+                                    <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
-                                    <p class="zr-field__hint">Asks an AI server (Ollama, LM Studio or OpenAI-compatible) which models it offers and suggests one for the analysis and one for OCR. Apply fills in <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR</a>. Nothing is saved until you apply the models and save.</p>
     <%
     /* Only the provider actually in use may prefill this field. config.OLLAMA_API_URL
        carries a default of http://localhost:11434 and is therefore never empty, so
@@ -1462,7 +1496,7 @@
     -%>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="settingsQuickstartUrl" class="zr-field__name">Server address</label>
-                                        <input type="text" id="settingsQuickstartUrl" class="zr-input" value="<%= quickstartUrl %>" placeholder="http://192.168.1.5:1234">
+                                        <input type="text" id="settingsQuickstartUrl" class="zr-input" value="<%= quickstartUrl %>" placeholder="http://192.168.1.5:1234" inputmode="url">
                                         <% if (quickstartUrl) { %>
                                             <p class="zr-field__hint">Taken from the AI provider in use.</p>
                                         <% } %>
@@ -1483,19 +1517,20 @@
                                     </div>
                                     <div id="settingsQuickstartResults" class="zr-col zr-col--loose hidden">
                                         <p id="settingsQuickstartHint" class="zr-field__hint"></p>
-                                        <div class="zr-formgrid">
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="settingsQuickstartAiModel" class="zr-field__name">Model for the analysis</label>
-                                                <select id="settingsQuickstartAiModel" class="zr-input"></select>
-                                            </div>
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="settingsQuickstartOcrModel" class="zr-field__name">Model for OCR</label>
-                                                <select id="settingsQuickstartOcrModel" class="zr-input"></select>
-                                            </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="settingsQuickstartAiModel" class="zr-field__name">Model for the analysis</label>
+                                            <select id="settingsQuickstartAiModel" class="zr-input"></select>
                                         </div>
-                                        <div class="zr-row">
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="settingsQuickstartOcrModel" class="zr-field__name">Model for OCR</label>
+                                            <select id="settingsQuickstartOcrModel" class="zr-input"></select>
+                                        </div>
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="settingsQuickstartEnableOcr" class="zr-field__name">Use this service for OCR</label>
+                                                <p class="zr-field__hint">Apply also switches OCR on, with this server and the model for OCR.</p>
+                                            </div>
                                             <input type="checkbox" class="zr-toggle" id="settingsQuickstartEnableOcr">
-                                            <label for="settingsQuickstartEnableOcr" class="zr-field__name">Use this service for OCR</label>
                                         </div>
                                         <div class="zr-row zr-row--wrap">
                                             <button type="button" id="settingsQuickstartApplyBtn" class="zr-btn">
@@ -1510,6 +1545,7 @@
                                         </div>
                                     </div>
                                     </div>
+                                    </div>
                                 </section>
                         <%- entryClose() %>
 
@@ -1518,17 +1554,10 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('environment') %>
-                                <section class="zr-module" id="sec-env-file" data-module="env-file">
-                                    <div class="zr-module__head">
-                                        <h2 class="zr-module__title">Configuration as a .env file</h2>
-                                    </div>
-                                    <div class="zr-module__body zr-col">
-                                        <p class="zr-sm zr-muted">
-                                            The configuration in use as a <code>.env</code> file, grouped by topic,
-                                            with only the settings that have a value. Use it to move this instance or to
-                                            copy its settings into a docker compose file.
-                                        </p>
-                                        <p class="zr-sm zr-muted"><a href="#set-by-environment" class="zr-link zr-link--underline">Set by the environment</a> lists the settings the environment decides and takes them over into the stored settings.</p>
+                                <section class="zr-settings-section" id="sec-env-file" aria-labelledby="sec-env-file-title" data-module="env-file">
+                                    <%- sectionHead('sec-env-file', 'Configuration as a .env file', 'The configuration in use, grouped by topic, with only the settings that have a value. <a href="#set-by-environment" class="zr-link zr-link--underline">Set by the environment</a> lists what the environment decides.') %>
+                                    <div class="zr-module zr-settings-card">
+                                    <div class="zr-module__body zr-col" data-not-a-setting>
 
                                         <div class="zr-alert zr-alert--warn">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
@@ -1554,6 +1583,7 @@
     
                                         <textarea id="envFileOutput" class="zr-textarea zr-mono hidden" rows="18" readonly
                                             spellcheck="false" aria-label="Configuration as a .env file"></textarea>
+                                    </div>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -1622,20 +1652,37 @@
                                 </section>
                         <%- entryClose() %>
 
-                        <div class="zr-actionbar" id="settingsSaveRow" data-el="actionbar" data-dirty="false">
-                            <span class="zr-actionbar__status" data-el="status">All changes saved</span>
-                            <span class="zr-badge zr-badge--warn hidden" data-el="restart">
-                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
-                                Restart needed
-                            </span>
+                    </form>
+                    </div>
+                </div>
+                <div class="zr-settings-scroll__reserve" data-el="reserve" aria-hidden="true"></div>
+                </div>
+
+                <%# The save bar: the last row of the page column, under the region
+                    that scrolls, and there only while a change is not saved
+                    (modules/settings-form.js removes the hidden attribute). Its
+                    buttons sit outside the form and belong to it through form=. %>
+                <div class="zr-actionbar" id="settingsSaveRow" data-el="actionbar" data-dirty="false" role="region" aria-label="Unsaved changes" hidden>
+                    <div class="zr-actionbar__inner">
+                        <div class="zr-actionbar__status">
+                            <p class="zr-actionbar__title">
+                                <span data-el="status" aria-live="polite">No unsaved changes</span>
+                                <span class="zr-badge zr-badge--warn hidden" data-el="restart">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                    Restart needed
+                                </span>
+                            </p>
+                            <p class="zr-actionbar__list" data-el="changes"></p>
+                        </div>
+                        <div class="zr-actionbar__actions">
                             <button type="button" class="zr-btn" data-el="reset" disabled>Discard</button>
-                            <button type="submit" class="zr-btn zr-btn--primary" data-el="save">
+                            <button type="submit" class="zr-btn zr-btn--primary" data-el="save" form="setupForm">
                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
                                 Save settings
                             </button>
                         </div>
-                    </form>
                     </div>
+                </div>
                 </div>
             </div>
 

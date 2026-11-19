@@ -775,7 +775,10 @@ export default function settingsQuickStart(root) {
     };
   }
 
-  const countEl = root.querySelector('[data-qs-count]');
+  // The progress sits next to the topic title, outside this block.
+  const countEl =
+    root.querySelector('[data-qs-count]') ||
+    (entry && entry.querySelector('[data-qs-count]'));
   const promptTagsNote = root.querySelector('[data-qs-prompt-tags]');
   const ocrQueueNote = root.querySelector('[data-qs-ocr-queue]');
   const runTags = root.querySelector('[data-qs-run-tags]');

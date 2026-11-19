@@ -91,12 +91,9 @@
     const qsBodyOpen = (step) => `<div class="zr-qs__body hidden" id="${qsId(step)}Body" role="group" aria-labelledby="${qsId(step)}Title">`;
     const qsFetchHint = (button) => `Missing a model? ${qsLink(button, 'Fetch models')} in ${qsTopic('ai-provider')} lists what the server offers.`;
 %>
+<%# The sentence on what the topic is for and the progress badge sit in the
+    head of the topic (views/settings.ejs, entryOpen). %>
 <div class="zr-qs" data-module="settings-quick-start" data-mirror-scope data-stored-secrets="<%= JSON.stringify(qsSecrets) %>">
-    <div class="zr-qs__intro">
-        <p class="zr-qs__lead">Six decisions Zettelrobbe needs before it analyses your documents. Every other setting starts with a default and has its own topic.</p>
-        <span class="zr-badge zr-badge--brand zr-qs__count" data-qs-count></span>
-    </div>
-
     <div class="zr-module zr-qs__list">
         <div class="zr-qs__step" data-qs-step="paperless" data-state="open">
             <%- qsStepHead({ step: 'paperless', number: 1, title: 'Paperless-ngx' }) %>
@@ -187,7 +184,7 @@
                     <%- qsInput({ target: 'scanInterval', label: 'Schedule (cron)', hint: '<span data-qs-cron-words></span>' }) %>
                 </div>
                 <div class="zr-qs__switches">
-                    <%- qsSwitch({ target: 'showTags', label: 'Only documents with certain tags', hint: '<span data-qs-run-tags class="hidden"><span data-qs-run-tag-list></span> ' + qsLink('tagInput', 'Choose the tags') + ' in ' + qsTopic('schedule') + '.</span>' }) %>
+                    <%- qsSwitch({ target: 'showTags', label: 'Only documents with certain tags', hint: 'A scan only picks documents that carry one of the chosen tags. <span data-qs-run-tags class="hidden"><span data-qs-run-tag-list></span> ' + qsLink('tagInput', 'Choose the tags') + ' in ' + qsTopic('schedule') + '.</span>' }) %>
                     <%- qsSwitch({ target: 'disableAutomaticProcessing', label: 'Stop automatic scans', hint: 'While this is on, Zettelrobbe does not look for new documents by itself.' }) %>
                 </div>
                 <%- qsMore('schedule', 'All options in ' + qsTopic('schedule')) %>
