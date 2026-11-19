@@ -164,6 +164,10 @@
       laterBtn.classList[requested ? 'add' : 'remove']('hidden');
     }
 
+    // A list scrolled the last time opens at its first entry again.
+    const scrollEl = document.getElementById('changelogModalScroll');
+    if (scrollEl) scrollEl.scrollTop = 0;
+
     onRequest = requested;
     confirmed = false;
     showUpdateNotice(data);
