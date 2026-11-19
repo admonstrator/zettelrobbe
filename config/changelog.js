@@ -254,6 +254,7 @@ const RELEASES = [
       'Fix: With "Tag analysed documents" on and no tag name set, documents get the tag ai-processed, as the page always showed. An empty name still means no tag',
       'Fix: The external API follows at most five redirects and checks each one with the same rule as the address you entered. Your configured headers go only to that address',
       'Fix: An OCR timeout of 30 seconds that older versions saved as the form default is raised to 120 seconds once. Any other value stays, and 30 seconds you set afterwards stay too',
+      'New: Settings, System, "Set by the environment" lists every setting your docker-compose file decides. "Take over" stores a value in Zettelrobbe, so the line can be deleted from docker-compose and the field edited here',
       'Removed: The Paperless-ngx user name and the slider "Generation creativity". Zettelrobbe signs in with the API token alone, and nothing used the slider since the document chat was removed. PAPERLESS_USERNAME and AI_TEMPERATURE_GENERATION are ignored and can be deleted from docker-compose',
     ],
   },

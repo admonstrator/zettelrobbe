@@ -5117,6 +5117,268 @@
         }
       }
     },
+    "/api/settings/environment/take-over": {
+      "post": {
+        "summary": "Store values the environment sets",
+        "description": "Stores the value in effect of settings the environment sets (usually the\nlines under `environment:` in docker-compose) in Zettelrobbe's own stored\nsettings, so that their lines can be deleted from docker-compose. The value\nis normalised the way a settings save of its field normalises it; switches\nand free text are stored as written.\n\nNothing changes about the value in effect: the environment keeps winning\nwhile its line is there, and no restart follows, also for a key that\notherwise needs one. Once the environment no longer sets a key, the stored\nvalue applies from the next start on. A secret is stored like a secret\ntyped on the settings page; the response never contains a value.\n\nThe whole request is refused when a key is not a catalogue setting the\nenvironment sets. A value the field's own check refuses (a broken cron, a\nnumber outside the field's range) and a setting without a field on the\nsettings page are not stored; `refused` says why.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "keys"
+                ],
+                "properties": {
+                  "keys": {
+                    "description": "Setting names, or \"all\" for every setting that can be taken over",
+                    "oneOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "example": [
+                          "SCAN_INTERVAL",
+                          "OPENAI_API_KEY"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "all"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The values that could be stored are stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "stored": {
+                          "type": "array",
+                          "description": "The keys whose value is stored now",
+                          "items": {
+                            "type": "string"
+                          },
+                          "example": [
+                            "SCAN_INTERVAL"
+                          ]
+                        },
+                        "refused": {
+                          "type": "array",
+                          "description": "The keys that were not stored, each with the reason",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Zettelrobbe stored SCAN_INTERVAL. You can delete its line from docker-compose."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No list of keys, or a key that is not a setting the environment sets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "422": {
+            "description": "None of the keys could be stored; data.refused says why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/environment/remove-copy": {
+      "post": {
+        "summary": "Remove stored copies of values the environment sets",
+        "description": "The undo of take-over: removes the stored copy of settings the environment\nsets, but only a copy that equals the value in effect, so that a value\nstored on purpose is not deleted by accident. Nothing changes about the\nvalue in effect, and no restart follows. Once the environment no longer\nsets the key, the default applies again.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "keys"
+                ],
+                "properties": {
+                  "keys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "SCAN_INTERVAL"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The copies that equal the value in effect are removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "removed": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "example": [
+                            "SCAN_INTERVAL"
+                          ]
+                        },
+                        "refused": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Zettelrobbe removed its copy of SCAN_INTERVAL. Keep the line in docker-compose."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No list of keys, or a key that is not a setting the environment sets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "422": {
+            "description": "None of the copies could be removed; data.refused says why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scan/now": {
       "post": {
         "summary": "Trigger immediate document scan",

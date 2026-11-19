@@ -237,6 +237,12 @@ a restart. Do not cache a config value in a module constant or a service constru
   (`NODE_ENV`, `LOG_LEVEL`, `ANONYMIZED_TELEMETRY`, `PAPERLESS_AI_COMMIT_SHA`). The settings page does not
   explain this; a pinned field is simply disabled with "Set by the environment (KEY)." and the `.env`
   export under System → Export is the one expert surface.
+- **What the environment decides:** the settings topic "Set by the environment"
+  (`services/environmentOverview.js`, `views/partials/settings-environment.ejs`) lists the protected
+  keys, the set-but-removed ones (`REMOVED_SETTINGS` in `services/settingsCatalog.js`) and the values
+  a migration could not change. "Take over" (`POST /api/settings/environment/take-over`) stores the
+  value in effect without changing which side wins. A save never writes a protected key, and never
+  deletes the stored copy of one either: that copy is what applies once the line is gone.
 - **Restarts:** the catalogue entries marked `restart: true` (read through
   `config/restartRequiredKeys.js`) are the keys something reads once at boot (port, proxy
   and cookie flags, rate limiter, cron schedules and their switches, the Paperless client, log level).
