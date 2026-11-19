@@ -168,7 +168,15 @@ scripts (`public/js/*.js`) cannot import ES modules — they reach the kernel th
 `window.__zrToast` / `window.zrDialog` (see `failed.js` for the six-line adapter) and must never
 build their own toast host.
 
-**Settings page:** one form, one topic per view, in a bounded column (`--zr-settings-measure`).
+**Settings page:** one form, one topic per view, topic list and topic centred as one block
+(`--zr-settings-list`, `--zr-settings-measure`). The window does not scroll on this page:
+`.zr-settings-scroll` is the one scroll region and the save bar (`.zr-actionbar`) is a layout row
+below it, present only with unsaved changes, so it never covers a field
+(`tests/test-settings-save-bar-browser.js` measures that in headless Chrome and self-skips without
+one). The groups of the topic list fold (`settings-nav.js`, `sessionStorage` key `zr.settings.groups`).
+In a card, short controls (switch, number, select, short text) sit beside the label, long ones
+(address, secret, chip list, textarea, field with button) below it at full width — by type, see the
+"Row forms" comment in `public/css/pages/settings.css`. Every switch row carries a hint.
 The first topic is Quick start (`views/partials/settings-quick-start.ejs`,
 `public/js/modules/settings-quick-start.js`): six rows whose summaries are computed from the real
 fields, and whose controls carry no `name` — each mirrors a real field (`data-mirror="<id>"`) and
