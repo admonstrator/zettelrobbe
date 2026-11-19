@@ -174,8 +174,9 @@ scripts (`public/js/*.js`) cannot import ES modules — they reach the kernel th
 build their own toast host.
 
 **Settings page:** one form, one topic per view, the topic list (a card) and the topic as
-one block at the page padding (`--zr-settings-list`, `--zr-settings-measure`); every section of a
-topic is a `.zr-module` with its title in the card head. The window does not scroll on this page:
+one block at the page padding (`--zr-settings-list`, `--zr-settings-measure`); each topic is one
+`.zr-module` (`.zr-settings-entry`) that holds its title, lead and sections; a section
+(`.zr-settings-section`) is a ruled block inside it, never a card in a card. The window does not scroll on this page:
 `.zr-settings-scroll` is the one scroll region and the save bar (`.zr-actionbar`) is a layout row
 below it, present only with unsaved changes, so it never covers a field
 (`tests/test-settings-save-bar-browser.js` measures that in headless Chrome and self-skips without
