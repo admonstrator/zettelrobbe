@@ -80,24 +80,18 @@
     height: var(--zr-settings-reserve, 0);
   }
 
-  /* Topic list and topic are one block that starts next to the app's own
-     navigation: the list, then the topic in a column of a readable width.
-     The distance to the rail (--zr-settings-inset) grows a little with the
-     window and stops at 96px, so on a large display the two lists stay
-     neighbours and the air goes to the right; in a narrow window the topic
-     column gives way first. The save bar lines its content up with the same
-     block (--zr-actionbar-inset, --zr-actionbar-measure). */
+  /* Topic list and topic are one block that starts where every page starts,
+     at the page padding under the top bar and next to the rail: the list,
+     then the topic in a column of a readable width, the card gap between
+     them. On a large display the air goes to the right; in a narrow window
+     the topic column gives way first. The save bar starts its content at the
+     same page padding and ends it with the block (--zr-actionbar-measure). */
   .zr-settings-page {
     --zr-settings-list: 232px;
     --zr-settings-measure: 720px;
-    --zr-settings-gap: var(--zr-8);
-    --zr-settings-pad: var(--zr-6);
-    --zr-settings-inset: clamp(var(--zr-settings-pad), 4vw, 96px);
-    --zr-actionbar-inset: var(--zr-settings-inset);
     --zr-actionbar-measure: calc(
-      var(--zr-settings-inset) + var(--zr-settings-list) +
-        var(--zr-settings-gap) + var(--zr-settings-measure) +
-        var(--zr-settings-pad)
+      var(--zr-page-pad) * 2 + var(--zr-settings-list) + var(--zr-card-gap) +
+        var(--zr-settings-measure)
     );
   }
   .zr-settings-page .zr-settings {
@@ -106,8 +100,8 @@
         var(--zr-settings-measure)
       );
     justify-content: start;
-    gap: var(--zr-settings-gap);
-    padding: 28px var(--zr-settings-pad) var(--zr-10) var(--zr-settings-inset);
+    gap: var(--zr-card-gap);
+    padding: var(--zr-page-pad) var(--zr-page-pad) var(--zr-10);
   }
   /* The styleguide lays out its own sections with the same frame. */
   .zr-settings {
@@ -289,11 +283,11 @@
 
   /* --- a topic -------------------------------------------------------- */
 
-  /* Sections keep the same distance, also inside the wrapper a topic module
-     puts around them (single sign-on, Set by the environment). */
+  /* Sections keep the card gap, also inside the wrapper a topic module puts
+     around them (single sign-on, Set by the environment). */
   .zr-settings-entry,
   .zr-settings-entry > .zr-col--loose {
-    gap: var(--zr-6);
+    gap: var(--zr-card-gap);
   }
   /* Its group as a quiet line, its title, one sentence on what it is for. */
   .zr-settings-entry__head {
@@ -726,14 +720,9 @@
     .zr-view:has(> .zr-settings-page) {
       padding-bottom: var(--zr-tabbar-h);
     }
-    .zr-settings-page {
-      --zr-settings-pad: var(--zr-3);
-      --zr-settings-inset: var(--zr-settings-pad);
-    }
     .zr-settings-page .zr-settings {
       grid-template-columns: minmax(0, 1fr);
-      gap: var(--zr-3);
-      padding: var(--zr-3) var(--zr-settings-pad) var(--zr-6);
+      padding: var(--zr-page-pad) var(--zr-page-pad) var(--zr-6);
     }
     .zr-settings {
       grid-template-columns: minmax(0, 1fr);

@@ -10,6 +10,8 @@
     version: typeof version !== 'undefined' ? version : ''
 }) %>
 
+<%# The page is one column of cards, like every page of the app. %>
+<div class="zr-stack">
 <div class="zr-viewhead">
     <h2 class="zr-viewhead__title">Framework reference</h2>
     <p class="zr-viewhead__sub">
@@ -1066,6 +1068,28 @@
                 </div>
 
                 <div class="zr-col zr-col--tight">
+                    <span class="zr-label">A column of cards — .zr-stack</span>
+                    <p class="zr-sm zr-muted">
+                        Every page puts its content in one: the lead line, a toolbar, an alert and the cards stand
+                        <code class="zr-mono">--zr-card-gap</code> apart (16px, 12px on a phone), and a hidden one takes no gap
+                        with it. The grid, the figures and two cards side by side keep the same gap; the page itself starts at
+                        <code class="zr-mono">--zr-page-pad</code>. A page never spaces its cards with a number of its own.
+                    </p>
+                    <div class="zr-stack" style="max-width: 480px">
+                        <p class="zr-viewhead__sub">A lead line, like the one History opens with.</p>
+                        <div class="zr-module">
+                            <div class="zr-module__head">
+                                <h4 class="zr-module__title">First card</h4>
+                            </div>
+                            <div class="zr-module__body"><p class="zr-sm zr-muted">The card gap above and below.</p></div>
+                        </div>
+                        <div class="zr-module">
+                            <div class="zr-module__body"><p class="zr-sm zr-muted">A second card.</p></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="zr-col zr-col--tight">
                     <span class="zr-label">Stats — .zr-stats / .zr-stat</span>
                     <section class="zr-stats">
                         <div class="zr-stat">
@@ -1703,6 +1727,7 @@
             </div>
         </section>
     </div>
+</div>
 </div>
 
 <dialog class="zr-dialog" id="sgStaticDialog" aria-labelledby="sgStaticDialogTitle">

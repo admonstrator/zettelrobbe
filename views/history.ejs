@@ -9,9 +9,9 @@
     chatEnabled: typeof chatEnabled !== 'undefined' ? chatEnabled : false,
     mainClass: 'main-content modified-documents-page'
 }) %>
-            <div>
+            <div class="zr-stack">
                 <div class="zr-viewhead">
-                    <p class="zr-viewhead__sub" style="margin-top: 0">
+                    <p class="zr-viewhead__sub">
                         Documents Zettelrobbe has already processed. Resetting one makes it eligible
                         for the next scan again.
                     </p>
@@ -35,7 +35,7 @@
                     </select>
                 </div>
 
-                <div class="zr-row zr-row--wrap zr-btnbar" data-module="toolbar-menu" style="margin-bottom: var(--zr-3)">
+                <div class="zr-row zr-row--wrap zr-btnbar" data-module="toolbar-menu">
                     <button id="rescanSelectedBtn" class="zr-btn" title="Reprocess selected documents (clears the local record and triggers a scan)">
                         <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
                         Rescan selected
@@ -71,7 +71,7 @@
                     <button id="resetAllBtn" class="zr-btn zr-btn--danger">Reset all</button>
                 </div>
 
-                <div class="zr-alert zr-alert--info" style="margin-bottom: var(--zr-4)">
+                <div class="zr-alert zr-alert--info">
                     <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>
                     <div class="zr-alert__body">
                         <p class="zr-sm">History is reconciled automatically. To run it by hand, go to

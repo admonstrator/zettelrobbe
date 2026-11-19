@@ -4,15 +4,9 @@
    ========================================================================== */
 
 @layer pages {
-  /* The health banner and the KPI row are both shown and hidden by the module, so
-     their spacing has to sit on the elements themselves — a sibling rule would
-     collapse along with them. */
-  [data-module='dashboard'] > .zr-alert {
-    margin-bottom: var(--zr-4);
-  }
-  [data-module='dashboard'] > .zr-stats {
-    margin-bottom: var(--zr-4);
-  }
+  /* The page is a .zr-stack: the health banner, the figures, the layout bar,
+     the edit tray and the grid stand the card gap apart, and the ones the
+     module hides take no gap with them. */
 
   /* --- loading state ------------------------------------------------------
      Every figure on this page arrives from one fetch, so until it lands the
@@ -358,15 +352,16 @@
 
   .zr-layoutbar {
     justify-content: flex-end;
-    margin-bottom: var(--zr-2);
+  }
+  /* Its one button is hidden while a session runs and until the module is
+     ready; an empty bar would still take a gap above and below it. */
+  .zr-layoutbar:not(:has(> :not(.hidden))) {
+    display: none;
   }
 
   /* --- the edit tray ------------------------------------------------------
      Rendered above the grid and unhidden for the session: one chip per card on
      the left, reset, cancel and done on the right. */
-  .zr-editbar {
-    margin-bottom: var(--zr-3);
-  }
   .zr-editbar__actions {
     margin-left: auto;
   }
@@ -498,7 +493,8 @@
     display: flex;
     flex-direction: column;
     height: calc(
-      var(--zr-rows) * var(--zr-tile-row) + (var(--zr-rows) - 1) * var(--zr-3)
+      var(--zr-rows) * var(--zr-tile-row) + (var(--zr-rows) - 1) *
+        var(--zr-card-gap)
     );
     /* A fixed height makes the card a size container, which is what lets the
        height queries further down apply to exactly these cards. */

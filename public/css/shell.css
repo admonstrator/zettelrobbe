@@ -149,7 +149,7 @@
     align-items: center;
     gap: var(--zr-2);
     height: var(--zr-topbar-h);
-    padding: 0 var(--zr-4);
+    padding: 0 var(--zr-page-pad);
     background: color-mix(in srgb, var(--zr-surface) 88%, transparent);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--zr-line);
@@ -176,11 +176,13 @@
     align-items: center;
     gap: var(--zr-2);
   }
+  /* The page starts at the page padding, on every page; the content inside
+     is one column of cards (.zr-stack, modules.css). */
   .zr-view {
     flex: 1;
     width: 100%;
     max-width: var(--zr-view-max);
-    padding: var(--zr-4);
+    padding: var(--zr-page-pad);
     padding-bottom: var(--zr-8);
   }
   .zr-drawer-scrim {
@@ -240,7 +242,6 @@
     }
 
     .zr-view {
-      padding: var(--zr-3);
       padding-bottom: calc(var(--zr-tabbar-h) + var(--zr-6));
     }
 
@@ -281,10 +282,6 @@
       height: 6px;
       border-radius: 50%;
       background: var(--zr-danger);
-    }
-
-    .zr-topbar {
-      padding: 0 var(--zr-3);
     }
   }
 }

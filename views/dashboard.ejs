@@ -7,7 +7,7 @@
 <!-- data-loading ships with the page so the placeholders are there from the
      first paint, before the module has even been imported. The module drops it
      once both the stats call and the status poll have reported back. -->
-<div data-module="dashboard" data-loading data-paperless-url="<%= typeof paperlessUrl !== 'undefined' ? paperlessUrl : '' %>">
+<div class="zr-stack" data-module="dashboard" data-loading data-paperless-url="<%= typeof paperlessUrl !== 'undefined' ? paperlessUrl : '' %>">
 
     <!-- A persistent health banner is a status, not an alert. role="alert" plus
          aria-live="assertive" made the three-second poll interrupt the screen

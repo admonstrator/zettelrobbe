@@ -11,8 +11,9 @@
  * measures the page in a browser.
  *
  * Covers:
- * 1. One block, next to the rail: topic list and topic in a grid that keeps its width
- *    and leaves the air on the right
+ * 1. One block at the page padding, like every page: topic list and topic in a
+ *    grid that keeps its width and leaves the air on the right, the card gap
+ *    between them (tests/test-page-rhythm.js covers the other pages)
  * 2. The frame: the window does not scroll; a region under the top bar does,
  *    over the save bar, which is a row of the layout and hidden without
  *    changes; its Save button belongs to the form from outside it
@@ -87,15 +88,19 @@ function body(source, selector) {
 
   // ── 1. One block, next to the rail ────────────────────────────────────────────────
 
-  await test('topic list and topic are one block next to the rail, the topic at most 760px', () => {
+  await test('topic list and topic are one block at the page padding, the topic at most 760px', () => {
     const vars = body(desktop, '.zr-settings-page');
     const measure = vars.match(/--zr-settings-measure: (\d+)px;/);
     assert.ok(measure, 'the measure is one custom property');
     const width = Number(measure[1]);
     assert.ok(width >= 680 && width <= 760, `measure ${width}px`);
     assert.match(vars, /--zr-settings-list: \d+px;/);
-    // The bar lines its content up with the same block.
-    assert.match(vars, /--zr-actionbar-measure: calc\(/);
+    // The bar lines its content up with the same block: it starts at the
+    // page padding and ends where the topic column ends.
+    assert.match(
+      vars,
+      /--zr-actionbar-measure: calc\( var\(--zr-page-pad\) \* 2 \+ var\(--zr-settings-list\) \+ var\(--zr-card-gap\) \+ var\(--zr-settings-measure\) \);/
+    );
     const grid = body(desktop, '.zr-settings-page .zr-settings');
     assert.match(
       grid,
@@ -107,21 +112,22 @@ function body(source, selector) {
       /justify-content: start;/,
       'the block starts at the rail'
     );
-    const inset = vars.match(
-      /--zr-settings-inset: clamp\(var\(--zr-settings-pad\), \d+vw, (\d+)px\);/
-    );
-    assert.ok(
-      inset,
-      'the distance to the rail is one custom property with an upper bound'
-    );
-    assert.ok(
-      Number(inset[1]) <= 120,
-      `at most 120px between rail and topic list, got ${inset[1]}px`
-    );
-    assert.match(grid, /padding: [^;]*var\(--zr-settings-inset\);/);
+    // Where every page starts: the page padding under the top bar and next
+    // to the rail, no inset of its own; the list card and the topic stand
+    // the card gap apart.
     assert.match(
-      vars,
-      /--zr-actionbar-inset: var\(--zr-settings-inset\);/,
+      grid,
+      /padding: var\(--zr-page-pad\) var\(--zr-page-pad\) var\(--zr-10\);/
+    );
+    assert.match(grid, /gap: var\(--zr-card-gap\);/);
+    assert.doesNotMatch(
+      css,
+      /--zr-settings-(inset|pad|gap)|--zr-actionbar-inset/,
+      'no distance of the settings page alone'
+    );
+    assert.match(
+      body(modulesCss, '.zr-actionbar__inner'),
+      /padding: 10px var\(--zr-page-pad\);/,
       'the save bar starts with the block'
     );
     assert.ok(!/<div class="zr-settings-columns|third column/i.test(view));
@@ -220,6 +226,11 @@ function body(source, selector) {
       view.includes(
         '<select id="settingsEntrySelect" class="zr-input" data-el="select">'
       )
+    );
+    // The phone starts at the page padding too.
+    assert.match(
+      body(phone, '.zr-settings-page .zr-settings'),
+      /padding: var\(--zr-page-pad\) var\(--zr-page-pad\) var\(--zr-6\);/
     );
   });
 
