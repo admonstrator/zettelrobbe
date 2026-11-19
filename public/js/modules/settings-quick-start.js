@@ -133,17 +133,12 @@ export function connectionState(paperless) {
  * only whether there is one. `connection` is the probe's word on the stored
  * configuration, so the caller passes null once the address or the token is
  * edited. Address and token finish the step: Zettelrobbe signs in with the
- * token alone, and the user name is only shown when there is one.
+ * token alone.
  *
- * @param {{url: string, tokenPresent: boolean, username: string, connection?: 'ok'|'rejected'|'unreachable'|null}} input
+ * @param {{url: string, tokenPresent: boolean, connection?: 'ok'|'rejected'|'unreachable'|null}} input
  * @returns {StepSummary}
  */
-export function summarizePaperless({
-  url,
-  tokenPresent,
-  username,
-  connection = null,
-}) {
+export function summarizePaperless({ url, tokenPresent, connection = null }) {
   const address = withoutCredentials(url);
   if (!address) return { state: 'open', text: 'No address yet' };
   if (!tokenPresent) {
@@ -158,11 +153,8 @@ export function summarizePaperless({
   if (connection === 'unreachable') {
     return { state: 'problem', text: `${address} · not reachable` };
   }
-  const parts = [address];
-  const user = clean(username);
-  if (user) parts.push(`user ${user}`);
-  if (connection === 'ok') parts.push('connected');
-  return { state: 'done', text: parts.join(' · ') };
+  const text = connection === 'ok' ? `${address} · connected` : address;
+  return { state: 'done', text };
 }
 
 /**
@@ -701,7 +693,7 @@ export default function settingsQuickStart(root) {
   /* Paperless-ngx connection ------------------------------------------------- */
 
   // The probe checks the stored configuration; once the address or the token
-  // is edited, its word no longer applies. The user name is not part of it.
+  // is edited, its word no longer applies.
   let connection = null;
   const connectionFields = ['paperlessUrl', 'paperlessToken'];
   let connectionBaseline = connectionFields.map((id) => {
@@ -748,7 +740,6 @@ export default function settingsQuickStart(root) {
       paperless: summarizePaperless({
         url: valueOf('paperlessUrl'),
         tokenPresent: secretPresent('paperlessToken'),
-        username: valueOf('paperlessUsername'),
         connection: connectionUnchanged() ? connection : null,
       }),
       ai: summarizeAi({

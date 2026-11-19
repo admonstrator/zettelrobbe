@@ -103,7 +103,6 @@
             <%- qsBodyOpen('paperless') %>
                 <%- qsInput({ target: 'paperlessUrl', label: 'Address', attrs: 'inputmode="url"', hint: 'With the port and without a path, for example http://192.168.1.10:8000.' }) %>
                 <%- qsInput({ target: 'paperlessToken', label: 'API token', type: 'password', hint: qsSecrets.paperlessToken ? 'Leave it empty to keep the stored token.' : 'Paperless-ngx shows it in your profile, under API Auth Token.' }) %>
-                <%- qsInput({ target: 'paperlessUsername', label: 'User name (optional)', hint: 'Zettelrobbe signs in with the API token alone.' }) %>
                 <%- qsMore('connection', 'All options in ' + qsTopic('connection')) %>
             </div>
         </div>

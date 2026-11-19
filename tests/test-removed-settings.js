@@ -46,6 +46,11 @@ const REMOVED = [
     field: 'aiTemperatureGeneration',
     value: '1.3',
   },
+  {
+    key: 'PAPERLESS_USERNAME',
+    field: 'paperlessUsername',
+    value: 'archivist',
+  },
 ];
 
 const CASES = {

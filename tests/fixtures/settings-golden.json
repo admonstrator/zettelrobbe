@@ -4,7 +4,6 @@
       "PAPERLESS_API_URL": "http://paperless.local:8000",
       "PAPERLESS_PUBLIC_URL": "",
       "PAPERLESS_API_TOKEN": "stored-paperless-token",
-      "PAPERLESS_USERNAME": "archivist",
       "SCAN_INTERVAL": "*/30 * * * *",
       "DISABLE_AUTOMATIC_PROCESSING": "yes",
       "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -2642,7 +2641,6 @@
         "PAPERLESS_API_URL": "http://paperless.local:8000",
         "PAPERLESS_PUBLIC_URL": "",
         "PAPERLESS_API_TOKEN": "",
-        "PAPERLESS_USERNAME": "archivist",
         "SCAN_INTERVAL": "*/30 * * * *",
         "DISABLE_AUTOMATIC_PROCESSING": "yes",
         "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -2815,7 +2813,6 @@
         "PAPERLESS_API_URL": "http://saved-paperless:8000",
         "PAPERLESS_PUBLIC_URL": "",
         "PAPERLESS_API_TOKEN": "",
-        "PAPERLESS_USERNAME": "archivist",
         "SCAN_INTERVAL": "*/30 * * * *",
         "DISABLE_AUTOMATIC_PROCESSING": "yes",
         "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -2989,7 +2986,6 @@
         "PAPERLESS_API_URL": "http://paperless.local:8000",
         "PAPERLESS_PUBLIC_URL": "",
         "PAPERLESS_API_TOKEN": "",
-        "PAPERLESS_USERNAME": "archivist",
         "SCAN_INTERVAL": "*/30 * * * *",
         "DISABLE_AUTOMATIC_PROCESSING": "yes",
         "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3162,7 +3158,6 @@
         "PAPERLESS_API_URL": "http://localhost:8000",
         "PAPERLESS_PUBLIC_URL": "",
         "PAPERLESS_API_TOKEN": "",
-        "PAPERLESS_USERNAME": "archivist",
         "SCAN_INTERVAL": "*/30 * * * *",
         "DISABLE_AUTOMATIC_PROCESSING": "yes",
         "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3335,7 +3330,6 @@
       "view": "setup",
       "config": {
         "PAPERLESS_API_URL": "http://localhost:8000",
-        "PAPERLESS_USERNAME": "archivist",
         "SCAN_INTERVAL": "*/30 * * * *",
         "DISABLE_AUTOMATIC_PROCESSING": "yes",
         "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3380,7 +3374,6 @@
       "view": "setup",
       "config": {
         "PAPERLESS_API_URL": "http://saved:8000",
-        "PAPERLESS_USERNAME": "archivist",
         "SCAN_INTERVAL": "0 */2 * * *",
         "DISABLE_AUTOMATIC_PROCESSING": "yes",
         "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3430,14 +3423,13 @@
         "message": "Initial setup completed successfully.",
         "restart": true,
         "redirectTo": "/login",
-        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=openai\nOPENAI_API_KEY=sk-setup\nOPENAI_MODEL=gpt-4o-mini\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=openai\nOPENAI_API_KEY=sk-setup\nOPENAI_MODEL=gpt-4o-mini\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
       },
       "saved": [
         {
           "config": {
             "PAPERLESS_API_URL": "http://paperless.local:8000",
             "PAPERLESS_API_TOKEN": "token",
-            "PAPERLESS_USERNAME": "archivist",
             "AI_PROVIDER": "openai",
             "SCAN_INTERVAL": "*/30 * * * *",
             "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3489,14 +3481,13 @@
         "message": "Initial setup completed successfully.",
         "restart": true,
         "redirectTo": "/login",
-        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=yes\nTAGS=inbox,scan,extra\nIGNORE_TAGS=old,junk,ai-done\nADD_AI_PROCESSED_TAG=yes\nAI_PROCESSED_TAG_NAME=ai-done\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=yes\nDISABLE_AUTOMATIC_PROCESSING=yes\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=ollama\nOLLAMA_API_URL=http://localhost:11434\nOLLAMA_API_KEY=\nOLLAMA_MODEL=qwen3\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=mistral-setup\nMISTRAL_API_KEY=mistral-setup\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=yes\nTAGS=inbox,scan,extra\nIGNORE_TAGS=old,junk,ai-done\nADD_AI_PROCESSED_TAG=yes\nAI_PROCESSED_TAG_NAME=ai-done\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=yes\nDISABLE_AUTOMATIC_PROCESSING=yes\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=ollama\nOLLAMA_API_URL=http://localhost:11434\nOLLAMA_API_KEY=\nOLLAMA_MODEL=qwen3\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=mistral-setup\nMISTRAL_API_KEY=mistral-setup\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
       },
       "saved": [
         {
           "config": {
             "PAPERLESS_API_URL": "http://paperless.local:8000",
             "PAPERLESS_API_TOKEN": "token",
-            "PAPERLESS_USERNAME": "archivist",
             "AI_PROVIDER": "ollama",
             "SCAN_INTERVAL": "*/30 * * * *",
             "PROCESS_PREDEFINED_DOCUMENTS": "yes",
@@ -3549,14 +3540,13 @@
         "message": "Initial setup completed successfully.",
         "restart": true,
         "redirectTo": "/login",
-        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=anthropic\nANTHROPIC_API_KEY=sk-ant-setup\nANTHROPIC_API_URL=https://proxy.example.com\nANTHROPIC_MODEL=claude-setup-model\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=anthropic\nOCR_API_URL=https://ocr-proxy\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=claude-setup-model"
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=anthropic\nANTHROPIC_API_KEY=sk-ant-setup\nANTHROPIC_API_URL=https://proxy.example.com\nANTHROPIC_MODEL=claude-setup-model\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=anthropic\nOCR_API_URL=https://ocr-proxy\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=claude-setup-model"
       },
       "saved": [
         {
           "config": {
             "PAPERLESS_API_URL": "http://paperless.local:8000",
             "PAPERLESS_API_TOKEN": "token",
-            "PAPERLESS_USERNAME": "archivist",
             "AI_PROVIDER": "anthropic",
             "SCAN_INTERVAL": "*/30 * * * *",
             "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3609,14 +3599,13 @@
         "message": "Initial setup completed successfully.",
         "restart": true,
         "redirectTo": "/login",
-        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=azure\nAZURE_ENDPOINT=https://x.openai.azure.com\nAZURE_API_KEY=az\nAZURE_DEPLOYMENT_NAME=gpt4o\nAZURE_API_VERSION=2023-05-15\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=custom\nOCR_API_URL=http://lm:1234/v1\nOCR_API_KEY=lm\nMISTRAL_API_KEY=lm\nMISTRAL_OCR_MODEL=qwen-vl"
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=azure\nAZURE_ENDPOINT=https://x.openai.azure.com\nAZURE_API_KEY=az\nAZURE_DEPLOYMENT_NAME=gpt4o\nAZURE_API_VERSION=2023-05-15\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=custom\nOCR_API_URL=http://lm:1234/v1\nOCR_API_KEY=lm\nMISTRAL_API_KEY=lm\nMISTRAL_OCR_MODEL=qwen-vl"
       },
       "saved": [
         {
           "config": {
             "PAPERLESS_API_URL": "http://paperless.local:8000",
             "PAPERLESS_API_TOKEN": "token",
-            "PAPERLESS_USERNAME": "archivist",
             "AI_PROVIDER": "azure",
             "SCAN_INTERVAL": "*/30 * * * *",
             "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3670,14 +3659,13 @@
         "message": "Initial setup completed successfully.",
         "restart": true,
         "redirectTo": "/login",
-        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPAPERLESS_USERNAME=archivist\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=custom\nCUSTOM_BASE_URL=http://lm:1234/v1\nCUSTOM_API_KEY=\nCUSTOM_MODEL=qwen\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
+        "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=custom\nCUSTOM_BASE_URL=http://lm:1234/v1\nCUSTOM_API_KEY=\nCUSTOM_MODEL=qwen\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
       },
       "saved": [
         {
           "config": {
             "PAPERLESS_API_URL": "http://paperless.local:8000",
             "PAPERLESS_API_TOKEN": "token",
-            "PAPERLESS_USERNAME": "archivist",
             "AI_PROVIDER": "custom",
             "SCAN_INTERVAL": "*/30 * * * *",
             "PROCESS_PREDEFINED_DOCUMENTS": "no",
@@ -3729,8 +3717,8 @@
       "status": 200,
       "success": true,
       "data": {
-        "env": "# Paperless-ngx connection\nPAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=stored-paperless-token\nPAPERLESS_USERNAME=archivist\nPAPERLESS_PROBE_INTERVAL_SECONDS=30\n\n# Document processing\nDISABLE_AUTOMATIC_PROCESSING=yes\nTAGS=a,b\n\n# AI provider\nAI_PROVIDER=openai\nOPENAI_API_KEY=stored-openai-key\nOPENAI_MODEL=gpt-4o-mini\nOLLAMA_MODEL=llama3.1:8b\n\n# AI behaviour\nSYSTEM_PROMPT=\"You are \\\"careful\\\" # always\"\n\n# OCR fallback\nOCR_AUTO_PROCESS_ENABLED=no\n\n# Server and security\nAPI_KEY=test-api-key\nEXPOSE_API_DOCS=yes\nCONFIG_SOURCE_MODE=runtime-first\n\n# Single sign-on (OIDC)\nOIDC_ENABLED=yes\nOIDC_CLIENT_SECRET=\"secret with space\"\n\n# Maintenance\nLOG_LEVEL=error\nRECONCILIATION_ENABLED=no\nANONYMIZED_TELEMETRY=no\n\n# Interface\nDATE_FORMAT=YYYY-MM-DD",
-        "count": 21
+        "env": "# Paperless-ngx connection\nPAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=stored-paperless-token\nPAPERLESS_PROBE_INTERVAL_SECONDS=30\n\n# Document processing\nDISABLE_AUTOMATIC_PROCESSING=yes\nTAGS=a,b\n\n# AI provider\nAI_PROVIDER=openai\nOPENAI_API_KEY=stored-openai-key\nOPENAI_MODEL=gpt-4o-mini\nOLLAMA_MODEL=llama3.1:8b\n\n# AI behaviour\nSYSTEM_PROMPT=\"You are \\\"careful\\\" # always\"\n\n# OCR fallback\nOCR_AUTO_PROCESS_ENABLED=no\n\n# Server and security\nAPI_KEY=test-api-key\nEXPOSE_API_DOCS=yes\nCONFIG_SOURCE_MODE=runtime-first\n\n# Single sign-on (OIDC)\nOIDC_ENABLED=yes\nOIDC_CLIENT_SECRET=\"secret with space\"\n\n# Maintenance\nLOG_LEVEL=error\nRECONCILIATION_ENABLED=no\nANONYMIZED_TELEMETRY=no\n\n# Interface\nDATE_FORMAT=YYYY-MM-DD",
+        "count": 20
       }
     }
   }

@@ -661,7 +661,7 @@ router.get(
  *       Changes made through this endpoint are applied immediately and affect all future
  *       document processing operations.
  *
- *       A field of a removed setting (aiTemperatureGeneration) is accepted and ignored.
+ *       A field of a removed setting (aiTemperatureGeneration, paperlessUsername) is accepted and ignored.
  *     tags:
  *       - System
  *       - Setup
@@ -682,10 +682,6 @@ router.get(
  *                 type: string
  *                 description: API token for Paperless-ngx access
  *                 example: "abc123def456"
- *               paperlessUsername:
- *                 type: string
- *                 description: Optional. Shown next to the address in Quick start; Zettelrobbe signs in with paperlessToken alone and does not use the name. Empty keeps the stored name.
- *                 example: "admin"
  *               aiProvider:
  *                 type: string
  *                 description: Selected AI provider for document analysis

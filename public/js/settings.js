@@ -3026,7 +3026,6 @@ function initializeRuntimeOverridePills() {
     { selector: '#paperlessUrl', envKey: 'PAPERLESS_API_URL' },
     { selector: '#paperlessPublicUrl', envKey: 'PAPERLESS_PUBLIC_URL' },
     { selector: '#paperlessToken', envKey: 'PAPERLESS_API_TOKEN' },
-    { selector: '#paperlessUsername', envKey: 'PAPERLESS_USERNAME' },
     { selector: '#scanInterval', envKey: 'SCAN_INTERVAL' },
     { selector: '#logLevel', envKey: 'LOG_LEVEL' },
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },

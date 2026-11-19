@@ -141,7 +141,6 @@ function toEnvPreviewLines(config) {
   const previewKeys = [
     'PAPERLESS_API_URL',
     'PAPERLESS_API_TOKEN',
-    'PAPERLESS_USERNAME',
     'PROCESS_PREDEFINED_DOCUMENTS',
     'TAGS',
     'IGNORE_TAGS',
@@ -940,7 +939,9 @@ router.post(
  *             description: >
  *               The wizard's answers (administrator, Paperless-ngx connection,
  *               document scope, AI and OCR settings). Only the fields below are
- *               described individually.
+ *               described individually. paperlessUsername, which older clients
+ *               send, is ignored: Zettelrobbe signs in with paperlessToken
+ *               alone.
  *             properties:
  *               processedTag:
  *                 type: string
@@ -989,7 +990,6 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const mfaChallengeId = String(req.body?.mfaChallengeId || '').trim();
 
     const paperlessUrl = normalizeSetupBaseUrl(req.body?.paperlessUrl);
-    const paperlessUsername = String(req.body?.paperlessUsername || '').trim();
     const paperlessToken = String(req.body?.paperlessToken || '').trim();
 
     const scanAllDocuments = parseBooleanInput(
@@ -1132,7 +1132,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       });
     }
 
-    // The user name is optional: Zettelrobbe signs in with the token alone.
+    // Zettelrobbe signs in with the token alone.
     if (!paperlessUrl || !paperlessToken) {
       return res.status(400).json({
         success: false,
@@ -1218,7 +1218,6 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const finalConfig = settingsService.buildInitialSetupConfig({
       paperlessUrl,
       paperlessToken,
-      paperlessUsername,
       aiProvider,
       aiApiUrl,
       aiToken,

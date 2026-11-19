@@ -1523,8 +1523,6 @@ function sliceBetween(source, from, to) {
 
       process.env.DUPLICATES_AI_MODEL = 'proxy-pinned-model';
       process.env.AI_PROVIDER = 'openai';
-      // The form is validated before it is sent; the harness has no user.
-      process.env.PAPERLESS_USERNAME = 'tidy-up-tester';
       const browser = await playwright.chromium.launch();
       try {
         await test('in a browser, a locked model picker disables the select and the Fetch button', async () => {

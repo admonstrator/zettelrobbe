@@ -70,7 +70,6 @@ const elementIds = [
   'confirmMfaCodeBtn',
   'mfaStatusHint',
   'paperlessUrl',
-  'paperlessUsername',
   'paperlessToken',
   'testPaperlessBtn',
   'paperlessTestState',
@@ -479,7 +478,6 @@ wizard.quickstartApiKey.value = 'test-key';
   wizard.confirmPassword.value = 'password123';
   wizard.enableMfa.value = 'no';
   wizard.paperlessUrl.value = 'http://paperless:8000';
-  wizard.paperlessUsername.value = 'admin';
   wizard.paperlessToken.value = 'token';
   wizard.paperlessTestState = { ran: true, success: true, allowFailure: false };
   wizard.metadataState.loaded = true;

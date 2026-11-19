@@ -379,17 +379,6 @@ const CATALOG = Object.freeze([
       restart: true,
       ...PSW,
     }),
-    // Optional, and only shown: Zettelrobbe signs in with the API token
-    // alone. paperlessService.getOwnUserID() reads it and has no caller
-    // since #305 (tests/test-paperless-username.js).
-    setting('PAPERLESS_USERNAME', {
-      type: 'string',
-      default: '',
-      field: 'paperlessUsername',
-      parse: truthyAsIs,
-      readBy: 'services/paperlessService.js',
-      ...PSW,
-    }),
     // The connectivity probe's setInterval is started once at boot.
     setting('PAPERLESS_PROBE_INTERVAL_SECONDS', {
       type: 'integer',

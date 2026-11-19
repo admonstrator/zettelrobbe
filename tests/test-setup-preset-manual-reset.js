@@ -70,7 +70,6 @@ const elementIds = [
   'confirmMfaCodeBtn',
   'mfaStatusHint',
   'paperlessUrl',
-  'paperlessUsername',
   'paperlessToken',
   'testPaperlessBtn',
   'paperlessTestState',
