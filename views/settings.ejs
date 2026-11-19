@@ -708,7 +708,7 @@
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
                                             <label for="externalApiEnabled" class="zr-field__name">Add data from an external API</label>
-                                            <p class="zr-field__hint">Zettelrobbe calls the API once per scan and adds its answer to the prompt of each document.</p>
+                                            <p class="zr-field__hint">Zettelrobbe calls the address once per scan and adds up to about 500 tokens of the answer to your prompt for each document the scan analyses. Webhooks and rescans make one call per batch.</p>
                                         </div>
                                         <input type="checkbox" class="zr-toggle" id="externalApiEnabled" name="externalApiEnabled" <%= config.EXTERNAL_API_ENABLED === 'yes' ? 'checked' : '' %>>
                                     </div>
@@ -738,10 +738,12 @@
                                         <div class="zr-field zr-field--stacked">
                                             <label for="externalApiTimeout" class="zr-field__name">Timeout (milliseconds)</label>
                                             <input type="number" id="externalApiTimeout" name="externalApiTimeout" value="<%= config.EXTERNAL_API_TIMEOUT || '5000' %>" class="zr-input">
+                                            <p class="zr-field__hint">If the address takes longer than this or answers with an error, the analysis runs without its data.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="externalApiTransform" class="zr-field__name">Transform path</label>
-                                            <textarea id="externalApiTransform" name="externalApiTransform" rows="4" class="zr-textarea"><%= config.EXTERNAL_API_TRANSFORM || '' %></textarea>
+                                            <input type="text" id="externalApiTransform" name="externalApiTransform" value="<%= config.EXTERNAL_API_TRANSFORM || '' %>" class="zr-input" spellcheck="false" autocomplete="off">
+                                            <p class="zr-field__hint">Picks the part of the answer the model gets, such as data.items[0].name: names separated by dots, [0] for the first entry of a list. If the path matches nothing, the model gets the whole answer.</p>
                                         </div>
                                         <%- include('partials/settings-switch', {
                                             id: 'externalApiAllowPrivateIps',
