@@ -179,7 +179,7 @@ export default function settingsSso(root, { toast }) {
       if (data.pkce === false) {
         lines.push([
           '',
-          'The provider does not list PKCE (S256); sign-in still sends it.',
+          'The provider does not list PKCE (S256). Sign-in still sends it.',
         ]);
       }
       showResult('ok', result.message || 'The provider answered', lines);

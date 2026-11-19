@@ -1,7 +1,8 @@
 /* ==========================================================================
-   Settings: the topic column and its rows, the topic list with "Find a
-   setting", the custom-field add row and the two blocking overlays the page
-   puts up while the server restarts or a model is being tested.
+   Settings: the page frame with its docked save bar, the topic list with
+   "Find a setting", a topic with its sections, the rows of a settings card,
+   the custom-field add row and the two blocking overlays the page puts up
+   while the server restarts or a model is being tested.
    @layer pages: above the framework layers, below utilities.
    ========================================================================== */
 
@@ -22,244 +23,101 @@
     justify-content: flex-end;
   }
 
-  /* --- settings ------------------------------------------------------------ */
+  /* --- the page: a scrolling region over a docked save bar --------------- */
 
-  /* An old link to a section (#sec-provider) opens its topic and scrolls the
-     section into view; it lands below the sticky topbar, not under it. */
-  .zr-settings .zr-module[id^='sec-'] {
-    scroll-margin-top: calc(var(--zr-topbar-h) + var(--zr-4));
+  /* The settings page does not scroll the window. Under the top bar, the
+     area right of the rail is a column of two rows: the region that scrolls
+     (.zr-settings-scroll) and, while a change is not saved, the save bar
+     (.zr-actionbar, js/modules/settings-form.js). The region ends where the
+     bar starts, so at no scroll position does the bar lie over a control, a
+     label or a hint; without changes the bar is gone and the region reaches
+     the bottom of the window. When the bar appears the region only loses
+     height at its bottom, so what is on screen stays where it was. The
+     region spans the whole width right of the rail: its scrollbar is the
+     page's one scrollbar, at the window edge, and the wheel works over the
+     empty sides as well. */
+  .zr-main:has(> .zr-view > .zr-settings-page) {
+    height: 100vh;
+    height: 100dvh;
   }
-
-  /* Sixty-odd settings rows separated by nothing but 16px of air read as one
-     wall of controls: nothing says where a setting starts or ends. Rows get what
-     rows get everywhere else in the app — a hairline between them and a hover
-     band — drawn the way .zr-table draws them, from card edge to card edge, which
-     the body's own padding has to be undone for. A switch is a row like any
-     other: it used to draw a grey box of its own, and a card of switches was a
-     stack of islands.
-
-     Scoped to a card's own body: the changelog uses .zr-module__body as a bare
-     layout wrapper outside any .zr-module, where the release timeline brings its
-     own rhythm and there is no card box for a full-bleed band to bleed into. */
-  .zr-settings .zr-module > .zr-module__body.zr-col--loose {
-    gap: 0;
-    padding-block: 0;
-  }
-  /* Each row carries its own air, the same above and below, so the hover band
-     and the click area of a switch row cover the whole row, from one hairline to
-     the next. The inset is part of the row at rest, not only under the pointer:
-     added on hover, every row would shift sideways as its band appears. */
-  .zr-settings
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > *:not(.zr-alert, .zr-btn) {
-    margin-inline: calc(var(--zr-3) * -1);
-    padding: var(--zr-3);
-  }
-  /* An alert or a lone button draws a box of its own: it keeps air around it
-     and never carries a hairline, which would run along its own border. */
-  .zr-settings
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > :is(.zr-alert, .zr-btn) {
-    margin-block: var(--zr-3);
-  }
-  /* Rows ask whether anything is rendered above them with the general sibling
-     combinator rather than the adjacent one: half of this form is toggled with
-     .hidden and the custom-field list is an empty box until a field is added,
-     so the row below one of those would otherwise be ruled off against
-     nothing. */
-  .zr-settings
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > *:not(.hidden, #customFieldsList:not(:has(*)))
-    ~ *:not(.zr-alert, .zr-btn) {
-    border-top: 1px solid var(--zr-line);
-  }
-  /* Empty, the custom-field list is no row at all; its padding would leave a
-     gap where nothing is. */
-  #customFieldsList:not(:has(*)) {
-    display: none;
-  }
-
-  /* Some rows of a card are blocks of rows: the OCR block (#ocrFieldsContainer,
-     a .zr-field around the whole of it), a provider's fields, the options a
-     switch shows. Their rows are ruled off as the card's own are, edge to edge;
-     the block itself carries only the line above it, and a block inside a
-     block adds nothing of its own. Before, the sixteen settings of the OCR
-     block were one row with nothing between them but air. The page only: the
-     styleguide lays out its samples with the same classes. */
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked)) {
-    gap: 0;
-    margin-inline: 0;
-    padding: 0;
-  }
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked)) {
-    margin-inline: calc(var(--zr-3) * -1);
-  }
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
-    > :not(
-      .zr-alert,
-      .zr-btn,
-      .zr-col--loose,
-      .zr-field--stacked:has(> .zr-field--stacked)
-    ) {
-    padding: var(--zr-3);
-  }
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
-    > :is(.zr-alert, .zr-btn) {
-    margin: var(--zr-3);
-  }
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
-    > :not(.hidden)
-    ~ :not(.zr-alert, .zr-btn) {
-    border-top: 1px solid var(--zr-line);
-  }
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
-    > :is(
-      .zr-field--stacked:not(:has(.zr-field--stacked)),
-      .zr-switchrow,
-      .zr-settings-option
-    ):not(.zr-settings-match):hover {
-    background: var(--zr-surface-2);
-  }
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
-    > :is(.zr-field, .zr-switchrow)[data-dirty]::before {
-    left: 0;
-  }
-
-  /* Only a row that is one setting lights up: a field, a switch row, or the box
-     that holds one AI option. A hint or a heading is nothing to point at, and a
-     field holding other fields is a wrapper rather than a row:
-     #ocrFieldsContainer is a .zr-field around the entire OCR block, and lighting
-     that up would paint half the card. A row "Find a setting" marked keeps its
-     mark under the pointer. */
-  .zr-settings
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > :is(
-      .zr-field--stacked:not(:has(.zr-field--stacked), #customFieldsList),
-      .zr-switchrow,
-      .zr-settings-option
-    ):not(.zr-settings-match):hover {
-    background: var(--zr-surface-2);
-  }
-  /* The unsaved-change marker hangs one body padding to the left of its row —
-     which, measured from a full-bleed row, is outside the card, where the
-     module's overflow: hidden eats it. Zero puts it back on the same pixel. */
-  .zr-settings
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > :is(.zr-field, .zr-switchrow)[data-dirty]::before {
-    left: 0;
-  }
-
-  /* On/off tiles (the restrictions, the AI functions) are rows of their card as
-     well: one column instead of a grid of boxes, a hairline between them, the
-     state word and the switch on the right edge like every other switch. The
-     styleguide shows the tile itself, so this stays on the settings page. */
-  .zr-settings-page .zr-formgrid:has(> .zr-checktile > .zr-toggle) {
+  .zr-view:has(> .zr-settings-page) {
     display: flex;
     flex-direction: column;
-    align-items: stretch;
-    gap: 0;
+    min-height: 0;
+    max-width: none;
+    padding: 0;
+    overflow: hidden;
   }
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    > .zr-formgrid:has(> .zr-checktile > .zr-toggle) {
-    padding-block: 0;
+  .zr-settings-page,
+  .zr-settings-frame {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
   }
-  .zr-settings-page .zr-formgrid > .zr-checktile:has(> .zr-toggle) {
-    gap: var(--zr-3);
-    margin-inline: calc(var(--zr-3) * -1);
-    padding: var(--zr-3);
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    color: var(--zr-text);
-    font-weight: 600;
+  .zr-settings-scroll {
+    /* The containing block of what is positioned inside (the screen-reader
+       text of the topic list, among others): out of view it is clipped
+       with the region instead of making the window scroll. */
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* A classic scrollbar (Windows) takes room on both sides, so the block
+       stays centred over the bar, and a short topic without a scrollbar does
+       not sit a few pixels off a long one. */
+    scrollbar-gutter: stable both-edges;
+    /* Where a focused field, a hash link, a search match or a refused field
+       come to rest: inside the region, clear of its edges. The top bar and
+       the save bar are outside the region, so nothing lands under them. */
+    scroll-padding-block: var(--zr-6);
   }
-  .zr-settings-page
-    .zr-formgrid
-    > .zr-checktile:has(> .zr-toggle)
-    ~ .zr-checktile:has(> .zr-toggle) {
-    border-top: 1px solid var(--zr-line);
-  }
-  .zr-settings-page
-    .zr-formgrid
-    > .zr-checktile:has(> .zr-toggle):not(.zr-settings-match):hover {
-    background: var(--zr-surface-2);
-  }
-  .zr-settings-page .zr-formgrid > .zr-checktile[data-dirty]::before {
-    left: 0;
-  }
-
-  /* The "field name + type + Add" row: its controls sit in wrapper divs (a bare
-     width:100% control would hijack the whole flex row), so the generic
-     full-width phone rule cannot reach them. Stack the wrappers instead. */
-  @media (max-width: 860px) {
-    .customfield-add > div {
-      flex: 1 1 100%;
-    }
-    /* The currency select hides until the type is monetary; stacked, its empty
-       wrapper would still claim a row of gap. */
-    .customfield-add > div:has(> .hidden:only-child) {
-      display: none;
-    }
+  /* Room the save bar gave back, kept at the end of the region until the
+     topic changes, so the region does not snap back when the bar goes while
+     it is scrolled to its end (js/modules/settings-form.js sets it). */
+  .zr-settings-scroll__reserve {
+    height: var(--zr-settings-reserve, 0);
   }
 
-  /* --- one topic per view (js/modules/settings-nav.js) ------------------- */
-
-  /* The topic list is wider than the old section list: the entries are names
-     ("Schedule and tag filters"), not single words. The styleguide uses the
-     same frame for its own sections. */
+  /* Topic list and topic are one block, centred in the region: the list,
+     then the topic in a column of a readable width. On a large display the
+     block keeps its width and the air goes to both sides; in a narrow window
+     the topic column gives way first. The save bar lines its content up
+     with the same block (--zr-actionbar-measure). */
+  .zr-settings-page {
+    --zr-settings-list: 232px;
+    --zr-settings-measure: 720px;
+    --zr-settings-gap: var(--zr-8);
+    --zr-settings-pad: var(--zr-6);
+    --zr-actionbar-measure: calc(
+      var(--zr-settings-list) + var(--zr-settings-gap) +
+        var(--zr-settings-measure) + 2 * var(--zr-settings-pad)
+    );
+  }
+  .zr-settings-page .zr-settings {
+    grid-template-columns: var(--zr-settings-list) minmax(
+        0,
+        var(--zr-settings-measure)
+      );
+    justify-content: center;
+    gap: var(--zr-settings-gap);
+    padding: 28px var(--zr-settings-pad) var(--zr-10);
+  }
+  /* The styleguide lays out its own sections with the same frame. */
   .zr-settings {
     grid-template-columns: 220px minmax(0, 1fr);
   }
-  /* On the settings page the open topic sits in a column of a readable width,
-     left next to the list, which also carries the search field. Across the
-     whole window a switch ended up a screen away from its label on a large
-     display; in the column it sits at the right edge of its row, flush with
-     the switches above and below. Nothing on the page needs more room: the
-     custom-field add row, the .env export (a 640px text box), the changelog
-     and the caching figures all fit. */
-  .zr-settings-page > .zr-settings {
-    --zr-settings-measure: 760px;
 
-    grid-template-columns: 236px minmax(0, var(--zr-settings-measure));
-  }
+  /* --- the topic list --------------------------------------------------- */
 
-  /* Search field and topic list follow the page as one; the list scrolls
-     inside it on a short window, under a search field that stays in reach. */
+  /* Search field and list scroll with the page. The list has no height of
+     its own and never scrolls inside itself: its groups fold instead
+     (js/modules/settings-nav.js), so with the group of the open topic open
+     it fits a window 720px high. */
   .zr-settings-side {
-    position: sticky;
-    top: calc(var(--zr-topbar-h) + var(--zr-4));
     display: flex;
     flex-direction: column;
-    gap: var(--zr-4);
-    max-height: calc(100dvh - var(--zr-topbar-h) - var(--zr-6));
+    gap: var(--zr-3);
   }
 
   /* "Find a setting" */
@@ -269,10 +127,10 @@
     gap: var(--zr-1);
   }
   .zr-settings-find__label {
-    padding: 0 var(--zr-2);
-    font-size: var(--zr-fs-xs);
+    padding: 0 2px;
+    font-size: var(--zr-fs-sm);
     font-weight: 600;
-    color: var(--zr-text-faint);
+    color: var(--zr-text-muted);
   }
   .zr-settings-find__box {
     position: relative;
@@ -292,33 +150,102 @@
   /* What the search found, in a sentence. Rendered empty rather than hidden,
      so a screen reader announces the first sentence it gets. */
   .zr-settings-find__status {
-    padding: 0 var(--zr-2);
+    padding: 0 2px;
     font-size: var(--zr-fs-sm);
     color: var(--zr-text-muted);
   }
+  .zr-settings-find__status:empty {
+    display: none;
+  }
 
+  /* .zr-sectionnav brings the links and the open-topic highlight; its sticky
+     position, its height cap and the scrolling strip it becomes on a phone
+     are taken back here. */
   .zr-settings-nav {
     position: static;
     flex-direction: column;
-    gap: var(--zr-3);
-    min-height: 0;
+    gap: 2px;
     max-height: none;
+    overflow: visible;
   }
+  /* Two kinds of line only: a heading line (Quick start, a group) in the
+     weight of the text, and a topic. */
   .zr-settings-nav__group {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
   }
-  .zr-settings-nav__label {
+  /* Quick start comes first, as a plain line with its progress, ruled off
+     from the groups. */
+  .zr-settings-nav__group--featured {
+    margin-bottom: var(--zr-2);
+    padding-bottom: var(--zr-2);
+    border-bottom: 1px solid var(--zr-line);
+  }
+  .zr-settings-nav__featured {
+    min-height: 36px;
+    font-weight: 600;
+  }
+  .zr-settings-nav__featured .zr-badge {
+    background: var(--zr-brand-soft);
+    color: var(--zr-brand-text);
+  }
+  .zr-settings-nav__featured[aria-current='page'] .zr-badge {
+    background: var(--zr-surface);
+  }
+
+  /* A group heading is a button that folds its topics in and out. It says
+     how many topics the group holds; while it is closed it also carries the
+     marks of its topics: the dot for unsaved changes and the count of a
+     search. */
+  .zr-settings-nav__toggle {
     display: flex;
     align-items: center;
     gap: var(--zr-2);
-    padding: 0 var(--zr-2) var(--zr-1);
+    width: 100%;
+    min-height: 36px;
+    padding: 6px var(--zr-2);
+    border-radius: var(--zr-r-md);
+    color: var(--zr-text);
+    font-weight: 600;
+    text-align: left;
+  }
+  .zr-settings-nav__toggle:hover {
+    background: var(--zr-surface-2);
+  }
+  .zr-settings-nav__size {
+    flex: none;
+    min-width: 2ch;
     font-size: var(--zr-fs-xs);
     font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    text-align: right;
     color: var(--zr-text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .zr-settings-nav__chevron {
+    flex: none;
+    color: var(--zr-text-faint);
+    transition: transform var(--zr-dur) var(--zr-ease);
+  }
+  .zr-settings-nav__toggle[aria-expanded='true'] .zr-settings-nav__chevron {
+    transform: rotate(180deg);
+  }
+  .zr-settings-nav__toggle[aria-expanded='true']
+    :is(.zr-settings-nav__dirty, .zr-settings-nav__count) {
+    display: none;
+  }
+  .zr-settings-nav__items {
+    flex-direction: column;
+    gap: 2px;
+    margin: 0 0 var(--zr-2) var(--zr-3);
+    padding-left: var(--zr-2);
+    border-left: 1px solid var(--zr-line);
+  }
+  .zr-settings-nav__items:not([hidden]) {
+    display: flex;
+  }
+  .zr-settings-nav__items > a {
+    min-height: 32px;
   }
   /* A topic with edits that are not saved yet, wherever they are. */
   .zr-settings-nav__dirty {
@@ -328,7 +255,7 @@
     border-radius: var(--zr-r-full);
     background: var(--zr-brand);
   }
-  /* How many settings of a topic the search marks. */
+  /* How many settings of a topic, or of a closed group, the search marks. */
   .zr-settings-nav__count {
     flex: none;
     min-width: 20px;
@@ -342,73 +269,35 @@
     text-align: center;
     font-variant-numeric: tabular-nums;
   }
-
-  /* A featured entry (Quick start, `featured: true` in settingsGroups) stands
-     above the groups as a box of its own; open, it fills with the brand. The
-     caption under it heads every other entry. */
-  .zr-settings-nav__featured {
-    padding: 9px var(--zr-3);
-    border: 1px solid var(--zr-line-strong);
-    background: var(--zr-surface);
-    color: var(--zr-brand-text);
-    font-weight: 600;
-  }
-  .zr-settings-nav__featured:hover {
-    border-color: var(--zr-brand);
-    background: var(--zr-surface);
-    color: var(--zr-brand-text);
-  }
-  .zr-settings-nav__featured[aria-current='page'] {
-    border-color: var(--zr-brand);
-    background: var(--zr-brand);
-    color: var(--zr-on-brand);
-  }
-  .zr-settings-nav__featured[aria-current='page']
-    :is(.zr-badge, .zr-settings-nav__count) {
-    background: color-mix(in srgb, var(--zr-on-brand) 20%, transparent);
-    color: var(--zr-on-brand);
-  }
-  .zr-settings-nav__featured[aria-current='page'] .zr-settings-nav__dirty {
-    background: var(--zr-on-brand);
-  }
-  .zr-settings-nav__caption {
-    margin-top: var(--zr-1);
-    padding: var(--zr-3) var(--zr-2) 0;
-    border-top: 1px solid var(--zr-line);
-    font-size: var(--zr-fs-sm);
-    font-weight: 600;
-    color: var(--zr-text);
-  }
-
-  /* A row "Find a setting" matched, as long as the query stands. A row nested
-     in a block gets the tint a little past its edges; a row of the card is
-     drawn edge to edge already. */
-  .zr-settings-match {
-    border-radius: var(--zr-r-md);
-    background: var(--zr-brand-soft);
-    box-shadow: 0 0 0 var(--zr-2) var(--zr-brand-soft);
-  }
-  .zr-settings .zr-module > .zr-module__body.zr-col--loose > .zr-settings-match,
-  .zr-settings-page
-    .zr-module
-    > .zr-module__body.zr-col--loose
-    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
-    > .zr-settings-match,
-  .zr-settings-page .zr-formgrid > .zr-checktile.zr-settings-match {
-    border-radius: 0;
-    background: var(--zr-brand-soft);
-    box-shadow: none;
+  /* While a query stands, the search counts are the only numbers in the
+     list. */
+  .zr-settings-page[data-searching]
+    :is(.zr-settings-nav__listed, .zr-settings-nav__size) {
+    display: none;
   }
 
   .zr-settings-picker .zr-input {
     width: 100%;
+    max-width: none;
   }
 
-  /* The topic's own head: group label, then the topic as the page heading. */
+  /* --- a topic -------------------------------------------------------- */
+
+  /* Sections keep the same distance, also inside the wrapper a topic module
+     puts around them (single sign-on, Set by the environment). */
+  .zr-settings-entry,
+  .zr-settings-entry > .zr-col--loose {
+    gap: var(--zr-6);
+  }
+  /* Its group as a quiet line, its title, one sentence on what it is for. */
   .zr-settings-entry__head {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--zr-1);
+  }
+  .zr-settings-entry__group {
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
   }
   .zr-settings-entry__titlerow {
     display: flex;
@@ -422,11 +311,306 @@
     font-weight: 700;
     letter-spacing: -0.01em;
   }
+  .zr-settings-entry__title:focus {
+    outline: none;
+  }
+  .zr-settings-entry__lead {
+    font-size: var(--zr-fs-md);
+    color: var(--zr-text-muted);
+  }
   /* "On, but incomplete: ..." can be a sentence; it wraps instead of
      running out of the column. */
   .zr-settings-entry__status {
     white-space: normal;
     max-width: 100%;
+  }
+
+  /* A section: its title and one line on what it holds above the card, not
+     a bar inside it. */
+  .zr-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .zr-settings-section__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--zr-2) var(--zr-4);
+    padding: 0 2px;
+  }
+  .zr-settings-section__text {
+    display: flex;
+    flex: 1 1 18rem;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .zr-settings-section__title {
+    font-size: var(--zr-fs-md);
+    font-weight: 600;
+  }
+  .zr-settings-section__title:focus {
+    outline: none;
+  }
+  .zr-settings-section__desc {
+    color: var(--zr-text-muted);
+  }
+
+  /* --- the rows of a settings card ---------------------------------------- */
+
+  /* Every field and every switch of a card is a row, ruled off from the next
+     by a hairline drawn from card edge to card edge, with a hover band like
+     a table row. Each row carries its own air, the same above and below, so
+     the band and the click area of a switch row cover the whole row. The
+     inset is part of the row at rest: added on hover, every row would shift
+     sideways as its band appears. */
+  .zr-settings-card {
+    --zr-row-x: var(--zr-4);
+    --zr-row-y: var(--zr-3);
+    --zr-settings-control: 260px;
+  }
+  /* A card of text (no rows) keeps the same inset as the rows. */
+  .zr-settings-card > .zr-module__body {
+    padding: var(--zr-row-y) var(--zr-row-x);
+  }
+  .zr-settings-card > .zr-module__body.zr-col--loose {
+    gap: 0;
+    padding: 0 var(--zr-row-x);
+  }
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    > *:not(.zr-alert, .zr-btn) {
+    margin-inline: calc(var(--zr-row-x) * -1);
+    padding: var(--zr-row-y) var(--zr-row-x);
+  }
+  /* An alert or a lone button draws a box of its own: it keeps air around it
+     and never carries a hairline, which would run along its own border. */
+  .zr-settings-card > .zr-module__body.zr-col--loose > :is(.zr-alert, .zr-btn) {
+    margin-block: var(--zr-row-y);
+  }
+  /* Rows ask whether anything is rendered above them with the general sibling
+     combinator rather than the adjacent one: half of this form is toggled with
+     .hidden and the custom-field list is an empty box until a field is added,
+     so the row below one of those would otherwise be ruled off against
+     nothing. */
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    > *:not(.hidden, #customFieldsList:not(:has(*)))
+    ~ *:not(.zr-alert, .zr-btn) {
+    border-top: 1px solid var(--zr-line);
+  }
+  /* Empty, the custom-field list is no row at all; its padding would leave a
+     gap where nothing is. */
+  #customFieldsList:not(:has(*)) {
+    display: none;
+  }
+
+  /* Some rows of a card are blocks of rows: the OCR block (#ocrFieldsContainer,
+     a .zr-field around the whole of it), a provider's fields, the options a
+     switch shows. Their rows are ruled off as the card's own are, edge to edge;
+     the block itself carries only the line above it, and a block inside a
+     block adds nothing of its own. */
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked)) {
+    gap: 0;
+    margin-inline: 0;
+    padding: 0;
+  }
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    > :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked)) {
+    margin-inline: calc(var(--zr-row-x) * -1);
+  }
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :not(
+      .zr-alert,
+      .zr-btn,
+      .zr-col--loose,
+      .zr-field--stacked:has(> .zr-field--stacked)
+    ) {
+    padding: var(--zr-row-y) var(--zr-row-x);
+  }
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :is(.zr-alert, .zr-btn) {
+    margin: var(--zr-row-y) var(--zr-row-x);
+  }
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > :not(.hidden)
+    ~ :not(.zr-alert, .zr-btn) {
+    border-top: 1px solid var(--zr-line);
+  }
+
+  /* Only a row that is one setting lights up: a field, a switch row, or the
+     box that holds one AI option. A hint or a heading is nothing to point
+     at, and a field holding other fields is a wrapper rather than a row. A
+     row "Find a setting" marked keeps its mark under the pointer. */
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    :is(
+      .zr-field--stacked:not(:has(.zr-field--stacked), #customFieldsList),
+      .zr-switchrow,
+      .zr-settings-option
+    ):not(.zr-settings-match):hover {
+    background: var(--zr-surface-2);
+  }
+  /* The unsaved-change marker hangs one row inset to the left of its row,
+     which for a row drawn edge to edge is outside the card, where the card's
+     overflow: hidden eats it. Zero puts it back on the card's edge. */
+  .zr-settings-card :is(.zr-field, .zr-switchrow)[data-dirty]::before {
+    left: 0;
+  }
+  /* A link in the hint of a switch row stays a link: the label is stretched
+     over the row (forms.css), and a positioned link paints above it. */
+  .zr-switchrow .zr-field__hint a {
+    position: relative;
+  }
+  /* An AI option is boxed one row to a box; the box carries the inset. */
+  .zr-settings-card
+    .zr-settings-option
+    > :is(.zr-field, .zr-switchrow)[data-dirty]::before {
+    left: calc(var(--zr-row-x) * -1);
+  }
+
+  /* Row forms. A row takes one of two forms, decided by the type of its
+     control and never by the field, and either way every control of a card
+     ends on the same right edge, the row's inner edge:
+
+     - Beside: label and hint on the left, the control on the right in a
+       column of one width (--zr-settings-control). For the short controls:
+       a switch (.zr-switchrow, by its own markup), a number, a list to
+       choose from (select) and a short text: a name, a tag, a cron
+       expression, a version.
+     - Below: the label on top, the control under it across the whole row,
+       the hint under the control. For the long controls: a list of pills, a
+       textarea, an address (inputmode="url") or a secret (type="password"),
+       and any control with a button or a swatch beside it (.zr-inputgroup:
+       a model with Fetch models, a key with its reveal button, a colour).
+
+     The framework caps text controls at 460px and stacked ones at 560px,
+     which gave a card two right edges: the switches at the card edge, the
+     inputs and the Add button of a pill list 180px before it. In a settings
+     card no control carries a cap; the row decides its width. A card too
+     narrow for two columns (a phone, a narrow window) stacks the beside rows
+     as well. */
+  .zr-settings-card :is(.zr-input, .zr-select, .zr-textarea, .zr-inputgroup),
+  .zr-settings-card .zr-field__hint {
+    max-width: none;
+  }
+  .zr-settings-card
+    .zr-field--stacked:has(
+      > :is(
+        select.zr-input,
+        input.zr-input:is(
+            [type='number'],
+            [type='text']:not([inputmode='url'], .hidden)
+          )
+      )
+    ):not(:has(> :is(.zr-inputgroup, .zr-textarea, .zr-chips))) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--zr-settings-control);
+    align-items: center;
+    gap: 2px var(--zr-4);
+  }
+  .zr-settings-card .zr-field--stacked > * {
+    grid-column: 1;
+  }
+  .zr-settings-card
+    .zr-field--stacked
+    > :is(
+      select.zr-input,
+      input.zr-input:is([type='number'], [type='text']:not([inputmode='url']))
+    ) {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+  }
+  @container (max-width: 520px) {
+    .zr-settings-card
+      .zr-field--stacked:has(
+        > :is(
+          select.zr-input,
+          input.zr-input:is(
+              [type='number'],
+              [type='text']:not([inputmode='url'], .hidden)
+            )
+        )
+      ):not(:has(> :is(.zr-inputgroup, .zr-textarea, .zr-chips))) {
+      display: flex;
+      align-items: stretch;
+    }
+  }
+
+  /* The figures of the thumbnail cache: two numbers side by side, not two
+     fields. */
+  .zr-settings-figures {
+    align-items: flex-start;
+    gap: var(--zr-8);
+  }
+
+  /* The custom fields listed are lines of their row, not boxes of their own
+     (pages/shared.css draws one for the wizard): the remove buttons end on
+     the card's right edge like the Add button below them. */
+  #customFieldsList {
+    gap: 0;
+  }
+  .zr-settings-card .custom-field-item {
+    padding: var(--zr-2) 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+  .zr-settings-card .custom-field-item + .custom-field-item {
+    border-top: 1px solid var(--zr-line);
+  }
+
+  /* The "field name + type + Add" row: the name takes the room, the type and
+     the Add button keep their size, so Add ends on the card's right edge like
+     every other control. */
+  .customfield-add > div:not(.zr-grow) {
+    flex: none;
+  }
+  .customfield-add > .zr-grow {
+    flex: 1 1 12rem;
+  }
+  @media (max-width: 860px) {
+    /* Its controls sit in wrapper divs (a bare width:100% control would
+       hijack the whole flex row), so the generic full-width phone rule
+       cannot reach them. Stack the wrappers instead. */
+    .customfield-add > div,
+    .customfield-add > .zr-grow {
+      flex: 1 1 100%;
+    }
+    /* The currency select hides until the type is monetary; stacked, its empty
+       wrapper would still claim a row of gap. */
+    .customfield-add > div:has(> .hidden:only-child) {
+      display: none;
+    }
+  }
+
+  /* A row "Find a setting" matched, as long as the query stands. A row nested
+     in a block gets the tint a little past its edges; a row of a card is
+     drawn edge to edge already. */
+  .zr-settings-match {
+    border-radius: var(--zr-r-md);
+    background: var(--zr-brand-soft);
+    box-shadow: 0 0 0 var(--zr-2) var(--zr-brand-soft);
+  }
+  .zr-settings-card > .zr-module__body.zr-col--loose > .zr-settings-match,
+  .zr-settings-card
+    > .zr-module__body.zr-col--loose
+    :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))
+    > .zr-settings-match {
+    border-radius: 0;
+    background: var(--zr-brand-soft);
+    box-shadow: none;
   }
 
   /* The row a search result or an error opened, for a moment. */
@@ -442,6 +626,19 @@
       background: transparent;
     }
   }
+
+  /* --- the save bar --------------------------------------------------------- */
+
+  /* The bar is the last row of the page column (see the frame above) and is
+     there only while a change is not saved. Toasts move up while it is, so
+     neither covers the other. */
+  body:has(.zr-settings-page .zr-actionbar:not([hidden])) .zr-toasts {
+    bottom: calc(var(--zr-actionbar-h, 64px) + var(--zr-4));
+  }
+  /* While the on-screen keyboard of a phone is open the bar steps aside
+     (settings-form.js hides it and marks it data-keyboard): the little room
+     above the keyboard belongs to the field being typed in. It comes back
+     when the keyboard closes; the topic list keeps its dots meanwhile. */
 
   /* --- single sign-on ---------------------------------------------------- */
   .zr-sso-preview {
@@ -493,7 +690,7 @@
     transform: rotate(180deg);
   }
 
-  /* "Advanced options" of the AI sections: a closed module under the basic
+  /* "Advanced options" of the AI sections: a closed card under the basic
      one, opened and closed together by public/js/modules/settings-advanced.js. */
   .zr-settings-advanced > summary {
     cursor: pointer;
@@ -508,24 +705,38 @@
   .zr-settings-advanced[open] > summary > .zr-icon {
     transform: rotate(180deg);
   }
+  /* A summary row reads like a section title line, with the same inset as
+     the rows below it. */
+  :is(.zr-settings-advanced, .zr-sso-advanced) > summary {
+    min-height: 44px;
+    padding-inline: var(--zr-4);
+  }
 
   @media (max-width: 860px) {
-    .zr-settings,
-    .zr-settings-page > .zr-settings {
+    /* The tab bar lies over the bottom of the window; the page column ends
+       above it, so the save bar sits on the tab bar and the region ends on
+       the save bar. The tab bar's height takes in the safe area of the
+       device (it is a border-box with the inset as padding). */
+    .zr-view:has(> .zr-settings-page) {
+      padding-bottom: var(--zr-tabbar-h);
+    }
+    .zr-settings-page {
+      --zr-settings-pad: var(--zr-3);
+    }
+    .zr-settings-page .zr-settings {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--zr-3);
+      padding: var(--zr-3) var(--zr-settings-pad) var(--zr-6);
+    }
+    .zr-settings {
       grid-template-columns: minmax(0, 1fr);
     }
-    .zr-settings-side {
-      position: static;
-      max-height: none;
-    }
     /* A phone picks its topic from the list under the search field; the
-       topic list appears only to show what a search found, as a list rather
-       than the scrolling strip the section nav becomes here. */
+       topic list appears only to show what a search found. */
     .zr-settings-page:not([data-searching]) .zr-settings-nav {
       display: none;
     }
     .zr-settings-nav {
-      overflow: visible;
       padding-bottom: 0;
     }
     .zr-settings-nav a {
@@ -533,6 +744,11 @@
     }
     .zr-settings-entry__title {
       font-size: var(--zr-fs-lg);
+    }
+    body:has(.zr-settings-page .zr-actionbar:not([hidden])) .zr-toasts {
+      bottom: calc(
+        var(--zr-tabbar-h) + var(--zr-actionbar-h, 64px) + var(--zr-2)
+      );
     }
   }
 
@@ -543,24 +759,10 @@
      it. Its controls are not .zr-field rows on purpose: the hairlines and hover
      bands of the topics above stay out, and the settings search does not list
      a setting twice. */
-  /* The measure of the mockup, so a switch never sits a screen away from its
-     label even where the topic itself runs wider. */
   .zr-qs {
     display: flex;
     flex-direction: column;
     gap: var(--zr-4);
-    max-width: 760px;
-  }
-  .zr-qs__intro {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--zr-2) var(--zr-3);
-  }
-  .zr-qs__lead {
-    flex: 1 1 320px;
-    font-size: var(--zr-fs-md);
-    color: var(--zr-text-muted);
   }
   /* The card pads any child that is not one of its own parts (modules.css);
      a step runs from edge to edge, so its hover band does too. */
@@ -679,7 +881,8 @@
     display: block;
   }
 
-  /* The open step: its controls line up with the title, not with the mark. */
+  /* The open step: its controls line up with the title, not with the mark,
+     and all of them end on the card's right edge, the switches included. */
   .zr-qs__body {
     display: flex;
     flex-direction: column;
@@ -687,13 +890,13 @@
     padding: var(--zr-1) var(--zr-4) var(--zr-5)
       calc(var(--zr-4) + 28px + var(--zr-3));
   }
+  .zr-qs__body :is(.zr-input, .zr-textarea) {
+    max-width: none;
+  }
   .zr-qs__field {
     display: flex;
     flex-direction: column;
     gap: 5px;
-  }
-  .zr-qs__field--wide > .zr-textarea {
-    max-width: none;
   }
   /* Switches stand as rows of one box with a hairline between them. */
   .zr-qs__switches {
@@ -742,20 +945,6 @@
     white-space: nowrap;
   }
 
-  /* How many variables the topic lists; while a query stands, the search
-     counts are the only numbers in the list. */
-  .zr-settings-page[data-searching] .zr-settings-nav__listed {
-    display: none;
-  }
-
-  #sec-env-settings > .zr-module__head {
-    flex-wrap: wrap;
-    justify-content: space-between;
-  }
-  #sec-env-settings > .zr-module__head > .zr-module__title {
-    white-space: normal;
-  }
-
   /* One row per variable: what it is on the left, the actions under it on a
      phone and beside it where there is room. Nothing scrolls sideways; a long
      value wraps. */
@@ -765,13 +954,17 @@
     list-style: none;
     border-top: 1px solid var(--zr-line);
   }
+  /* A list that is the whole card needs no rule above its first row. */
+  .zr-envlist--alone {
+    border-top: 0;
+  }
   .zr-envlist__row {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--zr-2) var(--zr-4);
-    padding: var(--zr-3);
+    padding: var(--zr-3) var(--zr-4);
     border-bottom: 1px solid var(--zr-line);
   }
   .zr-envlist__row:last-child {

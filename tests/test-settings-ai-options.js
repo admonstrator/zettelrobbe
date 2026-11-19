@@ -162,7 +162,9 @@ function esc(value) {
 /** [start, end) of every advanced disclosure on the page. */
 function disclosureRanges(html) {
   const ranges = [];
-  const pattern = /<details class="zr-module zr-settings-advanced"[^>]*>/g;
+  // A card of rows like the sections above it (zr-settings-card).
+  const pattern =
+    /<details class="zr-module zr-settings-card zr-settings-advanced"[^>]*>/g;
   let match;
   while ((match = pattern.exec(html))) {
     const end = html.indexOf('</details>', match.index);

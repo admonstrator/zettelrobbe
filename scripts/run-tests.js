@@ -223,6 +223,8 @@ const TESTS = {
   'settings-layout': 'test-settings-layout.js',
   'settings-topics': 'test-settings-topics.js',
   'settings-wording': 'test-settings-wording.js',
+  'settings-save-bar': 'test-settings-save-bar.js',
+  'settings-save-bar-browser': 'test-settings-save-bar-browser.js',
   'environment-overview': 'test-environment-overview.js',
   'environment-take-over': 'test-environment-take-over.js',
 };
@@ -428,6 +430,8 @@ const AREAS = {
     'settings-quick-start',
     'settings-topics',
     'settings-wording',
+    'settings-save-bar',
+    'settings-save-bar-browser',
     'environment-overview',
     'environment-take-over',
   ],
@@ -518,6 +522,13 @@ async function getSkipReason(testName) {
 
   if (testName === 'poppler-render-real' && !checkPdftoppmAvailability()) {
     return 'pdftoppm not installed';
+  }
+
+  if (
+    testName === 'settings-save-bar-browser' &&
+    !require('../tests/helpers/cdp').findChrome()
+  ) {
+    return 'Chrome not found (set CHROME_PATH)';
   }
 
   if (testName === 'pdf-password-real' && !checkPdfinfoAvailability()) {

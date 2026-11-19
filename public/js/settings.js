@@ -505,7 +505,7 @@ function initializeFormHandlers() {
   const populateModelSelect = (
     selectElement,
     models,
-    placeholder = 'Select model',
+    placeholder = 'Choose a model',
     grouping = null
   ) => {
     if (!selectElement) return;
@@ -788,7 +788,7 @@ function initializeFormHandlers() {
           ollamaUrlInput.value = result.resolvedApiUrl;
         }
 
-        populateModelSelect(ollamaModelInput, models, 'Select Ollama model');
+        populateModelSelect(ollamaModelInput, models, 'Choose a model');
         const resolvedInfo = result.resolvedApiUrl
           ? `\nAddress in use: ${result.resolvedApiUrl}`
           : '';
@@ -856,7 +856,7 @@ function initializeFormHandlers() {
           customBaseUrlInput.value = result.resolvedApiUrl;
         }
 
-        populateModelSelect(customModelInput, models, 'Select custom model');
+        populateModelSelect(customModelInput, models, 'Choose a model');
         const resolvedInfo = result.resolvedApiUrl
           ? `\nAddress in use: ${result.resolvedApiUrl}`
           : '';
@@ -895,7 +895,7 @@ function initializeFormHandlers() {
     populateModelSelect(
       anthropicModelInput,
       [...models, preferred],
-      'Select Claude model',
+      'Choose a model',
       { preferred }
     );
   };
@@ -1001,7 +1001,7 @@ function initializeFormHandlers() {
         populateModelSelect(
           select,
           result.models,
-          select.dataset.placeholder || 'Select model'
+          select.dataset.placeholder || 'Choose a model'
         );
         settleModelPicker(select, current);
         await zrDialog({
@@ -1119,7 +1119,7 @@ function initializeFormHandlers() {
     populateModelSelect(
       ocrModelInput,
       [...anthropicSuggestedModelIds, preferred],
-      'Select Claude model',
+      'Choose a model',
       { preferred }
     );
   };
@@ -1279,7 +1279,11 @@ function initializeFormHandlers() {
       window.__zrToast?.(result.message, { tone: 'ok' });
     } catch (error) {
       pdfPasswordsDeleteBtn.disabled = false;
-      await zrDialog({ icon: 'error', title: 'Error', text: error.message });
+      await zrDialog({
+        icon: 'error',
+        title: 'The passwords were not deleted',
+        text: error.message,
+      });
     }
   });
 
@@ -1310,7 +1314,7 @@ function initializeFormHandlers() {
         populateModelSelect(
           ocrModelInput,
           ['mistral-ocr-latest'],
-          'Select OCR model'
+          'Choose a model'
         );
       }
       toggleOcrFields();
@@ -1454,7 +1458,7 @@ function initializeFormHandlers() {
         await zrDialog({
           icon: 'warning',
           title: 'No server address',
-          text: 'Enter the address of the AI server first.',
+          text: 'Enter the address of the server first.',
         });
         return;
       }
@@ -1495,7 +1499,9 @@ function initializeFormHandlers() {
         populateModelSelect(
           quickstartAiModelSelect,
           textModels,
-          textModels.length > 0 ? 'Select AI model' : 'No model for text found'
+          textModels.length > 0
+            ? 'Choose a model'
+            : 'No model for the analysis found'
         );
         if (quickstartDetection?.suggestedAiModel && quickstartAiModelSelect) {
           quickstartAiModelSelect.value = quickstartDetection.suggestedAiModel;
@@ -1504,7 +1510,7 @@ function initializeFormHandlers() {
         populateModelSelect(
           quickstartOcrModelSelect,
           ocrCandidateModels,
-          ocrCandidateModels.length > 0 ? 'Select OCR model' : 'No models found'
+          ocrCandidateModels.length > 0 ? 'Choose a model' : 'No models found'
         );
         if (
           quickstartDetection?.suggestedOcrModel &&
@@ -1599,7 +1605,7 @@ function initializeFormHandlers() {
       populateModelSelect(
         ollamaModelInput,
         [selectedAiModel],
-        'Select Ollama model'
+        'Choose a model'
       );
       if (ollamaModelInput) ollamaModelInput.value = selectedAiModel;
     } else {
@@ -1611,7 +1617,7 @@ function initializeFormHandlers() {
       populateModelSelect(
         customModelInput,
         [selectedAiModel],
-        'Select custom model'
+        'Choose a model'
       );
       if (customModelInput) customModelInput.value = selectedAiModel;
     }
@@ -1636,7 +1642,7 @@ function initializeFormHandlers() {
         populateModelSelect(
           ocrModelInput,
           [selectedOcrModel],
-          'Select OCR model'
+          'Choose a model'
         );
         ocrModelInput.value = selectedOcrModel;
       }
@@ -1758,7 +1764,7 @@ function initializeFormHandlers() {
       setQuickstartTestRowState(
         'modelTestAiRow',
         'pending',
-        `AI model "${applied.aiModel}": testing…`
+        `Analysis model "${applied.aiModel}": testing…`
       );
       setQuickstartTestRowState(
         'modelTestOcrRow',
@@ -1767,10 +1773,7 @@ function initializeFormHandlers() {
           ? `OCR model "${applied.ocrModel}": waiting…`
           : 'OCR is off, so there is nothing to test.'
       );
-      toggleModelTestOverlay(
-        true,
-        'Testing the chosen models on the AI server…'
-      );
+      toggleModelTestOverlay(true, 'Testing the chosen models on the server…');
 
       const aiResult = await runQuickstartModelTest(
         '/api/settings/ai/test',
@@ -1780,14 +1783,14 @@ function initializeFormHandlers() {
           token: applied.apiKey,
           model: applied.aiModel,
         },
-        'The AI test'
+        'The test of the analysis model'
       );
       setQuickstartTestRowState(
         'modelTestAiRow',
         aiResult.success ? 'success' : 'error',
         aiResult.success
-          ? `AI model "${applied.aiModel}": works`
-          : `AI model "${applied.aiModel}": test failed`
+          ? `Analysis model "${applied.aiModel}": works`
+          : `Analysis model "${applied.aiModel}": test failed`
       );
 
       let ocrResult = { success: true, message: '' };
@@ -1824,7 +1827,7 @@ function initializeFormHandlers() {
         const failures = [];
         if (!aiResult.success) {
           failures.push(
-            `AI model "${applied.aiModel}": ${aiResult.message || 'test failed'}`
+            `Analysis model "${applied.aiModel}": ${aiResult.message || 'test failed'}`
           );
         }
         if (!ocrResult.success) {
@@ -1973,9 +1976,9 @@ function initializeFormHandlers() {
         // The list is offered whole; vision hits are grouped on top as a
         // recommendation. Filtering on them hid models that read documents
         // perfectly well but do not say "vision" in their name.
-        populateModelSelect(ocrModelInput, models, 'Select OCR model', {
+        populateModelSelect(ocrModelInput, models, 'Choose a model', {
           recommended: visionModels,
-          recommendedLabel: 'Recommended (vision detected)',
+          recommendedLabel: 'Models that read images',
           otherLabel: 'Other models',
           preferred: preferredOcrModel,
         });
@@ -2253,7 +2256,7 @@ function initializeFormHandlers() {
         console.error('Error clearing tag cache:', error);
         await zrDialog({
           icon: 'error',
-          title: 'Error',
+          title: 'Tag cache not cleared',
           text: error.message || 'Could not clear the tag cache.',
         });
       } finally {
@@ -2433,7 +2436,11 @@ function initializeFormHandlers() {
   setupForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const submitBtn = setupForm.querySelector('button[type="submit"]');
+    // The save button sits in the save bar outside the form (form="setupForm").
+    const submitBtn =
+      e.submitter ||
+      document.querySelector('button[type="submit"][form="setupForm"]') ||
+      setupForm.querySelector('button[type="submit"]');
     const originalBtnText = submitBtn.innerHTML;
     submitBtn.disabled = true;
     submitBtn.innerHTML =
@@ -2646,7 +2653,7 @@ function initializeFormHandlers() {
     } catch (error) {
       await zrDialog({
         icon: 'error',
-        title: 'Error',
+        title: 'Not saved',
         text: error.message,
       });
       // Only one settings topic is visible at a time; this opens the one
@@ -3570,7 +3577,7 @@ class MfaSettingsManager {
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Request failed.');
+      throw new Error(data.error || 'The request failed.');
     }
 
     return data;
@@ -3609,10 +3616,7 @@ class MfaSettingsManager {
     this.clearTokenHint();
 
     if (!password) {
-      this.setMessage(
-        'error',
-        'Enter your current password to start MFA setup.'
-      );
+      this.setMessage('error', 'Enter your current password to set up MFA.');
       return;
     }
 
@@ -3923,9 +3927,12 @@ function updateCustomFieldsJson() {
     })
     .filter(Boolean);
 
-  document.getElementById('customFieldsJson').value = JSON.stringify({
+  const json = document.getElementById('customFieldsJson');
+  json.value = JSON.stringify({
     custom_fields: fields,
   });
+  // The save bar counts the list as one unsaved change ("Custom fields").
+  json.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function createFieldElement(fieldName, data_type, currency = null) {

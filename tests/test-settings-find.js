@@ -18,8 +18,9 @@
  * 5. The page: the field, its status line and the count of every link in the
  *    navigation block; the old search box is gone; settings-nav.js uses the
  *    module and clears on Escape
- * 6. A featured entry (`featured: true`) is listed above the groups, set
- *    apart, with "All options" after it, and first in the phone picker
+ * 6. A featured entry (`featured: true`) is listed above the groups, ruled
+ *    off from them as a plain line, and first in the phone picker; a group
+ *    heading carries the count of a search while the group is closed
  */
 
 'use strict';
@@ -307,7 +308,7 @@ const ITEMS = [
 
   // ── 6. A featured entry ───────────────────────────────────────────────────
 
-  await test('a featured entry is listed above the groups, then "All options"', async () => {
+  await test('a featured entry is listed above the groups, ruled off from them', async () => {
     const { mountRouter } = require('./helpers/mount-router');
     const harness = await mountRouter({ user: { username: 'admin' } });
     try {
@@ -330,10 +331,10 @@ const ITEMS = [
       );
       assert.ok(featured !== -1, 'the featured link has its class');
       assert.ok(
-        featured < nav.indexOf('All options') &&
-          nav.indexOf('All options') < nav.indexOf('Basics'),
-        'featured entry, then the caption, then the groups'
+        featured < nav.indexOf('data-nav-toggle="basics"'),
+        'featured entry, then the groups'
       );
+      assert.ok(!nav.includes('All options'), 'no caption between them');
       assert.strictEqual(
         (nav.match(/data-entry-link="quick-start"/g) || []).length,
         1,
@@ -371,17 +372,30 @@ const ITEMS = [
     }
   });
 
-  await test('the stylesheet sets the featured entry apart, open or not', () => {
+  await test('the stylesheet rules the featured entry off, as a plain line', () => {
     const css = read('public', 'css', 'pages', 'settings.css').replace(
       /\s+/g,
       ' '
     );
-    assert.match(css, /\.zr-settings-nav__featured \{[^}]*border: 1px solid/);
+    // Quieter than the boxed, brand-filled entry it was: a line of the list
+    // in the weight of the group headings, a rule under it.
     assert.match(
       css,
-      /\.zr-settings-nav__featured\[aria-current='page'\] \{[^}]*background: var\(--zr-brand\)/
+      /\.zr-settings-nav__group--featured \{[^}]*border-bottom: 1px solid var\(--zr-line\)/
     );
-    assert.match(css, /\.zr-settings-nav__caption \{/);
+    assert.match(css, /\.zr-settings-nav__featured \{[^}]*font-weight: 600/);
+    assert.doesNotMatch(css, /\.zr-settings-nav__featured \{[^}]*border:/);
+    assert.doesNotMatch(css, /\.zr-settings-nav__caption/);
+  });
+
+  await test('a closed group heading carries the search count of its topics', () => {
+    assert.ok(
+      navBlock.includes(
+        '<span class="zr-settings-nav__count hidden" data-group-count="<%= group.key %>"></span>'
+      )
+    );
+    assert.match(navJs, /\[data-group-count\]/);
+    assert.match(navJs, /matchedGroups = searching/);
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

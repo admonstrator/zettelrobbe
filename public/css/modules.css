@@ -453,33 +453,55 @@
     background: transparent;
   }
 
-  /* sticky action bar */
+  /* Action bar: the strip under a form that says what is not saved yet and
+     holds the buttons that save or discard it. It used to float as a card
+     over the end of the page; now it is a row of the page layout itself
+     (pages/settings.css docks it under the scrolling content), so it never
+     covers anything. Opaque, a full-width rule above it, its content in a
+     centred column (--zr-actionbar-measure) that lines up with the form. It
+     sets no display of its own, so the hidden attribute keeps it out of the
+     layout while nothing has changed. */
   .zr-actionbar {
-    position: sticky;
-    bottom: 0;
-    z-index: 15;
+    flex: none;
+    background: var(--zr-surface);
+    border-top: 1px solid var(--zr-line-strong);
+  }
+  .zr-actionbar__inner {
     display: flex;
     align-items: center;
-    gap: var(--zr-3);
-    margin-top: var(--zr-4);
-    padding: var(--zr-2) var(--zr-3);
-    background: color-mix(in srgb, var(--zr-surface) 92%, transparent);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    box-shadow: var(--zr-shadow-md);
+    gap: var(--zr-2) var(--zr-4);
+    max-width: var(--zr-actionbar-measure, none);
+    margin-inline: auto;
+    padding: 10px var(--zr-6);
   }
+  /* What changed: the count, then the settings by name on one line, cut
+     with an ellipsis. The whole list stays in the text, for a screen reader
+     and in the title for the pointer. */
   .zr-actionbar__status {
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-muted);
-    margin-right: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
   }
-  .zr-actionbar[data-dirty='true'] {
-    border-color: var(--zr-brand);
-  }
-  .zr-actionbar[data-dirty='true'] .zr-actionbar__status {
-    color: var(--zr-brand-text);
+  .zr-actionbar__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px var(--zr-2);
+    font-size: var(--zr-fs-md);
     font-weight: 600;
+  }
+  .zr-actionbar__list {
+    overflow: hidden;
+    color: var(--zr-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .zr-actionbar__actions {
+    flex: none;
+    display: flex;
+    gap: var(--zr-2);
   }
 
   /* view header — page-level title row with actions, inside the content area */
@@ -627,31 +649,22 @@
       grid-column: span 2;
     }
 
-    /* Docked onto the tab bar instead of floating above it: the floating island
-       left a strip of scrolling content visible between its bottom edge and the
-       tabs, which read as a rendering glitch. */
-    .zr-actionbar {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: var(--zr-tabbar-h);
-      z-index: 25;
-      margin: 0;
-      gap: var(--zr-2);
+    /* On a phone the page docks the bar onto the tab bar; it keeps the same
+       one line of text and two buttons, with less air. */
+    .zr-actionbar__inner {
+      gap: var(--zr-2) var(--zr-3);
       padding: var(--zr-2) var(--zr-3);
-      border-radius: 0;
-      border-left: 0;
-      border-right: 0;
-      border-bottom: 0;
-      box-shadow: none;
     }
-    /* The docked bar covers content the sticky island used to push away. */
-    .zr-view:has(.zr-actionbar) {
-      padding-bottom: calc(var(--zr-tabbar-h) + 72px);
+    .zr-actionbar__title {
+      font-size: var(--zr-fs-base);
     }
-    .zr-actionbar__status {
-      font-size: var(--zr-fs-xs);
-      white-space: nowrap;
+    .zr-actionbar__list {
+      font-size: var(--zr-fs-sm);
+    }
+    /* The words of the buttons stay; their icons give the count room for
+       one line. */
+    .zr-actionbar__actions .zr-icon {
+      display: none;
     }
 
     .zr-settings {

@@ -18,7 +18,10 @@
  *    row and the switch stays on top
  * 4. The row draws no box of its own and is ruled off like the card's other
  *    rows; the unsaved-change marker reaches switch rows and tiles
- * 5. The rows written by hand in the view keep the shape the CSS relies on
+ * 5. The rows written by hand in the view keep the shape the CSS relies on;
+ *    the fields of a document and the existing-names switches are switch
+ *    rows now, not tiles
+ * 6. Every switch row of the rendered page has a hint that says what it does
  */
 
 'use strict';
@@ -27,6 +30,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const ejs = require('ejs');
+const { renderSettingsPage } = require('./helpers/render-settings');
 
 let passed = 0;
 let failed = 0;
@@ -239,30 +243,50 @@ test('the card rules switch rows off like every other row', () => {
   );
   const hairline = ruleFor(
     settingsCss,
-    '.zr-settings .zr-module > .zr-module__body.zr-col--loose > *:not(.hidden, #customFieldsList:not(:has(*))) ~ *:not(.zr-alert, .zr-btn)'
+    '.zr-settings-card > .zr-module__body.zr-col--loose > *:not(.hidden, #customFieldsList:not(:has(*))) ~ *:not(.zr-alert, .zr-btn)'
   );
   assert.match(hairline, /border-top: 1px solid var\(--zr-line\)/);
 });
 
-test('the on/off tiles become rows of their card on the settings page', () => {
-  const list = ruleFor(
-    settingsCss,
-    '.zr-settings-page .zr-formgrid:has(> .zr-checktile > .zr-toggle)'
-  );
-  assert.match(list, /flex-direction: column;/);
-  const tile = ruleFor(
-    settingsCss,
-    '.zr-settings-page .zr-formgrid > .zr-checktile:has(> .zr-toggle)'
-  );
-  assert.match(tile, /border: 0;/);
-  assert.match(tile, /background: transparent;/);
+test('the on/off switches that were tiles are switch rows with a hint', () => {
+  // The fields of a document and "Existing names only": the checkbox still
+  // carries its own name (the save reads "on"), only the row around it is new.
+  [
+    'activateTagging',
+    'activateCorrespondents',
+    'activateDocumentType',
+    'activateTitle',
+    'activateCustomFields',
+    'restrictToExistingTags',
+    'restrictToExistingCorrespondents',
+    'restrictToExistingDocumentTypes',
+  ].forEach((id) => {
+    const at = view.indexOf(`<label for="${id}" class="zr-field__name">`);
+    assert.ok(at !== -1, `${id} has its label`);
+    const row = view.slice(
+      view.lastIndexOf('<div class="zr-switchrow">', at),
+      view.indexOf('>', view.indexOf(`id="${id}" name="${id}"`))
+    );
+    assert.match(
+      row,
+      /<p class="zr-field__hint">[^<]{20,}/,
+      `${id} has a hint`
+    );
+    assert.ok(
+      row.includes(
+        `<input type="checkbox" class="zr-toggle" id="${id}" name="${id}"`
+      ),
+      `${id} keeps its id and name`
+    );
+  });
+  assert.ok(!view.includes('zr-checktile'), 'no tile is left on the page');
 });
 
 test('an unsaved switch marks its own row', () => {
   assert.ok(
     formModule.includes(
-      "field.closest('.zr-switchrow, .zr-checktile, .zr-field')"
-    ),
+      "const ROW_SELECTOR = '.zr-switchrow, .zr-checktile, .zr-field';"
+    ) && formModule.includes('field.closest(ROW_SELECTOR)'),
     'settings-form.js marks the switch row, not the block around it'
   );
   const marker = ruleFor(
@@ -290,7 +314,26 @@ test('the switch rows written by hand keep the shape the CSS relies on', () => {
   });
 });
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
+// ── 6. A hint on every switch row ─────────────────────────────────────────
+
+(async () => {
+  const html = await renderSettingsPage();
+  const page = html.slice(html.indexOf('<div class="zr-settings-page"'));
+  const rows = page.split('<div class="zr-switchrow').slice(1);
+  test('every switch row of the page says what its switch does', () => {
+    assert.ok(rows.length >= 30, `only ${rows.length} switch rows found`);
+    const bare = rows
+      .map((row) => row.slice(0, row.indexOf('class="zr-toggle"')))
+      .filter((head) => !/class="zr-field__hint"[^>]*>\s*[A-Z%]/.test(head))
+      .map((head) => (head.match(/class="zr-field__name">([^<]+)</) || [])[1]);
+    assert.deepStrictEqual(bare, [], 'switch rows without a hint');
+  });
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  if (failed > 0) {
+    process.exit(1);
+  }
+})().catch((error) => {
+  console.error(error);
   process.exit(1);
-}
+});
