@@ -225,7 +225,7 @@ class StubElement {
   // 1. Summaries
   // ──────────────────────────────────────────────────────────────────────
 
-  await test('Paperless-ngx: open until address, token and user are there', () => {
+  await test('Paperless-ngx: open until address and token are there; the user name is optional', () => {
     assert.deepStrictEqual(
       qs.summarizePaperless({ url: '', tokenPresent: true, username: 'a' }),
       { state: 'open', text: 'No address yet' }
@@ -238,13 +238,14 @@ class StubElement {
       }),
       { state: 'open', text: 'http://paperless:8000 · no API token yet' }
     );
-    assert.strictEqual(
+    // Zettelrobbe signs in with the token alone (tests/test-paperless-username.js).
+    assert.deepStrictEqual(
       qs.summarizePaperless({
         url: 'http://paperless:8000',
         tokenPresent: true,
         username: ' ',
-      }).state,
-      'open'
+      }),
+      { state: 'done', text: 'http://paperless:8000' }
     );
     assert.deepStrictEqual(
       qs.summarizePaperless({

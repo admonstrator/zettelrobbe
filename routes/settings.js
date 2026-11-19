@@ -682,7 +682,7 @@ router.get(
  *                 example: "abc123def456"
  *               paperlessUsername:
  *                 type: string
- *                 description: Username for Paperless-ngx (alternative to token authentication)
+ *                 description: Optional. Shown next to the address in Quick start; Zettelrobbe signs in with paperlessToken alone and does not use the name. Empty keeps the stored name.
  *                 example: "admin"
  *               aiProvider:
  *                 type: string

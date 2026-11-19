@@ -377,6 +377,9 @@ const CATALOG = Object.freeze([
       restart: true,
       ...PSW,
     }),
+    // Optional, and only shown: Zettelrobbe signs in with the API token
+    // alone. paperlessService.getOwnUserID() reads it and has no caller
+    // since #305 (tests/test-paperless-username.js).
     setting('PAPERLESS_USERNAME', {
       type: 'string',
       default: '',
