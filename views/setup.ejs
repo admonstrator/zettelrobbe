@@ -464,11 +464,12 @@
                         </div>
                         <div class="zr-field zr-field--stacked">
                             <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout</label>
+                            <% const ocrTimeoutDefaultSeconds = Math.round(Number(defaults && defaults.ocrTimeoutMs) / 1000); %>
                             <div class="zr-row">
-                                <input id="ocrValidationTimeout" type="number" min="1" max="120" step="1" class="zr-input" value="30">
+                                <input id="ocrValidationTimeout" type="number" min="1" max="120" step="1" class="zr-input" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || ocrTimeoutDefaultSeconds %>">
                                 <span class="zr-field__hint">seconds</span>
                             </div>
-                            <p class="zr-field__hint">Used for OCR model discovery, connection tests and document processing. Default: 30s.</p>
+                            <p class="zr-field__hint">How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch OCR models wait as long. Default: <%= ocrTimeoutDefaultSeconds %> seconds.</p>
                         </div>
                         <div class="zr-row zr-row--wrap">
                             <button type="button" id="testOcrBtn" class="zr-btn">

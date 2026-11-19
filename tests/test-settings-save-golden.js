@@ -155,7 +155,7 @@ const PAGE_BODY = {
   ocrApiKey: '',
   mistralApiKey: '',
   mistralOcrModel: 'mistral-ocr-latest',
-  ocrValidationTimeout: '30',
+  ocrValidationTimeout: '120',
   ocrPdfRenderEnabled: 'yes',
   ocrPdfRenderMaxPages: '10',
   ocrPdfRenderDpi: '150',

@@ -16,6 +16,7 @@
     "services/restartService.js",
     "services/ocrPrompt.js",
     "services/ocrBeforeAi.js",
+    "services/ocrTimeout.js",
     "scripts/route-proof.js",
     "tests/test-route-table.js",
     "middleware/authGate.js",

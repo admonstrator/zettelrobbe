@@ -64,6 +64,10 @@ const {
   getAnthropicFormOptions,
   loadAiProviderPresets,
 } = require('../services/aiFormOptions');
+const {
+  DEFAULT_OCR_TIMEOUT_MS,
+  ocrTimeoutMsFromEnv,
+} = require('../services/ocrTimeout');
 const router = express.Router();
 
 function normalizeSetupBaseUrl(url) {
@@ -364,6 +368,7 @@ router.get('/setup', async (req, res) => {
       anthropicOptions: getAnthropicFormOptions(),
       defaults: {
         scanInterval: getDefaultScanInterval(),
+        ocrTimeoutMs: DEFAULT_OCR_TIMEOUT_MS,
       },
     });
   } catch (error) {
@@ -376,6 +381,7 @@ router.get('/setup', async (req, res) => {
       anthropicOptions: getAnthropicFormOptions(),
       defaults: {
         scanInterval: getDefaultScanInterval(),
+        ocrTimeoutMs: DEFAULT_OCR_TIMEOUT_MS,
       },
     });
   }
@@ -1026,11 +1032,13 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       req.body?.setupValidationTimeoutMs,
       30000
     );
+    // Without either value, the OCR timeout in effect: the default while
+    // nothing is set, as for document OCR.
     const setupOcrValidationTimeoutMs =
       setupService.normalizeValidationTimeoutMs(
         req.body?.setupOcrValidationTimeoutMs ??
           req.body?.setupValidationTimeoutMs,
-        30000
+        ocrTimeoutMsFromEnv(process.env)
       );
 
     const allowFailedPaperlessTest = parseBooleanInput(

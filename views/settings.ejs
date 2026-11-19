@@ -904,7 +904,7 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout</label>
                                         <div class="zr-row">
-                                            <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS || 30000) / 1000) %>" class="zr-input">
+                                            <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || '' %>" class="zr-input">
                                             <span class="zr-xs zr-faint" style="white-space: nowrap">seconds</span>
                                         </div>
                                         <p class="zr-field__hint">How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch models wait as long.</p>

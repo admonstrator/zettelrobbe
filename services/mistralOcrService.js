@@ -34,6 +34,7 @@ const {
   assertAnthropicCompleted,
 } = require('./anthropicSupport');
 const { NO_TEXT_MARKER, resolveOcrPrompt } = require('./ocrPrompt');
+const { ocrTimeoutMsFromEnv } = require('./ocrTimeout');
 
 // ── Claude OCR limits ──────────────────────────────────────────────────────
 //
@@ -217,13 +218,11 @@ class MistralOcrService {
     return config.mistralOcr?.enabled === 'yes';
   }
 
+  // How long one OCR request may take. The default and the fallback to
+  // SETUP_VALIDATION_TIMEOUT_MS live in services/ocrTimeout.js, which the
+  // settings page and the setup wizard read too.
   get ocrTimeoutMs() {
-    const raw =
-      process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
-      process.env.SETUP_VALIDATION_TIMEOUT_MS ||
-      '120000';
-    const parsed = Number.parseInt(String(raw).trim(), 10);
-    return Number.isFinite(parsed) && parsed >= 1000 ? parsed : 120000;
+    return ocrTimeoutMsFromEnv(process.env);
   }
 
   get pdfRenderEnabled() {

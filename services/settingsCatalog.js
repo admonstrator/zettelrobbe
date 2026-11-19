@@ -47,6 +47,7 @@ const {
   parseOcrBeforeAiMode,
 } = require('./ocrBeforeAi');
 const { REASONING_EFFORT_LEVELS } = require('./aiProviderRules');
+const { DEFAULT_OCR_TIMEOUT_MS } = require('./ocrTimeout');
 
 /**
  * @typedef {'string'|'secret'|'boolean'|'integer'|'number'|'list'|'enum'|'url'|'cron'|'json'} SettingType
@@ -1172,12 +1173,14 @@ const CATALOG = Object.freeze([
       parse: parsePdfPasswords,
       ...PS,
     }),
+    // One OCR request, document OCR included. The default is the one
+    // services/ocrTimeout.js gives the runtime.
     setting('SETUP_OCR_VALIDATION_TIMEOUT_MS', {
       type: 'integer',
-      default: '30000',
+      default: String(DEFAULT_OCR_TIMEOUT_MS),
       fallbackKeys: ['SETUP_VALIDATION_TIMEOUT_MS'],
       field: 'ocrValidationTimeout',
-      readBy: 'services/mistralOcrService.js',
+      readBy: 'services/ocrTimeout.js',
       ...PSW,
     }),
     setting('SETUP_VALIDATION_TIMEOUT_MS', {
