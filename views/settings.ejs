@@ -105,36 +105,48 @@
                 : '';
         // A featured entry stands outside the groups, so it names none.
         const groupLine = entry.featured ? '' : `<p class="zr-settings-entry__group">${settingsEsc(group.label)}</p>`;
-        // A topic opens with its group as a quiet line, its title and one
-        // sentence on what it is for. The title takes the focus when the
+        // The head names the topic: its group as a quiet line, its title and
+        // one sentence on what it is for. The title takes the focus when the
         // save bar it came from goes away (modules/settings-form.js).
         const lead = entry.lead ? `<p class="zr-settings-entry__lead">${settingsEsc(entry.lead)}</p>` : '';
-        // A topic is a column of cards: its head on the page, then a card
-        // for each section, the card gap between them (.zr-stack).
-        return `<section class="zr-settings-entry zr-stack${id === settingsFirstEntry ? '' : ' hidden'}" id="entry-${id}" data-entry="${id}" data-group="${settingsEsc(group.label)}" data-title="${settingsEsc(entry.title)}" aria-labelledby="entry-${id}-title">
-                            <header class="zr-settings-entry__head">
+        // A topic is one card, like the cards of every other page: the head
+        // above, the sections in the body, one block after the other
+        // (pages/settings.css rules them off). entryClose() ends both.
+        return `<section class="zr-settings-entry zr-module${id === settingsFirstEntry ? '' : ' hidden'}" id="entry-${id}" data-entry="${id}" data-group="${settingsEsc(group.label)}" data-title="${settingsEsc(entry.title)}" aria-labelledby="entry-${id}-title">
+                            <header class="zr-module__head zr-settings-entry__head">
                                 ${groupLine}
                                 <div class="zr-settings-entry__titlerow">
                                     <h2 class="zr-settings-entry__title" id="entry-${id}-title" tabindex="-1">${settingsEsc(entry.title)}</h2>
                                     ${pill}
                                 </div>
                                 ${lead}
-                            </header>`;
+                            </header>
+                            <div class="zr-module__body zr-module__body--tight zr-settings-entry__body">`;
     };
-    const entryClose = () => '</section>';
+    const entryClose = () => '</div></section>';
 
-    // A section is a card, like the cards of every other page: the section
-    // element itself (<section class="zr-module zr-settings-card
-    // zr-settings-section">) is written out where it stands, with its id, so
-    // an old link to #sec-... lands on it. This is the top of the card: the
-    // title in the card head, with `action` (a button that acts on the whole
-    // section) beside it, and under the head one line on what the section
-    // holds. `desc` may carry a link. The rows follow in the card body.
-    const sectionHead = (id, title, desc, action = '') => `<div class="zr-module__head">
-                                        <h3 class="zr-module__title zr-settings-section__title" id="${id}-title">${settingsEsc(title)}</h3>
-                                        ${action ? `<div class="zr-module__actions">${action}</div>` : ''}
+    // A section is a block of the topic card, not a card of its own: the
+    // section element itself (<section class="zr-settings-section">) is
+    // written out where it stands, with its id, so an old link to #sec-...
+    // lands on it. This is the top of the block: its title, with `action` (a
+    // button that acts on the whole section) beside it, and under it one line
+    // on what the section holds. `desc` may carry a link. The rows follow in
+    // .zr-settings-section__body.
+    const sectionHead = (id, title, desc, action = '') => `<div class="zr-settings-section__head">
+                                        <h3 class="zr-settings-section__title" id="${id}-title">${settingsEsc(title)}</h3>
+                                        ${action ? `<div class="zr-settings-section__actions">${action}</div>` : ''}
                                     </div>
                                     ${desc ? `<p class="zr-settings-section__desc">${desc}</p>` : ''}`;
+    // A section that folds: Advanced options of the AI sections, Advanced of
+    // single sign-on. The same block, its head a summary with a chevron;
+    // `attrs` carries the id and any data attributes, `hint` says what is in
+    // it while it is closed.
+    const disclosureOpen = (attrs, title, hint) => `<details class="zr-settings-section zr-settings-disclosure" ${attrs}>
+                                    <summary class="zr-settings-section__head zr-settings-disclosure__summary">
+                                        <h3 class="zr-settings-section__title">${settingsEsc(title)}</h3>
+                                        <span class="zr-field__hint zr-grow">${settingsEsc(hint)}</span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-disclosure__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </summary>`;
 %>
 <%
     // The topic list: an entry with `featured: true` (Quick start) stands
@@ -235,9 +247,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('connection') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-connection" aria-labelledby="sec-connection-title">
+                                <section class="zr-settings-section" id="sec-connection" aria-labelledby="sec-connection-title">
                                     <%- sectionHead('sec-connection', 'Connection', 'Zettelrobbe reads your documents and writes its results through the API of Paperless-ngx.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="paperlessUrl" class="zr-field__name">
                                             Paperless-ngx address
@@ -283,9 +295,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('display') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-display" aria-labelledby="sec-display-title">
+                                <section class="zr-settings-section" id="sec-display" aria-labelledby="sec-display-title">
                                     <%- sectionHead('sec-display', 'Dates', 'Applies to every page of Zettelrobbe. Paperless-ngx keeps its own format.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="dateFormat" class="zr-field__name">Date format</label>
                                             <select id="dateFormat" name="dateFormat" class="zr-input">
@@ -386,25 +398,20 @@
                                 const shown = providers.includes(aiSelectedProvider);
                                 return `<div class="zr-settings-option${shown ? '' : ' hidden'}" data-ai-option="${settingsEsc(option.key)}" data-level="${settingsEsc(option.level)}" data-providers="${settingsEsc(providers.join(','))}">${field}</div>`;
                             };
-                            // One option, one row of its card: pages/settings.css lays a
+                            // One option, one row of its section: pages/settings.css lays a
                             // short control (number, select, switch) beside its label and a
                             // long one under it, so every control ends on the card's edge.
                             const aiOptionBlock = (list) => list.map(aiOptionField).join('');
                             // One closed disclosure per section; settings-advanced opens or
                             // closes all of them together and remembers the choice.
-                            const aiAdvanced = (id, summary, list) => list.length ? `<details class="zr-module zr-settings-card zr-settings-advanced" id="${id}" data-advanced data-module="settings-advanced">
-                                    <summary class="zr-module__head">
-                                        <h3 class="zr-module__title">Advanced options</h3>
-                                        <span class="zr-field__hint zr-grow">${settingsEsc(summary)}</span>
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
-                                    </summary>
-                                    <div class="zr-module__body zr-col zr-col--loose">${aiOptionBlock(list)}</div>
+                            const aiAdvanced = (id, summary, list) => list.length ? `${disclosureOpen(`id="${id}" data-advanced data-module="settings-advanced"`, 'Advanced options', summary)}
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">${aiOptionBlock(list)}</div>
                                 </details>` : '';
                         %>
                         <%- entryOpen('ai-provider') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-provider" aria-labelledby="sec-provider-title">
+                                <section class="zr-settings-section" id="sec-provider" aria-labelledby="sec-provider-title">
                                     <%- sectionHead('sec-provider', 'Provider', 'Zettelrobbe sends every document it analyses to this service.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="aiProvider" class="zr-field__name">AI provider</label>
                                         <%
@@ -549,9 +556,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('ai-behavior') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-ai-function-limits" aria-labelledby="sec-ai-function-limits-title">
+                                <section class="zr-settings-section" id="sec-ai-function-limits" aria-labelledby="sec-ai-function-limits-title">
                                     <%- sectionHead('sec-ai-function-limits', 'Fields of a document', 'Switched off, Zettelrobbe leaves that field as it is. The created date is always taken from the analysis.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <%# The five switches post their own checkbox (name, "on"), as
                                         they always did; only the row around them changed. %>
                                     <div class="zr-switchrow">
@@ -592,9 +599,9 @@
                                     </div>
                                 </section>
 
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-analysis-tags" aria-labelledby="sec-analysis-tags-title">
+                                <section class="zr-settings-section" id="sec-analysis-tags" aria-labelledby="sec-analysis-tags-title">
                                     <%- sectionHead('sec-analysis-tags', 'Tags after the analysis', 'What Zettelrobbe adds to a document or takes off it once its analysis is written.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'aiProcessedTag',
                                         label: 'Tag analysed documents',
@@ -628,9 +635,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('prompt') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-ai-behavior" aria-labelledby="sec-ai-behavior-title">
+                                <section class="zr-settings-section" id="sec-ai-behavior" aria-labelledby="sec-ai-behavior-title">
                                     <%- sectionHead('sec-ai-behavior', 'What the model is told', 'Your own instructions to the model, and the names of Paperless-ngx it may reuse.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="systemPrompt" class="zr-field__name">Your prompt</label>
                                         <textarea id="systemPrompt" name="systemPrompt" rows="8" class="zr-textarea" placeholder="What the model should look for in your documents and how to name things"><%= config.SYSTEM_PROMPT %></textarea>
@@ -668,9 +675,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('restrictions') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-restrictions" aria-labelledby="sec-restrictions-title">
+                                <section class="zr-settings-section" id="sec-restrictions" aria-labelledby="sec-restrictions-title">
                                     <%- sectionHead('sec-restrictions', 'Tags, correspondents and document types', 'Switched on, the model may only use a name that already exists in Paperless-ngx. Zettelrobbe leaves out a new name the model proposes instead of creating it.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
                                             <label for="restrictToExistingTags" class="zr-field__name">Only existing tags</label>
@@ -697,9 +704,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('custom-fields') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-custom-fields" aria-labelledby="sec-custom-fields-title">
+                                <section class="zr-settings-section" id="sec-custom-fields" aria-labelledby="sec-custom-fields-title">
                                     <%- sectionHead('sec-custom-fields', 'Fields the model fills in', 'The model fills in a value for each field listed here. Saving the settings creates a field that Paperless-ngx does not have yet.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div id="customFieldsList" class="zr-field zr-field--stacked">
                                         <% let _parsedCustomFields = []; try { const _cf = JSON.parse(config.CUSTOM_FIELDS || '{}'); if (Array.isArray(_cf.custom_fields)) _parsedCustomFields = _cf.custom_fields; } catch(e) {} %>
                                         <% if (_parsedCustomFields.length > 0) { %>
@@ -748,9 +755,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('external-data') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-external-api" aria-labelledby="sec-external-api-title">
+                                <section class="zr-settings-section" id="sec-external-api" aria-labelledby="sec-external-api-title">
                                     <%- sectionHead('sec-external-api', 'External API', 'Data from another service that the model reads along with each document.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
                                             <label for="externalApiEnabled" class="zr-field__name">Add data from an external API</label>
@@ -803,9 +810,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('ocr') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-ocr-fallback" aria-labelledby="sec-ocr-fallback-title">
+                                <section class="zr-settings-section" id="sec-ocr-fallback" aria-labelledby="sec-ocr-fallback-title">
                                     <%- sectionHead('sec-ocr-fallback', 'Reading with OCR', 'OCR reads the text of a document again when Paperless-ngx recognised too little of it or the analysis failed.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'mistralOcrEnabled',
                                         label: 'Use OCR',
@@ -970,9 +977,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('schedule') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-processing" aria-labelledby="sec-processing-title">
+                                <section class="zr-settings-section" id="sec-processing" aria-labelledby="sec-processing-title">
                                     <%- sectionHead('sec-processing', 'Schedule', 'When Zettelrobbe looks for new documents by itself.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="scanInterval" class="zr-field__name">Scan schedule (cron)</label>
                                         <input type="text" id="scanInterval" name="scanInterval" value="<%= config.SCAN_INTERVAL %>" class="zr-input" required>
@@ -991,9 +998,9 @@
                                     </div>
                                 </section>
 
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-tag-filters" aria-labelledby="sec-tag-filters-title">
+                                <section class="zr-settings-section" id="sec-tag-filters" aria-labelledby="sec-tag-filters-title">
                                     <%- sectionHead('sec-tag-filters', 'Tag filters', 'Which documents a scan takes, by their tags.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'showTags',
                                         label: 'Only documents with certain tags',
@@ -1024,9 +1031,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('skip-rules') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-skip-rules" aria-labelledby="sec-skip-rules-title">
+                                <section class="zr-settings-section" id="sec-skip-rules" aria-labelledby="sec-skip-rules-title">
                                     <%- sectionHead('sec-skip-rules', 'Documents that skip OCR and the model', 'A matching document goes to the <a href="/ignored" class="zr-link zr-link--underline">ignored list</a>. Take it off that list to process it anyway.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="maxPageCount" class="zr-field__name">Page limit</label>
                                         <input type="number" id="maxPageCount" name="maxPageCount" min="0" step="1" value="<%= config.MAX_PAGE_COUNT || 0 %>" class="zr-input">
@@ -1054,9 +1061,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('runtime') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-runtime-controls" aria-labelledby="sec-runtime-controls-title">
+                                <section class="zr-settings-section" id="sec-runtime-controls" aria-labelledby="sec-runtime-controls-title">
                                     <%- sectionHead('sec-runtime-controls', 'Network, limits and logging', 'Saving a change here restarts Zettelrobbe.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="globalRateLimitWindowMs" class="zr-field__name">Rate limit window (milliseconds)</label>
                                             <input type="number" id="globalRateLimitWindowMs" name="globalRateLimitWindowMs" value="<%= config.GLOBAL_RATE_LIMIT_WINDOW_MS || 900000 %>" class="zr-input">
@@ -1099,9 +1106,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('tidy-up') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-tidy-up" aria-labelledby="sec-tidy-up-title">
+                                <section class="zr-settings-section" id="sec-tidy-up" aria-labelledby="sec-tidy-up-title">
                                     <%- sectionHead('sec-tidy-up', 'The model in Tidy up', 'Finding, merging and splitting names work without the model. The model only answers when you start a run on the Tidy up page. Reusing names that exist in another spelling also applies to every analysis.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <%- aiOptionBlock(aiOptionsIn('tidy-up', 'basic')) %>
                                     </div>
                                 </section>
@@ -1113,10 +1120,10 @@
                                      parser, and getElementById('mfaSettingsSection')
                                      returning null silently disabled the whole MFA
                                      state machine. -->
-                                <section class="zr-module zr-settings-card zr-settings-section" id="mfaSettingsSection" aria-labelledby="mfaSettingsSection-title" data-mfa-available="<%= mfaSettings && mfaSettings.available ? 'yes' : 'no' %>" data-mfa-enabled="<%= mfaSettings && mfaSettings.enabled ? 'yes' : 'no' %>" data-mfa-username="<%= mfaSettings && mfaSettings.username ? mfaSettings.username : '' %>">
+                                <section class="zr-settings-section" id="mfaSettingsSection" aria-labelledby="mfaSettingsSection-title" data-mfa-available="<%= mfaSettings && mfaSettings.available ? 'yes' : 'no' %>" data-mfa-enabled="<%= mfaSettings && mfaSettings.enabled ? 'yes' : 'no' %>" data-mfa-username="<%= mfaSettings && mfaSettings.username ? mfaSettings.username : '' %>">
                                     <%- sectionHead('mfaSettingsSection', 'Two-factor sign-in (MFA)', 'Applies to the account you are signed in with.') %>
                                     <%# Nothing here is a setting the save sends: MFA has its own requests. %>
-                                    <div class="zr-module__body zr-col zr-col--loose" data-not-a-setting>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose" data-not-a-setting>
     
                                     <% if (!(mfaSettings && mfaSettings.available)) { %>
                                         <div class="zr-alert zr-alert--warn">
@@ -1196,10 +1203,10 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('sso') %>
-                                <div class="zr-stack" data-module="settings-sso">
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-sso-provider" aria-labelledby="sec-sso-provider-title">
+                                <div data-module="settings-sso">
+                                <section class="zr-settings-section" id="sec-sso-provider" aria-labelledby="sec-sso-provider-title">
                                     <%- sectionHead('sec-sso-provider', 'Enable single sign-on', 'Where Zettelrobbe sends you to sign in, and how it identifies itself there.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <%- include('partials/settings-switch', {
                                         id: 'oidcEnabled',
                                         label: 'Sign in through an OpenID Connect provider',
@@ -1248,9 +1255,9 @@
                                     </div>
                                 </section>
 
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-sso-access" aria-labelledby="sec-sso-access-title">
+                                <section class="zr-settings-section" id="sec-sso-access" aria-labelledby="sec-sso-access-title">
                                     <%- sectionHead('sec-sso-access', 'Who may sign in', 'Single sign-on opens the one administrator account, only for the matching e-mail address. Restrict the application at the provider too.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcAdminEmail" class="zr-field__name">Administrator e-mail</label>
                                         <input type="text" inputmode="email" id="oidcAdminEmail" name="oidcAdminEmail" value="<%= config.OIDC_ADMIN_EMAIL || '' %>" class="zr-input" placeholder="you@example.com" autocomplete="off" spellcheck="false">
@@ -1270,9 +1277,9 @@
                                     </div>
                                 </section>
 
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-sso-button" aria-labelledby="sec-sso-button-title">
+                                <section class="zr-settings-section" id="sec-sso-button" aria-labelledby="sec-sso-button-title">
                                     <%- sectionHead('sec-sso-button', 'Login button', 'How the button for single sign-on looks on the login page.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-sso-preview" aria-label="Preview of the login button">
                                         <p class="zr-label">Preview</p>
                                         <div class="zr-sso-preview__card zr-col login-sso">
@@ -1313,13 +1320,8 @@
                                     </div>
                                 </section>
 
-                                <details class="zr-module zr-settings-card zr-sso-advanced" id="sec-sso-advanced">
-                                    <summary class="zr-module__head">
-                                        <h3 class="zr-module__title">Advanced</h3>
-                                        <span class="zr-field__hint zr-grow">Scopes and token authentication</span>
-                                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
-                                    </summary>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                <%- disclosureOpen('id="sec-sso-advanced"', 'Advanced', 'Scopes and token authentication') %>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcScopeInput" class="zr-field__name">Scopes</label>
                                         <%- include('partials/chip-list', {
@@ -1347,9 +1349,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('api-key') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-api-key" aria-labelledby="sec-api-key-title">
+                                <section class="zr-settings-section" id="sec-api-key" aria-labelledby="sec-api-key-title">
                                     <%- sectionHead('sec-api-key', 'Current key', 'Click the key to copy it. Regenerate replaces it with a new one.') %>
-                                    <div class="zr-module__body zr-col">
+                                    <div class="zr-settings-section__body zr-col">
                                         <div class="zr-inputgroup">
                                             <div id="apiKeyContainer" class="zr-input zr-mono zr-apikey" data-api-key=""
                                                 title="Click to copy the API key" role="button" tabindex="0">Loading…</div>
@@ -1363,9 +1365,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('caching') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-caching" aria-labelledby="sec-caching-title">
+                                <section class="zr-settings-section" id="sec-caching" aria-labelledby="sec-caching-title">
                                     <%- sectionHead('sec-caching', 'Caching', 'Zettelrobbe keeps the tags of Paperless-ngx for a while and the previews of documents on disk, so its pages load faster.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="tagCacheTTL" class="zr-field__name">
                                             Tag cache lifetime (seconds)
@@ -1412,9 +1414,9 @@
                                     </div>
                                 </section>
 
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-history-reconciliation" aria-labelledby="sec-history-reconciliation-title">
+                                <section class="zr-settings-section" id="sec-history-reconciliation" aria-labelledby="sec-history-reconciliation-title">
                                     <%- sectionHead('sec-history-reconciliation', 'History clean-up', 'Zettelrobbe removes its records of documents that were deleted in Paperless-ngx. A run waits for a scan to finish first. Paperless-ngx itself is not changed.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
                                         <%- include('partials/settings-switch', {
                                             id: 'reconciliationEnabled',
                                             label: 'Clean up on a schedule',
@@ -1438,9 +1440,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('quickstart') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-quickstart-auto-detect" aria-labelledby="sec-quickstart-auto-detect-title">
+                                <section class="zr-settings-section" id="sec-quickstart-auto-detect" aria-labelledby="sec-quickstart-auto-detect-title">
                                     <%- sectionHead('sec-quickstart-auto-detect', 'Ask a server', 'Works with Ollama, LM Studio and other OpenAI-compatible servers. Apply fills in <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR</a>. Nothing is saved until you apply the models and save.') %>
-                                    <div class="zr-module__body zr-col zr-col--loose">
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
     <%
     /* Only the provider actually in use may prefill this field. config.OLLAMA_API_URL
        carries a default of http://localhost:11434 and is therefore never empty, so
@@ -1516,9 +1518,9 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('environment') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-env-file" aria-labelledby="sec-env-file-title" data-module="env-file">
+                                <section class="zr-settings-section" id="sec-env-file" aria-labelledby="sec-env-file-title" data-module="env-file">
                                     <%- sectionHead('sec-env-file', 'Configuration as a .env file', 'The configuration in use, grouped by topic, with only the settings that have a value. <a href="#set-by-environment" class="zr-link zr-link--underline">Set by the environment</a> lists what the environment decides.') %>
-                                    <div class="zr-module__body zr-col" data-not-a-setting>
+                                    <div class="zr-settings-section__body zr-col" data-not-a-setting>
 
                                         <div class="zr-alert zr-alert--warn">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
@@ -1549,12 +1551,11 @@
                         <%- entryClose() %>
 
                         <%- entryOpen('changelog') %>
-                                <section class="zr-module zr-settings-card zr-settings-section" id="sec-release-history" aria-labelledby="sec-release-history-title">
+                                <section class="zr-settings-section" id="sec-release-history" aria-labelledby="sec-release-history-title">
                                     <%- sectionHead('sec-release-history', 'Release history', 'The current release is expanded.', `<a href="https://github.com/admonstrator/zettelrobbe/releases" target="_blank" rel="noopener noreferrer" class="changelog-source-link">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-github"/></svg>
                                             <span>Full release notes</span>
                                         </a>`) %>
-                                    <div class="zr-module__body">
                                     <%
                                         const releaseList = Array.isArray(changelogReleases) ? changelogReleases : [];
                                         const categoryMeta = {
@@ -1566,22 +1567,25 @@
                                             note: { label: 'Note', icon: 'i-info' }
                                         };
                                     %>
-    
+
                                     <% if (releaseList.length === 0) { %>
+                                    <div class="zr-settings-section__body">
                                         <p class="zr-sm zr-faint">No release history available.</p>
+                                    </div>
                                     <% } else { %>
+                                        <%# A release is a row of the section that folds, ruled off
+                                            from the next one like every row, not a panel of its own. %>
                                         <ol class="changelog-timeline">
                                             <% releaseList.forEach(function (release, releaseIndex) { %>
                                                 <li class="changelog-release<%= releaseIndex === 0 ? ' changelog-release--current' : '' %>">
-                                                    <span class="changelog-dot" aria-hidden="true"></span>
-                                                    <details class="changelog-details"<%= releaseIndex === 0 ? ' open' : '' %>>
-                                                        <summary class="changelog-summary">
+                                                    <details class="changelog-details zr-settings-disclosure"<%= releaseIndex === 0 ? ' open' : '' %>>
+                                                        <summary class="changelog-summary zr-settings-disclosure__summary">
                                                             <span class="changelog-version"><%= release.version %></span>
                                                             <% if (releaseIndex === 0) { %>
                                                                 <span class="changelog-current-pill">Current</span>
                                                             <% } %>
                                                             <span class="changelog-count"><%= release.entries.length %> change<%= release.entries.length === 1 ? '' : 's' %></span>
-                                                            <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                                            <svg class="zr-icon zr-icon--sm zr-settings-disclosure__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
                                                         </summary>
                                                         <ul class="changelog-entries">
                                                             <% release.entries.forEach(function (entry) { %>
@@ -1603,7 +1607,6 @@
                                             <% }); %>
                                         </ol>
                                     <% } %>
-                                    </div>
                                 </section>
                         <%- entryClose() %>
 

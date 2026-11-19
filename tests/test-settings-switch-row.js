@@ -235,7 +235,7 @@ test('a switch row draws no box of its own', () => {
   assert.doesNotMatch(row, /border|background|border-radius/);
 });
 
-test('the card rules switch rows off like every other row', () => {
+test('a section rules switch rows off like every other row', () => {
   const css = flat(settingsCss);
   assert.ok(
     !/:not\([^)]*\.zr-switchrow/.test(css),
@@ -243,7 +243,7 @@ test('the card rules switch rows off like every other row', () => {
   );
   const hairline = ruleFor(
     settingsCss,
-    '.zr-settings-card > .zr-module__body.zr-col--loose > *:not(.hidden, #customFieldsList:not(:has(*))) ~ *:not(.zr-alert, .zr-btn)'
+    '.zr-settings-section__body.zr-col--loose > *:not(.hidden, #customFieldsList:not(:has(*))) ~ *:not(.zr-alert, .zr-btn)'
   );
   assert.match(hairline, /border-top: 1px solid var\(--zr-line\)/);
 });

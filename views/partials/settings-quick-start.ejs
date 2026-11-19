@@ -94,7 +94,7 @@
 <%# The sentence on what the topic is for and the progress badge sit in the
     head of the topic (views/settings.ejs, entryOpen). %>
 <div class="zr-qs" data-module="settings-quick-start" data-mirror-scope data-stored-secrets="<%= JSON.stringify(qsSecrets) %>">
-    <div class="zr-module zr-qs__list">
+    <div class="zr-qs__list">
         <div class="zr-qs__step" data-qs-step="paperless" data-state="open">
             <%- qsStepHead({ step: 'paperless', number: 1, title: 'Paperless-ngx' }) %>
             <%- qsBodyOpen('paperless') %>

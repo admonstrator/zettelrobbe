@@ -140,7 +140,9 @@ function spacing(decls) {
 
 // What holds cards on some page, and what is a card (or stands between two:
 // a lead line, a toolbar). A holder's gap is the distance between its cards;
-// a card's own gap is the room inside it, so only its margins count.
+// a card's own gap is the room inside it, so only its margins count. A
+// settings topic is one card (.zr-settings-entry): its sections are blocks
+// inside it, not cards, and a page sheet may space them as it likes.
 const HOLDERS = [
   '.zr-stack',
   '.zr-grid',
@@ -153,7 +155,6 @@ const HOLDERS = [
   '.tidy-notices',
   '.about-page',
   "[data-module='dashboard']",
-  '.zr-settings-entry',
   '.zr-settings__main',
 ];
 const CARDS = [
@@ -167,9 +168,7 @@ const CARDS = [
   '.tidy-card',
   '.tidy-line',
   '.tidy-notice',
-  '.zr-settings-section',
-  '.zr-settings-card',
-  '.zr-settings-entry__head',
+  '.zr-settings-entry',
 ];
 
 /**

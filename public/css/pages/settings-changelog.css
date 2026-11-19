@@ -1,12 +1,12 @@
 /* ==========================================================================
-   Release-history timeline. It renders in the Changelog tab, which the
-   settings page carries today (views/settings.ejs) — no other view uses
-   these classes; the changelog modal is built from framework parts.
+   Release history: the releases listed in the Changelog topic of the
+   settings page (views/settings.ejs) — no other view uses these classes;
+   the changelog modal is built from framework parts.
    @layer pages: above the framework layers, below utilities.
    ========================================================================== */
 
 @layer pages {
-  /* "Full release notes" sits in the head of the Release history card. */
+  /* "Full release notes" sits in the head of the Release history section. */
   .changelog-source-link {
     display: inline-flex;
     align-items: center;
@@ -30,88 +30,27 @@
     background: var(--zr-surface-2);
   }
 
+  /* The releases are rows of the Release history section, from card edge
+     to card edge and ruled off from each other like the rows of every
+     section, not panels of their own. A release folds like every disclosure
+     of the page (.zr-settings-disclosure in pages/settings.css draws its
+     summary, hover band, chevron and the hairline under an open one); the
+     current one is open. */
   .changelog-timeline {
     list-style: none;
     margin: 0;
     padding: 0;
-    position: relative;
   }
 
-  /* The vertical spine. It stops at the last dot instead of running past it. */
-  .changelog-timeline::before {
-    content: '';
-    position: absolute;
-    left: 0.4375rem;
-    top: 0.75rem;
-    bottom: 1.25rem;
-    width: 2px;
-    background: var(--zr-line);
-  }
-
-  .changelog-release {
-    position: relative;
-    padding-left: 1.75rem;
-    padding-bottom: 0.5rem;
-  }
-
-  .changelog-release:last-child {
-    padding-bottom: 0;
-  }
-
-  .changelog-dot {
-    position: absolute;
-    left: 0;
-    top: 0.625rem;
-    width: 1rem;
-    height: 1rem;
-    border-radius: 50%;
-    background: var(--zr-surface);
-    border: 2px solid var(--zr-line);
-    box-sizing: border-box;
-    z-index: 1;
-  }
-
-  .changelog-release--current .changelog-dot {
-    border-color: var(--zr-brand);
-    background: var(--zr-brand);
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
-  }
-
-  /* A release is a recessed panel inside the Release history card (like
-     .zr-panel), not a card of its own in a card. */
-  .changelog-details {
-    border: 1px solid var(--zr-line);
-    border-radius: 0.625rem;
-    background: var(--zr-surface-2);
-    overflow: hidden;
-  }
-
-  .changelog-release--current .changelog-details {
-    border-color: var(--zr-brand);
+  .changelog-release + .changelog-release {
+    border-top: 1px solid var(--zr-line);
   }
 
   .changelog-summary {
     display: flex;
     align-items: center;
     gap: 0.625rem;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
     user-select: none;
-    list-style: none;
-    transition: background-color 0.15s ease;
-  }
-
-  .changelog-summary:hover {
-    background: var(--zr-surface-sunken);
-  }
-
-  .changelog-summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .changelog-summary:focus-visible {
-    outline: 2px solid var(--zr-brand);
-    outline-offset: -2px;
   }
 
   .changelog-version {
@@ -142,11 +81,10 @@
   .changelog-entries {
     list-style: none;
     margin: 0;
-    padding: 0.875rem 1rem 1rem;
+    padding: var(--zr-row-y) var(--zr-row-x) var(--zr-4);
     display: flex;
     flex-direction: column;
     gap: 0.625rem;
-    border-top: 1px solid var(--zr-line);
   }
 
   .changelog-entry {
@@ -212,10 +150,6 @@
     text-decoration: underline;
   }
 
-  :root[data-theme='dark'] .changelog-release--current .changelog-dot {
-    box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.2);
-  }
-
   @media (max-width: 640px) {
     .changelog-entry {
       flex-direction: column;
@@ -229,6 +163,12 @@
 
     .changelog-count {
       display: none;
+    }
+
+    /* Without the count the chevron still ends the row, as in every other
+       disclosure of the page. */
+    .changelog-summary > .zr-settings-disclosure__chevron {
+      margin-left: auto;
     }
   }
 }

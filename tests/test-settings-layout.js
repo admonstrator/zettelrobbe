@@ -23,12 +23,16 @@
  *    no height cap, no overflow; groups that fold, each heading a real button
  * 5. Which groups are open (openGroups) and the scroll keys on a page where
  *    nothing has the focus (scrollStep), from the shipped module
- * 6. One right edge per card: no control capped inside a settings card, the
+ * 6. One right edge per card: no control capped inside a topic card, the
  *    row form decided by the type of the control, the rule in the comment
- * 7. Sections are cards like those of every other page: the title in the card
- *    head, one line under it, no card in a card; a topic stacks them with the
- *    card gap; every topic says in one sentence what it is for
- * 8. The rows of a card: the same air above and below, blocks ruled off
+ * 7. A topic is one card like those of every other page: its head names it
+ *    (group, title, one sentence on what it is for), its body holds the
+ *    sections; no card in it, and no text of the settings column outside a
+ *    card. A section is a block of that card: its title, one line under it,
+ *    its rows, ruled off from the section before it. A disclosure (Advanced
+ *    options, a release of the changelog) is a section that folds; Quick
+ *    start's steps are rows of its card
+ * 8. The rows of a section: the same air above and below, blocks ruled off
  * 9. The styleguide shows the row forms, the topic list and the save bar
  */
 
@@ -82,6 +86,93 @@ function body(source, selector) {
   assert.notStrictEqual(at, -1, `no rule for ${selector}`);
   const open = at + head.length;
   return source.slice(open, source.indexOf('}', open));
+}
+
+const VOID = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+  'use',
+  'path',
+]);
+
+/**
+ * The element tree of a rendered page with its text, enough to ask what
+ * holds what: comments and the content of scripts are dropped, void
+ * elements close themselves, a closing tag closes up to its own element.
+ *
+ * @param {string} html
+ */
+function parse(html) {
+  const root = { tag: '#root', cls: [], children: [], parent: null };
+  const source = html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/gi, '$1$2');
+  const pattern =
+    /<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>|([^<]+)/g;
+  let node = root;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const [, close, name, attrs, selfClose, text] = match;
+    if (text !== undefined) {
+      if (text.trim()) {
+        node.children.push({ text: text.trim(), parent: node, children: [] });
+      }
+      continue;
+    }
+    const tag = name.toLowerCase();
+    if (close) {
+      let open = node;
+      while (open !== root && open.tag !== tag) open = open.parent;
+      if (open !== root) node = open.parent;
+      continue;
+    }
+    const cls = ((attrs.match(/\sclass="([^"]*)"/) || [])[1] || '')
+      .split(/\s+/)
+      .filter(Boolean);
+    const id = (attrs.match(/\sid="([^"]*)"/) || [])[1] || '';
+    const element = { tag, cls, id, attrs, children: [], parent: node };
+    node.children.push(element);
+    if (!selfClose && !VOID.has(tag)) node = element;
+  }
+  return root;
+}
+
+/** Every node under `node`, depth first. */
+function descendants(node) {
+  return node.children.flatMap((child) => [child, ...descendants(child)]);
+}
+
+/** Whether an ancestor of `node` (not `node` itself) carries `cls`. */
+function inside(node, cls) {
+  for (let up = node.parent; up; up = up.parent) {
+    if (up.cls && up.cls.includes(cls)) return true;
+  }
+  return false;
+}
+
+/** The first element under `node` that carries `cls`. */
+function first(node, cls) {
+  return descendants(node).find((n) => n.cls && n.cls.includes(cls));
+}
+
+/** The texts of the settings column that no card holds. */
+function textOutsideCards(html) {
+  const main = first(parse(html), 'zr-settings__main');
+  assert.ok(main, 'the settings column is rendered');
+  return descendants(main)
+    .filter((n) => n.text !== undefined && !inside(n, 'zr-module'))
+    .map((n) => n.text);
 }
 
 (async () => {
@@ -391,11 +482,11 @@ function body(source, selector) {
 
   // ── 6. One right edge ────────────────────────────────────────────────────
 
-  await test('no control in a settings card carries a width cap of its own', () => {
+  await test('no control in a topic card carries a width cap of its own', () => {
     assert.match(
       body(
         desktop,
-        '.zr-settings-card :is(.zr-input, .zr-select, .zr-textarea, .zr-inputgroup), .zr-settings-card .zr-field__hint'
+        '.zr-settings-entry :is(.zr-input, .zr-select, .zr-textarea, .zr-inputgroup), .zr-settings-entry .zr-field__hint'
       ),
       /max-width: none;/
     );
@@ -406,7 +497,7 @@ function body(source, selector) {
   await test('the row form is decided by the type of the control', () => {
     const beside = body(
       desktop,
-      ".zr-settings-card .zr-field--stacked:has( > :is( select.zr-input, input.zr-input:is( [type='number'], [type='text']:not([inputmode='url'], .hidden) ) ) ):not(:has(> :is(.zr-inputgroup, .zr-textarea, .zr-chips)))"
+      ".zr-settings-entry .zr-field--stacked:has( > :is( select.zr-input, input.zr-input:is( [type='number'], [type='text']:not([inputmode='url'], .hidden) ) ) ):not(:has(> :is(.zr-inputgroup, .zr-textarea, .zr-chips)))"
     );
     assert.match(
       beside,
@@ -443,109 +534,245 @@ function body(source, selector) {
     assert.ok(!form.includes('zr-formgrid'), 'no two-column grid of fields');
   });
 
-  // ── 7. Sections and topics ───────────────────────────────────────────────
+  // ── 7. A topic is one card ───────────────────────────────────────────────
 
-  await test('a section is a card: its title in the head, one line under it', () => {
+  await test('a topic is one card: its head names it, its body holds the sections', () => {
+    const topics = [
+      ...html.matchAll(
+        /<section class="zr-settings-entry([^"]*)" id="entry-([a-z-]+)"[^>]*>\s*<header class="([^"]+)">[\s\S]*?<\/header>\s*<div class="([^"]+)">/g
+      ),
+    ];
+    assert.ok(topics.length >= 20, `only ${topics.length} topics`);
+    topics.forEach(([, classes, id, head, bodyClasses]) => {
+      assert.match(classes, /^ zr-module( hidden)?$/, `${id}: ${classes}`);
+      assert.strictEqual(
+        head,
+        'zr-module__head zr-settings-entry__head',
+        `${id}: the card head`
+      );
+      assert.strictEqual(
+        bodyClasses,
+        'zr-module__body zr-module__body--tight zr-settings-entry__body',
+        `${id}: the card body`
+      );
+    });
+    assert.strictEqual(
+      topics.length,
+      (html.match(/<section class="zr-settings-entry/g) || []).length,
+      'every topic has head and body'
+    );
+    // The head is a column at the inset of the rows: group, title, lead.
+    const head = body(desktop, '.zr-settings-entry__head');
+    assert.match(head, /flex-direction: column;/);
+    assert.match(head, /padding: var\(--zr-4\) var\(--zr-row-x\);/);
+    const card = body(desktop, '.zr-settings-entry');
+    assert.match(card, /--zr-row-x: var\(--zr-4\);/);
+    assert.match(card, /--zr-row-y: var\(--zr-3\);/);
+    // The title is the main heading of the page: the brand face, larger
+    // than a module title (--zr-fs-md) and than a section title.
+    const title = body(desktop, '.zr-settings-entry__title');
+    assert.match(title, /font-family: var\(--zr-font-brand\);/);
+    assert.match(title, /font-size: var\(--zr-fs-xl\);/);
+    // The wrappers two topic modules put around their sections are plain:
+    // no column with a card gap inside a card.
+    assert.ok(html.includes('<div data-module="settings-sso">'));
+    assert.ok(html.includes('<div data-module="settings-environment">'));
+    const form = html.slice(
+      html.indexOf('<form id="setupForm"'),
+      html.indexOf('</form>')
+    );
+    assert.ok(
+      !/<(section|div) class="zr-settings-entry[^"]*zr-stack/.test(form),
+      'a topic is no column of cards'
+    );
+  });
+
+  await test('no card inside a topic card', () => {
+    const entries = descendants(parse(html)).filter(
+      (n) => n.cls && n.cls.includes('zr-settings-entry')
+    );
+    assert.ok(entries.length >= 20, `only ${entries.length} topics`);
+    entries.forEach((entry) => {
+      assert.ok(entry.cls.includes('zr-module'), `${entry.id} is a card`);
+      const nested = descendants(entry).filter(
+        (n) => n.cls && n.cls.includes('zr-module')
+      );
+      assert.deepStrictEqual(
+        nested.map((n) => `${n.tag}#${n.id}.${n.cls.join('.')}`),
+        [],
+        `${entry.id}: a card in the card`
+      );
+    });
+    assert.ok(!html.includes('zr-settings-card'), 'the old section card');
+  });
+
+  await test('no text of the settings column stands outside a card', async () => {
+    assert.deepStrictEqual(textOutsideCards(html), []);
+    // With every optional part rendered: the releases, the three lists of
+    // Set by the environment. A message of the page itself (settingsError)
+    // is a box of its own above the card, an alert, not text on the page.
+    const full = await renderSettingsPage({
+      changelogReleases: require('../config/changelog').releases,
+      environmentOverview: {
+        count: 3,
+        settings: [
+          {
+            key: 'SCAN_INTERVAL',
+            value: '*/15 * * * *',
+            secret: false,
+            stored: 'none',
+            canTakeOver: true,
+            anchor: 'scanInterval',
+          },
+        ],
+        unused: [
+          {
+            key: 'PAPERLESS_USERNAME',
+            removedIn: 'v2026.11.04',
+            inEnvironment: true,
+          },
+        ],
+        blocked: [
+          {
+            key: 'OCR_TIMEOUT',
+            title: 'OCR timeout',
+            text: 'Kept at 30 seconds.',
+          },
+        ],
+      },
+      settingsError: 'Please check your settings.',
+    });
+    assert.ok(full.includes('id="sec-env-blocked"'), 'every list rendered');
+    assert.ok(full.includes('class="changelog-release'), 'releases rendered');
+    const tree = parse(full);
+    const outside = descendants(first(tree, 'zr-settings__main')).filter(
+      (n) =>
+        n.text !== undefined &&
+        !inside(n, 'zr-module') &&
+        !inside(n, 'zr-alert')
+    );
+    assert.deepStrictEqual(
+      outside.map((n) => n.text),
+      []
+    );
+    descendants(tree)
+      .filter((n) => n.cls && n.cls.includes('zr-settings-entry'))
+      .forEach((entry) => {
+        assert.ok(
+          !descendants(entry).some((n) => n.cls && n.cls.includes('zr-module')),
+          `${entry.id}: a card in the card`
+        );
+      });
+  });
+
+  await test('a section is a block of its card: title, one line, its rows', () => {
     const sections = [
       ...html.matchAll(
-        /<section class="zr-module zr-settings-card zr-settings-section" id="([^"]+)"[^>]*>([\s\S]*?)<\/section>/g
+        /<section class="zr-settings-section" id="([^"]+)"[^>]*>([\s\S]*?)<\/section>/g
       ),
     ];
     assert.ok(sections.length >= 25, `only ${sections.length} sections`);
     sections.forEach(([, id, inner]) => {
       assert.match(
         inner,
-        /^\s*<div class="zr-module__head">/,
-        `${id}: the card head first`
-      );
-      assert.match(
-        inner,
-        /^\s*<div class="zr-module__head">\s*<h3 class="zr-module__title zr-settings-section__title" id="[^"]+">[^<]+<\/h3>/,
-        `${id}: the title in the head`
+        /^\s*<div class="zr-settings-section__head">\s*<h3 class="zr-settings-section__title" id="[^"]+">[^<]+<\/h3>/,
+        `${id}: its title first`
       );
       assert.match(
         inner,
         /<\/div>\s*<p class="zr-settings-section__desc">[^<]{12,}/,
-        `${id}: one line under the head`
+        `${id}: one line under the title`
       );
       assert.doesNotMatch(
         inner,
         /class="zr-module[ "]/,
-        `${id}: no card in the card`
+        `${id}: no card in the section`
       );
     });
-    // Nothing of a section stands on the page any more, and nothing else
-    // does: every section of the form is one of these cards.
-    assert.ok(!html.includes('zr-settings-section__head'));
-    const form = html.slice(
-      html.indexOf('<form id="setupForm"'),
-      html.indexOf('</form>')
-    );
-    assert.strictEqual(
-      (form.match(/<section class="zr-settings-section/g) || []).length,
-      0,
-      'a section outside a card'
-    );
-    // The head starts at the inset of the rows; a long title wraps.
+    // Each section after another one is ruled off from card edge to card
+    // edge, and its title starts a step lower than a row (--zr-row-y).
+    const ruled = body(desktop, '.zr-settings-section ~ .zr-settings-section');
+    assert.match(ruled, /border-top: 1px solid var\(--zr-line\);/);
+    // Never drawn as a card of its own.
+    assert.doesNotMatch(ruled, /background|box-shadow|border-radius/);
+    assert.ok(!css.includes('zr-settings-card'));
     assert.match(
-      body(desktop, '.zr-settings-card > .zr-module__head'),
-      /padding-inline: var\(--zr-row-x\);/
+      body(desktop, '.zr-settings-section__head'),
+      /padding: var\(--zr-5\) var\(--zr-row-x\) 0;/
+    );
+    assert.match(
+      body(desktop, '.zr-settings-section__title'),
+      /font-size: var\(--zr-fs-lg\);/
+    );
+    assert.match(
+      body(desktop, '.zr-settings-section__desc'),
+      /padding: var\(--zr-1\) var\(--zr-row-x\) 0;/
+    );
+    // The phone keeps the steps: the title of the topic, of a section, a
+    // label, each a size smaller than the one before.
+    assert.match(
+      body(phone, '.zr-settings-entry__title'),
+      /font-size: var\(--zr-fs-lg\);/
+    );
+    assert.match(
+      body(phone, '.zr-settings-section__title'),
+      /font-size: var\(--zr-fs-md\);/
+    );
+  });
+
+  await test('a disclosure is a section that folds, one look for all of them', async () => {
+    const folding = [
+      ...html.matchAll(
+        /<details class="zr-settings-section zr-settings-disclosure" id="([^"]+)"[^>]*>\s*<summary class="zr-settings-section__head zr-settings-disclosure__summary">\s*<h3 class="zr-settings-section__title">([^<]+)<\/h3>/g
+      ),
+    ].map((m) => `${m[1]}: ${m[2]}`);
+    assert.deepStrictEqual(folding, [
+      'sec-provider-advanced: Advanced options',
+      'sec-tidy-up-advanced: Advanced options',
+      'sec-sso-advanced: Advanced',
+    ]);
+    const summary = body(desktop, '.zr-settings-disclosure__summary');
+    assert.match(summary, /padding: var\(--zr-3\) var\(--zr-row-x\);/);
+    assert.match(summary, /cursor: pointer;/);
+    assert.match(
+      body(desktop, '.zr-settings-disclosure__summary:hover'),
+      /background: var\(--zr-surface-2\);/
     );
     assert.match(
       body(
         desktop,
-        '.zr-settings-section > .zr-module__head > .zr-settings-section__title'
+        '.zr-settings-disclosure[open] > .zr-settings-disclosure__summary'
       ),
-      /white-space: normal;/
+      /border-bottom: 1px solid var\(--zr-line\);/
     );
-    assert.match(
-      body(desktop, '.zr-settings-section__desc'),
-      /padding: var\(--zr-row-y\) var\(--zr-row-x\) 0;/
-    );
-  });
-
-  await test('"Advanced options", Quick start and the changelog are cards too', () => {
-    const advanced = [
-      ...html.matchAll(
-        /<details class="zr-module zr-settings-card (?:zr-settings-advanced|zr-sso-advanced)"[^>]*>\s*<summary class="zr-module__head">\s*<h3 class="zr-module__title">([^<]+)<\/h3>/g
-      ),
-    ];
-    assert.ok(advanced.length >= 3, `only ${advanced.length} disclosures`);
-    assert.match(
-      html,
-      /<div class="zr-qs"[^>]*>\s*<div class="zr-module zr-qs__list">/,
-      'Quick start: its steps in one card'
-    );
-    assert.match(
-      html,
-      /<section class="zr-module zr-settings-card zr-settings-section" id="sec-release-history"/
-    );
-    // A release is a panel in that card, not a card of its own.
-    assert.match(
-      flat(read('public', 'css', 'pages', 'settings-changelog.css')),
-      /\.changelog-details \{ border: 1px solid var\(--zr-line\); border-radius: 0\.625rem; background: var\(--zr-surface-2\);/
-    );
-  });
-
-  await test('a topic is a column of cards, the card gap between them', () => {
-    const topics = [
-      ...html.matchAll(/<section class="zr-settings-entry([^"]*)" id="entry-/g),
-    ];
-    assert.ok(topics.length >= 20);
-    topics.forEach(([, classes]) => {
-      assert.match(classes, /^ zr-stack( hidden)?$/, classes);
+    assert.doesNotMatch(css, /zr-settings-advanced|zr-sso-advanced/);
+    // A release of the changelog folds the same way: a row of its section,
+    // ruled off from the next, not a panel with a timeline beside it.
+    const page = await renderSettingsPage({
+      changelogReleases: require('../config/changelog').releases,
     });
-    // The wrappers two topic modules put around their cards are columns too.
-    assert.ok(
-      html.includes('<div class="zr-stack" data-module="settings-sso">')
+    const releases = [
+      ...page.matchAll(
+        /<li class="changelog-release[^"]*">\s*<details class="changelog-details zr-settings-disclosure"( open)?>\s*<summary class="changelog-summary zr-settings-disclosure__summary">/g
+      ),
+    ];
+    assert.ok(releases.length >= 2, `only ${releases.length} releases`);
+    assert.strictEqual(releases[0][1], ' open', 'the current one is open');
+    assert.ok(!page.includes('changelog-dot'));
+    const changelogCss = flat(
+      read('public', 'css', 'pages', 'settings-changelog.css')
     );
-    assert.ok(
-      html.includes('<div class="zr-stack" data-module="settings-environment">')
+    assert.doesNotMatch(changelogCss, /\.changelog-details \{/);
+    assert.doesNotMatch(changelogCss, /changelog-dot|::before/);
+    assert.match(
+      changelogCss,
+      /\.changelog-release \+ \.changelog-release \{ border-top: 1px solid var\(--zr-line\); \}/
     );
-    assert.doesNotMatch(
-      css,
-      /\.zr-settings-entry[,\s>{][^{}]*\{[^}]*gap:/,
-      'no distance of its own between the cards of a topic'
+    // Quick start: its steps are the rows of the topic card.
+    assert.match(
+      html,
+      /<div class="zr-qs"[^>]*>\s*<div class="zr-qs__list">/,
+      'Quick start: its steps in the card'
     );
   });
 
@@ -574,15 +801,15 @@ function body(source, selector) {
 
   // ── 8. Rows ──────────────────────────────────────────────────────────────
 
-  await test('a row of a card has the same air above and below', () => {
+  await test('a row of a section has the same air above and below', () => {
     assert.match(
-      body(desktop, '.zr-settings-card > .zr-module__body.zr-col--loose'),
+      body(desktop, '.zr-settings-section__body.zr-col--loose'),
       /gap: 0; padding: 0 var\(--zr-row-x\);/
     );
     assert.match(
       body(
         desktop,
-        '.zr-settings-card > .zr-module__body.zr-col--loose > *:not(.zr-alert, .zr-btn)'
+        '.zr-settings-section__body.zr-col--loose > *:not(.zr-alert, .zr-btn)'
       ),
       /margin-inline: calc\(var\(--zr-row-x\) \* -1\); padding: var\(--zr-row-y\) var\(--zr-row-x\);/
     );
@@ -594,7 +821,7 @@ function body(source, selector) {
 
   await test('a block of rows is ruled off inside, edge to edge', () => {
     const group =
-      '.zr-settings-card > .zr-module__body.zr-col--loose :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))';
+      '.zr-settings-section__body.zr-col--loose :is(.zr-col--loose, .zr-field--stacked:has(> .zr-field--stacked))';
     assert.match(body(desktop, group), /gap: 0; margin-inline: 0; padding: 0;/);
     assert.match(
       body(desktop, `${group} > :not(.hidden) ~ :not(.zr-alert, .zr-btn)`),
