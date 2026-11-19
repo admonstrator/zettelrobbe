@@ -111,6 +111,9 @@
                         <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
                     </button>
                     <div id="failedRowMenu${item.document_id}" popover class="zr-menu">
+                        <a class="zr-menu__item" href="/manual?id=${item.document_id}&list=failed">
+                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>Open in Manual
+                        </a>
                         <button type="button" class="zr-menu__item failed-ignore-btn" data-id="${item.document_id}">
                             <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>Ignore permanently
                         </button>
@@ -137,12 +140,17 @@
     const map = {
       ocr_failed:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>OCR failed',
+      password_protected:
+        '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>PDF needs a password',
       ai_failed_after_ocr:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>AI failed after OCR',
       ai_failed_ocr_disabled:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-power"/></svg>AI failed (OCR disabled)',
       ai_failed_without_ocr_fallback:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>AI failed (no OCR fallback)',
+      // The scan gave up after three failed analyses in a row.
+      ai_failed_retry_limit:
+        '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>AI failed 3 times (retry limit)',
       insufficient_content_lt_10:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>Insufficient content (&lt; 10 chars)',
       ai_response_truncated:

@@ -1,22 +1,37 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="<%= theme || 'light' %>">
 <%- include('partials/shell/head-start', { pageTitle: 'Manual - Zettelrobbe' }) %>
+    <script src="/js/dialogs.js"></script>
 <%- include('partials/shell/head-end') %>
 <%- include('partials/shell/body-open', {
     pageTitle: 'Manual',
     version: typeof version !== 'undefined' ? version : '',
     chatEnabled: typeof chatEnabled !== 'undefined' ? chatEnabled : false
 }) %>
-            <div>
-                <!-- Message Area -->
-                <div id="messageArea" class="hidden">
-                    <!-- Messages will be inserted here -->
-                </div>
-        
+            <div id="manualPage" data-ocr-enabled="<%= typeof ocrEnabled !== 'undefined' && ocrEnabled ? 'yes' : 'no' %>">
                 <!-- Document Selection -->
                 <div class="zr-module">
                     <div class="zr-module__head">
                         <h2 class="zr-module__title">Select Document</h2>
+                        <!-- A list to work through: Next and Previous step along it. -->
+                        <div class="zr-module__actions manual-worklist">
+                            <label for="worklistSelect" class="zr-sm zr-muted">Work through</label>
+                            <select id="worklistSelect" class="zr-select">
+                                <option value="">Search only</option>
+                                <option value="unprocessed">Not processed</option>
+                                <option value="failed">Failed</option>
+                                <option value="ocr">OCR queue</option>
+                                <option value="locked">Password protected</option>
+                                <option value="ignored">Ignored</option>
+                            </select>
+                            <button id="prevBtn" type="button" class="zr-btn zr-btn--icon" aria-label="Previous document" title="Previous (P)" disabled>
+                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-chevron-left"/></svg>
+                            </button>
+                            <span id="worklistPosition" class="zr-sm zr-faint zr-num"></span>
+                            <button id="nextBtn" type="button" class="zr-btn zr-btn--icon" aria-label="Next document" title="Next (N)" disabled>
+                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-chevron-right"/></svg>
+                            </button>
+                        </div>
                     </div>
                     <div class="zr-module__body">
                         <div class="manual-search-wrapper">
@@ -34,94 +49,166 @@
                                 <div id="manualDocumentSearchResults" class="manual-search-results hidden" role="listbox" aria-label="Manual document search results"></div>
                                 <input type="hidden" id="documentSelect" value="">
                             </div>
-                            <p id="manualDocumentSearchStatus" class="manual-search-status">Loading recent documents...</p>
+                            <p id="manualDocumentSearchStatus" class="manual-search-status"></p>
                         </div>
                     </div>
                 </div>
 
-                <!-- Main Grid -->
                 <div class="card-grid">
-                    <!-- Document Preview Card -->
+                    <!-- What Paperless-ngx holds -->
                     <div class="zr-module">
                         <div class="zr-module__head">
-                            <h2 class="zr-module__title">Document Preview</h2>
+                            <h2 class="zr-module__title">Document</h2>
+                            <span id="docIdLabel" class="zr-module__meta zr-num"></span>
+                            <div class="zr-module__actions">
+                                <a id="paperlessLink" class="zr-btn zr-btn--ghost hidden" href="#" target="_blank" rel="noopener">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-external"/></svg> Open in Paperless
+                                </a>
+                            </div>
                         </div>
-                        <div class="zr-module__body zr-col">
-                            <div id="correspondentInfo" class="zr-kv hidden">
-                                <span class="zr-kv__k">Correspondent</span>
-                                <span id="correspondentName" class="zr-kv__v"></span>
-                            </div>
-                            <div id="titleInfo" class="zr-kv hidden">
-                                <span class="zr-kv__k">Title</span>
-                                <span id="titleName" class="zr-kv__v"></span>
-                            </div>
-                            <div id="documentPreview" class="zr-panel manual-preview">
-                                <div id="contentPreview" class="zr-mono"></div>
-                                <!-- Shown while contentPreview is empty (CSS sibling
-                                     rule) so the box is not a bare grey area. -->
-                                <div id="previewEmpty" class="zr-empty">
-                                    <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>
-                                    <div class="zr-empty__title">No document selected</div>
-                                    <p class="zr-sm zr-faint">Search above and pick a document to preview its content here.</p>
+                        <div class="zr-module__body zr-col zr-col--loose">
+                            <dl id="docFacts" class="manual-facts hidden">
+                                <dt>Added</dt><dd id="factAdded"></dd>
+                                <dt>File</dt><dd id="factFile"></dd>
+                                <dt>ASN</dt><dd id="factAsn"></dd>
+                                <dt>Zettelrobbe</dt><dd id="factStatus"></dd>
+                            </dl>
+
+                            <div class="zr-col zr-col--tight">
+                                <div class="zr-row zr-row--between">
+                                    <div class="zr-segment" role="tablist" aria-label="Show">
+                                        <button type="button" role="tab" id="tabPreview" aria-selected="true">Preview</button>
+                                        <button type="button" role="tab" id="tabText" aria-selected="false">Text</button>
+                                    </div>
+                                    <span id="viewerMeta" class="zr-xs zr-faint"></span>
+                                </div>
+                                <div id="manualViewer" class="zr-panel manual-viewer">
+                                    <iframe id="previewFrame" class="hidden" title="Document preview"></iframe>
+                                    <pre id="contentPreview" class="zr-mono manual-text hidden"></pre>
+                                    <div id="viewerEmpty" class="zr-empty">
+                                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>
+                                        <div id="viewerEmptyTitle" class="zr-empty__title">No document selected</div>
+                                        <p id="viewerEmptyText" class="zr-sm zr-faint">Search above and pick a document.</p>
+                                    </div>
+                                    <!-- Over the viewer while the document or its PDF is on the way. -->
+                                    <div id="viewerLoading" class="zr-overlay manual-loading hidden" role="status" aria-live="polite">
+                                        <span class="zr-spinner"></span>
+                                        <span id="viewerLoadingText" class="zr-sm zr-muted">Loading...</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- AI and Tags Section -->
                     <div>
-                        <!-- AI Analysis Card -->
+                        <!-- What can be done with it -->
                         <div class="zr-module">
                             <div class="zr-module__head">
-                                <h2 class="zr-module__title">AI Analysis</h2>
+                                <h2 class="zr-module__title">Actions</h2>
                             </div>
                             <div class="zr-module__body zr-col">
-                                <button id="analyzeBtn" type="button" class="zr-btn zr-btn--block" disabled>
-                                    <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
-                                    Analyze with AI
-                                </button>
+                                <div id="unlockBox" class="zr-col hidden">
+                                    <div class="zr-alert zr-alert--warn" role="status">
+                                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-key"/></svg>
+                                        <div class="zr-alert__body">
+                                            <div class="zr-alert__title">This PDF needs a password</div>
+                                            <p id="unlockHint" class="zr-sm">Unlock it, then run OCR.</p>
+                                        </div>
+                                    </div>
+                                    <div class="zr-col zr-col--tight">
+                                        <label class="zr-label" for="unlockPassword">Password</label>
+                                        <div class="zr-row">
+                                            <input id="unlockPassword" class="zr-input zr-grow" type="password" autocomplete="off">
+                                            <button id="unlockBtn" type="button" class="zr-btn zr-btn--primary">
+                                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-key"/></svg> Unlock
+                                            </button>
+                                        </div>
+                                        <span class="zr-xs zr-faint">Empty tries the stored passwords. Needs Paperless-ngx 3.0.</span>
+                                    </div>
+                                </div>
+
+                                <div class="manual-pair">
+                                    <button id="ocrBtn" type="button" class="zr-btn zr-btn--block" disabled>
+                                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-scan"/></svg>
+                                        Run OCR
+                                    </button>
+                                    <button id="analyzeBtn" type="button" class="zr-btn zr-btn--block" disabled>
+                                        <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-cpu"/></svg>
+                                        Analyze with AI
+                                    </button>
+                                </div>
                                 <div id="aiStatus" class="zr-row zr-sm zr-muted hidden" role="status">
                                     <svg class="zr-icon zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
                                     AI is analyzing the document...
                                 </div>
+                                <span id="ocrHint" class="zr-xs zr-faint hidden">OCR is off. Turn it on under Settings → OCR.</span>
+
+                                <div class="zr-row zr-row--between">
+                                    <div class="zr-row">
+                                        <button id="ignoreBtn" type="button" class="zr-btn zr-btn--ghost" disabled>
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>
+                                            <span id="ignoreLabel">Ignore</span>
+                                        </button>
+                                        <button id="deleteBtn" type="button" class="zr-btn zr-btn--ghost zr-danger-text" disabled>
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-trash"/></svg>
+                                            Delete
+                                        </button>
+                                    </div>
+                                    <span class="zr-xs zr-faint manual-keys zr-only-desktop"><kbd>A</kbd> analyze · <kbd>S</kbd> save · <kbd>N</kbd>/<kbd>P</kbd> next</span>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Tags Card -->
+                        <!-- The document's fields, with the AI's proposal under each -->
                         <div class="zr-module">
                             <div class="zr-module__head">
-                                <h2 class="zr-module__title">Tags</h2>
+                                <h2 class="zr-module__title">Metadata</h2>
                                 <div class="zr-module__actions">
-                                    <!-- Enabled once a document is selected; there is
-                                         nothing to save before that. -->
-                                    <button id="saveTagsBtn" type="button" class="zr-btn zr-btn--primary" disabled>
-                                        Save Tags
-                                    </button>
+                                    <button id="useAllBtn" type="button" class="zr-btn zr-btn--ghost hidden">Use all suggestions</button>
+                                    <button id="saveBtn" type="button" class="zr-btn zr-btn--primary" disabled>Save</button>
                                 </div>
                             </div>
                             <div class="zr-module__body zr-col zr-col--loose">
                                 <div class="zr-col zr-col--tight">
-                                    <span class="zr-label">AI Suggestions</span>
+                                    <label for="fieldTitle" class="zr-label">Title</label>
+                                    <input id="fieldTitle" class="zr-input zr-input--wide" type="text" disabled>
+                                    <div class="manual-suggest hidden" data-suggest="title"></div>
+                                </div>
+                                <div class="zr-col zr-col--tight">
+                                    <label for="fieldCorrespondent" class="zr-label">Correspondent</label>
+                                    <input id="fieldCorrespondent" class="zr-input zr-input--wide" type="text" list="correspondentNames" disabled>
+                                    <div class="manual-suggest hidden" data-suggest="correspondent"></div>
+                                </div>
+                                <div class="zr-col zr-col--tight">
+                                    <label for="fieldDocumentType" class="zr-label">Document type</label>
+                                    <input id="fieldDocumentType" class="zr-input zr-input--wide" type="text" list="documentTypeNames" disabled>
+                                    <div class="manual-suggest hidden" data-suggest="documentType"></div>
+                                </div>
+                                <div class="zr-col zr-col--tight">
+                                    <label for="fieldCreated" class="zr-label">Created</label>
+                                    <input id="fieldCreated" class="zr-input" type="date" disabled>
+                                    <div class="manual-suggest hidden" data-suggest="created"></div>
+                                </div>
+                                <datalist id="correspondentNames"></datalist>
+                                <datalist id="documentTypeNames"></datalist>
+
+                                <div class="zr-col zr-col--tight">
+                                    <span class="zr-label">Tags</span>
+                                    <div id="currentTags" class="zr-chips manual-tags" data-empty="No tags yet."></div>
+                                </div>
+                                <div class="zr-col zr-col--tight">
+                                    <span class="zr-label">AI tag suggestions</span>
                                     <div id="suggestedTags" class="zr-chips manual-tags" data-empty="Run the AI analysis for suggestions."></div>
                                 </div>
-
                                 <div class="zr-col zr-col--tight">
-                                    <span class="zr-label">Current Tags</span>
-                                    <div id="currentTags" class="zr-chips manual-tags" data-empty="No tags yet."></div>
-                                    <input type="hidden" id="tags" name="tags" value="">
-                                </div>
-
-                                <div class="zr-col zr-col--tight">
-                                    <label for="newTagSelect" class="zr-label">Add New Tag</label>
+                                    <label for="newTagSelect" class="zr-label">Add tag</label>
                                     <div class="zr-row">
                                         <select id="newTagSelect" class="zr-select zr-grow" disabled>
                                             <option value="">Select a tag...</option>
                                         </select>
-                                        <!-- Quiet: Save Tags is the one primary action here. -->
                                         <button id="addTagBtn" type="button" class="zr-btn" disabled aria-label="Add tag">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
                                         </button>
-                                        <input type="hidden" id="hiddenId" value="">
                                     </div>
                                 </div>
                             </div>
@@ -131,6 +218,8 @@
             </div>
         </main>
     </div>
+    <%- include('partials/ocr-progress-overlay') %>
     <script src="/js/document-omnibox.js"></script>
-    <%- include('partials/scripts/manual-scripts') %>
+    <script src="/js/ocr-progress.js"></script>
+    <script src="/js/manual.js"></script>
     <%- include('partials/shell/body-close') %>

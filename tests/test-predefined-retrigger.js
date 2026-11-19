@@ -13,7 +13,8 @@
  *
  * Covers:
  * 1. The scan loop re-processes a tagged document that is already recorded
- *    as processed (source-level guard, since the loop lives in server.js)
+ *    as processed (source-level guard on services/documentPipeline.js, where
+ *    the scan's processDocument() lives)
  * 2. Ignored and permanently-failed documents stay protected
  */
 
@@ -39,7 +40,7 @@ function test(name, fn) {
 }
 
 const serverSource = fs.readFileSync(
-  path.join(process.cwd(), 'server.js'),
+  path.join(process.cwd(), 'services', 'documentPipeline.js'),
   'utf8'
 );
 

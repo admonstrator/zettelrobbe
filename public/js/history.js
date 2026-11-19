@@ -289,6 +289,8 @@ class HistoryManager {
               `<div id="${menuId}" popover class="zr-menu">` +
               `<button type="button" class="zr-menu__item history-view-btn" data-link="${escape(row.link ?? '')}">` +
               '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg>Open in Paperless-ngx</button>' +
+              `<a class="zr-menu__item" href="/manual?id=${docId}">` +
+              '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-file"/></svg>Open in Manual</a>' +
               '<div class="zr-menu__sep"></div>' +
               // Shown whether or not the OCR fallback is configured. Hiding
               // them made "this build has no such feature" and "OCR is
@@ -1433,11 +1435,27 @@ class HistoryManager {
       });
       if (!response.ok) throw new Error('Rescan request failed');
 
+      // Documents that wait for OCR are left alone by the backend and listed
+      // apart; the others keep the message they always had.
+      const data = await response.json().catch(() => ({}));
+      const waiting = Array.isArray(data?.waitingForOcr)
+        ? data.waitingForOcr.length
+        : 0;
+      const sent = ids.length - waiting;
+      const sentences = [];
+      if (sent > 0) {
+        sentences.push(
+          `${sent} document(s) sent for rescan. It might take a few moments to process.`
+        );
+      }
+      if (waiting > 0) {
+        sentences.push(
+          `${waiting} document(s) waiting for OCR are analysed once OCR has read them.`
+        );
+      }
+
       await this.table.reload();
-      this.showToast(
-        `${ids.length} document(s) sent for rescan. It might take a few moments to process.`,
-        'success'
-      );
+      this.showToast(sentences.join(' '), 'success');
     } catch (err) {
       console.error('Bulk rescan failed:', err);
       this.showToast('Rescan failed. Please try again.', 'error');
@@ -1485,14 +1503,11 @@ class HistoryManager {
     }
 
     try {
-      await this.postRescan(documentId);
+      const data = await this.postRescan(documentId);
 
       // Close modal & show toast
       this.hideModal(document.getElementById('infoModal'));
-      this.showToast(
-        'Document sent for rescan. It might take a few moments to process.',
-        'success'
-      );
+      this.showToast(this.rescanMessage(data), 'success');
 
       // Reload table
       this.table?.reload();
@@ -1508,19 +1523,29 @@ class HistoryManager {
   }
 
   /**
+   * What a single rescan reports. A document that waits for OCR is left alone
+   * by the backend and analysed once OCR has read it.
+   */
+  rescanMessage(data) {
+    if (data && data.waitingForOcr === true) {
+      return 'Document is waiting for OCR. It is analysed once OCR has read it.';
+    }
+    return 'Document sent for rescan. It might take a few moments to process.';
+  }
+
+  /**
    * "Reanalyze" from the row menu. Same request as the modal button, minus the
    * modal: the menu closes itself on click, so there is no spinner to restore
    * and nothing to hide once the document is queued.
    */
   async rescanFromRow(documentId) {
-    // Wording taken from the modal path on purpose — the same action should not
-    // report itself differently depending on where it was started.
-    let message =
-      'Document sent for rescan. It might take a few moments to process.';
+    // Wording shared with the modal path on purpose — the same action should
+    // not report itself differently depending on where it was started.
+    let message;
     let tone = 'success';
 
     try {
-      await this.postRescan(documentId);
+      message = this.rescanMessage(await this.postRescan(documentId));
     } catch (err) {
       console.error('Rescan failed:', err);
       message = 'Rescan failed. Please try again.';

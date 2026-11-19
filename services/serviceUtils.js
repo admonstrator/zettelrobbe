@@ -1136,8 +1136,38 @@ function jsonFromText(text) {
 }
 
 /**
+ * The answer and the reasoning a chat message's content holds.
+ *
+ * Content is a string on most servers, but a list of parts on some: Mistral's
+ * reasoning models (mistral-large-latest among them) answer
+ * `[{ type: 'thinking', thinking: [{ type: 'text', text }] }, { type: 'text', text }]`.
+ * Text parts are the answer, thinking parts the reasoning; anything else is
+ * neither.
+ *
+ * @param {unknown} content - message.content or a stream delta's content
+ * @returns {{ text: string, reasoning: string }}
+ */
+function splitChatContent(content) {
+  if (typeof content === 'string') return { text: content, reasoning: '' };
+  let text = '';
+  let reasoning = '';
+  if (!Array.isArray(content)) return { text, reasoning };
+  for (const part of content) {
+    if (part?.type === 'text' && typeof part.text === 'string') {
+      text += part.text;
+    } else if (part?.type === 'thinking') {
+      reasoning +=
+        typeof part.thinking === 'string'
+          ? part.thinking
+          : splitChatContent(part.thinking).text;
+    }
+  }
+  return { text, reasoning };
+}
+
+/**
  * Extracts assistant message content from OpenAI-compatible responses.
- * Falls back to extracting JSON from reasoning_content when content is empty.
+ * Falls back to extracting JSON from the reasoning when content is empty.
  *
  * @param {Object} message - Assistant message object
  * @param {string} providerLabel - Provider label for warning logs
@@ -1147,16 +1177,17 @@ function extractChatMessageContent(
   message,
   providerLabel = 'OpenAI-compatible'
 ) {
-  const content =
-    typeof message?.content === 'string' ? message.content.trim() : '';
+  const parts = splitChatContent(message?.content);
+  const content = parts.text.trim();
   if (content) {
     return content;
   }
 
-  const reasoningContent =
+  const reasoningContent = (
     typeof message?.reasoning_content === 'string'
-      ? message.reasoning_content.trim()
-      : '';
+      ? message.reasoning_content
+      : parts.reasoning
+  ).trim();
   if (!reasoningContent) {
     return '';
   }
@@ -1271,6 +1302,7 @@ module.exports = {
   shouldQueueForOcrOnAiError,
   classifyOcrQueueReasonFromAiError,
   extractChatMessageContent,
+  splitChatContent,
   jsonFromText,
   isTimeoutError,
   buildTimeoutErrorMessage,

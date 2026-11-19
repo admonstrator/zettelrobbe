@@ -76,6 +76,13 @@
         inputEl.type = opts.input === 'password' ? 'password' : 'text';
         if (opts.inputPlaceholder) inputEl.placeholder = opts.inputPlaceholder;
         if (opts.inputValue) inputEl.value = opts.inputValue;
+        // Enter in the field confirms. Left to the form, it would press the
+        // first submit button, which is Cancel whenever there is one.
+        inputEl.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' || event.isComposing) return;
+          event.preventDefault();
+          dlg.close('ok');
+        });
         const wrap = document.createElement('div');
         wrap.style.marginTop = 'var(--zr-2)';
         wrap.append(inputEl);

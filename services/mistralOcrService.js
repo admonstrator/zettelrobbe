@@ -17,6 +17,8 @@ const popplerService = require('./popplerService');
 const documentModel = require('../models/document');
 const AIServiceFactory = require('./aiServiceFactory');
 const documentProcessingService = require('./documentProcessingService');
+const pdfPasswordService = require('./pdfPasswordService');
+const pdfUnlockService = require('./pdfUnlockService');
 const {
   isTimeoutError,
   buildTimeoutErrorMessage,
@@ -31,6 +33,7 @@ const {
   mapAnthropicUsage,
   assertAnthropicCompleted,
 } = require('./anthropicSupport');
+const { NO_TEXT_MARKER, resolveOcrPrompt } = require('./ocrPrompt');
 
 // ── Claude OCR limits ──────────────────────────────────────────────────────
 //
@@ -69,20 +72,9 @@ const CLAUDE_OCR_MAX_TOKENS_CEILING = 128000;
 // moderate because vLLM rejects prompt + max_tokens beyond its context window.
 const LOCAL_OCR_MAX_TOKENS = 4096;
 
-// What the model answers for a page without any text. The empty-result guard
-// in processQueueItem() then refuses to overwrite the document's content,
-// instead of a sentence like "This page is blank." becoming its text.
-const CLAUDE_OCR_NO_TEXT_MARKER = '[no text]';
-
-const CLAUDE_OCR_INSTRUCTION = [
-  'Transcribe all text in this document exactly as it is written, in reading order, page by page.',
-  '- Keep the original language, spelling, numbers and punctuation. Do not translate, correct, summarize or explain anything.',
-  '- Reproduce tables as Markdown tables. Keep headings, lists and paragraph breaks.',
-  '- Include handwriting, stamps and filled-in form values where they are legible.',
-  '- Write [illegible] where text cannot be read. Do not guess.',
-  '- Answer with the transcript only: no introduction, no comments, no code fences.',
-  `- If the document contains no readable text at all, answer with exactly ${CLAUDE_OCR_NO_TEXT_MARKER}`,
-].join('\n');
+// The failure reason (and error code) of a PDF that cannot be opened without
+// a password; the OCR page offers its unlock on exactly these rows.
+const PASSWORD_PROTECTED = 'password_protected';
 
 /**
  * The media type Claude would be told, from a Content-Type value: parameters
@@ -218,15 +210,14 @@ class MistralOcrService {
         config.ollama?.apiUrl ||
         process.env.OLLAMA_API_URL ||
         'http://localhost:11434';
-      return String(config.mistralOcr?.apiUrl || ollamaDefault).replace(
-        /\/+$/,
-        ''
+      return stripTrailingSlashes(
+        String(config.mistralOcr?.apiUrl || ollamaDefault)
       );
     }
 
-    return String(
-      config.mistralOcr?.apiUrl || 'https://api.mistral.ai/v1'
-    ).replace(/\/+$/, '');
+    return stripTrailingSlashes(
+      String(config.mistralOcr?.apiUrl || 'https://api.mistral.ai/v1')
+    );
   }
 
   isEnabled() {
@@ -573,7 +564,7 @@ class MistralOcrService {
                 data: source.data,
               },
             },
-            { type: 'text', text: CLAUDE_OCR_INSTRUCTION },
+            { type: 'text', text: resolveOcrPrompt('anthropic') },
           ],
         },
       ],
@@ -598,7 +589,7 @@ class MistralOcrService {
     );
 
     const text = anthropicMessageText(message);
-    return text.toLowerCase() === CLAUDE_OCR_NO_TEXT_MARKER ? '' : text;
+    return text.toLowerCase() === NO_TEXT_MARKER ? '' : text;
   }
 
   /**
@@ -903,6 +894,7 @@ class MistralOcrService {
       ? baseApiUrl
       : normalizedApiBase;
     const imageDataUrl = `data:${imageMimeType};base64,${imageBase64}`;
+    const ocrPrompt = resolveOcrPrompt('local');
     const authHeaders = this.apiKey
       ? {
           Authorization: `Bearer ${this.apiKey}`,
@@ -924,7 +916,7 @@ class MistralOcrService {
               content: [
                 {
                   type: 'text',
-                  text: 'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+                  text: ocrPrompt,
                 },
                 {
                   type: 'image_url',
@@ -992,8 +984,7 @@ class MistralOcrService {
           messages: [
             {
               role: 'user',
-              content:
-                'Perform OCR on this image. Return only the extracted text in plain text. Do not add explanations.',
+              content: ocrPrompt,
               images: [imageBase64],
             },
           ],
@@ -1070,9 +1061,7 @@ class MistralOcrService {
   }
 
   buildLocalOcrApiCandidates(apiBase) {
-    const normalized = String(apiBase || '')
-      .trim()
-      .replace(/\/+$/, '');
+    const normalized = stripTrailingSlashes(String(apiBase || '').trim());
     if (!normalized) {
       return [];
     }
@@ -1115,16 +1104,16 @@ class MistralOcrService {
   }
 
   async persistDetectedLocalOcrApiBase(detectedBase) {
-    const normalizedDetectedBase = String(detectedBase || '')
-      .trim()
-      .replace(/\/+$/, '');
+    const normalizedDetectedBase = stripTrailingSlashes(
+      String(detectedBase || '').trim()
+    );
     if (!normalizedDetectedBase) {
       return;
     }
 
-    const currentApiUrl = String(process.env.OCR_API_URL || '')
-      .trim()
-      .replace(/\/+$/, '');
+    const currentApiUrl = stripTrailingSlashes(
+      String(process.env.OCR_API_URL || '').trim()
+    );
     if (currentApiUrl === normalizedDetectedBase) {
       return;
     }
@@ -1154,7 +1143,7 @@ class MistralOcrService {
 
   async resolveLocalOcrApiBase() {
     if (this.provider !== 'ollama') {
-      return String(this.apiBase || '').replace(/\/+$/, '');
+      return stripTrailingSlashes(String(this.apiBase || ''));
     }
 
     if (this.detectedLocalApiBase) {
@@ -1166,7 +1155,7 @@ class MistralOcrService {
     }
 
     this.localApiDetectionPromise = (async () => {
-      const configuredBase = String(this.apiBase || '').replace(/\/+$/, '');
+      const configuredBase = stripTrailingSlashes(String(this.apiBase || ''));
       const authHeaders = this.apiKey
         ? { Authorization: `Bearer ${this.apiKey}` }
         : {};
@@ -1237,13 +1226,19 @@ class MistralOcrService {
    * Full OCR pipeline for a single queue item.
    * Emits progress events via the optional progressCallback(step, message).
    *
-   * Steps: 'download' | 'ocr' | 'writeback' | 'ai' | 'done' | 'error'
+   * Steps: 'download' | 'unlock' | 'ocr' | 'writeback' | 'ai' | 'done' | 'error'
+   *
+   * A password-protected PDF ends the run before any provider is called:
+   * unlocked with a stored password (unlocked: true, the document leaves the
+   * queue), still waiting for Paperless-ngx to store a version unlocked
+   * moments ago (waiting: true, the item stays pending), or failed with the
+   * reason password_protected.
    *
    * @param {number} documentId
    * @param {object} opts
    * @param {boolean} [opts.autoAnalyze=false] - Run AI analysis after OCR
    * @param {Function} [opts.progressCallback] - (step, message, data?) => void
-   * @returns {Promise<{ocrText: string, wroteBack: boolean, aiAnalysis?: object}>}
+   * @returns {Promise<{ocrText: string, wroteBack: boolean, aiAnalysis?: object, unlocked?: boolean, waiting?: boolean}>}
    */
   async processQueueItem(documentId, opts = {}) {
     const { autoAnalyze = false, progressCallback = null } = opts;
@@ -1302,6 +1297,48 @@ class MistralOcrService {
         });
       }
       emit('download', `Download complete (${mimeType}).`);
+
+      // A PDF that needs a password cannot be read by any provider, and
+      // sending it anyway costs a paid call for an error. It is unlocked with
+      // a stored password when one fits, otherwise it waits on the OCR page
+      // for someone to unlock it.
+      const fileBuffer = Buffer.from(base64, 'base64');
+      if (await pdfPasswordService.needsPassword(fileBuffer)) {
+        if (pdfUnlockService.wasRecentlyUnlocked(normalizedDocumentId)) {
+          await documentModel.updateOcrQueueStatus(
+            normalizedDocumentId,
+            'pending'
+          );
+          emit(
+            'done',
+            'Paperless-ngx is still storing the unlocked version of this document. It stays queued and is tried again later.'
+          );
+          return { ocrText: '', wroteBack: false, waiting: true };
+        }
+
+        emit('unlock', 'The PDF is password protected.');
+        if (pdfUnlockService.storedPasswords().length) {
+          emit('unlock', 'Trying the stored passwords…');
+          const unlock = await pdfUnlockService.unlock(normalizedDocumentId, {
+            file: fileBuffer,
+            fromOcrRun: true,
+          });
+          emit('unlock', unlock.message);
+          if (
+            unlock.outcome === 'unlocked' ||
+            unlock.outcome === 'not_locked'
+          ) {
+            emit('done', 'Processing finished: the document was unlocked.');
+            return { ocrText: '', wroteBack: false, unlocked: true };
+          }
+        }
+        /** @type {Error & { code?: string }} */
+        const locked = new Error(
+          'The PDF is password protected. Unlock it on the OCR page or store its password in Settings.'
+        );
+        locked.code = PASSWORD_PROTECTED;
+        throw locked;
+      }
 
       // Step 2: OCR
       const providerLabel = this.providerLabel;
@@ -1425,8 +1462,16 @@ class MistralOcrService {
           `[TIMEOUT][OCR] OCR pipeline timed out for document ${normalizedDocumentId}: ${error.message}`
         );
       }
-      await documentModel.updateOcrQueueStatus(normalizedDocumentId, 'failed');
-      await recordTerminalFailure('ocr_failed', 'ocr');
+      if (error?.code === PASSWORD_PROTECTED) {
+        await documentModel.markOcrQueuePasswordProtected(normalizedDocumentId);
+        await recordTerminalFailure(PASSWORD_PROTECTED, 'ocr');
+      } else {
+        await documentModel.updateOcrQueueStatus(
+          normalizedDocumentId,
+          'failed'
+        );
+        await recordTerminalFailure('ocr_failed', 'ocr');
+      }
       emit('error', error.message);
       throw error;
     } finally {

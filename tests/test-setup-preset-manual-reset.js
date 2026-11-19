@@ -209,16 +209,24 @@ assert.strictEqual(
 );
 assert.strictEqual(wizard.aiApiUrl.value, 'https://api.openai.com/v1');
 
-// Switching back to "Manual custom configuration" (preset === null) must reset aiProvider
+// Switching to "Other OpenAI-compatible server" (preset === null) must reset
+// aiProvider and drop the address the OpenAI entry filled in
 wizard.applyPreset(null);
 assert.strictEqual(
   wizard.aiProvider.value,
   'custom',
-  'Switching back to manual configuration must reset the stale aiProvider value to custom'
+  'Switching to the other server must reset the stale aiProvider value to custom'
 );
+assert.strictEqual(wizard.aiApiUrl.value, '', 'the OpenAI address is dropped');
+assert.strictEqual(wizard.aiPreset.value, 'custom', 'the list shows "Other"');
 assert.ok(
-  wizard.aiPresetHint.textContent.includes('Manual mode'),
-  'Manual mode hint should be shown after clearing the preset'
+  wizard.aiPresetHint.textContent.includes('/v1'),
+  'The hint asks for the server address'
 );
+
+// A server typed by hand stays when "Other" is picked again
+wizard.aiApiUrl.value = 'http://10.0.0.5:8000/v1';
+wizard.applyPreset(null);
+assert.strictEqual(wizard.aiApiUrl.value, 'http://10.0.0.5:8000/v1');
 
 console.log('✅ test-setup-preset-manual-reset passed');

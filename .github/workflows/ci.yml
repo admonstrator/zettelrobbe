@@ -76,6 +76,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Checks only the files listed in tsconfig.json (each starts with
+      # // @ts-check). No build: the app still runs as plain JavaScript.
+      - name: Type check
+        run: npm run typecheck
+
       # Server-dependent tests self-skip when no server is reachable at
       # BASE_URL; skips do not fail the run.
       - name: Run test suite

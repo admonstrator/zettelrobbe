@@ -29,9 +29,9 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
-const ROUTE_FILE = path.join(__dirname, '..', 'routes', 'setup.js');
-const routeSource = fs.readFileSync(ROUTE_FILE, 'utf8');
+const routeSource = readRouteSources();
 
 const VIEW_FILE = path.join(__dirname, '..', 'views', 'settings.ejs');
 const viewSource = fs.readFileSync(VIEW_FILE, 'utf8');
@@ -42,7 +42,7 @@ function extract(name, declaration) {
   const start = routeSource.indexOf(declaration);
   assert.ok(
     start !== -1,
-    `Could not find ${name} in routes/setup.js — did it move or get renamed?`
+    `Could not find ${name} in the route modules — did it move or get renamed?`
   );
   const end = routeSource.indexOf('\n}', start);
   assert.ok(end > start, `Could not delimit ${name}`);
@@ -240,7 +240,7 @@ assert.ok(
   'The API key must never be rendered into the page — the settings page deliberately blanks every secret before render'
 );
 assert.ok(
-  /drive the detection run only/.test(section),
+  /Nothing is saved until you apply/.test(section),
   'The block must state that these fields are not saved'
 );
 

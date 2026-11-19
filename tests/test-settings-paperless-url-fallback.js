@@ -1,43 +1,70 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { resolvePaperlessConnection } = require('../services/settingsService');
 
+/*
+ * POST /settings keeps the stored Paperless-ngx URL when the form leaves the
+ * field out (a field pinned by the environment is disabled and not
+ * submitted), tests the connection only when the address changes or a token
+ * is typed, and writes the URL only when a different address was submitted.
+ */
 function main() {
-  const setupRoutePath = path.join(process.cwd(), 'routes', 'setup.js');
-  const source = fs.readFileSync(setupRoutePath, 'utf8');
+  const current = {
+    PAPERLESS_API_URL: 'http://paperless.local:8000/api',
+    PAPERLESS_API_TOKEN: 'stored-token',
+  };
 
-  assert.ok(
-    source.includes('const hasPaperlessUrlInput = hasValue(paperlessUrl);'),
-    'Expected POST /settings to detect whether paperlessUrl input is present'
-  );
+  // URL omitted: the stored one, without /api, is the effective URL.
+  const omitted = resolvePaperlessConnection({}, current);
+  assert.strictEqual(omitted.url, 'http://paperless.local:8000');
+  assert.strictEqual(omitted.token, 'stored-token');
+  assert.strictEqual(omitted.needsValidation, false);
+  assert.deepStrictEqual(omitted.updates, {});
 
-  assert.ok(
-    source.includes(
-      "const normalizedCurrentPaperlessUrl = (\n      currentConfig.PAPERLESS_API_URL || ''\n    ).replace(/\\/api$/, '');"
-    ),
-    'Expected POST /settings to normalize existing PAPERLESS_API_URL as fallback source'
-  );
+  // Blank URL counts as omitted.
+  const blank = resolvePaperlessConnection({ paperlessUrl: '   ' }, current);
+  assert.strictEqual(blank.url, 'http://paperless.local:8000');
+  assert.deepStrictEqual(blank.updates, {});
 
-  assert.ok(
-    source.includes(
-      'const effectivePaperlessUrl = hasPaperlessUrlInput\n      ? paperlessUrl\n      : normalizedCurrentPaperlessUrl;'
-    ),
-    'Expected POST /settings to derive effectivePaperlessUrl fallback when URL input is missing'
+  // URL omitted but a token typed: validated against the stored URL.
+  const tokenOnly = resolvePaperlessConnection(
+    { paperlessToken: ' new-token ' },
+    current
   );
+  assert.strictEqual(tokenOnly.url, 'http://paperless.local:8000');
+  assert.strictEqual(tokenOnly.token, 'new-token');
+  assert.strictEqual(tokenOnly.needsValidation, true);
+  assert.deepStrictEqual(tokenOnly.updates, {
+    PAPERLESS_API_TOKEN: 'new-token',
+  });
 
-  assert.ok(
-    source.includes(
-      'await setupService.validatePaperlessConfig(\n        effectivePaperlessUrl,\n        effectivePaperlessToken\n      );'
-    ),
-    'Expected Paperless validation to run against effectivePaperlessUrl'
-  );
+  // The same address as stored, spelled without /api (as the page shows it)
+  // or with a trailing slash: neither tested nor written, so a save does not
+  // restart the server for it.
+  for (const spelling of [
+    'http://paperless.local:8000',
+    'http://paperless.local:8000/',
+    'http://paperless.local:8000/api/',
+    'http://paperless.local:8000/API',
+  ]) {
+    const same = resolvePaperlessConnection(
+      { paperlessUrl: spelling },
+      current
+    );
+    assert.strictEqual(same.needsValidation, false, spelling);
+    assert.deepStrictEqual(same.updates, {}, spelling);
+  }
 
-  assert.ok(
-    source.includes(
-      'if (hasPaperlessUrlInput)\n      updatedConfig.PAPERLESS_API_URL = effectivePaperlessUrl;'
-    ),
-    'Expected POST /settings to persist PAPERLESS_API_URL only when user submitted a new URL'
+  // A new URL: tested with the stored token, then saved.
+  const changed = resolvePaperlessConnection(
+    { paperlessUrl: 'http://other:8000' },
+    current
   );
+  assert.strictEqual(changed.url, 'http://other:8000');
+  assert.strictEqual(changed.token, 'stored-token');
+  assert.strictEqual(changed.needsValidation, true);
+  assert.deepStrictEqual(changed.updates, {
+    PAPERLESS_API_URL: 'http://other:8000',
+  });
 
   console.log(
     '[PASS] POST /settings keeps effective Paperless URL fallback for managed/omitted paperlessUrl input'

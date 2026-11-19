@@ -1,9 +1,22 @@
 /**
- * Unit tests for the setup remote-access guard (GHSA-v4jq-65q5-wgjp)
+ * Test: the remote-access guard of the setup wizard (GHSA-v4jq-65q5-wgjp)
  *
- * Tests both the isLocalRequest() helper logic and the setupRemoteAccessGuard
- * middleware behaviour. No running server required — all tests use mock
- * request/response/next objects.
+ * Runs the real isLocalRequest() and remoteSetupGuard() of
+ * middleware/authGate.js against mock request/response/next objects, with a
+ * real (throwaway) database behind the "is the wizard still open" question:
+ * the instance is open until the first administrator account exists. No
+ * server is needed.
+ *
+ * Covers:
+ *  1. isLocalRequest(): the three loopback spellings are local, everything
+ *     else (private, public, mapped private, no socket, empty) is not
+ *  2. A forged X-Forwarded-For or req.ip never makes a remote socket local
+ *  3. Paths outside /setup and /api/setup are never blocked
+ *  4. Open instance + remote socket: 403, JSON for /api/setup, HTML for /setup
+ *  5. Open instance + loopback socket: allowed
+ *  6. ALLOW_REMOTE_SETUP=yes is the only opt-in ("true" and "1" are not)
+ *  7. An error while asking whether the wizard is open lets the request on
+ *  8. Once an administrator exists the guard is lifted
  *
  * Usage:
  *   node tests/test-setup-remote-guard.js
@@ -11,293 +24,345 @@
 
 'use strict';
 
-// ---------------------------------------------------------------------------
-// Replica of the production isLocalRequest() helper
-// (mirrors the implementation in routes/setup.js exactly)
-// ---------------------------------------------------------------------------
-
-function isLocalRequest(req) {
-  const remoteAddr = req.socket?.remoteAddress;
-  if (!remoteAddr) {
-    return false;
-  }
-
-  return (
-    remoteAddr === '127.0.0.1' ||
-    remoteAddr === '::1' ||
-    remoteAddr === '::ffff:127.0.0.1'
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Minimal mock helpers
-// ---------------------------------------------------------------------------
-
-function makeReq({ remoteAddress, path = '/api/setup/complete' } = {}) {
-  return {
-    socket: remoteAddress !== undefined ? { remoteAddress } : undefined,
-    path
-  };
-}
-
-function makeRes() {
-  const res = {
-    _status: null,
-    _body: null,
-    _type: null,
-    statusCode: null,
-    status(code) {
-      this._status = code;
-      this.statusCode = code;
-      return this;
-    },
-    json(body) {
-      this._body = body;
-      this._type = 'json';
-      return this;
-    },
-    type(t) {
-      this._contentType = t;
-      return this;
-    },
-    send(body) {
-      this._body = body;
-      this._type = 'html';
-      return this;
-    }
-  };
-
-  return res;
-}
-
-function makeNext() {
-  let called = false;
-  const fn = () => {
-    called = true;
-  };
-
-  fn.wasCalled = () => called;
-  return fn;
-}
-
-// ---------------------------------------------------------------------------
-// Replica of the setupRemoteAccessGuard middleware logic for isolated testing
-// ---------------------------------------------------------------------------
-
-async function setupRemoteAccessGuardTestable(req, res, next, { setupOpen, allowRemote }) {
-  const isSetupPath =
-    req.path === '/setup' ||
-    req.path.startsWith('/setup/') ||
-    req.path.startsWith('/api/setup');
-
-  if (!isSetupPath) {
-    return next();
-  }
-
-  if (!setupOpen) {
-    return next();
-  }
-
-  if (allowRemote) {
-    return next();
-  }
-
-  if (isLocalRequest(req)) {
-    return next();
-  }
-
-  const isApiPath = req.path.startsWith('/api/setup');
-  if (isApiPath) {
-    return res.status(403).json({
-      success: false,
-      error: 'Remote access to the setup API is disabled.'
-    });
-  }
-
-  return res
-    .status(403)
-    .type('text/html')
-    .send('<h1>403</h1>');
-}
-
-// ---------------------------------------------------------------------------
-// Test runner
-// ---------------------------------------------------------------------------
+const assert = require('assert');
+const fs = require('fs').promises;
+const os = require('os');
+const path = require('path');
 
 let passed = 0;
 let failed = 0;
 
-function assert(label, condition) {
-  if (condition) {
-    console.log(`  ✅ PASS: ${label}`);
+async function test(name, fn) {
+  try {
+    await fn();
+    console.log(`  ✅ PASS: ${name}`);
     passed += 1;
-  } else {
-    console.error(`  ❌ FAIL: ${label}`);
+  } catch (error) {
+    console.error(`  ❌ FAIL: ${name}`);
+    console.error(`     ${error.stack || error.message}`);
     failed += 1;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Part 1: isLocalRequest() unit tests
-// ---------------------------------------------------------------------------
+function makeReq({
+  remoteAddress,
+  path: requestPath = '/api/setup/complete',
+  headers = {},
+  ip,
+} = {}) {
+  return {
+    socket: remoteAddress !== undefined ? { remoteAddress } : undefined,
+    path: requestPath,
+    headers,
+    ip,
+  };
+}
 
-console.log('\n🧪 Part 1: isLocalRequest() — IP classification');
-console.log('='.repeat(60));
+function makeRes() {
+  return {
+    statusCode: null,
+    body: null,
+    kind: null,
+    contentType: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      this.kind = 'json';
+      return this;
+    },
+    type(value) {
+      this.contentType = value;
+      return this;
+    },
+    send(body) {
+      this.body = body;
+      this.kind = 'html';
+      return this;
+    },
+  };
+}
 
-assert('IPv4 loopback 127.0.0.1 → local', isLocalRequest(makeReq({ remoteAddress: '127.0.0.1' })));
-assert('IPv6 loopback ::1 → local', isLocalRequest(makeReq({ remoteAddress: '::1' })));
-assert('IPv4-mapped IPv6 ::ffff:127.0.0.1 → local', isLocalRequest(makeReq({ remoteAddress: '::ffff:127.0.0.1' })));
+/** Runs the real guard and reports what it did. */
+async function runGuard(remoteSetupGuard, req) {
+  const res = makeRes();
+  let nextCalled = false;
+  await remoteSetupGuard(req, res, () => {
+    nextCalled = true;
+  });
+  return { res, nextCalled };
+}
 
-assert('Private RFC-1918 192.168.1.100 → remote', !isLocalRequest(makeReq({ remoteAddress: '192.168.1.100' })));
-assert('Docker bridge 172.17.0.1 → remote', !isLocalRequest(makeReq({ remoteAddress: '172.17.0.1' })));
-assert('IPv4-mapped Docker 172.17.0.1 → remote', !isLocalRequest(makeReq({ remoteAddress: '::ffff:172.17.0.1' })));
-assert('Public IP 1.2.3.4 → remote', !isLocalRequest(makeReq({ remoteAddress: '1.2.3.4' })));
-assert('undefined socket → not local (fail-safe)', !isLocalRequest({ socket: undefined }));
-assert('null remoteAddress → not local (fail-safe)', !isLocalRequest({ socket: { remoteAddress: null } }));
-assert('empty string remoteAddress → not local', !isLocalRequest({ socket: { remoteAddress: '' } }));
+async function main() {
+  const originalCwd = process.cwd();
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'zr-remote-guard-'));
+  process.chdir(tempRoot);
 
-// ---------------------------------------------------------------------------
-// Part 2: setupRemoteAccessGuard() middleware behaviour
-// ---------------------------------------------------------------------------
+  process.env.NODE_ENV = 'test';
+  process.env.LOG_LEVEL = 'error';
+  process.env.PAPERLESS_API_URL = 'http://127.0.0.1:9';
+  process.env.PAPERLESS_API_TOKEN = 'test-token';
+  delete process.env.ALLOW_REMOTE_SETUP;
 
-console.log('\n🧪 Part 2: setupRemoteAccessGuard() — middleware behaviour');
-console.log('='.repeat(60));
+  const documentModel = require('../models/document');
+  const {
+    isLocalRequest,
+    remoteSetupGuard,
+  } = require('../middleware/authGate');
 
-(async () => {
-  // ── Test group: non-setup paths always pass through ───────────────────────
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '8.8.8.8', path: '/dashboard' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
+  try {
+    // ── 1. isLocalRequest() ────────────────────────────────────────────────
+    console.log('\n🧪 isLocalRequest() — IP classification');
+    for (const address of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+      await test(`${address} is local`, () => {
+        assert.strictEqual(
+          isLocalRequest(makeReq({ remoteAddress: address })),
+          true
+        );
+      });
+    }
+    for (const [label, address] of [
+      ['private RFC-1918 192.168.1.100', '192.168.1.100'],
+      ['private 10.0.0.1', '10.0.0.1'],
+      ['Docker bridge 172.17.0.1', '172.17.0.1'],
+      ['IPv4-mapped Docker bridge ::ffff:172.17.0.1', '::ffff:172.17.0.1'],
+      ['public 1.2.3.4', '1.2.3.4'],
+      ['public IPv6 2001:db8::1', '2001:db8::1'],
+      ['look-alike 127.0.0.2', '127.0.0.2'],
+      ['look-alike 127.0.0.1.evil.example', '127.0.0.1.evil.example'],
+      ['IPv6 localhost with a zone ::1%lo', '::1%lo'],
+    ]) {
+      await test(`${label} is remote`, () => {
+        assert.strictEqual(
+          isLocalRequest(makeReq({ remoteAddress: address })),
+          false
+        );
+      });
+    }
+    await test('no socket is not local (fail-safe)', () => {
+      assert.strictEqual(isLocalRequest({ socket: undefined }), false);
+      assert.strictEqual(isLocalRequest({}), false);
+    });
+    await test('a null or empty remoteAddress is not local', () => {
+      assert.strictEqual(
+        isLocalRequest({ socket: { remoteAddress: null } }),
+        false
+      );
+      assert.strictEqual(
+        isLocalRequest({ socket: { remoteAddress: '' } }),
+        false
+      );
+    });
+
+    // ── 2. Forged proxy headers ────────────────────────────────────────────
+    await test('X-Forwarded-For and req.ip cannot make a remote socket local', () => {
+      const req = makeReq({
+        remoteAddress: '203.0.113.9',
+        headers: { 'x-forwarded-for': '127.0.0.1', 'x-real-ip': '127.0.0.1' },
+        ip: '127.0.0.1',
+      });
+      assert.strictEqual(isLocalRequest(req), false);
+    });
+
+    // ── Open instance: no administrator account yet ────────────────────────
+    console.log('\n🧪 remoteSetupGuard() — instance still open');
+    assert.strictEqual(
+      (await documentModel.getUsers()).length,
+      0,
+      'precondition: no administrator account'
     );
-    assert('Non-setup path /dashboard → next() called regardless', next.wasCalled());
-    assert('Non-setup path /dashboard → no 403 emitted', res._status === null);
+
+    // ── 3. Paths outside the wizard ────────────────────────────────────────
+    for (const requestPath of [
+      '/dashboard',
+      '/api/processing-status',
+      '/settings',
+      '/login',
+      '/setupfoo',
+      '/setup-guide',
+      '/',
+    ]) {
+      await test(`${requestPath} passes for a remote caller`, async () => {
+        const { res, nextCalled } = await runGuard(
+          remoteSetupGuard,
+          makeReq({ remoteAddress: '8.8.8.8', path: requestPath })
+        );
+        assert.strictEqual(nextCalled, true);
+        assert.strictEqual(res.statusCode, null);
+      });
+    }
+
+    // ── 4. Remote socket on an open instance ───────────────────────────────
+    for (const requestPath of [
+      '/api/setup/complete',
+      '/api/setup/paperless/test',
+      '/api/setup/mfa/setup',
+      '/api/setup',
+      '/api/setupfoo',
+    ]) {
+      await test(`remote caller on ${requestPath} gets 403 JSON`, async () => {
+        const { res, nextCalled } = await runGuard(
+          remoteSetupGuard,
+          makeReq({ remoteAddress: '8.8.8.8', path: requestPath })
+        );
+        assert.strictEqual(nextCalled, false, 'next() must not be called');
+        assert.strictEqual(res.statusCode, 403);
+        assert.strictEqual(res.kind, 'json');
+        assert.strictEqual(res.body.success, false);
+        assert.match(res.body.error, /ALLOW_REMOTE_SETUP=yes/);
+      });
+    }
+    for (const [label, address, requestPath] of [
+      ['a public address', '8.8.8.8', '/setup'],
+      ['the Docker bridge', '172.17.0.1', '/setup'],
+      ['a private address', '10.0.0.1', '/setup/'],
+      ['a mapped private address', '::ffff:192.168.1.5', '/setup/step'],
+    ]) {
+      await test(`${label} on ${requestPath} gets 403 HTML`, async () => {
+        const { res, nextCalled } = await runGuard(
+          remoteSetupGuard,
+          makeReq({ remoteAddress: address, path: requestPath })
+        );
+        assert.strictEqual(nextCalled, false, 'next() must not be called');
+        assert.strictEqual(res.statusCode, 403);
+        assert.strictEqual(res.kind, 'html');
+        assert.strictEqual(res.contentType, 'text/html');
+        assert.match(res.body, /Remote Setup Access Denied/);
+      });
+    }
+    await test('a request without a socket is treated as remote', async () => {
+      const { res, nextCalled } = await runGuard(remoteSetupGuard, {
+        path: '/api/setup/complete',
+        headers: {},
+      });
+      assert.strictEqual(nextCalled, false);
+      assert.strictEqual(res.statusCode, 403);
+    });
+    await test('a forged X-Forwarded-For does not open the wizard to a remote socket', async () => {
+      const { res, nextCalled } = await runGuard(
+        remoteSetupGuard,
+        makeReq({
+          remoteAddress: '203.0.113.9',
+          headers: { 'x-forwarded-for': '127.0.0.1' },
+          ip: '127.0.0.1',
+        })
+      );
+      assert.strictEqual(nextCalled, false);
+      assert.strictEqual(res.statusCode, 403);
+    });
+
+    // ── 5. Loopback on an open instance ────────────────────────────────────
+    for (const [address, requestPath] of [
+      ['127.0.0.1', '/api/setup/complete'],
+      ['::1', '/api/setup/presets'],
+      ['::ffff:127.0.0.1', '/api/setup/mfa/setup'],
+      ['127.0.0.1', '/setup'],
+    ]) {
+      await test(`${address} on ${requestPath} is allowed`, async () => {
+        const { res, nextCalled } = await runGuard(
+          remoteSetupGuard,
+          makeReq({ remoteAddress: address, path: requestPath })
+        );
+        assert.strictEqual(nextCalled, true);
+        assert.strictEqual(res.statusCode, null);
+      });
+    }
+
+    // ── 6. The opt-in ──────────────────────────────────────────────────────
+    console.log('\n🧪 remoteSetupGuard() — ALLOW_REMOTE_SETUP');
+    await test('ALLOW_REMOTE_SETUP=yes lets a remote caller through', async () => {
+      process.env.ALLOW_REMOTE_SETUP = 'yes';
+      try {
+        const { res, nextCalled } = await runGuard(
+          remoteSetupGuard,
+          makeReq({ remoteAddress: '8.8.8.8' })
+        );
+        assert.strictEqual(nextCalled, true);
+        assert.strictEqual(res.statusCode, null);
+      } finally {
+        delete process.env.ALLOW_REMOTE_SETUP;
+      }
+    });
+    for (const value of ['true', '1', 'YES', 'no', '']) {
+      await test(`ALLOW_REMOTE_SETUP=${JSON.stringify(value)} is not an opt-in`, async () => {
+        process.env.ALLOW_REMOTE_SETUP = value;
+        try {
+          const { res, nextCalled } = await runGuard(
+            remoteSetupGuard,
+            makeReq({ remoteAddress: '8.8.8.8' })
+          );
+          assert.strictEqual(nextCalled, false);
+          assert.strictEqual(res.statusCode, 403);
+        } finally {
+          delete process.env.ALLOW_REMOTE_SETUP;
+        }
+      });
+    }
+
+    // ── 7. The wizard state cannot be read ─────────────────────────────────
+    await test('an error while reading the user table lets the request on', async () => {
+      const realGetUsers = documentModel.getUsers;
+      documentModel.getUsers = async () => {
+        throw new Error('database is locked');
+      };
+      try {
+        const { res, nextCalled } = await runGuard(
+          remoteSetupGuard,
+          makeReq({ remoteAddress: '8.8.8.8' })
+        );
+        assert.strictEqual(
+          nextCalled,
+          true,
+          'the guard hands the question to the next middleware'
+        );
+        assert.strictEqual(res.statusCode, null);
+      } finally {
+        documentModel.getUsers = realGetUsers;
+      }
+    });
+
+    // ── 8. Setup complete ──────────────────────────────────────────────────
+    console.log('\n🧪 remoteSetupGuard() — setup complete');
+    await documentModel.addUser('admin', 'not-a-real-hash');
+    assert.strictEqual(
+      (await documentModel.getUsers()).length,
+      1,
+      'precondition: an administrator exists'
+    );
+
+    for (const requestPath of ['/api/setup/complete', '/setup']) {
+      await test(`administrator present: a remote caller on ${requestPath} passes the guard`, async () => {
+        const { res, nextCalled } = await runGuard(
+          remoteSetupGuard,
+          makeReq({ remoteAddress: '8.8.8.8', path: requestPath })
+        );
+        assert.strictEqual(nextCalled, true);
+        assert.strictEqual(res.statusCode, null);
+      });
+    }
+  } finally {
+    try {
+      documentModel.closeDatabase();
+    } catch {
+      // Already closed.
+    }
+    process.chdir(originalCwd);
+    await fs.rm(tempRoot, { recursive: true, force: true });
   }
 
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '8.8.8.8', path: '/api/processing-status' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
-    );
-    assert('Non-setup path /api/processing-status → next() called', next.wasCalled());
-  }
-
-  // ── Test group: setup already complete ────────────────────────────────────
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '8.8.8.8', path: '/api/setup/complete' }),
-      res, next,
-      { setupOpen: false, allowRemote: false }
-    );
-    assert('Setup closed + remote IP → next() (guard lifted)', next.wasCalled());
-    assert('Setup closed + remote IP → no 403', res._status === null);
-  }
-
-  // ── Test group: setup open, ALLOW_REMOTE_SETUP=yes ───────────────────────
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '8.8.8.8', path: '/api/setup/complete' }),
-      res, next,
-      { setupOpen: true, allowRemote: true }
-    );
-    assert('Setup open + remote IP + allowRemote=yes → next()', next.wasCalled());
-    assert('Setup open + remote IP + allowRemote=yes → no 403', res._status === null);
-  }
-
-  // ── Test group: setup open, localhost ─────────────────────────────────────
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '127.0.0.1', path: '/api/setup/complete' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
-    );
-    assert('Setup open + 127.0.0.1 → next() (localhost allowed)', next.wasCalled());
-    assert('Setup open + 127.0.0.1 → no 403', res._status === null);
-  }
-
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '::1', path: '/api/setup/presets' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
-    );
-    assert('Setup open + ::1 → next() (IPv6 localhost allowed)', next.wasCalled());
-  }
-
-  // ── Test group: setup open, remote IP, no opt-in → 403 ───────────────────
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '8.8.8.8', path: '/api/setup/complete' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
-    );
-    assert('Setup open + remote IP + no opt-in + /api/setup/* → 403', res._status === 403);
-    assert('Setup open + remote IP + no opt-in + /api/setup/* → JSON body', res._type === 'json');
-    assert('Setup open + remote IP + no opt-in + /api/setup/* → next() NOT called', !next.wasCalled());
-    assert('Setup open + remote IP → success=false in body', res._body?.success === false);
-  }
-
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '172.17.0.1', path: '/setup' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
-    );
-    assert('Setup open + Docker-bridge IP + GET /setup → 403', res._status === 403);
-    assert('Setup open + Docker-bridge IP + GET /setup → HTML response', res._type === 'html');
-    assert('Setup open + Docker-bridge IP + GET /setup → next() NOT called', !next.wasCalled());
-  }
-
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '10.0.0.1', path: '/api/setup/paperless/test' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
-    );
-    assert('Setup open + private IP 10.x + /api/setup/* → 403 JSON', res._status === 403);
-    assert('Setup open + private IP 10.x + /api/setup/* → JSON type', res._type === 'json');
-  }
-
-  // ── Test group: edge cases ─────────────────────────────────────────────────
-  {
-    const next = makeNext();
-    const res = makeRes();
-    await setupRemoteAccessGuardTestable(
-      makeReq({ remoteAddress: '::ffff:127.0.0.1', path: '/api/setup/mfa/setup' }),
-      res, next,
-      { setupOpen: true, allowRemote: false }
-    );
-    assert('Setup open + ::ffff:127.0.0.1 → next() (IPv4-mapped loopback)', next.wasCalled());
-  }
-
-  // ── Summary ───────────────────────────────────────────────────────────────
   console.log('\n' + '='.repeat(60));
   console.log(`Results: ${passed} passed, ${failed} failed`);
-
   if (failed > 0) {
     console.error('\n❌ Some tests FAILED.');
-    process.exit(1);
   } else {
     console.log('\n✅ All tests PASSED.');
   }
-})();
+  process.exit(failed > 0 ? 1 : 0);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

@@ -416,22 +416,42 @@ test('The dashboard banner is a status region, not an assertive alert', () => {
 // 2. API payload
 // ──────────────────────────────────────────────────────────────────────────────
 
-const setupRouteSource = fs.readFileSync(
-  path.join(process.cwd(), 'routes', 'setup.js'),
-  'utf8'
-);
-
 test('The health snapshot exposes the fields the banner needs', () => {
-  const snapshot = setupRouteSource.slice(
-    setupRouteSource.indexOf('function buildScannerHealthSnapshot'),
-    setupRouteSource.indexOf('function buildScannerHealthSnapshot') + 1500
-  );
+  const scanHealthService = require('../services/scanHealthService');
+  const scanControl = require('../services/scanControl');
+  const {
+    buildScannerHealthSnapshot,
+  } = require('../services/scannerHealthSnapshot');
 
-  for (const field of ['reachable', 'authorized', 'usable', 'lastCheckedAt']) {
-    assert.ok(
-      snapshot.includes(`${field}: scanner.paperless.${field}`),
-      `Expected the snapshot to expose paperless.${field}`
-    );
+  const paperless = {
+    reachable: false,
+    authorized: true,
+    usable: false,
+    status: 'unreachable',
+    lastCheckedAt: '2026-01-01T00:00:00.000Z',
+    error: 'connect ECONNREFUSED',
+  };
+  const originalHealth = scanHealthService.getState;
+  const originalControl = scanControl.getState;
+  scanHealthService.getState = () => ({ paperless });
+  scanControl.getState = () => ({ running: false });
+  try {
+    const snapshot = buildScannerHealthSnapshot();
+    for (const field of [
+      'reachable',
+      'authorized',
+      'usable',
+      'lastCheckedAt',
+    ]) {
+      assert.strictEqual(
+        snapshot.paperless[field],
+        paperless[field],
+        `Expected the snapshot to expose paperless.${field}`
+      );
+    }
+  } finally {
+    scanHealthService.getState = originalHealth;
+    scanControl.getState = originalControl;
   }
 });
 

@@ -2,7 +2,9 @@
 // Add a new release block at the END of RELEASES whenever you release and keep
 // its `version` in sync with PAPERLESS_AI_VERSION in config.js. Only the
 // latest release is shown in the modal; older blocks stay here as history.
-// Each entry is displayed as one bullet point in the modal.
+// `entries` is the full list the settings page shows. A release may also carry
+// `highlights`, the short list for end users the modal shows instead; without
+// it the modal shows `entries`.
 
 const RELEASES = [
   {
@@ -182,6 +184,57 @@ const RELEASES = [
       'Removed: The Duplicates and Simplify tags pages (/duplicates and /simplify redirect to /tidy-up) and the Local Overrides section',
     ],
   },
+  {
+    version: 'v2026.11.02',
+    highlights: [
+      'New: Password-protected PDFs in the OCR queue can be unlocked, one by one with a typed password or all at once with a password list under Settings → OCR fallback (needs Paperless-ngx 3.0 or later)',
+      'New: The prompt sent to the OCR model can be edited under Settings → OCR fallback',
+      'New: The Manual page handles the hard cases: PDF preview, Run OCR, unlock a password-protected PDF, edit every field, delete, and step through work lists (unprocessed, failed, OCR queue, locked, ignored)',
+      'Fix: A document the AI failed on three times goes to the failed list instead of being analysed again in every scan',
+      'Fix: A document is no longer analysed twice when the scan and the webhook reach it at the same time',
+      'Fix: The settings side list highlights the open topic again',
+      'Improvement: Plus technical changes under the hood. The full list is in <a href="/settings#changelog">Settings → Changelog</a>',
+    ],
+    entries: [
+      'New: Password-protected PDFs in the OCR queue can be unlocked, one by one with a typed password or all at once with a password list stored under Settings → OCR fallback. Paperless-ngx 3.0 or later removes the password and keeps the document as a new version of itself; on older versions such documents are marked as password protected and no longer cost a failed OCR call',
+      'New: The prompt sent to the OCR model can be edited under Settings → OCR fallback, with a button to return to the built-in one (not shown for Mistral, which takes no prompt)',
+      'New: The Manual page shows the document as a PDF preview or as text, runs OCR without writing anything unreviewed, unlocks a password-protected PDF, edits title, correspondent, document type, date and tags with the AI proposal under each field, deletes a document in Paperless-ngx, and steps through work lists (unprocessed, failed, OCR queue, locked, ignored). History, Failed, OCR queue and Ignored link to it',
+      'Security: A session token is accepted only in an "Authorization: Bearer" header, and the routes reachable without login are matched on whole path segments',
+      'Improvement: Updated dependencies (Anthropic and OpenAI SDKs, csrf-csrf, express-rate-limit, openid-client)',
+      'Fix: The scan and the webhook no longer analyse the same document twice when they reach it at the same time',
+      'Fix: A document the AI failed on three times goes to the failed list, where it can be reset, instead of being analysed again in later scans',
+      'Fix: The webhook and a manual rescan protect a document like the scan does: no second OCR run for a document already in the OCR queue, and the same failure reasons and timeout hints',
+      'Fix: A rescan leaves a document alone while it waits for OCR instead of deleting its local data; with OCR switched off, documents left in the OCR queue are processed again',
+      'Fix: The external API is asked once per scan instead of once per document',
+      'Fix: The settings side list highlights the open topic again',
+      'Fix: An OCR key set by the container (OCR_API_KEY or MISTRAL_API_KEY) locks its field, changing the log level shows the restart note, and a Paperless-ngx URL that differs only by a trailing /api or slash no longer restarts the server',
+      'Fix: Pressing Enter in a dialog confirms it instead of cancelling',
+      'Improvement: Saving the minimum content length takes effect without a restart',
+      'Improvement: The server routes are split into one module per feature; nothing changes on the pages',
+      'Removed: The /api/duplicates and /api/simplify endpoints Tidy up does not use (the few it still calls remain)',
+    ],
+  },
+  {
+    version: 'v2026.11.03',
+    highlights: [
+      'New: One list to choose the AI provider, with Mistral added and "Other OpenAI-compatible server" for everything else',
+      'New: Thinking effort for OpenAI, Azure and OpenAI-compatible servers under Settings → AI provider → Advanced options',
+      'Fix: Mistral works as AI provider, also with its reasoning models (Magistral), and Tidy up no longer fails there',
+      'Fix: The OCR test of Quickstart auto-detect passes for Mistral OCR models',
+      'Improvement: Action needed for DeepSeek, GLM and other non-Qwen models behind vLLM, llama.cpp or LM Studio: switch on "Switch thinking through the chat template" (Settings → Tidy up → Advanced options), or they keep thinking in Tidy up',
+      'Improvement: Plus technical changes under the hood. The full list is in <a href="/settings#changelog">Settings → Changelog</a>',
+    ],
+    entries: [
+      'New: The AI provider is one list: OpenAI, Anthropic (Claude), Azure OpenAI, Mistral, IONOS, Ollama, LM Studio and "Other OpenAI-compatible server". Picking Mistral, IONOS or LM Studio fills in address and model; the setup wizard uses the same list. The second "AI Provider" field behind "Manual custom configuration" is gone',
+      'New: Thinking effort (low, medium, high) for OpenAI, Azure and OpenAI-compatible servers. Empty sends nothing; OpenAI gets it only for the models that take it (gpt-5, o-series)',
+      'New: "Switch thinking through the chat template" under Tidy up, for OpenAI-compatible servers: sends chat_template_kwargs to any model when Tidy up switches thinking off',
+      'Improvement: Action needed: chat_template_kwargs now goes to Qwen models only, unless the new switch is on. If you run DeepSeek, GLM or another non-Qwen reasoning model behind vLLM, llama.cpp or LM Studio and Tidy up should not let it think, switch it on (Settings → Tidy up → Advanced options)',
+      'Fix: Mistral answered 422 to Tidy up because of chat_template_kwargs <a href="https://github.com/admonstrator/zettelrobbe/issues/373">(see here)</a>',
+      'Fix: The answers of Mistral reasoning models (Magistral), which arrive as parts with the thinking included, are read correctly',
+      'Fix: Quickstart auto-detect in the settings tested a Mistral OCR model as a chat model and failed; it now tests it the way the OCR fallback Test button does',
+      'Improvement: The fields of an OpenAI-compatible server are called Server address, API key and Model',
+    ],
+  },
 ];
 
 const latestRelease = RELEASES[RELEASES.length - 1];
@@ -211,7 +264,7 @@ const releases = RELEASES.map((release) => ({
 
 module.exports = {
   version: latestRelease.version,
-  entries: latestRelease.entries,
+  entries: latestRelease.highlights || latestRelease.entries,
   releases,
   categorizeEntry,
 };

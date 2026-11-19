@@ -16,7 +16,7 @@
  * 6. Verdicts are upserted, read by key, pruned by age, cleared
  * 7. The simplify service's thin methods sit on the model
  * 8. The calibration round-trips the thinking cost per request
- * 9. A proposal carries its action and merge target; a status is set on many rows at once
+ * 9. A proposal carries its action and merge target; a status is set per row
  */
 
 'use strict';
@@ -393,7 +393,7 @@ async function main() {
     assert.strictEqual(reset.thinkingPerRequest, null);
   });
 
-  await test('A proposal carries its action and merge target; a status is set on many rows', async () => {
+  await test('A proposal carries its action and merge target; a status is set per row', async () => {
     const columns = raw
       .prepare('PRAGMA table_info(tag_split_proposals)')
       .all()
@@ -426,19 +426,23 @@ async function main() {
     assert.strictEqual(patched.action, 'merge');
     assert.strictEqual(patched.mergeInto, 'Bank');
     assert.strictEqual(
-      await documentModel.setTagSplitProposalStatus([21, 22, 999], 'accepted'),
-      2,
-      'two rows exist'
+      await documentModel.updateTagSplitProposal(21, { status: 'accepted' }),
+      true
+    );
+    assert.strictEqual(
+      await documentModel.updateTagSplitProposal(22, { status: 'accepted' }),
+      true
+    );
+    assert.strictEqual(
+      await documentModel.updateTagSplitProposal(999, { status: 'accepted' }),
+      false,
+      'a tag without a proposal changes nothing'
     );
     assert.deepStrictEqual(
       (await documentModel.listTagSplitProposals({ status: 'accepted' })).map(
         (row) => row.tagId
       ),
       [22, 21]
-    );
-    assert.strictEqual(
-      await documentModel.setTagSplitProposalStatus([], 'open'),
-      0
     );
     assert.strictEqual(await documentModel.clearTagSplitProposals(), 4);
   });

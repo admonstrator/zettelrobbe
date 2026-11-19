@@ -14,6 +14,8 @@ const entityNameMatcher = require('./entityNameMatcher');
 
 /** Timeout for the connectivity probe so a hanging host cannot stall a scan. */
 const CONNECTION_PROBE_TIMEOUT_MS = 10000;
+/** How long a read Paperless-ngx version is trusted before it is asked again. */
+const SERVER_VERSION_TTL_MS = 10 * 60 * 1000;
 
 /** Used when PAPERLESS_REQUEST_TIMEOUT_SECONDS is unset or unreadable. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
@@ -62,7 +64,7 @@ function switchedOn(value) {
 /**
  * AI_PROCESSED_TAG_NAME as a list of names.
  *
- * The settings hold one string, but server.js, routes/setup.js and the
+ * The settings hold one string, but server.js, the setup wizard and the
  * duplicates service have always read it as comma-separated. Reading it as a
  * single name here would turn "ai-processed,done" into one tag with a comma in
  * it. An unset or blank value yields an empty list, which is what switches the
@@ -207,6 +209,8 @@ const isUniqueConstraintError = (error) =>
 class PaperlessService {
   constructor() {
     this.client = null;
+    /** @type {{ instance: string, version: string|null, at: number }|null} */
+    this._serverVersion = null;
     this.customFieldCache = new Map();
     this.correspondentNameCache = new Map();
     this.lastCorrespondentRefresh = 0;
@@ -2165,6 +2169,190 @@ class PaperlessService {
     } catch (error) {
       console.error(`[ERROR] fetching document ${documentId}:`, error.message);
       throw error;
+    }
+  }
+
+  /**
+   * The original file of a document's latest version, not the archived PDF:
+   * an encrypted upload has no archived copy, and the password removal works
+   * on the original.
+   *
+   * @param {number} documentId
+   * @returns {Promise<{ buffer: Buffer, mimeType: string }>}
+   */
+  async downloadOriginalFile(documentId) {
+    this.initialize();
+    const response = await this.client.get(
+      `/documents/${documentId}/download/`,
+      {
+        params: { original: true },
+        responseType: 'arraybuffer',
+      }
+    );
+    return {
+      buffer: Buffer.from(response.data),
+      mimeType: response.headers['content-type'] || 'application/octet-stream',
+    };
+  }
+
+  /**
+   * The file Paperless-ngx shows in its own viewer: the archived PDF when
+   * there is one, the original otherwise. Returned as a stream so a large
+   * scan is passed through rather than held in memory.
+   *
+   * @param {number} documentId
+   * @returns {Promise<{ stream: import('stream').Readable, mimeType: string, length: string|null }>}
+   */
+  async getDocumentPreviewStream(documentId) {
+    this.initialize();
+    const response = await this.client.get(
+      `/documents/${documentId}/preview/`,
+      { responseType: 'stream' }
+    );
+    return {
+      stream: response.data,
+      mimeType: response.headers['content-type'] || 'application/octet-stream',
+      length: response.headers['content-length'] || null,
+    };
+  }
+
+  /**
+   * The most recently added documents, newest first, with only the fields a
+   * list needs. Unfiltered: the scan's tag filters do not apply.
+   *
+   * @param {number} limit
+   * @returns {Promise<Array<{ id: number, title: string, created: string|null, added: string|null }>>}
+   */
+  async listRecentDocuments(limit) {
+    this.initialize();
+    const response = await this.client.get('/documents/', {
+      params: {
+        ordering: '-added',
+        page_size: limit,
+        fields: 'id,title,created,added',
+      },
+    });
+    return Array.isArray(response.data?.results) ? response.data.results : [];
+  }
+
+  /**
+   * Deletes a document in Paperless-ngx. Paperless-ngx 2.10 and later move it
+   * to their trash, from where it can be restored until the trash is emptied.
+   *
+   * @param {number} documentId
+   * @returns {Promise<void>}
+   */
+  async deleteDocument(documentId) {
+    this.initialize();
+    await this.client.delete(`/documents/${documentId}/`);
+  }
+
+  /**
+   * The Paperless-ngx release, as its API reports it in the X-Version header
+   * of every authenticated answer, or null when it cannot be told. Kept for
+   * ten minutes per instance: the OCR page asks on every load, and an update
+   * of Paperless-ngx is noticed soon enough.
+   *
+   * @returns {Promise<string|null>}
+   */
+  async getServerVersion() {
+    this.initialize();
+    if (!this.client) return null;
+    const instance = String(config.paperless.apiUrl || '');
+    const cached = this._serverVersion;
+    if (
+      cached &&
+      cached.instance === instance &&
+      Date.now() - cached.at < SERVER_VERSION_TTL_MS
+    ) {
+      return cached.version;
+    }
+    let response;
+    try {
+      response = await this.client.get('/documents/', {
+        params: { page_size: 1, fields: 'id' },
+        timeout: CONNECTION_PROBE_TIMEOUT_MS,
+      });
+    } catch (error) {
+      // Not cached: an unreachable instance is asked again next time.
+      console.warn(
+        `[WARN] Could not read the Paperless-ngx version: ${error.message}`
+      );
+      return null;
+    }
+    const header = response.headers?.['x-version'];
+    const version =
+      typeof header === 'string' && header.trim() ? header.trim() : null;
+    this._serverVersion = { instance, version, at: Date.now() };
+    return version;
+  }
+
+  /**
+   * Whether this Paperless-ngx can remove the password of a document. The
+   * endpoint arrived with 3.0; an instance that does not say its version is
+   * given the benefit of the doubt, and removePassword() reports a missing
+   * endpoint by itself.
+   *
+   * @returns {Promise<{ supported: boolean, version: string|null }>}
+   */
+  async getPasswordRemovalSupport() {
+    const version = await this.getServerVersion();
+    const major = version ? Number.parseInt(version, 10) : NaN;
+    return {
+      supported: Number.isNaN(major) ? version === null : major >= 3,
+      version,
+    };
+  }
+
+  /**
+   * Has Paperless-ngx decrypt a document with the given password. Paperless-ngx
+   * decrypts within the request and then consumes the unlocked file as a new
+   * version of the same document: the ID, tags, correspondent, type and
+   * custom fields stay, the encrypted file remains in the version history,
+   * and Paperless-ngx runs its own OCR on the new version.
+   *
+   * Throws an error with `code` 'unsupported' (no such endpoint, Paperless-ngx
+   * before 3.0), 'forbidden' (the API user may not change the document) or
+   * 'rejected' (Paperless-ngx could not decrypt it, usually a wrong password).
+   *
+   * @param {number} documentId
+   * @param {string} password
+   * @returns {Promise<void>}
+   */
+  async removePassword(documentId, password) {
+    this.initialize();
+    try {
+      await this.client.post('/documents/remove_password/', {
+        documents: [documentId],
+        password,
+        update_document: true,
+        include_metadata: true,
+      });
+    } catch (error) {
+      const status = error.response?.status;
+      /** @type {Error & { code?: string }} */
+      let wrapped;
+      if (status === 404 || status === 405) {
+        wrapped = new Error(
+          'This Paperless-ngx cannot remove passwords; that needs version 3.0 or later'
+        );
+        wrapped.code = 'unsupported';
+      } else if (status === 401 || status === 403) {
+        wrapped = new Error(
+          'The Paperless-ngx user of Zettelrobbe may not change this document'
+        );
+        wrapped.code = 'forbidden';
+      } else if (status === 400) {
+        wrapped = new Error(
+          'Paperless-ngx could not decrypt the document with this password'
+        );
+        wrapped.code = 'rejected';
+      } else {
+        wrapped = new Error(
+          `Paperless-ngx did not remove the password: ${error.message}`
+        );
+      }
+      throw wrapped;
     }
   }
 

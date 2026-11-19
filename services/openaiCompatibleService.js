@@ -38,6 +38,7 @@ const {
   truncateToTokenLimit,
   writePromptToFile,
   extractChatMessageContent,
+  splitChatContent,
   assertCompletionNotTruncated,
   isTimeoutError,
   buildTimeoutErrorMessage,
@@ -62,6 +63,7 @@ const {
   parseAnalysisAnswer,
 } = require('./analysisPrompt');
 const {
+  REASONING_EFFORT_LEVELS,
   normalizeProvider,
   resolveRules,
   transportFor,
@@ -270,7 +272,31 @@ class OpenAICompatibleService {
 
   /** The request rules for a model on this provider. */
   rules(model) {
-    return resolveRules(this.providerId, model);
+    return resolveRules(this.providerId, model, {
+      templateSwitch: config.duplicatesAiTemplateSwitch === 'yes',
+    });
+  }
+
+  /**
+   * The reasoning_effort of one request, or null to send none. A caller who
+   * asked for no thinking gets the lowest effort the model family takes;
+   * otherwise the operator's AI_REASONING_EFFORT goes to the models that
+   * may be sent one.
+   *
+   * @param {import('./aiProviderRules').RequestRules} rules
+   * @param {boolean|null} reasoning
+   * @returns {string|null}
+   */
+  reasoningEffort(rules, reasoning) {
+    if (reasoning === false) {
+      return rules.reasoningEffort && rules.reasoningOffEffort
+        ? rules.reasoningOffEffort
+        : null;
+    }
+    const effort = config.aiReasoningEffort;
+    return rules.effortSetting && REASONING_EFFORT_LEVELS.includes(effort)
+      ? effort
+      : null;
   }
 
   /**
@@ -406,6 +432,8 @@ class OpenAICompatibleService {
       if (rules.temperature) {
         request.temperature = config.aiTemperatureAnalysis;
       }
+      const effort = this.reasoningEffort(rules, null);
+      if (effort) request.reasoning_effort = effort;
 
       const response = await client.chat.completions.create(request);
 
@@ -586,22 +614,17 @@ class OpenAICompatibleService {
     const cap = await this._completionCap(prompt, model, options, rules);
     if (cap !== null) request[rules.maxTokensParam] = cap;
 
-    // The key every server that applies a chat template understands; one
-    // that does not passes it through and the model decides for itself.
+    // The key the servers that apply a chat template understand. Sent where
+    // the rules say so (Qwen, or the operator's DUPLICATES_AI_TEMPLATE_SWITCH):
+    // a hosted API that does not know it answers 422.
     if (rules.thinkingSwitch === 'chat_template' && reasoning !== null) {
       request.chat_template_kwargs = { enable_thinking: reasoning };
     }
     // A hosted reasoning model reads neither of the above and thinks anyway;
-    // the families that take reasoning_effort are told in their dialect.
-    // Only when the caller asked for no thinking, and only for those names —
-    // another model answers 400 for the field.
-    if (
-      reasoning === false &&
-      rules.reasoningEffort &&
-      rules.reasoningOffEffort
-    ) {
-      request.reasoning_effort = rules.reasoningOffEffort;
-    }
+    // the families that take reasoning_effort are told in their dialect when
+    // the caller asked for no thinking. Otherwise the operator's effort.
+    const effort = this.reasoningEffort(rules, reasoning);
+    if (effort) request.reasoning_effort = effort;
     return request;
   }
 
@@ -671,8 +694,13 @@ class OpenAICompatibleService {
       const message = response?.choices?.[0]?.message;
       // Reasoning is no part of the answer, and a block the cut-off left
       // open is no part of it either.
+      const parts = splitChatContent(message?.content);
       const generatedText = extractChatMessageContent(
-        { ...message, content: stripReasoningText(message?.content) },
+        {
+          ...message,
+          content: stripReasoningText(parts.text),
+          reasoning_content: message?.reasoning_content ?? parts.reasoning,
+        },
         label
       );
 
@@ -694,6 +722,7 @@ class OpenAICompatibleService {
         // Reasoning and no answer: the model spent the completion thinking.
         throw message?.reasoning_content ||
           message?.reasoning ||
+          parts.reasoning ||
           /<think>/i.test(String(message?.content ?? ''))
           ? tagFailure(error, FAILURE_KINDS.THINKING)
           : error;

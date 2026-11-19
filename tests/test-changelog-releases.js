@@ -140,6 +140,21 @@ function testEntryLinksSurviveCategorization() {
   );
 }
 
+function testModalShowsHighlightsAndSettingsTheFullList() {
+  const latest = changelog.releases[0];
+  assert.ok(
+    changelog.entries.length <= latest.entries.length,
+    'the modal list (highlights) must not be longer than the full list the settings page shows'
+  );
+  changelog.entries.forEach((entry) => {
+    assert.notStrictEqual(
+      changelog.categorizeEntry(entry).category,
+      'note',
+      `every modal entry of ${latest.version} needs a known category prefix: "${entry}"`
+    );
+  });
+}
+
 function run() {
   testExistingModalApiIsUnchanged();
   testReleasesAreNewestFirst();
@@ -147,6 +162,7 @@ function run() {
   testEveryEntryIsCategorized();
   testCategorizeEntry();
   testEntryLinksSurviveCategorization();
+  testModalShowsHighlightsAndSettingsTheFullList();
 
   console.log('PASS test-changelog-releases');
 }

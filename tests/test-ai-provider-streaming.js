@@ -56,7 +56,11 @@ const path = require('path');
 const OpenAI = require('openai');
 
 const { createFakeOpenAI } = require('./helpers/fake-openai');
-const { jsonFromText } = require('../services/serviceUtils');
+const {
+  extractChatMessageContent,
+  jsonFromText,
+  splitChatContent,
+} = require('../services/serviceUtils');
 const { createFakeOllama } = require('./helpers/fake-ollama');
 
 let passed = 0;
@@ -823,17 +827,53 @@ async function main() {
 
       fakeOpenAI.reset();
       await customService.generateText('judge this', { reasoning: false });
-      const body = fakeOpenAI.last().body;
-      assert.deepStrictEqual(
-        body.chat_template_kwargs,
-        { enable_thinking: false },
-        'the body key is for every OpenAI-compatible server'
+      let body = fakeOpenAI.last().body;
+      assert.strictEqual(
+        'chat_template_kwargs' in body,
+        false,
+        'a hosted API answers 422 for the key, so only Qwen gets it unasked'
       );
       assert.strictEqual(
         body.messages[body.messages.length - 1].content,
         'judge this',
         'the prompt line is a Qwen dialect, and stays out of other prompts'
       );
+
+      process.env.DUPLICATES_AI_TEMPLATE_SWITCH = 'yes';
+      try {
+        fakeOpenAI.reset();
+        await customService.generateText('judge this', { reasoning: false });
+        body = fakeOpenAI.last().body;
+        assert.deepStrictEqual(
+          body.chat_template_kwargs,
+          { enable_thinking: false },
+          'DUPLICATES_AI_TEMPLATE_SWITCH sends it to any model'
+        );
+        assert.strictEqual(
+          body.messages[body.messages.length - 1].content,
+          'judge this'
+        );
+
+        fakeOpenAI.reset();
+        await customService.generateText('judge this');
+        assert.strictEqual(
+          'chat_template_kwargs' in fakeOpenAI.last().body,
+          false,
+          'a caller that says nothing about thinking sends no switch'
+        );
+        fakeOpenAI.reset();
+        await openaiService.generateText('judge this', {
+          reasoning: false,
+          model: 'llama-3.3-70b-instruct',
+        });
+        assert.strictEqual(
+          'chat_template_kwargs' in fakeOpenAI.last().body,
+          false,
+          'the switch is a custom-provider setting'
+        );
+      } finally {
+        delete process.env.DUPLICATES_AI_TEMPLATE_SWITCH;
+      }
       config.custom.model = 'qwen3-32b-instruct';
     });
 
@@ -1012,6 +1052,38 @@ async function main() {
       assert.strictEqual(jsonFromText(null), '');
     });
 
+    await test('content as parts (Mistral reasoning models) yields the text part, not an empty answer', async () => {
+      // The shape mistral-large-latest answers with.
+      const content = [
+        {
+          type: 'thinking',
+          thinking: [{ type: 'text', text: 'Draft: {"title":"x"} hmm' }],
+        },
+        { type: 'text', text: '{"title":"ACME invoice"}' },
+      ];
+      assert.deepStrictEqual(splitChatContent(content), {
+        text: '{"title":"ACME invoice"}',
+        reasoning: 'Draft: {"title":"x"} hmm',
+      });
+      assert.strictEqual(
+        extractChatMessageContent({ content }),
+        '{"title":"ACME invoice"}'
+      );
+      // Thinking only: the JSON comes out of the reasoning, as with
+      // reasoning_content.
+      await quiet(() =>
+        assert.strictEqual(
+          extractChatMessageContent({ content: [content[0]] }),
+          '{"title":"x"}'
+        )
+      );
+      assert.deepStrictEqual(splitChatContent(null), {
+        text: '',
+        reasoning: '',
+      });
+      assert.strictEqual(splitChatContent('plain').text, 'plain');
+    });
+
     // ----------------------------------------- the switch per model family
 
     await test('reasoning: false sends reasoning_effort where the family takes it', async () => {
@@ -1040,10 +1112,12 @@ async function main() {
           false,
           `custom: ${model} answers 400 for a field it does not know`
         );
-        assert.deepStrictEqual(body.chat_template_kwargs, {
-          enable_thinking: false,
-        });
       }
+      assert.deepStrictEqual(
+        (await bodyOf(customService, 'qwen3-32b-instruct'))
+          .chat_template_kwargs,
+        { enable_thinking: false }
+      );
 
       for (const [name, service] of [
         ['openai', openaiService],
@@ -1089,6 +1163,63 @@ async function main() {
           model: 'gpt-oss-120b',
         });
         assert.strictEqual('reasoning_effort' in fakeOpenAI.last().body, false);
+      }
+    });
+
+    await test('AI_REASONING_EFFORT goes to the models that may take it', async () => {
+      useScript({ chunks: [{ content: 'ok' }] });
+
+      /** The reasoning_effort of one call, undefined for none. */
+      const effortOf = async (service, model, options = {}) => {
+        fakeOpenAI.reset();
+        await service.generateText('judge this', { ...options, model });
+        return fakeOpenAI.last().body.reasoning_effort;
+      };
+
+      process.env.AI_REASONING_EFFORT = 'High';
+      try {
+        assert.strictEqual(await effortOf(openaiService, 'gpt-5-mini'), 'high');
+        assert.strictEqual(await effortOf(openaiService, 'o3-mini'), 'high');
+        assert.strictEqual(
+          await effortOf(openaiService, 'gpt-4o-mini'),
+          undefined,
+          'openai: gpt-4o answers 400 for the field'
+        );
+        assert.strictEqual(
+          await effortOf(azureService, 'my-deployment'),
+          'high',
+          'azure: a deployment name says nothing, the setting decides'
+        );
+        assert.strictEqual(
+          await effortOf(customService, 'magistral-medium-latest'),
+          'high',
+          'custom: any model, as set'
+        );
+        assert.strictEqual(
+          await effortOf(customService, 'gpt-oss-120b', { reasoning: true }),
+          'high'
+        );
+        assert.strictEqual(
+          await effortOf(customService, 'gpt-oss-120b', { reasoning: false }),
+          'low',
+          'a caller that wants no thinking wins'
+        );
+        assert.strictEqual(
+          await effortOf(customService, 'magistral-medium-latest', {
+            reasoning: false,
+          }),
+          undefined,
+          'and gets no effort where the family has no low end'
+        );
+
+        process.env.AI_REASONING_EFFORT = 'extreme';
+        assert.strictEqual(
+          await effortOf(customService, 'magistral-medium-latest'),
+          undefined,
+          'an unknown level is never sent'
+        );
+      } finally {
+        delete process.env.AI_REASONING_EFFORT;
       }
     });
   } finally {

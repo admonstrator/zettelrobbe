@@ -20,6 +20,7 @@ process.env.HEALTH_SCAN_FAILURE_THRESHOLD = '3';
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 
 const {
   ScanHealthService,
@@ -355,8 +356,12 @@ test('The initial scan runs through the guarded scan function', () => {
 });
 
 test('Every scan run probes Paperless-ngx explicitly', () => {
+  const scanServiceSource = fs.readFileSync(
+    path.join(process.cwd(), 'services', 'scanService.js'),
+    'utf8'
+  );
   assert.ok(
-    serverSource.includes('paperlessService.checkConnection()'),
+    scanServiceSource.includes('paperlessService.checkConnection()'),
     'Read helpers swallow transport errors, so the scan must probe connectivity itself'
   );
 });
@@ -372,10 +377,7 @@ test('RECONCILIATION_ENABLED=no actually disables reconciliation', () => {
 // 4. /health reporting
 // ──────────────────────────────────────────────────────────────────────────────
 
-const setupRouteSource = fs.readFileSync(
-  path.join(process.cwd(), 'routes', 'setup.js'),
-  'utf8'
-);
+const setupRouteSource = readRouteSources();
 
 test('/health reports the scanner state', () => {
   assert.ok(

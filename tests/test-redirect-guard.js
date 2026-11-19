@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 const {
   createRedirectGuard,
@@ -85,9 +87,45 @@ function testStripTrailingSlashes() {
   );
 }
 
+// Server code trims URLs with stripTrailingSlashes(), never with the
+// quadratic pattern: a settings save of a URL made of many slashes once held
+// the event loop for minutes (CodeQL js/polynomial-redos).
+function testNoQuadraticSlashPatternOnServer() {
+  const root = path.join(__dirname, '..');
+  const pattern = ['/\\', '/+$/'].join('');
+  const offenders = [];
+  const scan = (file) => {
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    lines.forEach((line, index) => {
+      const code = line.trim();
+      if (code.startsWith('*') || code.startsWith('//')) return;
+      if (code.includes(pattern)) {
+        offenders.push(`${path.relative(root, file)}:${index + 1}`);
+      }
+    });
+  };
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) scan(full);
+    }
+  };
+  ['config', 'middleware', 'models', 'routes', 'services'].forEach((dir) =>
+    walk(path.join(root, dir))
+  );
+  scan(path.join(root, 'server.js'));
+  assert.deepStrictEqual(
+    offenders,
+    [],
+    `Use stripTrailingSlashes() in ${offenders.join(', ')}`
+  );
+}
+
 function main() {
   testRedirectGuard();
   testStripTrailingSlashes();
+  testNoQuadraticSlashPatternOnServer();
 }
 
 try {

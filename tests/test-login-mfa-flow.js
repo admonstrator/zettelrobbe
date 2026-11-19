@@ -72,7 +72,7 @@ function generateTotpToken(secret, unixTimeSeconds) {
     ((hmac[offset + 2] & 0xff) << 8) |
     (hmac[offset + 3] & 0xff);
 
-  return String(code % (10 ** TOTP_DIGITS)).padStart(TOTP_DIGITS, '0');
+  return String(code % 10 ** TOTP_DIGITS).padStart(TOTP_DIGITS, '0');
 }
 
 function serializeForm(fields) {
@@ -89,7 +89,10 @@ function getDb() {
 }
 
 function ensureMfaColumns(database) {
-  const columns = database.prepare("PRAGMA table_info('users')").all().map((row) => row.name);
+  const columns = database
+    .prepare("PRAGMA table_info('users')")
+    .all()
+    .map((row) => row.name);
   if (!columns.includes('mfa_enabled')) {
     database.exec('ALTER TABLE users ADD COLUMN mfa_enabled INTEGER DEFAULT 0');
   }
@@ -98,14 +101,37 @@ function ensureMfaColumns(database) {
   }
 }
 
-async function postLogin(body, cookieHeader) {
+/**
+ * The login form's CSRF pair: the cookie GET /login sets and the token it
+ * renders into the form. Every POST /login has to send both (double-submit
+ * CSRF protection in server.js), or it is refused with 403.
+ */
+async function getLoginCsrf() {
+  const page = await axios.get(`${BASE_URL}/login`, {
+    validateStatus: () => true,
+    maxRedirects: 0,
+  });
+  const cookie = extractCookieValue(
+    page.headers['set-cookie'],
+    'psai.x-csrf-token'
+  );
+  const match = String(page.data).match(/name="_csrf" value="([^"]+)"/);
+  if (!cookie || !match) {
+    throw new Error('GET /login did not hand out a CSRF cookie and token');
+  }
+  return { cookie, token: match[1] };
+}
+
+async function postLogin(fields, cookieHeader) {
+  const csrf = await getLoginCsrf();
+  const body = serializeForm({ ...fields, _csrf: csrf.token });
   return axios.post(`${BASE_URL}/login`, body, {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(cookieHeader ? { Cookie: cookieHeader } : {})
+      Cookie: [csrf.cookie, cookieHeader].filter(Boolean).join('; '),
     },
     validateStatus: () => true,
-    maxRedirects: 0
+    maxRedirects: 0,
   });
 }
 
@@ -124,7 +150,9 @@ async function run() {
   console.log('='.repeat(46));
 
   if (!TEST_USERNAME || !TEST_PASSWORD) {
-    console.log('Skipped: set LOGIN_TEST_USERNAME and LOGIN_TEST_PASSWORD to run this test.');
+    console.log(
+      'Skipped: set LOGIN_TEST_USERNAME and LOGIN_TEST_PASSWORD to run this test.'
+    );
     process.exit(0);
   }
 
@@ -134,26 +162,37 @@ async function run() {
   try {
     ensureMfaColumns(db);
 
-    originalRow = db.prepare('SELECT username, mfa_enabled, mfa_secret FROM users WHERE username = ?').get(TEST_USERNAME);
+    originalRow = db
+      .prepare(
+        'SELECT username, mfa_enabled, mfa_secret FROM users WHERE username = ?'
+      )
+      .get(TEST_USERNAME);
     if (!originalRow) {
       throw new Error(`User '${TEST_USERNAME}' not found`);
     }
 
-    db.prepare('UPDATE users SET mfa_enabled = 1, mfa_secret = ? WHERE username = ?').run(TEST_SECRET, TEST_USERNAME);
+    db.prepare(
+      'UPDATE users SET mfa_enabled = 1, mfa_secret = ? WHERE username = ?'
+    ).run(TEST_SECRET, TEST_USERNAME);
 
     console.log('1) Submit credentials and expect MFA challenge...');
-    const stepOneBody = serializeForm({
+    const stepOneBody = {
       username: TEST_USERNAME,
       password: TEST_PASSWORD,
-      mfaStep: 0
-    });
+      mfaStep: 0,
+    };
     const stepOne = await postLogin(stepOneBody);
 
     if (stepOne.status !== 200) {
-      throw new Error(`Expected HTTP 200 on step 1, received ${stepOne.status}`);
+      throw new Error(
+        `Expected HTTP 200 on step 1, received ${stepOne.status}`
+      );
     }
 
-    const mfaChallengeCookie = extractCookieValue(stepOne.headers['set-cookie'], 'mfa_challenge');
+    const mfaChallengeCookie = extractCookieValue(
+      stepOne.headers['set-cookie'],
+      'mfa_challenge'
+    );
     if (!mfaChallengeCookie) {
       throw new Error('MFA challenge cookie missing after valid credentials');
     }
@@ -163,39 +202,53 @@ async function run() {
     }
 
     console.log('2) Submit invalid MFA token and expect error page...');
-    const invalidStepBody = serializeForm({
+    const invalidStepBody = {
       username: TEST_USERNAME,
       mfaStep: 1,
-      mfaToken: '000000'
-    });
+      mfaToken: '000000',
+    };
     const invalidStep = await postLogin(invalidStepBody, mfaChallengeCookie);
 
     if (invalidStep.status !== 200) {
-      throw new Error(`Expected HTTP 200 for invalid MFA token, received ${invalidStep.status}`);
+      throw new Error(
+        `Expected HTTP 200 for invalid MFA token, received ${invalidStep.status}`
+      );
     }
 
     if (!String(invalidStep.data).includes('Invalid authentication code')) {
-      throw new Error('Invalid MFA token did not show expected validation message');
+      throw new Error(
+        'Invalid MFA token did not show expected validation message'
+      );
     }
 
     console.log('3) Submit valid MFA token and expect dashboard redirect...');
-    const validToken = generateTotpToken(TEST_SECRET, Math.floor(Date.now() / 1000));
-    const validStepBody = serializeForm({
+    const validToken = generateTotpToken(
+      TEST_SECRET,
+      Math.floor(Date.now() / 1000)
+    );
+    const validStepBody = {
       username: TEST_USERNAME,
       mfaStep: 1,
-      mfaToken: validToken
-    });
+      mfaToken: validToken,
+    };
     const validStep = await postLogin(validStepBody, mfaChallengeCookie);
 
     if (validStep.status !== 302) {
-      throw new Error(`Expected HTTP 302 for valid MFA login, received ${validStep.status}`);
+      throw new Error(
+        `Expected HTTP 302 for valid MFA login, received ${validStep.status}`
+      );
     }
 
     if (validStep.headers.location !== '/dashboard') {
-      throw new Error(`Expected redirect to /dashboard, got '${validStep.headers.location || 'none'}'`);
+      throw new Error(
+        `Expected redirect to /dashboard, got '${validStep.headers.location || 'none'}'`
+      );
     }
 
-    const jwtCookie = extractCookieValue(validStep.headers['set-cookie'], 'jwt');
+    const jwtCookie = extractCookieValue(
+      validStep.headers['set-cookie'],
+      'jwt'
+    );
     if (!jwtCookie) {
       throw new Error('JWT cookie missing after successful MFA login');
     }
@@ -207,7 +260,9 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (originalRow) {
-      db.prepare('UPDATE users SET mfa_enabled = ?, mfa_secret = ? WHERE username = ?').run(
+      db.prepare(
+        'UPDATE users SET mfa_enabled = ?, mfa_secret = ? WHERE username = ?'
+      ).run(
         originalRow.mfa_enabled || 0,
         originalRow.mfa_secret || null,
         originalRow.username

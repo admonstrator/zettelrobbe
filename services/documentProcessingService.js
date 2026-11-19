@@ -1,7 +1,7 @@
 /**
  * The write-back half of document processing, shared by every path that
  * analyses a document: the scheduled scan (server.js), the manual queue
- * (routes/setup.js) and the OCR service.
+ * (services/webhookQueueService.js) and the OCR service.
  *
  * Each of the three used to carry its own copy of these steps, and the copies
  * drifted: the queue marked documents as processed when Paperless-ngx had

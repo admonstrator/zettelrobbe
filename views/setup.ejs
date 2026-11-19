@@ -282,7 +282,7 @@
                             <input id="removeInboxTagsAfterProcessing" type="checkbox" class="zr-toggle" <%= config.REMOVE_INBOX_TAGS_AFTER_PROCESSING === 'yes' ? 'checked' : '' %>>
                             <span>
                                 <strong>Remove the inbox tag when a document is done</strong>
-                                <span class="zr-field__hint">Paperless-ngx marks the tags it uses as inbox; every one of them is taken off a document once the analysis was written. Use it when you let the analysis file documents on its own.</span>
+                                <span class="zr-field__hint">Takes every Paperless-ngx inbox tag off a document once its analysis is written.</span>
                             </span>
                         </label>
 
@@ -371,7 +371,7 @@
                     <div id="aiManualPanel" class="hidden">
                         <div class="zr-formgrid">
                             <div class="zr-field zr-field--stacked zr-formgrid__wide">
-                                <label for="aiPreset" class="zr-field__name">Provider preset</label>
+                                <label for="aiPreset" class="zr-field__name">AI provider</label>
                                 <select id="aiPreset" class="zr-input"></select>
                                 <p id="aiPresetHint" class="zr-field__hint"></p>
                             </div>

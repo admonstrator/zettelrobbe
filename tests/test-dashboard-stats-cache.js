@@ -24,6 +24,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readRouteSources } = require('./helpers/route-sources');
 const Module = require('module');
 
 let passed = 0;
@@ -587,10 +588,7 @@ function holdEventLoopOpen() {
     // ──────────────────────────────────────────────────────────────────────────
 
     await test('The endpoint does not assemble statistics itself', () => {
-      const routeSource = fs.readFileSync(
-        path.join(__dirname, '..', 'routes', 'setup.js'),
-        'utf8'
-      );
+      const routeSource = readRouteSources();
       const start = routeSource.indexOf("router.get('/api/dashboard/stats'");
       assert.ok(start > -1, 'The endpoint is missing');
 

@@ -1,0 +1,43 @@
+{
+  "//": "Type checking only, no build: the app runs as plain JavaScript. A file is checked when it starts with // @ts-check AND is listed under files. New and extracted modules join the list; legacy files stay out until they are cleaned up.",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2024",
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "files": [
+    "services/restartService.js",
+    "services/ocrPrompt.js",
+    "scripts/route-proof.js",
+    "tests/test-route-table.js",
+    "middleware/authGate.js",
+    "middleware/rateLimiters.js",
+    "services/loginView.js",
+    "services/mfaService.js",
+    "services/scanControl.js",
+    "services/sessionCookie.js",
+    "services/thumbnailCache.js",
+    "services/userPresence.js",
+    "services/webhookQueueService.js",
+    "types/jsonwebtoken.d.ts",
+    "services/settingsCatalog.js",
+    "services/settingsService.js",
+    "services/documentPipeline.js",
+    "routes/index.js",
+    "tests/test-route-shadowing.js",
+    "services/bootIdentity.js",
+    "middleware/caller.js",
+    "routes/auth.js",
+    "services/scanService.js",
+    "tests/test-typecheck-config.js",
+    "services/pdfPasswordService.js",
+    "services/pdfUnlockService.js"
+  ]
+}

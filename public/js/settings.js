@@ -614,8 +614,6 @@ function initializeFormHandlers() {
     .map((entry) => String(entry?.id || '').trim())
     .filter(Boolean);
 
-  const aiPresetSelect = document.getElementById('aiPreset');
-  const aiPresetHint = document.getElementById('aiPresetHint');
   const aiProviderSelect = document.getElementById('aiProvider');
   const ollamaUrlInput = document.getElementById('ollamaUrl');
   const ollamaApiKeyInput = document.getElementById('ollamaApiKey');
@@ -642,6 +640,7 @@ function initializeFormHandlers() {
   const ocrApiUrlInput = document.getElementById('ocrApiUrl');
   const ocrApiKeyInput = document.getElementById('ocrApiKey');
   const ocrModelInput = document.getElementById('mistralOcrModel');
+  const ocrPromptInput = document.getElementById('ocrPrompt');
   const ocrValidationTimeoutInput = document.getElementById(
     'ocrValidationTimeout'
   );
@@ -791,230 +790,98 @@ function initializeFormHandlers() {
     }
   };
 
-  const getCurrentAiFormValues = () => {
-    const provider = String(aiProviderSelect?.value || '')
-      .trim()
-      .toLowerCase();
-    if (provider === 'openai') {
-      return {
-        provider,
-        apiUrl: 'https://api.openai.com/v1',
-        model: String(
-          document.getElementById('openaiModel')?.value || ''
-        ).trim(),
-      };
-    }
-    if (provider === 'ollama') {
-      return {
-        provider,
-        apiUrl: String(ollamaUrlInput?.value || '')
-          .trim()
-          .replace(/\/+$/, ''),
-        model: String(ollamaModelInput?.value || '').trim(),
-      };
-    }
-    if (provider === 'azure') {
-      return {
-        provider,
-        apiUrl: String(document.getElementById('azureEndpoint')?.value || '')
-          .trim()
-          .replace(/\/+$/, ''),
-        model: String(
-          document.getElementById('azureDeploymentName')?.value || ''
-        ).trim(),
-      };
-    }
-    if (provider === 'anthropic') {
-      // An empty URL is api.anthropic.com, which is what the preset says.
-      return {
-        provider,
-        apiUrl: String(anthropicApiUrlInput?.value || '')
-          .trim()
-          .replace(/\/+$/, ''),
-        model: String(anthropicModelInput?.value || '').trim(),
-      };
-    }
-
-    return {
-      provider: 'custom',
-      apiUrl: String(customBaseUrlInput?.value || '')
-        .trim()
-        .replace(/\/+$/, ''),
-      model: String(customModelInput?.value || '').trim(),
-    };
+  /* The provider field is one list: its value is the provider, and the
+     entries that share the custom provider (Mistral, LM Studio, "Other …")
+     tell apart by data-choice and by their address. */
+  const trimSlashes = (value) => {
+    let text = String(value || '').trim();
+    while (text.endsWith('/')) text = text.slice(0, -1);
+    return text;
   };
 
-  const findMatchingAiPreset = () => {
-    const current = getCurrentAiFormValues();
+  const aiChoiceFor = (provider, apiUrl) => {
+    if (provider !== 'custom') {
+      return aiProviderPresets.find((entry) => entry.provider === provider);
+    }
+    const url = trimSlashes(apiUrl);
     return (
-      aiProviderPresets.find((preset) => {
-        const presetProvider = String(preset.provider || '')
-          .trim()
-          .toLowerCase();
-        const presetApiUrl = String(preset.apiUrl || '')
-          .trim()
-          .replace(/\/+$/, '');
-        const presetModel = String(preset.model || '').trim();
-        return (
-          presetProvider === current.provider &&
-          presetApiUrl === current.apiUrl &&
-          presetModel === current.model
-        );
-      }) || null
+      (url &&
+        aiProviderPresets.find(
+          (entry) =>
+            entry.provider === 'custom' &&
+            entry.apiUrl &&
+            trimSlashes(entry.apiUrl) === url
+        )) ||
+      aiProviderPresets.find(
+        (entry) => entry.provider === 'custom' && !entry.apiUrl
+      )
     );
   };
 
-  const applyAiPresetToSettings = (preset) => {
-    if (!preset) {
-      if (aiPresetHint) {
-        aiPresetHint.textContent =
-          'Manual mode: choose provider and enter values yourself.';
-      }
-      return;
-    }
+  /* Shows the entry a provider and a custom address stand for, without
+     touching any field. */
+  const showAiProviderChoice = (provider, apiUrl) => {
+    const choice = aiChoiceFor(provider, apiUrl);
+    const option = Array.from(aiProviderSelect?.options || []).find((entry) =>
+      choice ? entry.dataset.choice === choice.id : entry.value === provider
+    );
+    if (option) option.selected = true;
+  };
 
-    const provider = String(preset.provider || 'custom')
-      .trim()
-      .toLowerCase();
-    if (aiProviderSelect) {
-      aiProviderSelect.value = provider;
-      aiProviderSelect.dispatchEvent(new Event('change'));
-    }
+  const refreshAiProviderChoice = () => {
+    if (!aiProviderSelect) return;
+    showAiProviderChoice(aiProviderSelect.value, customBaseUrlInput?.value);
+  };
 
-    if (provider === 'openai') {
-      const openaiModel = document.getElementById('openaiModel');
-      if (openaiModel && preset.model) {
-        if (
-          !Array.from(openaiModel.options).some(
-            (option) => option.value === preset.model
-          )
-        ) {
-          const option = document.createElement('option');
-          option.value = preset.model;
-          option.textContent = preset.model;
-          openaiModel.appendChild(option);
+  /* A select shows a value only when it has an option for it. */
+  const setModelValue = (select, value) => {
+    if (!select || !value) return;
+    if (!Array.from(select.options).some((option) => option.value === value)) {
+      select.appendChild(new Option(value, value));
+    }
+    select.value = value;
+  };
+
+  /* What picking an entry fills in. A custom entry brings its address, and
+     its model unless the address was already its own; "Other" clears an
+     address that belongs to a named entry. The other providers keep what is
+     stored and only fill an empty field. */
+  const applyAiProviderChoice = (choice) => {
+    if (!choice) return;
+    if (choice.provider === 'custom') {
+      const current = trimSlashes(customBaseUrlInput?.value);
+      if (choice.apiUrl) {
+        if (current !== trimSlashes(choice.apiUrl) && customBaseUrlInput) {
+          customBaseUrlInput.value = choice.apiUrl;
+          setModelValue(customModelInput, choice.model);
         }
-        openaiModel.value = preset.model;
+      } else if (aiChoiceFor('custom', current)?.apiUrl) {
+        if (customBaseUrlInput) customBaseUrlInput.value = '';
+        if (customModelInput) customModelInput.value = '';
       }
-    } else if (provider === 'ollama') {
-      if (ollamaUrlInput)
-        ollamaUrlInput.value = String(preset.apiUrl || '').trim();
-      if (ollamaModelInput)
-        ollamaModelInput.value = String(preset.model || '').trim();
-    } else if (provider === 'custom') {
-      if (customBaseUrlInput)
-        customBaseUrlInput.value = String(preset.apiUrl || '').trim();
-      if (customModelInput)
-        customModelInput.value = String(preset.model || '').trim();
-      if (customApiKeyInput) {
+      if (customApiKeyInput && customApiKeyInput.placeholder !== 'Configured') {
         customApiKeyInput.placeholder =
-          preset.tokenPlaceholder || customApiKeyInput.placeholder;
+          choice.tokenPlaceholder || 'Enter API key';
       }
-    } else if (provider === 'azure') {
-      const azureEndpoint = document.getElementById('azureEndpoint');
-      const azureDeploymentName = document.getElementById(
-        'azureDeploymentName'
-      );
-      if (azureEndpoint)
-        azureEndpoint.value = String(preset.apiUrl || '').trim();
-      if (azureDeploymentName)
-        azureDeploymentName.value = String(preset.model || '').trim();
-    } else if (provider === 'anthropic') {
-      if (anthropicApiUrlInput)
-        anthropicApiUrlInput.value = String(preset.apiUrl || '').trim();
-      if (anthropicModelInput) {
-        const presetModel =
-          String(preset.model || '').trim() ||
-          String(anthropicOptions.defaultModel || '');
-        populateModelSelect(
-          anthropicModelInput,
-          [...anthropicSuggestedModelIds, presetModel],
-          'Select Claude model',
-          { preferred: presetModel }
-        );
+    } else if (choice.provider === 'ollama') {
+      if (ollamaUrlInput && !ollamaUrlInput.value.trim()) {
+        ollamaUrlInput.value = choice.apiUrl;
       }
-      if (
-        anthropicApiKeyInput &&
-        preset.tokenPlaceholder &&
-        anthropicApiKeyInput.placeholder !== 'Configured'
-      ) {
-        anthropicApiKeyInput.placeholder = preset.tokenPlaceholder;
+      if (ollamaModelInput && !ollamaModelInput.value.trim()) {
+        setModelValue(ollamaModelInput, choice.model);
       }
-    }
-
-    if (aiPresetHint) {
-      aiPresetHint.textContent = `Preset "${preset.label}" selected.`;
     }
   };
 
-  const refreshAiPresetSelection = () => {
-    if (!aiPresetSelect) {
-      return;
-    }
-
-    const matchingPreset = findMatchingAiPreset();
-    if (matchingPreset) {
-      aiPresetSelect.value = matchingPreset.id;
-      if (aiPresetHint) {
-        aiPresetHint.textContent = `Preset "${matchingPreset.label}" selected.`;
-      }
-      return;
-    }
-
-    aiPresetSelect.value = '';
-    if (aiPresetHint) {
-      aiPresetHint.textContent =
-        'Manual mode: choose provider and enter values yourself.';
-    }
-  };
-
-  const initAiPresets = () => {
-    if (!aiPresetSelect) {
-      return;
-    }
-
-    aiPresetSelect.innerHTML = '';
-    const customOption = document.createElement('option');
-    customOption.value = '';
-    customOption.textContent = 'Manual custom configuration';
-    aiPresetSelect.appendChild(customOption);
-
-    aiProviderPresets.forEach((preset) => {
-      const option = document.createElement('option');
-      option.value = String(preset.id || '');
-      option.textContent = String(preset.label || preset.id || 'Preset');
-      aiPresetSelect.appendChild(option);
-    });
-
-    refreshAiPresetSelection();
-    aiPresetSelect.addEventListener('change', () => {
-      const selectedPreset =
-        aiProviderPresets.find(
-          (entry) => String(entry.id || '') === aiPresetSelect.value
-        ) || null;
-      applyAiPresetToSettings(selectedPreset);
-    });
-  };
-
-  initAiPresets();
-
-  [
-    aiProviderSelect,
-    ollamaUrlInput,
-    ollamaModelInput,
-    customBaseUrlInput,
-    customModelInput,
-    document.getElementById('openaiModel'),
-    document.getElementById('azureEndpoint'),
-    document.getElementById('azureDeploymentName'),
-    anthropicModelInput,
-    anthropicApiUrlInput,
-  ].forEach((element) => {
-    if (element) {
-      element.addEventListener('change', () => refreshAiPresetSelection());
-      element.addEventListener('input', () => refreshAiPresetSelection());
-    }
+  // A person's pick arrives as 'input' as well as 'change'; code that sets
+  // the provider dispatches 'change' only, so it never fills fields.
+  aiProviderSelect?.addEventListener('input', () => {
+    const option = aiProviderSelect.selectedOptions[0];
+    applyAiProviderChoice(
+      aiProviderPresets.find((entry) => entry.id === option?.dataset.choice)
+    );
   });
+  customBaseUrlInput?.addEventListener('change', refreshAiProviderChoice);
 
   const isTimeoutMessage = (message) => {
     const normalized = String(message || '').toLowerCase();
@@ -1099,7 +966,7 @@ function initializeFormHandlers() {
           title: 'Models loaded',
           text: `${models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.'}${resolvedInfo}`,
         });
-        refreshAiPresetSelection();
+        refreshAiProviderChoice();
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
           'AI model discovery',
@@ -1167,7 +1034,7 @@ function initializeFormHandlers() {
           title: 'Models loaded',
           text: `${models.length > 0 ? `Found ${models.length} model(s).` : 'No models found.'}${resolvedInfo}`,
         });
-        refreshAiPresetSelection();
+        refreshAiProviderChoice();
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
           'AI model discovery',
@@ -1386,6 +1253,27 @@ function initializeFormHandlers() {
 
   const isClaudeModelName = (model) => /^claude-/i.test(String(model || ''));
 
+  /* The body of an OCR connection test, read from the OCR fallback fields.
+     The quickstart writes its choice into these fields first and tests the
+     same way, so a Mistral OCR model is tested against Mistral's OCR API and
+     not as a chat model. */
+  const ocrTestPayload = () => ({
+    enabled: true,
+    provider: normalizeOcrProviderForApi(ocrProviderSelect?.value || 'mistral'),
+    apiUrl: normalizeOcrApiUrlForProvider(
+      ocrProviderSelect?.value || 'mistral',
+      ocrApiUrlInput?.value
+    ),
+    apiKey: String(ocrApiKeyInput?.value || '').trim(),
+    // Claude OCR picks the AI model when this is empty; the Mistral default
+    // would only be replaced again.
+    model:
+      String(ocrModelInput?.value || '').trim() ||
+      (ocrProviderSelect?.value === 'anthropic' ? '' : 'mistral-ocr-latest'),
+    setupOcrValidationTimeoutMs: getOcrValidationTimeoutMs(),
+    ...getAnthropicFallbackForOcr(),
+  });
+
   /* The OCR model select for Claude: the suggested models, with the current
      choice kept when it is a Claude model and the AI provider's model (or the
      default) preselected otherwise. */
@@ -1422,6 +1310,12 @@ function initializeFormHandlers() {
   let previousOcrProvider = String(
     ocrProviderSelect?.value || 'mistral'
   ).toLowerCase();
+
+  // The built-in OCR prompt of a provider, as the page renders it.
+  const defaultOcrPrompt = (provider) =>
+    (provider === 'anthropic'
+      ? ocrPromptInput?.dataset.defaultAnthropic
+      : ocrPromptInput?.dataset.defaultLocal) || '';
 
   const toggleOcrFields = () => {
     if (!ocrEnabledSelect || !ocrProviderSelect) return;
@@ -1475,6 +1369,20 @@ function initializeFormHandlers() {
       );
     }
 
+    // Mistral's OCR API takes no prompt. A prompt still showing the previous
+    // provider's built-in one follows the switch; an edited one stays.
+    document
+      .getElementById('ocrPromptContainer')
+      ?.classList.toggle('hidden', !enabled || provider === 'mistral');
+    if (
+      ocrPromptInput &&
+      ['', defaultOcrPrompt(previousOcrProvider)].includes(
+        ocrPromptInput.value.replace(/\r\n?/g, '\n').trim()
+      )
+    ) {
+      ocrPromptInput.value = defaultOcrPrompt(provider);
+    }
+
     // PDF page rendering only applies to local vision models; Mistral and
     // Claude read PDFs natively.
     const ocrPdfRenderContainer = document.getElementById(
@@ -1493,6 +1401,52 @@ function initializeFormHandlers() {
 
     previousOcrProvider = provider;
   };
+
+  document
+    .getElementById('ocrPromptResetBtn')
+    ?.addEventListener('click', () => {
+      if (!ocrPromptInput) return;
+      ocrPromptInput.value = defaultOcrPrompt(
+        String(ocrProviderSelect?.value || 'mistral').toLowerCase()
+      );
+      // Tells the unsaved-changes bar, which listens for input.
+      ocrPromptInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+  // Saving only adds PDF passwords; removing them is a request of its own.
+  const pdfPasswordsDeleteBtn = document.getElementById(
+    'pdfPasswordsDeleteBtn'
+  );
+  pdfPasswordsDeleteBtn?.addEventListener('click', async () => {
+    const count = Number(pdfPasswordsDeleteBtn.dataset.count) || 0;
+    const answer = await zrDialog({
+      icon: 'warning',
+      title: 'Delete All Passwords',
+      text: `${count === 1 ? 'The stored PDF password is' : `All ${count} stored PDF passwords are`} deleted. Locked documents can then only be unlocked with a password typed in again.`,
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Cancel',
+    });
+    if (!answer.isConfirmed) return;
+    pdfPasswordsDeleteBtn.disabled = true;
+    try {
+      const response = await fetch('/api/settings/pdf-passwords', {
+        method: 'DELETE',
+      });
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'The passwords were not deleted');
+      }
+      const field = document.getElementById('pdfPasswords');
+      if (field) field.placeholder = 'One password per line';
+      document.getElementById('pdfPasswordsAddHint')?.remove();
+      pdfPasswordsDeleteBtn.remove();
+      window.__zrToast?.(result.message, { tone: 'ok' });
+    } catch (error) {
+      pdfPasswordsDeleteBtn.disabled = false;
+      await zrDialog({ icon: 'error', title: 'Error', text: error.message });
+    }
+  });
 
   if (ocrProviderSelect) {
     const initialProvider = String(
@@ -1763,7 +1717,10 @@ function initializeFormHandlers() {
     const quickstartKey = String(quickstartApiKeyInput?.value || '').trim();
 
     if (aiProviderSelect) {
-      aiProviderSelect.value = detectedProvider;
+      showAiProviderChoice(
+        detectedProvider,
+        quickstartDetection.resolvedAiApiUrl
+      );
       aiProviderSelect.dispatchEvent(new Event('change'));
     }
 
@@ -1822,7 +1779,7 @@ function initializeFormHandlers() {
       appliedOcr = true;
     }
 
-    refreshAiPresetSelection();
+    refreshAiProviderChoice();
 
     return {
       provider: detectedProvider,
@@ -1978,14 +1935,7 @@ function initializeFormHandlers() {
         );
         ocrResult = await runQuickstartModelTest(
           '/api/settings/ocr/test',
-          {
-            enabled: true,
-            provider: 'custom',
-            apiUrl: applied.ocrApiUrl,
-            apiKey: applied.apiKey,
-            model: applied.ocrModel,
-            setupOcrValidationTimeoutMs: getOcrValidationTimeoutMs(),
-          },
+          ocrTestPayload(),
           'OCR connection test'
         );
         setQuickstartTestRowState(
@@ -2042,26 +1992,7 @@ function initializeFormHandlers() {
         return;
       }
 
-      const payload = {
-        enabled: true,
-        provider: normalizeOcrProviderForApi(
-          ocrProviderSelect?.value || 'mistral'
-        ),
-        apiUrl: normalizeOcrApiUrlForProvider(
-          ocrProviderSelect?.value || 'mistral',
-          ocrApiUrlInput?.value
-        ),
-        apiKey: String(ocrApiKeyInput?.value || '').trim(),
-        // Claude OCR picks the AI model when this is empty; the Mistral
-        // default would only be replaced again.
-        model:
-          String(ocrModelInput?.value || '').trim() ||
-          (ocrProviderSelect?.value === 'anthropic'
-            ? ''
-            : 'mistral-ocr-latest'),
-        setupOcrValidationTimeoutMs: getOcrValidationTimeoutMs(),
-        ...getAnthropicFallbackForOcr(),
-      };
+      const payload = ocrTestPayload();
 
       const originalHtml = testOcrBtn.innerHTML;
       testOcrBtn.disabled = true;
@@ -3114,6 +3045,93 @@ function lockChipField(fieldElement) {
   });
 }
 
+/* The variable that pins a field, or null when the field is free. The OCR
+   key field writes OCR_API_KEY, but every OCR provider except Claude falls
+   back to MISTRAL_API_KEY when OCR_API_KEY is empty, so a key typed here
+   would win over a MISTRAL_API_KEY the container pins. Claude OCR never reads
+   that key, so for Claude only a pinned OCR_API_KEY locks the field. */
+function envKeyPinningField(envKey, lockedEnvKeys, ocrProvider) {
+  if (lockedEnvKeys.has(envKey)) {
+    return envKey;
+  }
+  if (
+    envKey === 'OCR_API_KEY' &&
+    lockedEnvKeys.has('MISTRAL_API_KEY') &&
+    String(ocrProvider || 'mistral').toLowerCase() !== 'anthropic'
+  ) {
+    return 'MISTRAL_API_KEY';
+  }
+  return null;
+}
+
+/* Locks one field: disabled, its value left visible, and its hint says which
+   variable pins it. notedContainers keeps a field container from getting the
+   sentence twice. */
+function lockEnvField(setupForm, fieldElement, envKey, notedContainers) {
+  // The :disabled styling in the framework carries the visual state. A
+  // switch carries the key on both halves (annotateEnvKeys), so the
+  // visible toggle is locked along with its hidden yes/no input.
+  fieldElement.disabled = true;
+  fieldElement.setAttribute('aria-disabled', 'true');
+  lockChipField(fieldElement);
+  // Controls that change the field's value (a model picker's Fetch button
+  // and its "Other…" text field) are locked along with it.
+  if (fieldElement.id) {
+    setupForm
+      .querySelectorAll(`[data-locked-by="${fieldElement.id}"]`)
+      .forEach((control) => {
+        control.disabled = true;
+        control.setAttribute('aria-disabled', 'true');
+      });
+  }
+
+  const note = `Set by the environment (${envKey}).`;
+  const tile = fieldElement.closest('.zr-checktile');
+  if (tile) {
+    tile.title = note;
+    return;
+  }
+
+  const container = fieldElement.closest('.zr-field, .zr-switchrow');
+  if (!container || notedContainers.has(container)) {
+    return;
+  }
+  notedContainers.add(container);
+
+  const hints = [...container.querySelectorAll('.zr-field__hint')];
+  // Hints that swap with the provider (the OCR key) each get the note.
+  const targets = hints.some((hint) => hint.id)
+    ? hints.filter((hint) => hint.id)
+    : hints.slice(-1);
+  if (targets.length === 0) {
+    const hint = document.createElement('p');
+    hint.className = 'zr-field__hint';
+    // A switch row keeps its text left of the toggle.
+    (container.querySelector('.zr-grow') || container).append(hint);
+    targets.push(hint);
+  }
+  targets.forEach((hint) => {
+    const sentence = document.createElement('span');
+    sentence.className = 'zr-field__locked';
+    sentence.textContent = hint.textContent.trim() ? ` · ${note}` : note;
+    hint.append(sentence);
+  });
+}
+
+/* Undoes lockEnvField for a plain field (no chips, no switch, no tile): the
+   only field whose lock can lift is the OCR key, when the provider switches
+   to Claude. */
+function unlockEnvField(fieldElement, notedContainers) {
+  fieldElement.disabled = false;
+  fieldElement.removeAttribute('aria-disabled');
+  const container = fieldElement.closest('.zr-field, .zr-switchrow');
+  if (!container) return;
+  container
+    .querySelectorAll('.zr-field__locked')
+    .forEach((sentence) => sentence.remove());
+  notedContainers.delete(container);
+}
+
 /* A field whose value the container pins is locked: disabled, its value
    left visible, and its hint says where the value comes from. The keys come
    from #setupForm (data-locked-env-keys, rendered by GET /settings). */
@@ -3134,6 +3152,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#paperlessToken', envKey: 'PAPERLESS_API_TOKEN' },
     { selector: '#paperlessUsername', envKey: 'PAPERLESS_USERNAME' },
     { selector: '#scanInterval', envKey: 'SCAN_INTERVAL' },
+    { selector: '#logLevel', envKey: 'LOG_LEVEL' },
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },
     { selector: '#showTags', envKey: 'PROCESS_PREDEFINED_DOCUMENTS' },
     { selector: '#tagInput', envKey: 'TAGS' },
@@ -3177,6 +3196,7 @@ function initializeRuntimeOverridePills() {
       selector: '#aiTemperatureGeneration',
       envKey: 'AI_TEMPERATURE_GENERATION',
     },
+    { selector: '#aiReasoningEffort', envKey: 'AI_REASONING_EFFORT' },
     { selector: '#ollamaThink', envKey: 'OLLAMA_THINK' },
     { selector: '#aiProcessedTag', envKey: 'ADD_AI_PROCESSED_TAG' },
     { selector: '#aiTagName', envKey: 'AI_PROCESSED_TAG_NAME' },
@@ -3237,6 +3257,10 @@ function initializeRuntimeOverridePills() {
     },
     { selector: '#duplicatesAiThinking', envKey: 'DUPLICATES_AI_THINKING' },
     {
+      selector: '#duplicatesAiTemplateSwitch',
+      envKey: 'DUPLICATES_AI_TEMPLATE_SWITCH',
+    },
+    {
       selector: '#duplicatesAiRequestSeconds',
       envKey: 'DUPLICATES_AI_REQUEST_SECONDS',
     },
@@ -3267,8 +3291,11 @@ function initializeRuntimeOverridePills() {
     { selector: '#mistralOcrEnabled', envKey: 'MISTRAL_OCR_ENABLED' },
     { selector: '#ocrProvider', envKey: 'OCR_PROVIDER' },
     { selector: '#ocrApiUrl', envKey: 'OCR_API_URL' },
-    { selector: '#mistralApiKey', envKey: 'MISTRAL_API_KEY' },
+    // One field for the OCR key; the save also fills MISTRAL_API_KEY, and a
+    // pinned MISTRAL_API_KEY locks it too (envKeyPinningField).
+    { selector: '#ocrApiKey', envKey: 'OCR_API_KEY' },
     { selector: '#mistralOcrModel', envKey: 'MISTRAL_OCR_MODEL' },
+    { selector: '#ocrPrompt', envKey: 'OCR_PROMPT' },
     { selector: '#ocrPdfRenderEnabled', envKey: 'OCR_PDF_RENDER_ENABLED' },
     { selector: '#ocrPdfRenderMaxPages', envKey: 'OCR_PDF_RENDER_MAX_PAGES' },
     { selector: '#ocrPdfRenderDpi', envKey: 'OCR_PDF_RENDER_DPI' },
@@ -3285,6 +3312,7 @@ function initializeRuntimeOverridePills() {
       envKey: 'OCR_AUTO_PROCESS_BATCH_SIZE',
     },
     { selector: '#ocrAutoAnalyze', envKey: 'OCR_AUTO_ANALYZE' },
+    { selector: '#pdfPasswords', envKey: 'PDF_PASSWORDS' },
     {
       selector: '#ocrValidationTimeout',
       envKey: 'SETUP_OCR_VALIDATION_TIMEOUT_MS',
@@ -3353,62 +3381,43 @@ function initializeRuntimeOverridePills() {
     return;
   }
 
+  const ocrProviderSelect = document.getElementById('ocrProvider');
+  const ocrProvider = () => ocrProviderSelect?.value || 'mistral';
+
   const notedContainers = new Set();
   setupForm.querySelectorAll('[data-env-key]').forEach((fieldElement) => {
-    const envKey = fieldElement.dataset.envKey;
-    if (!lockedEnvKeys.has(envKey)) {
-      return;
+    const pinnedBy = envKeyPinningField(
+      fieldElement.dataset.envKey,
+      lockedEnvKeys,
+      ocrProvider()
+    );
+    if (pinnedBy) {
+      lockEnvField(setupForm, fieldElement, pinnedBy, notedContainers);
     }
-
-    // The :disabled styling in the framework carries the visual state. A
-    // switch carries the key on both halves (annotateEnvKeys), so the
-    // visible toggle is locked along with its hidden yes/no input.
-    fieldElement.disabled = true;
-    fieldElement.setAttribute('aria-disabled', 'true');
-    lockChipField(fieldElement);
-    // Controls that change the field's value (a model picker's Fetch button
-    // and its "Other…" text field) are locked along with it.
-    if (fieldElement.id) {
-      setupForm
-        .querySelectorAll(`[data-locked-by="${fieldElement.id}"]`)
-        .forEach((control) => {
-          control.disabled = true;
-          control.setAttribute('aria-disabled', 'true');
-        });
-    }
-
-    const note = `Set by the environment (${envKey}).`;
-    const tile = fieldElement.closest('.zr-checktile');
-    if (tile) {
-      tile.title = note;
-      return;
-    }
-
-    const container = fieldElement.closest('.zr-field, .zr-switchrow');
-    if (!container || notedContainers.has(container)) {
-      return;
-    }
-    notedContainers.add(container);
-
-    const hints = [...container.querySelectorAll('.zr-field__hint')];
-    // Hints that swap with the provider (the OCR key) each get the note.
-    const targets = hints.some((hint) => hint.id)
-      ? hints.filter((hint) => hint.id)
-      : hints.slice(-1);
-    if (targets.length === 0) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      // A switch row keeps its text left of the toggle.
-      (container.querySelector('.zr-grow') || container).append(hint);
-      targets.push(hint);
-    }
-    targets.forEach((hint) => {
-      const sentence = document.createElement('span');
-      sentence.className = 'zr-field__locked';
-      sentence.textContent = hint.textContent.trim() ? ` · ${note}` : note;
-      hint.append(sentence);
-    });
   });
+
+  // Pinned only through MISTRAL_API_KEY, the OCR key is locked for some
+  // providers and free for Claude: follow the switch.
+  const ocrKeyField = document.getElementById('ocrApiKey');
+  if (
+    ocrKeyField &&
+    ocrProviderSelect &&
+    !lockedEnvKeys.has('OCR_API_KEY') &&
+    lockedEnvKeys.has('MISTRAL_API_KEY')
+  ) {
+    ocrProviderSelect.addEventListener('change', () => {
+      const pinnedBy = envKeyPinningField(
+        'OCR_API_KEY',
+        lockedEnvKeys,
+        ocrProvider()
+      );
+      if (pinnedBy) {
+        lockEnvField(setupForm, ocrKeyField, pinnedBy, notedContainers);
+      } else {
+        unlockEnvField(ocrKeyField, notedContainers);
+      }
+    });
+  }
 }
 
 // Custom Fields Management

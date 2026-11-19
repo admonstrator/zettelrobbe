@@ -58,7 +58,7 @@ const PROVIDERS = Object.freeze([
   }),
   Object.freeze({
     id: 'custom',
-    label: 'OpenAI-compatible endpoint',
+    label: 'Other OpenAI-compatible server',
     transport: 'openai-compatible',
     connection: Object.freeze([
       'CUSTOM_BASE_URL',
@@ -128,7 +128,16 @@ function transportFor(provider) {
  * @property {boolean} defaultCompletionCap
  *   a generateText() call without a maxTokens option still sends
  *   RESPONSE_TOKENS as its cap; false leaves the cap to the provider
+ * @property {boolean} effortSetting
+ *   the operator's AI_REASONING_EFFORT may be sent as `reasoning_effort`;
+ *   false where the model is known to reject the field
  */
+
+/**
+ * The values AI_REASONING_EFFORT takes, in the OpenAI spelling every
+ * OpenAI-compatible API that knows the field understands. Empty sends none.
+ */
+const REASONING_EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high']);
 
 const GPT_5_MODEL_PATTERN = /gpt-?5/i;
 const O_SERIES_MODEL_PATTERN = /(?:^|[/:_\s-])o[1-4](?:$|[-_.])/i;
@@ -144,11 +153,15 @@ const QWEN_MODEL_PATTERN = /qwen/i;
  *
  * - gpt-5 and the o-series reject a temperature other than the default and
  *   reject `max_tokens` (they want `max_completion_tokens`); both take
- *   `reasoning_effort`, gpt-5 down to 'minimal', the o-series down to 'low'.
+ *   `reasoning_effort`, gpt-5 down to 'minimal', the o-series down to 'low',
+ *   and are the OpenAI models the operator's thinking effort is sent to.
  * - gpt-oss takes `reasoning_effort` 'low' where an OpenAI-compatible server
  *   serves it; OpenAI and Azure have never been sent the field for it.
- * - Qwen reads the `/no_think` soft switch out of the prompt as well as the
- *   chat template switch, so a gateway that drops one still passes the other.
+ * - Qwen takes the chat template switch, and reads the `/no_think` soft
+ *   switch out of the prompt as well, so a gateway that drops one still
+ *   passes the other. It is the one family the switch is sent to unasked:
+ *   hosted APIs such as Mistral's reject the unknown field with 422 (issue
+ *   #373), so for any other model it waits for DUPLICATES_AI_TEMPLATE_SWITCH.
  *
  * @type {ReadonlyArray<{transport: Transport, pattern: RegExp, providers?: ReadonlyArray<ProviderId>, rules: Partial<RequestRules>}>}
  */
@@ -161,6 +174,7 @@ const MODEL_FAMILIES = Object.freeze([
       reasoningEffort: 'openai',
       reasoningOffEffort: 'minimal',
       maxTokensParam: 'max_completion_tokens',
+      effortSetting: true,
     },
   },
   {
@@ -171,6 +185,7 @@ const MODEL_FAMILIES = Object.freeze([
       reasoningEffort: 'openai',
       reasoningOffEffort: 'low',
       maxTokensParam: 'max_completion_tokens',
+      effortSetting: true,
     },
   },
   {
@@ -195,16 +210,18 @@ const MODEL_FAMILIES = Object.freeze([
  * family is applied.
  *
  * - openai: a generateText() call without a cap of its own has always gone
- *   out without one, so the model answers with whatever it allows.
- * - custom: every server that applies a chat template understands
- *   `chat_template_kwargs`, and one that does not passes it through, so the
- *   thinking switch is sent for every model there.
+ *   out without one, so the model answers with whatever it allows. Its
+ *   model names are reliable, so the thinking effort goes only to the
+ *   families above that take it; gpt-4o answers 400 for the field.
+ *
+ * Azure routes by deployment name and custom serves any model, so neither
+ * can tell a reasoning model by its name: the effort the operator set is
+ * sent there as it is.
  *
  * @type {Readonly<Partial<Record<ProviderId, Partial<RequestRules>>>>}
  */
 const PROVIDER_DEFAULTS = Object.freeze({
-  openai: Object.freeze({ defaultCompletionCap: false }),
-  custom: Object.freeze({ thinkingSwitch: 'chat_template' }),
+  openai: Object.freeze({ defaultCompletionCap: false, effortSetting: false }),
 });
 
 /** @type {Readonly<Record<Transport, RequestRules>>} */
@@ -221,6 +238,7 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     reasoningOffEffort: null,
     thinkingPromptSwitch: null,
     defaultCompletionCap: true,
+    effortSetting: true,
   }),
   ollama: Object.freeze({
     transport: 'ollama',
@@ -234,6 +252,7 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     reasoningOffEffort: null,
     thinkingPromptSwitch: null,
     defaultCompletionCap: true,
+    effortSetting: false,
   }),
   anthropic: Object.freeze({
     transport: 'anthropic',
@@ -247,29 +266,36 @@ const TRANSPORT_DEFAULTS = Object.freeze({
     reasoningOffEffort: null,
     thinkingPromptSwitch: null,
     defaultCompletionCap: true,
+    effortSetting: false,
   }),
 });
 
 /**
  * The request rules for a provider and a model name.
  *
+ * `settings` carries what the operator decided where the model name cannot
+ * tell: `templateSwitch` (DUPLICATES_AI_TEMPLATE_SWITCH) sends the chat
+ * template switch to every model of the custom provider, not only to Qwen.
+ *
  * @param {unknown} provider
  * @param {unknown} [model]
+ * @param {{templateSwitch?: boolean}} [settings]
  * @returns {RequestRules}
  */
-function resolveRules(provider, model = '') {
+function resolveRules(provider, model = '', settings = {}) {
   const id = normalizeProvider(provider);
   const transport = transportFor(id);
   const name = String(model ?? '').trim();
   const base = { ...TRANSPORT_DEFAULTS[transport], ...PROVIDER_DEFAULTS[id] };
-  if (name === '') return base;
-
-  const family = MODEL_FAMILIES.find(
-    (entry) =>
-      entry.transport === transport &&
-      (!entry.providers || entry.providers.includes(id)) &&
-      entry.pattern.test(name)
-  );
+  const family =
+    name === ''
+      ? undefined
+      : MODEL_FAMILIES.find(
+          (entry) =>
+            entry.transport === transport &&
+            (!entry.providers || entry.providers.includes(id)) &&
+            entry.pattern.test(name)
+        );
   const rules = { ...base, ...(family ? family.rules : {}) };
 
   // The custom provider serves hosted and self-hosted models alike, behind
@@ -284,6 +310,9 @@ function resolveRules(provider, model = '') {
       rules.reasoningOffEffort = 'low';
     }
     rules.maxTokensParam = 'max_tokens';
+    if (settings.templateSwitch && !rules.thinkingSwitch) {
+      rules.thinkingSwitch = 'chat_template';
+    }
   }
   return rules;
 }
@@ -321,7 +350,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'RESPONSE_TOKENS',
     label: 'Answer length',
-    help: 'How long an answer the model may write for one document, in tokens (roughly three quarters of a word each). The default is enough for tags, a title and a few fields; raise it only when answers arrive cut off.',
+    help: 'The longest answer the model may write for one document, in tokens. Raise it only when answers arrive cut off.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '1000',
@@ -330,7 +359,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'TOKEN_LIMIT',
     label: 'Document length limit',
-    help: 'The most text of one document that is sent to the model, in tokens. Longer documents are shortened to fit. Match it to what the model accepts; too high and the provider refuses the request, too low and long documents lose their ending.',
+    help: 'How much of a document is sent to the model, in tokens; longer ones are shortened. Match it to what the model accepts.',
     level: 'advanced',
     providers: null,
     defaultValue: '128000',
@@ -339,7 +368,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_TEMPERATURE_ANALYSIS',
     label: 'Analysis creativity',
-    help: 'How freely the model may deviate from the most likely answer when it tags and titles a document, from 0 (always the same answer) to 2 (very varied). Low values give consistent tags; leave it unless tags come out erratic.',
+    help: 'How varied tags and titles may be, from 0 (always the same answer) to 2. Low values keep tags consistent.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.3',
@@ -348,16 +377,25 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_TEMPERATURE_GENERATION',
     label: 'Generation creativity',
-    help: 'The same setting for the free-text tasks — the playground, the duplicate review and tag simplification. A little higher than for analysis, because those answers may be worded freely.',
+    help: 'The same for free-text tasks such as the playground and Tidy up, whose answers may be worded freely.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.7',
     section: 'provider',
   },
   {
+    key: 'AI_REASONING_EFFORT',
+    label: 'Thinking effort',
+    help: 'How long a reasoning model such as o3, gpt-5 or Magistral thinks before answering. Empty sends nothing; other models may reject the setting.',
+    level: 'advanced',
+    providers: ['openai', 'azure', 'custom'],
+    defaultValue: '',
+    section: 'provider',
+  },
+  {
     key: 'ANTHROPIC_EFFORT',
     label: 'Thinking effort',
-    help: 'How much the model may think before it answers. Higher levels take longer and cost more tokens but help with hard documents. Empty leaves the model at its own default, which suits most archives.',
+    help: 'How much the model thinks before answering. Higher helps hard documents but is slower and costlier; empty keeps the model default.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '',
@@ -366,7 +404,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_MAX_TOKENS',
     label: 'Answer and thinking budget',
-    help: 'The most tokens one request may spend on thinking and answering together. The default leaves room for both; lower it to cap costs, raise it when answers are cut off at a high thinking effort.',
+    help: 'The most tokens one request may spend on thinking and answering together. Raise it when answers are cut off.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '16000',
@@ -375,7 +413,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_STRUCTURED_OUTPUT',
     label: 'Structured answers',
-    help: 'Asks the model to answer in exactly the shape the app expects, so no answer is lost to a formatting slip. Switch it off only if a proxy in front of the API rejects the request.',
+    help: 'Makes the model answer in exactly the expected format. Switch it off only if a proxy rejects the request.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: 'yes',
@@ -384,7 +422,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_PROMPT_CACHING',
     label: 'Reuse the instructions',
-    help: 'The instructions are the same for every document of a scan. With this on, the provider keeps them for a few minutes and charges a fraction for the repeat, which makes a scan noticeably cheaper. There is no reason to switch it off except for a proxy that cannot handle it.',
+    help: 'Instructions repeated for every document are billed at a fraction, so scans cost less. Switch it off only for a proxy that cannot handle it.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: 'yes',
@@ -402,7 +440,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'OLLAMA_THINK',
     label: 'Let the model think',
-    help: 'Reasoning models such as Qwen3 or DeepSeek-R1 can write down their thoughts before answering. That improves hard cases but slows every document down and needs a larger answer length. Off unless you know your model benefits.',
+    help: 'Lets reasoning models such as Qwen3 think before answering: better on hard cases, but slower. Needs a larger answer length.',
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: 'false',
@@ -411,7 +449,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'OLLAMA_API_KEY',
     label: 'API key',
-    help: 'Only needed when the Ollama server sits behind a proxy that asks for a token. A plain Ollama install has no key; leave it empty.',
+    help: 'Only for an Ollama server behind a proxy that asks for a token; a plain install needs none.',
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: '',
@@ -420,7 +458,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AZURE_API_VERSION',
     label: 'API version',
-    help: 'The Azure OpenAI API version every request names. The default works for chat models; change it only when Azure asks for a newer one, for example for a recent model.',
+    help: 'The Azure OpenAI API version sent with every request. Change it only when Azure asks for a newer one.',
     level: 'advanced',
     providers: ['azure'],
     defaultValue: '2023-05-15',
@@ -436,7 +474,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_REVIEW',
     label: 'Ask the model about unclear pairs',
-    help: 'On the Tidy up page, the model reads the pairs of names that spelling rules cannot settle, looks at a few document titles and says whether they mean the same thing. Off, the page decides by spelling rules alone. Nothing runs until you start a run there.',
+    help: 'The model judges name pairs that spelling rules cannot settle, using a few document titles. Off, spelling rules decide alone.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
@@ -445,7 +483,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_GUARD_NEW_NAMES',
     label: 'Reuse an existing name instead of creating a near-duplicate',
-    help: 'When document analysis proposes a tag or correspondent that already exists in another spelling (upper or lower case, umlauts, a legal form such as GmbH, singular or plural, or the same words in another order), the existing one is used and the Tidy up page lists the mapping. A name that only looks like a typo of an existing one is logged, and the new name is still created.',
+    help: 'A proposed name that exists in another spelling (case, umlauts, legal form, plural, word order) becomes the existing one; a mere typo is only logged.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
@@ -463,7 +501,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_TOKEN_BUDGET',
     label: 'Token budget per run',
-    help: 'The most one Tidy up run may spend on the model across all its requests, in tokens (roughly three quarters of a word each). When it is reached the run stops and keeps the answers it already has; 0 means no limit.',
+    help: 'The most tokens one Tidy up run may spend; it then stops and keeps its answers. 0 means no limit.',
     level: 'advanced',
     providers: null,
     defaultValue: '200000',
@@ -481,7 +519,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_REQUEST_SECONDS',
     label: 'Seconds per request',
-    help: 'The page first measures your model on one small request, then puts as many pairs into each request as fit into this many seconds. Shorter means smaller requests and more frequent progress.',
+    help: 'Each request gets as many pairs as your model handles in this time. Shorter means smaller requests and more frequent progress.',
     level: 'advanced',
     providers: null,
     defaultValue: '30',
@@ -490,7 +528,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_CONCURRENCY',
     label: 'Requests at once',
-    help: 'How many model requests run in parallel. 0 lets the page choose: one for Ollama, three for a hosted provider. More at once finishes sooner but costs the same tokens.',
+    help: 'Model requests running in parallel; 0 picks one for Ollama, three for hosted providers. More is faster, not cheaper.',
     level: 'advanced',
     providers: null,
     defaultValue: '0',
@@ -499,7 +537,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_REVIEW_BATCH_SIZE',
     label: 'Pairs per request',
-    help: 'How many name pairs one model request asks about. Fewer pairs mean more, shorter requests; more pairs need a model that can read more text at once.',
+    help: 'Name pairs per model request. More pairs need a model that can read more text at once.',
     level: 'advanced',
     providers: null,
     defaultValue: '25',
@@ -508,7 +546,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_CANDIDATE_FLOOR',
     label: 'Lowest similarity shown to the model',
-    help: 'Pairs whose spelling is too far apart to be suggested on their own, but more alike than this score (0.5 to 0.95), are shown to the model too. A lower value asks about more pairs and costs more tokens.',
+    help: 'Pairs too different for a suggestion but above this similarity (0.5 to 0.95) go to the model. Lower asks about more pairs.',
     level: 'advanced',
     providers: null,
     defaultValue: '0.6',
@@ -517,7 +555,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_EXCERPTS',
     label: 'Read document excerpts for spelling-only pairs',
-    help: 'When two names were linked by spelling alone, the model also reads a short excerpt of a few of their documents. That tells apart names that look like a typo of each other but mean different things.',
+    help: 'For pairs linked by spelling alone, the model also reads short excerpts of their documents to tell look-alikes apart.',
     level: 'advanced',
     providers: null,
     defaultValue: 'yes',
@@ -535,7 +573,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_EXCERPT_DOCUMENTS',
     label: 'Documents per name for excerpts',
-    help: 'How many documents of each tag or correspondent are sampled for those excerpts.',
+    help: 'How many documents per tag or correspondent are sampled for excerpts.',
     level: 'advanced',
     providers: null,
     defaultValue: '2',
@@ -544,7 +582,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_VERDICT_MEMORY_DAYS',
     label: 'Remember answers for (days)',
-    help: 'A pair the model has already answered about is not asked about again while both names stay unchanged. 0 switches this memory off.',
+    help: 'An answered pair is not asked again while both names stay unchanged. 0 switches this off.',
     level: 'advanced',
     providers: null,
     defaultValue: '90',
@@ -553,16 +591,25 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_THINKING',
     label: 'Let the model think first',
-    help: 'Reasoning models write down their thoughts before the answer and can spend the whole answer budget on them. Off, the model gets the evidence instead and answers in a fraction of the time and cost. Switch it on only if your model answers badly without it.',
+    help: 'Reasoning models can spend the whole answer budget on thinking. Switch it on only if your model answers badly without it.',
     level: 'advanced',
     providers: null,
     defaultValue: 'no',
     section: 'tidy-up',
   },
   {
+    key: 'DUPLICATES_AI_TEMPLATE_SWITCH',
+    label: 'Switch thinking through the chat template',
+    help: 'Also sends the thinking choice as chat_template_kwargs, which vLLM, llama.cpp and LM Studio pass to models such as DeepSeek or GLM. Qwen always gets it; hosted APIs often reject it.',
+    level: 'advanced',
+    providers: ['custom'],
+    defaultValue: 'no',
+    section: 'tidy-up',
+  },
+  {
     key: 'DUPLICATES_AI_SWEEP_NAMES',
     label: 'Names per request when looking for synonyms',
-    help: 'To find synonyms, translations and abbreviations that spelling rules cannot see, the model reads the whole list of names in parts. This is how many names go into one part. The same size applies when the model proposes the document types and topics for splitting tags.',
+    help: 'Names per request when the model looks for synonyms, translations and abbreviations, and when it proposes split topics.',
     level: 'advanced',
     providers: null,
     defaultValue: '300',
@@ -571,7 +618,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'SIMPLIFY_TAGS_PER_REQUEST',
     label: 'Tags per request when splitting',
-    help: 'How many tag names the model looks at in one request when it suggests splitting a combined tag such as "Electricity bill" into a document type and a topic. Fewer names mean more requests; more names need a model that can read more text at once.',
+    help: 'Tag names per request when the model suggests splitting a tag such as "Electricity bill" into a document type and a topic.',
     level: 'advanced',
     providers: null,
     defaultValue: '50',
@@ -580,7 +627,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'SIMPLIFY_VOCABULARY_SIZE',
     label: 'Number of document types and topics to propose',
-    help: 'When you have not saved your own list yet, the model proposes the document types and topics that tags are split into. This is about how many it aims for, both together. Smaller means fewer, broader topics.',
+    help: 'How many document types and topics the model aims for when you have no saved list. Smaller means broader topics.',
     level: 'advanced',
     providers: null,
     defaultValue: '25',
@@ -616,6 +663,7 @@ module.exports = {
   PROVIDERS,
   PROVIDER_IDS,
   AI_OPTIONS,
+  REASONING_EFFORT_LEVELS,
   MODEL_FAMILIES,
   TRANSPORT_DEFAULTS,
   PROVIDER_DEFAULTS,

@@ -30,7 +30,7 @@ should do and what it should not, which features get cut instead of built, wheth
 diff actually solves the problem it claims to, and whether the result survives contact
 with my own documents — which it gets every day, because this is what I file my own
 paperwork with. Features have been removed from this project on that basis, not added.
-The [README FAQ](README.md#-frequently-asked-questions) has the longer version.
+The [README](README.md#how-this-is-built) and the [About page](https://zettelrob.be/about/) have more on this.
 
 Two consequences worth knowing before you file an issue or send a PR:
 

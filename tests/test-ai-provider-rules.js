@@ -75,13 +75,57 @@ function run() {
   assert.strictEqual(openai.thinkingPromptSwitch, null);
   assert.strictEqual(
     rules.resolveRules('custom', 'llama-3.3-70b').thinkingSwitch,
-    'chat_template',
-    'custom sends the chat template switch for every model'
+    null,
+    'custom sends the chat template switch to Qwen only, unasked'
   );
+  assert.strictEqual(
+    rules.resolveRules('custom', 'llama-3.3-70b', { templateSwitch: true })
+      .thinkingSwitch,
+    'chat_template',
+    'DUPLICATES_AI_TEMPLATE_SWITCH sends it to any model'
+  );
+  for (const provider of ['openai', 'azure', 'ollama', 'anthropic']) {
+    assert.notStrictEqual(
+      rules.resolveRules(provider, 'llama-3.3-70b', { templateSwitch: true })
+        .thinkingSwitch,
+      'chat_template',
+      `${provider}: the switch is a custom-provider setting`
+    );
+  }
+
+  // Where the operator's AI_REASONING_EFFORT may go.
+  assert.deepStrictEqual(rules.REASONING_EFFORT_LEVELS, [
+    'low',
+    'medium',
+    'high',
+  ]);
+  for (const [provider, model, expected] of [
+    ['openai', 'gpt-5-mini', true],
+    ['openai', 'o3-mini', true],
+    ['openai', 'gpt-4o-mini', false],
+    ['azure', 'my-deployment', true],
+    ['custom', 'magistral-medium-latest', true],
+    ['custom', 'llama-3.3-70b', true],
+    ['ollama', 'qwen3:8b', false],
+    ['anthropic', 'claude-sonnet-5-5', false],
+  ]) {
+    assert.strictEqual(
+      rules.resolveRules(provider, model).effortSetting,
+      expected,
+      `${provider} ${model}`
+    );
+  }
   assert.strictEqual(
     rules.resolveRules('custom', 'llama-3.3-70b').thinkingPromptSwitch,
     null
   );
+  for (const model of ['mistral-large-latest', 'magistral-medium-latest']) {
+    assert.strictEqual(
+      rules.resolveRules('custom', model).thinkingSwitch,
+      null,
+      `${model}: Mistral's API rejects chat_template_kwargs (#373)`
+    );
+  }
   for (const provider of ['openai', 'azure']) {
     const qwenHosted = rules.resolveRules(provider, 'qwen3-32b');
     assert.strictEqual(qwenHosted.thinkingSwitch, null, provider);

@@ -46,6 +46,14 @@
     font-size: var(--zr-fs-sm);
     color: var(--zr-text-muted);
   }
+
+  /* A hint breaks where the input above it ends (the 560px cap of the
+     stacked field controls) instead of running the full width of the
+     form. A hint that fills a header row (.zr-grow) keeps pushing what
+     follows it to the right. */
+  .zr-field__hint:not(.zr-grow) {
+    max-width: 560px;
+  }
   .zr-field__env {
     font-family: var(--zr-font-mono);
     font-size: var(--zr-fs-xs);
