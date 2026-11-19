@@ -107,7 +107,17 @@
                     <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-external"/></svg>
                 </a>
             </div>
-            <ul class="zr-changelog-list" id="changelogModalEntries"></ul>
+            <!-- A long release would push the buttons out of the dialog: the list
+                 scrolls in its own box. Focusable, so the arrow keys scroll it too. -->
+            <div
+                class="zr-welcome__changelog-scroll"
+                id="changelogModalScroll"
+                tabindex="0"
+                role="region"
+                aria-labelledby="changelogModalReleaseTitle"
+            >
+                <ul class="zr-changelog-list" id="changelogModalEntries"></ul>
+            </div>
         </section>
         <div class="zr-welcome__foot">
             <button type="button" class="zr-welcome__later" id="changelogModalClose">

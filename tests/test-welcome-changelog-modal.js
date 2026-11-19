@@ -12,6 +12,8 @@
 //    the title, the script fills and shows it and hands it the focus and the
 //    dialog's name; otherwise the dialog stays as it was. The route answers
 //    updated/previousVersion for no stored, an older and the same version.
+// 5. A long release scrolls inside its own box with a styled scrollbar, so
+//    the buttons stay in the dialog, and the box opens at its first entry.
 
 'use strict';
 
@@ -260,6 +262,9 @@ function createHarness(statusResponse, initialDeferredVersion = null) {
   const dismissBtnListeners = {};
 
   const versionEl = { textContent: '' };
+  // Scrolled down the last time the dialog was open.
+  const scrollEl = { scrollTop: 240 };
+
   const listEl = {
     innerHTML: '',
     children: [],
@@ -340,6 +345,7 @@ function createHarness(statusResponse, initialDeferredVersion = null) {
     changelogModal: modal,
     changelogModalVersion: versionEl,
     changelogModalEntries: listEl,
+    changelogModalScroll: scrollEl,
     changelogModalClose: closeBtn,
     changelogModalDismiss: dismissBtn,
     changelogModalTitle: title,
@@ -429,6 +435,7 @@ function createHarness(statusResponse, initialDeferredVersion = null) {
     modal,
     versionEl,
     listEl,
+    scrollEl,
     closeBtn,
     dismissBtn,
     title,
@@ -802,6 +809,70 @@ async function testStatusRouteUpdatedFlag() {
   }
 }
 
+function testChangelogScrollsInItsOwnBox() {
+  const ejs = fs.readFileSync(
+    path.join(ROOT, 'views', 'partials', 'changelog-modal.ejs'),
+    'utf8'
+  );
+  const box = ejs.match(/<div\s+class="zr-welcome__changelog-scroll"[^>]*>/);
+  assert.ok(box, 'the entries list must sit in a scroll box');
+  assert.match(box[0], /id="changelogModalScroll"/);
+  assert.match(box[0], /tabindex="0"/, 'the arrow keys must scroll the box');
+  assert.match(box[0], /role="region"/);
+  assert.match(box[0], /aria-labelledby="changelogModalReleaseTitle"/);
+  const after = ejs.slice(ejs.indexOf(box[0]));
+  assert.ok(
+    after.indexOf('id="changelogModalEntries"') < after.indexOf('</div>'),
+    'the entries list must be inside the scroll box'
+  );
+
+  const css = fs.readFileSync(
+    path.join(ROOT, 'public', 'css', 'dialogs.css'),
+    'utf8'
+  );
+  const rule = css.match(/\.zr-welcome__changelog-scroll \{([^}]*)\}/);
+  assert.ok(rule, 'the scroll box must have a rule');
+  assert.match(rule[1], /max-height: \d+px;/, 'its height must be bounded');
+  assert.match(rule[1], /min-height: \d+px;/, 'it keeps a few lines');
+  assert.match(
+    css,
+    /\.zr-welcome\[open\] \{[^}]*grid-template-rows: minmax\(0, 1fr\);/,
+    'on a short window the row is clamped, so the box shrinks instead of the buttons leaving the dialog'
+  );
+  assert.match(rule[1], /overflow-y: auto;/);
+  assert.match(rule[1], /overscroll-behavior: contain;/);
+  assert.match(
+    rule[1],
+    /scrollbar-color: var\(--zr-welcome-thumb\) transparent;/,
+    'Firefox gets a thin bar in the brand colour'
+  );
+  assert.match(
+    css,
+    /@supports selector\(::-webkit-scrollbar\) \{\s*\.zr-welcome__changelog-scroll \{\s*scrollbar-width: auto;\s*scrollbar-color: auto;/,
+    'Chromium ignores the styled thumb while scrollbar-color is set, also when inherited'
+  );
+  assert.match(
+    css,
+    /\.zr-welcome__changelog-scroll::-webkit-scrollbar-thumb \{[^}]*border-radius: 999px;/,
+    'the thumb is rounded'
+  );
+}
+
+async function testChangelogOpensAtTheTop() {
+  const harness = createHarness({
+    show: true,
+    version: 'v2026.11.04',
+    entries: ['New: First feature'],
+  });
+  await harness.triggerDOMContentLoaded();
+  assert.strictEqual(harness.modal.open, true, 'modal must open');
+  assert.strictEqual(
+    harness.scrollEl.scrollTop,
+    0,
+    'the entries must open at the first one'
+  );
+}
+
 async function run() {
   testModalMarkup();
   testUpdateNoticeMarkup();
@@ -814,6 +885,8 @@ async function run() {
   await testDeferredUpdateNoticeReturns();
   await testOpensAgainOnRequest();
   await testStatusRouteUpdatedFlag();
+  testChangelogScrollsInItsOwnBox();
+  await testChangelogOpensAtTheTop();
 
   console.log('PASS test-welcome-changelog-modal');
   // The router pulls in services that may keep timers alive.

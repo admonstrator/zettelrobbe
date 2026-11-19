@@ -156,9 +156,15 @@
     display: none;
   }
 
+  /* The one row may shrink to the dialog's max-height (a flexible track is
+     clamped by it), so the main column gets a definite height and the
+     changelog box takes what is left of it: the buttons stay in view on a
+     short window. Below 720px the columns stack and the dialog scrolls as a
+     whole, as before. */
   .zr-welcome[open] {
     display: grid;
     grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .zr-welcome__story {
@@ -233,7 +239,14 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-height: 0;
     padding: 26px 28px 20px;
+    /* Only on a window too short even for a small changelog box. */
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .zr-welcome__main::-webkit-scrollbar {
+    display: none;
   }
 
   /* After an update a notice opens the main column: one cheerful line with
@@ -448,8 +461,13 @@
     text-decoration: none;
   }
 
+  /* The one part of the main column that gives way when the window is
+     short: it shrinks, everything else keeps its height. It never gets
+     smaller than its head plus the box's own minimum; below that the main
+     column scrolls instead of letting the list run over the buttons. */
   .zr-welcome__changelog {
     display: flex;
+    flex: 0 1 auto;
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
@@ -461,6 +479,75 @@
   .zr-welcome__changelog .zr-changelog-list {
     gap: 6px;
     font-size: 13px;
+  }
+
+  /* The entries scroll in their own box, so a long release never pushes the
+     buttons out of the dialog. At most 340px; on a short window the box
+     gives up height first (see .zr-welcome[open]), down to about four lines. A soft shadow at the top or
+     bottom edge shows that more entries lie beyond it; it is drawn by the
+     backgrounds (the "local" layers cover it once the end is reached), so it
+     needs no script. */
+  .zr-welcome__changelog-scroll {
+    --zr-welcome-thumb: color-mix(in srgb, var(--zr-brand) 45%, transparent);
+    --zr-welcome-thumb-hover: color-mix(
+      in srgb,
+      var(--zr-brand) 75%,
+      transparent
+    );
+    --zr-welcome-edge: color-mix(in srgb, var(--zr-text) 16%, transparent);
+    flex: 0 1 auto;
+    min-height: 96px;
+    max-height: 340px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin-right: -8px;
+    padding: 2px 8px 2px 0;
+    border-radius: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--zr-welcome-thumb) transparent;
+    background:
+      linear-gradient(var(--zr-surface-2) 30%, transparent) top / 100% 24px
+        no-repeat local,
+      linear-gradient(transparent, var(--zr-surface-2) 70%) bottom / 100% 24px
+        no-repeat local,
+      radial-gradient(
+          farthest-side at 50% 0,
+          var(--zr-welcome-edge),
+          transparent
+        )
+        top / 100% 8px no-repeat scroll,
+      radial-gradient(
+          farthest-side at 50% 100%,
+          var(--zr-welcome-edge),
+          transparent
+        )
+        bottom / 100% 8px no-repeat scroll;
+  }
+
+  /* Chrome, Edge and Safari draw a rounded thumb in the brand colour with
+     room around it. They ignore these rules while scrollbar-color is set
+     (also when inherited from html), so it is reset here; Firefox takes the
+     thin bar in the same colour from the rule above. */
+  @supports selector(::-webkit-scrollbar) {
+    .zr-welcome__changelog-scroll {
+      scrollbar-width: auto;
+      scrollbar-color: auto;
+    }
+    .zr-welcome__changelog-scroll::-webkit-scrollbar {
+      width: 10px;
+    }
+    .zr-welcome__changelog-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .zr-welcome__changelog-scroll::-webkit-scrollbar-thumb {
+      background-color: var(--zr-welcome-thumb);
+      background-clip: padding-box;
+      border: 3px solid transparent;
+      border-radius: 999px;
+    }
+    .zr-welcome__changelog-scroll::-webkit-scrollbar-thumb:hover {
+      background-color: var(--zr-welcome-thumb-hover);
+    }
   }
 
   .zr-welcome__changelog-head {
@@ -534,6 +621,11 @@
   @media (max-width: 720px) {
     .zr-welcome[open] {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: none;
+    }
+
+    .zr-welcome__main {
+      overflow-y: visible;
     }
 
     .zr-welcome__tiles {

@@ -243,6 +243,7 @@ const RELEASES = [
       'New: After an update the welcome dialog says so at the top and names the version you came from',
       'Improvement: A password-protected PDF is analysed as soon as Paperless-ngx has stored the unlocked version, instead of waiting for the next scheduled scan',
       'Improvement: The version number on the About page opens the welcome dialog again',
+      'Improvement: A long "What\'s new" list in the welcome dialog scrolls in its own box, so the buttons stay in view also on a short window',
       'New: Settings open on a Quick start: the six decisions Zettelrobbe needs, each with its current value, changed in place',
       'Improvement: Settings topics keep to a readable column, and every switch shows On or Off right next to it instead of at the far edge of the window',
       'Improvement: Every label and hint on the settings page says what the setting does to a document. The switches for title, tags, correspondent, document type and custom fields moved to "What the AI fills in", and the prompt has its own topic',
