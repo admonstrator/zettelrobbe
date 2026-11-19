@@ -458,7 +458,8 @@
      over the end of the page; now it is a row of the page layout itself
      (pages/settings.css docks it under the scrolling content), so it never
      covers anything. Opaque, a full-width rule above it, its content in a
-     centred column (--zr-actionbar-measure) that lines up with the form. It
+     column (--zr-actionbar-inset, --zr-actionbar-measure) that starts and
+     ends with the form. It
      sets no display of its own, so the hidden attribute keeps it out of the
      layout while nothing has changed. */
   .zr-actionbar {
@@ -471,8 +472,7 @@
     align-items: center;
     gap: var(--zr-2) var(--zr-4);
     max-width: var(--zr-actionbar-measure, none);
-    margin-inline: auto;
-    padding: 10px var(--zr-6);
+    padding: 10px var(--zr-6) 10px var(--zr-actionbar-inset, var(--zr-6));
   }
   /* What changed: the count, then the settings by name on one line, cut
      with an ellipsis. The whole list stays in the text, for a screen reader

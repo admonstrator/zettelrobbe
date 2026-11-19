@@ -168,8 +168,8 @@ scripts (`public/js/*.js`) cannot import ES modules — they reach the kernel th
 `window.__zrToast` / `window.zrDialog` (see `failed.js` for the six-line adapter) and must never
 build their own toast host.
 
-**Settings page:** one form, one topic per view, topic list and topic centred as one block
-(`--zr-settings-list`, `--zr-settings-measure`). The window does not scroll on this page:
+**Settings page:** one form, one topic per view, topic list and topic as one block next
+to the rail (`--zr-settings-inset`, at most 96px; `--zr-settings-list`, `--zr-settings-measure`). The window does not scroll on this page:
 `.zr-settings-scroll` is the one scroll region and the save bar (`.zr-actionbar`) is a layout row
 below it, present only with unsaved changes, so it never covers a field
 (`tests/test-settings-save-bar-browser.js` measures that in headless Chrome and self-skips without
