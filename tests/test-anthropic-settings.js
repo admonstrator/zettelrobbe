@@ -746,11 +746,7 @@ function startFakeAnthropic() {
 
       // Claude takes no temperature and no separate answer length, so those
       // options leave the page with the provider instead of saying so.
-      [
-        'AI_TEMPERATURE_ANALYSIS',
-        'AI_TEMPERATURE_GENERATION',
-        'RESPONSE_TOKENS',
-      ].forEach((key) => {
+      ['AI_TEMPERATURE_ANALYSIS', 'RESPONSE_TOKENS'].forEach((key) => {
         const row = html.match(
           new RegExp(
             `<div class="zr-settings-option([^"]*)" data-ai-option="${key}"[^>]*data-providers="([^"]*)"`

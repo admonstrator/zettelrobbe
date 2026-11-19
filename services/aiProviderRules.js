@@ -375,17 +375,6 @@ const AI_OPTIONS = Object.freeze([
     section: 'provider',
   },
   {
-    key: 'AI_TEMPERATURE_GENERATION',
-    label: 'Generation creativity',
-    // The fallback of generateText() for a caller that sends no temperature.
-    // No caller does (tests/test-generation-temperature-callers.js).
-    help: 'Zettelrobbe does not use this value at the moment. The analysis uses Analysis creativity, and Tidy up always asks with 0.',
-    level: 'advanced',
-    providers: ['openai', 'azure', 'custom', 'ollama'],
-    defaultValue: '0.7',
-    section: 'provider',
-  },
-  {
     key: 'AI_REASONING_EFFORT',
     label: 'Thinking effort',
     help: 'How long a reasoning model such as o3, gpt-5 or Magistral thinks before answering. Empty sends nothing. Other models may reject the setting.',

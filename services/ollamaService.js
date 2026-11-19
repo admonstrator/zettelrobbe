@@ -3,6 +3,7 @@ const {
   abortSignal,
   abortedGenerationError,
   createProgressCollector,
+  generateTemperature,
   hasNumber,
   hasSystemPrompt,
   isAbortError,
@@ -875,7 +876,8 @@ class OllamaService {
    * @param {string} prompt - The prompt to generate text from
    * @param {object} [options] - Optional overrides for this one call
    * @param {string} [options.systemPrompt] - Replaces the generic system prompt
-   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
+   * @param {number} [options.temperature] - Without it the call asks with 0
+   *   (DEFAULT_GENERATE_TEMPERATURE in aiGenerateOptions)
    * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS (num_predict)
    * @param {AbortSignal} [options.signal] - Cancels the request in flight
    * @param {Function} [options.onProgress] - Streams the answer and reports it
@@ -910,10 +912,10 @@ class OllamaService {
       const model = modelOverride(options) || this.model;
       const rules = this._rules(model);
       const generateOptions = {};
+      // The caller's temperature, otherwise 0 (DEFAULT_GENERATE_TEMPERATURE
+      // in aiGenerateOptions), where the rules say the model takes one.
       if (rules.temperature) {
-        generateOptions.temperature = hasNumber(options.temperature)
-          ? options.temperature
-          : config.aiTemperatureGeneration;
+        generateOptions.temperature = generateTemperature(options);
       }
       generateOptions.top_p = 0.9;
       // The line above reserves the same number in the context; a constant

@@ -107,6 +107,8 @@ const DEFAULT_ENV = {
  *   (the default): requests are then anonymous unless the test sends credentials itself.
  * @param {(services: object) => void} [options.stub] - hook to override service methods before the router loads
  * @param {boolean} [options.modelsLoadedInTempDir] - the caller already loaded models/document.js in a throwaway working directory of its own; without it a model loaded before this call is an error
+ * @param {Record<string, string>} [options.dataFiles] - files written into the throwaway data/ directory before
+ *   any module loads, by name (runtime-overrides.json, .env): what config/config.js finds when the process starts
  * @returns {Promise<{app, base, server, tmpDir, documentModel, paperlessService, setupService, router, routers: object[],
  *   sessionToken: string|null, sessionCookie: string|null,
  *   authHeaders: (extra?: Record<string, string>) => Record<string, string>,
@@ -135,6 +137,9 @@ async function mountRouter(options = {}) {
   }
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zr-router-'));
   fs.mkdirSync(path.join(tmpDir, 'data'), { recursive: true });
+  for (const [name, content] of Object.entries(options.dataFiles || {})) {
+    fs.writeFileSync(path.join(tmpDir, 'data', name), content);
+  }
   for (const dir of ['config', 'public', 'views']) {
     fs.symlinkSync(path.join(REPO_ROOT, dir), path.join(tmpDir, dir), 'dir');
   }

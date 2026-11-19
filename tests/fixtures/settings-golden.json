@@ -42,7 +42,6 @@
       "TOKEN_LIMIT": "128000",
       "RESPONSE_TOKENS": "1000",
       "AI_TEMPERATURE_ANALYSIS": "0.3",
-      "AI_TEMPERATURE_GENERATION": "0.7",
       "AI_REASONING_EFFORT": "",
       "SYSTEM_PROMPT": "You are a document assistant.",
       "USE_PROMPT_TAGS": "no",
@@ -1992,9 +1991,7 @@
       "saved": [
         {
           "config": {
-            "differsFromReference": {
-              "AI_TEMPERATURE_GENERATION": "0.5"
-            },
+            "differsFromReference": {},
             "missingFromReference": []
           },
           "options": {
@@ -2038,9 +2035,7 @@
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
       "tagCacheReset": false,
-      "warnings": [
-        "[WARN] Invalid AI_TEMPERATURE_GENERATION value: x. Using fallback: 0.7"
-      ],
+      "warnings": [],
       "errors": []
     },
     "cookie secure mode rejected": {
@@ -2687,7 +2682,6 @@
         "TOKEN_LIMIT": 128000,
         "RESPONSE_TOKENS": 1000,
         "AI_TEMPERATURE_ANALYSIS": "0.3",
-        "AI_TEMPERATURE_GENERATION": "0.7",
         "AI_REASONING_EFFORT": "",
         "SYSTEM_PROMPT": "",
         "USE_PROMPT_TAGS": "no",
@@ -2861,7 +2855,6 @@
         "TOKEN_LIMIT": "64000",
         "RESPONSE_TOKENS": 1000,
         "AI_TEMPERATURE_ANALYSIS": "0.3",
-        "AI_TEMPERATURE_GENERATION": "0.7",
         "AI_REASONING_EFFORT": "",
         "SYSTEM_PROMPT": "",
         "USE_PROMPT_TAGS": "no",
@@ -3036,7 +3029,6 @@
         "TOKEN_LIMIT": 128000,
         "RESPONSE_TOKENS": 1000,
         "AI_TEMPERATURE_ANALYSIS": "0.3",
-        "AI_TEMPERATURE_GENERATION": "0.7",
         "AI_REASONING_EFFORT": "",
         "SYSTEM_PROMPT": "",
         "USE_PROMPT_TAGS": "no",
@@ -3210,7 +3202,6 @@
         "TOKEN_LIMIT": 128000,
         "RESPONSE_TOKENS": 1000,
         "AI_TEMPERATURE_ANALYSIS": "0.3",
-        "AI_TEMPERATURE_GENERATION": "0.7",
         "AI_REASONING_EFFORT": "",
         "SYSTEM_PROMPT": "",
         "USE_PROMPT_TAGS": "no",

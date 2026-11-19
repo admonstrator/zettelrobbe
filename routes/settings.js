@@ -660,6 +660,8 @@ router.get(
  *
  *       Changes made through this endpoint are applied immediately and affect all future
  *       document processing operations.
+ *
+ *       A field of a removed setting (aiTemperatureGeneration) is accepted and ignored.
  *     tags:
  *       - System
  *       - Setup
@@ -786,10 +788,6 @@ router.get(
  *                 type: number
  *                 description: Temperature for analysis/classification calls (range 0.0-2.0)
  *                 example: 0.3
- *               aiTemperatureGeneration:
- *                 type: number
- *                 description: Temperature of a generateText() call that sends none of its own (range 0.0-2.0). No current caller does; Tidy up always sends 0, so the value has no effect.
- *                 example: 0.7
  *               aiReasoningEffort:
  *                 type: string
  *                 enum: ["", "low", "medium", "high"]

@@ -207,6 +207,7 @@ const TESTS = {
   'scan-control': 'test-scan-control.js',
   'settings-save-golden': 'test-settings-save-golden.js',
   'settings-catalog': 'test-settings-catalog.js',
+  'removed-settings': 'test-removed-settings.js',
   'document-pipeline-callers': 'test-document-pipeline-callers.js',
   'route-shadowing': 'test-route-shadowing.js',
   'auth-guard-characterization': 'test-auth-guard-characterization.js',
@@ -412,6 +413,7 @@ const AREAS = {
   settings: [
     'settings-save-golden',
     'settings-catalog',
+    'removed-settings',
     'settings-ocr-key-lock',
     'settings-nav-active',
     'settings-switch-row',

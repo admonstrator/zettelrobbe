@@ -1,10 +1,10 @@
 'use strict';
 
 /**
- * Test: AI_TEMPERATURE_GENERATION and the callers of generateText()
+ * Test: the callers of generateText() and the temperature each sends
  *
- * The setting came in with dd5fdc1 (#121) as the temperature of
- * generateText(), the provider call for answers outside the document
+ * AI_TEMPERATURE_GENERATION came in with dd5fdc1 (#121) as the temperature
+ * of generateText(), the provider call for answers outside the document
  * analysis. Its one caller then was the RAG chat ("ask your documents",
  * services/ragService.js). The RAG went in c4c4907 and the chat in 4bcd459;
  * from then until 5bc84c4 nothing called generateText() at all. The callers
@@ -14,19 +14,23 @@
  * JSON shape, and a verdict that changes from run to run, or an answer that
  * stops parsing, is worth nothing.
  *
- * The provider services still fall back to the setting when a caller passes
- * no temperature (tests/test-ollama-temperature-wiring.js,
- * tests/test-openai-compatible-service.js), but no caller does, so the value
- * changes nothing. The settings page offered it as if it did.
+ * The setting therefore changed nothing, and it is gone. A call that names no
+ * temperature gets DEFAULT_GENERATE_TEMPERATURE (0) from
+ * services/aiGenerateOptions.js; an installation that still has the key set
+ * is not disturbed by it (tests/test-removed-settings.js).
  *
  * Covers:
  *  1. The census: the code that runs calls generateText() in exactly four
  *     places, two in entityMatchAiService.js and two in tagSimplifyService.js
- *  2. The judge asks with temperature 0, whatever AI_TEMPERATURE_GENERATION says
+ *  2. The judge asks with temperature 0, whatever a stale
+ *     AI_TEMPERATURE_GENERATION says
  *  3. The synonym sweep asks with temperature 0
  *  4. The vocabulary proposal asks with temperature 0
  *  5. The tag split asks with temperature 0
- *  6. The settings page says that nothing uses the value
+ *  6. A call that names no temperature gets 0, not the stale value
+ *  7. The setting does not exist: no catalogue entry, no AI option, no
+ *     config getter, no field on the settings page, no fieldMappings line,
+ *     no line in the .env export
  */
 
 const assert = require('assert');
@@ -38,8 +42,11 @@ const { createFakePaperless } = require('./helpers/fake-paperless');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-/** What the setting is set to here: anything but the 0 the callers send. */
-const CONFIGURED = '1.3';
+/**
+ * What an older installation may still have stored for the removed key:
+ * anything but the 0 the callers send.
+ */
+const STALE = '1.3';
 
 let passed = 0;
 let failed = 0;
@@ -68,9 +75,8 @@ const read = (relative) =>
 /**
  * Every call of generateText() in the code that runs, as "file#method": the
  * class method the call sits in. A new entry here means a new caller: decide
- * its temperature, give it a case below, and say on the settings page (the
- * AI_TEMPERATURE_GENERATION help in services/aiProviderRules.js) whether the
- * value now does something.
+ * its temperature and give it a case below. A caller that names none gets
+ * DEFAULT_GENERATE_TEMPERATURE (services/aiGenerateOptions.js).
  */
 const CALLERS = [
   // The judge: same / different / unsure per name pair.
@@ -138,7 +144,7 @@ function generateTextCallers() {
   process.env.OPENAI_MODEL = 'test-model';
   process.env.DUPLICATES_AI_REVIEW = 'yes';
   process.env.DUPLICATES_AI_VERDICT_MEMORY_DAYS = '0';
-  process.env.AI_TEMPERATURE_GENERATION = CONFIGURED;
+  process.env.AI_TEMPERATURE_GENERATION = STALE;
 
   const config = require('../config/config');
   config.duplicatesAiConcurrency = 1;
@@ -212,7 +218,6 @@ function generateTextCallers() {
     });
 
     await test('The judge asks with temperature 0: a verdict must not change from run to run', async () => {
-      assert.strictEqual(config.aiTemperatureGeneration, Number(CONFIGURED));
       entityMatchAiService.resetCalibration();
       const a = entity(1, 'Rechnung', 3);
       const b = entity(2, 'Rechnungen', 1);
@@ -294,32 +299,63 @@ function generateTextCallers() {
       assertAskedWithZero(split, 'the tag split');
     });
 
+    await test('A call that names no temperature gets 0, not the stale value', async () => {
+      const {
+        DEFAULT_GENERATE_TEMPERATURE,
+        generateTemperature,
+      } = require('../services/aiGenerateOptions');
+      assert.strictEqual(DEFAULT_GENERATE_TEMPERATURE, 0);
+      assert.strictEqual(generateTemperature({}), 0);
+      assert.strictEqual(generateTemperature(undefined), 0);
+      assert.strictEqual(generateTemperature({ temperature: null }), 0);
+      assert.strictEqual(generateTemperature({ temperature: '0.9' }), 0);
+      assert.strictEqual(generateTemperature({ temperature: 0.9 }), 0.9);
+      assert.strictEqual(generateTemperature({ temperature: 0 }), 0);
+
+      // The request an OpenAI-compatible provider builds: the model takes a
+      // temperature, the caller named none.
+      const openai = require('../services/openaiCompatibleService').forProvider(
+        'openai'
+      );
+      const request = await openai._generateRequest('hello', {});
+      assert.strictEqual(request.temperature, 0);
+      const own = await openai._generateRequest('hello', { temperature: 0.4 });
+      assert.strictEqual(own.temperature, 0.4, 'a caller of its own wins');
+    });
+
     console.log = quiet.log;
     console.warn = quiet.warn;
 
-    await test('The settings page says that nothing uses the value', async () => {
+    await test('The setting does not exist', async () => {
+      const KEY = 'AI_TEMPERATURE_GENERATION';
+      const FIELD = 'aiTemperatureGeneration';
+
+      const catalog = require('../services/settingsCatalog');
+      assert.strictEqual(catalog.getEntry(KEY), undefined, 'catalogue entry');
+
       const { AI_OPTIONS } = require('../services/aiProviderRules');
-      const option = AI_OPTIONS.find(
-        (entry) => entry.key === 'AI_TEMPERATURE_GENERATION'
-      );
-      assert.ok(option, 'the option is still offered');
-      assert.match(
-        option.help,
-        /does not use this value/,
-        'the hint must say that the value has no effect'
-      );
-      assert.match(option.help, /Tidy up/);
+      assert.ok(!AI_OPTIONS.some((option) => option.key === KEY), 'AI option');
+
+      assert.ok(!(FIELD in config), 'config getter');
       assert.ok(
-        !/free-text answers outside the analysis may be/.test(option.help),
-        'the old hint described an effect the value does not have'
+        !read('config/config.js').includes(KEY),
+        'config/config.js reads the key'
       );
 
       const { renderSettingsPage } = require('./helpers/render-settings');
       const html = await renderSettingsPage();
-      const at = html.indexOf('data-ai-option="AI_TEMPERATURE_GENERATION"');
-      assert.ok(at > 0, 'the field is rendered');
-      const row = html.slice(at, html.indexOf('data-ai-option=', at + 10));
-      assert.match(row, /does not use this value/);
+      assert.ok(!html.includes(KEY), 'the settings page names the key');
+      assert.ok(!html.includes(FIELD), 'the settings page has the field');
+      assert.ok(!html.includes('Generation creativity'), 'the slider label');
+
+      const settingsScript = read('public/js/settings.js');
+      assert.ok(!settingsScript.includes(KEY), 'public/js/settings.js');
+      assert.ok(!settingsScript.includes(FIELD), 'public/js/settings.js');
+
+      const { buildEnvExport } = require('../services/settingsService');
+      const exported = buildEnvExport({ [KEY]: STALE, TOKEN_LIMIT: '64000' });
+      assert.ok(!exported.env.includes(KEY), 'the .env export prints it');
+      assert.strictEqual(exported.count, 1);
     });
   } finally {
     console.log = quiet.log;

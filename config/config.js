@@ -698,12 +698,6 @@ defineLive(module.exports, {
       0.3,
       'AI_TEMPERATURE_ANALYSIS'
     ),
-  aiTemperatureGeneration: () =>
-    parseTemperature(
-      process.env.AI_TEMPERATURE_GENERATION,
-      0.7,
-      'AI_TEMPERATURE_GENERATION'
-    ),
   // reasoning_effort for the OpenAI-compatible providers: low | medium |
   // high; empty sends none. Which models get it: services/aiProviderRules.js.
   aiReasoningEffort: () => env('AI_REASONING_EFFORT').trim().toLowerCase(),
@@ -845,7 +839,6 @@ const validateAtStartup = () => [
   module.exports.tokenLimit,
   module.exports.responseTokens,
   module.exports.aiTemperatureAnalysis,
-  module.exports.aiTemperatureGeneration,
   anthropic.maxTokens,
 ];
 validateAtStartup();

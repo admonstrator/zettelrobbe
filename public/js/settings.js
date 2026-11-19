@@ -2469,10 +2469,6 @@ function initializeFormHandlers() {
       };
 
       validateTemperature('aiTemperatureAnalysis', 'AI_TEMPERATURE_ANALYSIS');
-      validateTemperature(
-        'aiTemperatureGeneration',
-        'AI_TEMPERATURE_GENERATION'
-      );
 
       const resolveModels = async (url, payload) => {
         const response = await fetch(url, {
@@ -3072,10 +3068,6 @@ function initializeRuntimeOverridePills() {
     { selector: '#tokenLimit', envKey: 'TOKEN_LIMIT' },
     { selector: '#responseTokens', envKey: 'RESPONSE_TOKENS' },
     { selector: '#aiTemperatureAnalysis', envKey: 'AI_TEMPERATURE_ANALYSIS' },
-    {
-      selector: '#aiTemperatureGeneration',
-      envKey: 'AI_TEMPERATURE_GENERATION',
-    },
     { selector: '#aiReasoningEffort', envKey: 'AI_REASONING_EFFORT' },
     { selector: '#ollamaThink', envKey: 'OLLAMA_THINK' },
     { selector: '#aiProcessedTag', envKey: 'ADD_AI_PROCESSED_TAG' },

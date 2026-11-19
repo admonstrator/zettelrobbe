@@ -116,6 +116,9 @@ async function main() {
     OpenAICompatibleService,
     forProvider,
   } = require('../services/openaiCompatibleService');
+  const {
+    DEFAULT_GENERATE_TEMPERATURE,
+  } = require('../services/aiGenerateOptions');
 
   /**
    * Sets a configuration value the way a save does: in process.env and in
@@ -199,14 +202,14 @@ async function main() {
       selectProvider('openai');
       let { body } = await call(openaiService, { maxTokens: 300 });
       assert.strictEqual(body.model, 'gpt-4o-mini');
-      assert.strictEqual(body.temperature, config.aiTemperatureGeneration);
+      assert.strictEqual(body.temperature, DEFAULT_GENERATE_TEMPERATURE);
       assert.strictEqual(body.max_tokens, 300);
       assert.strictEqual('max_completion_tokens' in body, false);
 
       // OpenAI has never been sent a cap the caller did not ask for.
       ({ body } = await call(openaiService));
       assert.strictEqual('max_tokens' in body, false);
-      assert.strictEqual(body.temperature, config.aiTemperatureGeneration);
+      assert.strictEqual(body.temperature, DEFAULT_GENERATE_TEMPERATURE);
 
       ({ body } = await call(openaiService, { temperature: 0 }));
       assert.strictEqual(body.temperature, 0, 'zero is a value');
@@ -255,8 +258,8 @@ async function main() {
       );
       assert.strictEqual(
         plain.body.temperature,
-        config.aiTemperatureGeneration,
-        'the configured temperature, not a hard-coded 0.7'
+        DEFAULT_GENERATE_TEMPERATURE,
+        'no temperature of its own asks with 0'
       );
       assert.strictEqual(plain.body.max_tokens, Number(config.responseTokens));
     });
@@ -276,7 +279,7 @@ async function main() {
       );
       assert.strictEqual('reasoning_effort' in body, false);
       assert.strictEqual(body.max_tokens, Number(config.responseTokens));
-      assert.strictEqual(body.temperature, config.aiTemperatureGeneration);
+      assert.strictEqual(body.temperature, DEFAULT_GENERATE_TEMPERATURE);
     });
 
     await test('gpt-oss on custom carries reasoning_effort low', async () => {

@@ -103,7 +103,6 @@ const PAGE_BODY = {
   tokenLimit: '128000',
   responseTokens: '1000',
   aiTemperatureAnalysis: '0.3',
-  aiTemperatureGeneration: '0.7',
   tags: '',
   ignoreTags: '',
   removeInboxTagsAfterProcessing: 'no',
@@ -790,6 +789,8 @@ const SAVE_SCENARIOS = [
     name: 'response tokens parsed leniently, token limit normalised',
     body: page({ responseTokens: ' 2048abc ', tokenLimit: ' 0064000 ' }),
   },
+  // aiTemperatureGeneration is a removed field. An older page or an API user
+  // may still send it; the save ignores it.
   {
     name: 'temperatures out of range and padded',
     body: page({
