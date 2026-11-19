@@ -1,6 +1,17 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { LEGACY_PUBLIC_THUMBNAIL_CACHE_DIR } = require('./thumbnailCachePaths');
+const config = require('../config/config');
+const setupService = require('./setupService');
+const {
+  DEFAULT_OCR_TIMEOUT_MS,
+  OLD_FORM_OCR_TIMEOUT_MS,
+  isOldFormOcrTimeout,
+} = require('./ocrTimeout');
+
+const OCR_TIMEOUT_KEY = 'SETUP_OCR_VALIDATION_TIMEOUT_MS';
+/** Milliseconds as whole seconds, for a log line. */
+const seconds = (ms) => Math.round(ms / 1000);
 
 const STARTUP_MIGRATION_STATE_PATH = path.join(
   process.cwd(),
@@ -15,6 +26,18 @@ const STARTUP_MIGRATION_STEPS = [
     description: 'Remove legacy thumbnail cache files from public/images',
     // Keep this step contract stable so it can be reused by a future centralized update routine.
     run: runLegacyPublicThumbnailCacheCleanup,
+  },
+  {
+    id: 'CFG-OCR-TIMEOUT-001',
+    description: `Raise a stored OCR timeout of ${seconds(OLD_FORM_OCR_TIMEOUT_MS)} seconds, the old form default, to ${seconds(DEFAULT_OCR_TIMEOUT_MS)} seconds`,
+    run: runOcrTimeoutRaise,
+    // A raise has its own line, which says what happened.
+    summarize: (result) => {
+      if (result.raised) return '';
+      return result.setByEnvironment
+        ? 'The environment sets the OCR timeout, left as it is.'
+        : 'No stored OCR timeout to raise.';
+    },
   },
 ];
 
@@ -145,6 +168,55 @@ async function runLegacyPublicThumbnailCacheCleanup(logger = console) {
   };
 }
 
+/**
+ * CFG-OCR-TIMEOUT-001: a stored OCR timeout of exactly 30000 ms becomes the
+ * default (services/ocrTimeout.js).
+ *
+ * Before 2b53422 the settings form, the setup wizard and every save wrote
+ * SETUP_OCR_VALIDATION_TIMEOUT_MS=30000, chosen or not, and since 1572d36 the
+ * key also governs document OCR, which had waited 120 seconds. Like every
+ * step here it runs once, so 30 seconds set after it stay.
+ *
+ * The value is read and written where a save keeps it (setupService):
+ * data/runtime-overrides.json, in legacy mode data/.env as well, and
+ * process.env, so the first OCR request after the start waits the default.
+ * A value the environment sets is left alone, as every save leaves it; for
+ * 30000 the log says what to do. SETUP_VALIDATION_TIMEOUT_MS, the key OCR
+ * falls back to, is not touched.
+ *
+ * @param {Console} logger
+ * @returns {Promise<{ raised: boolean, setByEnvironment?: boolean }>}
+ */
+async function runOcrTimeoutRaise(logger = console) {
+  const oldSeconds = seconds(OLD_FORM_OCR_TIMEOUT_MS);
+
+  if (config.isProtectedRuntimeEnvKey(OCR_TIMEOUT_KEY)) {
+    if (isOldFormOcrTimeout(process.env[OCR_TIMEOUT_KEY])) {
+      logger.warn(
+        `[WARN] ${OCR_TIMEOUT_KEY}=${OLD_FORM_OCR_TIMEOUT_MS} is set by the environment, so OCR waits ${oldSeconds} seconds per request. ` +
+          `${OLD_FORM_OCR_TIMEOUT_MS} was the old default of the settings form; the default is now ${DEFAULT_OCR_TIMEOUT_MS}. ` +
+          `Remove the variable from the environment (docker-compose environment:) to get the default, or keep it if you want ${oldSeconds} seconds.`
+      );
+    }
+    return { raised: false, setByEnvironment: true };
+  }
+
+  const stored = (await setupService.loadConfig()) || {};
+  if (!isOldFormOcrTimeout(stored[OCR_TIMEOUT_KEY])) {
+    return { raised: false };
+  }
+
+  await setupService.updateConfigValues({
+    [OCR_TIMEOUT_KEY]: String(DEFAULT_OCR_TIMEOUT_MS),
+  });
+  logger.log(
+    `[INFO] OCR timeout raised from ${oldSeconds} to ${seconds(DEFAULT_OCR_TIMEOUT_MS)} seconds: ` +
+      `${oldSeconds} was the old default of the settings form, and every save wrote it down. ` +
+      `To keep ${oldSeconds} seconds, set it again under Settings > OCR > OCR timeout.`
+  );
+  return { raised: true };
+}
+
 async function runStartupMigrations(logger = console) {
   const state = await loadMigrationState(logger);
   const summary = [];
@@ -167,8 +239,12 @@ async function runStartupMigrations(logger = console) {
 
       await saveMigrationState(state, logger);
 
+      const detail =
+        typeof step.summarize === 'function'
+          ? step.summarize(result)
+          : `Removed files: ${result.removedFiles || 0}, failed files: ${result.failedFiles || 0}.`;
       logger.log(
-        `[MIGRATION] ${step.id} applied. Removed files: ${result.removedFiles || 0}, failed files: ${result.failedFiles || 0}.`
+        `[MIGRATION] ${step.id} applied.${detail ? ` ${detail}` : ''}`
       );
 
       summary.push({ id: step.id, status: 'applied', result });

@@ -25,6 +25,28 @@
 const DEFAULT_OCR_TIMEOUT_MS = 120000;
 
 /**
+ * What the settings form, the setup wizard and every save wrote before
+ * 2b53422, whether anyone chose it or not. The startup migration
+ * CFG-OCR-TIMEOUT-001 (services/startupMigrations.js) raises a stored value
+ * of exactly this to the default, once.
+ */
+const OLD_FORM_OCR_TIMEOUT_MS = 30000;
+
+/**
+ * Whether a stored value is the old form default: exactly 30000, as text or
+ * as a number, spaces around it aside.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isOldFormOcrTimeout(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return false;
+  }
+  return String(value).trim() === String(OLD_FORM_OCR_TIMEOUT_MS);
+}
+
+/**
  * The OCR timeout in effect, in milliseconds: SETUP_OCR_VALIDATION_TIMEOUT_MS,
  * else SETUP_VALIDATION_TIMEOUT_MS (the setup's general timeout), else the
  * default. A value below one second, or one that is not a number, counts as
@@ -44,4 +66,9 @@ function ocrTimeoutMsFromEnv(env) {
     : DEFAULT_OCR_TIMEOUT_MS;
 }
 
-module.exports = { DEFAULT_OCR_TIMEOUT_MS, ocrTimeoutMsFromEnv };
+module.exports = {
+  DEFAULT_OCR_TIMEOUT_MS,
+  OLD_FORM_OCR_TIMEOUT_MS,
+  isOldFormOcrTimeout,
+  ocrTimeoutMsFromEnv,
+};
