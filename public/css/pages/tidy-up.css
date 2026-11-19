@@ -9,20 +9,14 @@
    ========================================================================== */
 
 @layer pages {
-  /* --- the column ------------------------------------------------------- */
+  /* --- the column -------------------------------------------------------
+     A .zr-stack, like every page, centred and bounded. The run, the notices,
+     the suggestions and their list are columns of cards too, so every card
+     here stands the card gap from the next. */
   .tidy-page {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-4);
     max-width: 880px;
     margin: 0 auto;
     width: 100%;
-    min-width: 0;
-  }
-
-  .tidy-page .zr-module + .zr-module,
-  .tidy-page .zr-module + .zr-alert {
-    margin-top: 0;
   }
 
   .tidy-page code,
@@ -311,12 +305,6 @@
   }
 
   /* --- 4 · failure notices ------------------------------------------------- */
-  .tidy-notices {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-  }
-
   .tidy-run--failure {
     border: 0;
     background: transparent;
@@ -398,12 +386,6 @@
   }
 
   /* --- 3 · suggestions ---------------------------------------------------- */
-  .tidy-results {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
-  }
-
   .tidy-summary__body {
     display: flex;
     flex-wrap: wrap;
@@ -537,12 +519,6 @@
 
   .tidy-filters__earlier[aria-pressed='true'] {
     font-weight: 600;
-  }
-
-  .tidy-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--zr-3);
   }
 
   .tidy-list__empty {

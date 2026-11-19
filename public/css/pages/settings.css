@@ -80,24 +80,19 @@
     height: var(--zr-settings-reserve, 0);
   }
 
-  /* Topic list and topic are one block that starts next to the app's own
-     navigation: the list, then the topic in a column of a readable width.
-     The distance to the rail (--zr-settings-inset) grows a little with the
-     window and stops at 96px, so on a large display the two lists stay
-     neighbours and the air goes to the right; in a narrow window the topic
-     column gives way first. The save bar lines its content up with the same
-     block (--zr-actionbar-inset, --zr-actionbar-measure). */
+  /* Topic list and topic are one block that starts where every page starts,
+     at the page padding under the top bar and next to the rail: the list in
+     its card, then the topic in a column of a readable width, the card gap
+     between them. On a large display the air goes to the right; in a narrow
+     window the topic column gives way first. The save bar starts its content
+     at the same page padding and ends it with the block
+     (--zr-actionbar-measure). */
   .zr-settings-page {
-    --zr-settings-list: 232px;
+    --zr-settings-list: 256px;
     --zr-settings-measure: 720px;
-    --zr-settings-gap: var(--zr-8);
-    --zr-settings-pad: var(--zr-6);
-    --zr-settings-inset: clamp(var(--zr-settings-pad), 4vw, 96px);
-    --zr-actionbar-inset: var(--zr-settings-inset);
     --zr-actionbar-measure: calc(
-      var(--zr-settings-inset) + var(--zr-settings-list) +
-        var(--zr-settings-gap) + var(--zr-settings-measure) +
-        var(--zr-settings-pad)
+      var(--zr-page-pad) * 2 + var(--zr-settings-list) + var(--zr-card-gap) +
+        var(--zr-settings-measure)
     );
   }
   .zr-settings-page .zr-settings {
@@ -106,8 +101,8 @@
         var(--zr-settings-measure)
       );
     justify-content: start;
-    gap: var(--zr-settings-gap);
-    padding: 28px var(--zr-settings-pad) var(--zr-10) var(--zr-settings-inset);
+    gap: var(--zr-card-gap);
+    padding: var(--zr-page-pad) var(--zr-page-pad) var(--zr-10);
   }
   /* The styleguide lays out its own sections with the same frame. */
   .zr-settings {
@@ -116,10 +111,13 @@
 
   /* --- the topic list --------------------------------------------------- */
 
-  /* Search field and list scroll with the page. The list has no height of
-     its own and never scrolls inside itself: its groups fold instead
-     (js/modules/settings-nav.js), so with the group of the open topic open
-     it fits a window 720px high. */
+  /* A card: search field and list, the topic picker on a phone. They
+     scroll with the page. The list has no height of its own and never
+     scrolls inside itself: its groups fold instead (js/modules/settings-nav.js),
+     so with the group of the open topic open it fits a window 720px high. The
+     list column grew by the card's padding, so the list keeps its width
+     inside, and its links keep their own inset for the hover band, like the
+     links of the rail. */
   .zr-settings-side {
     display: flex;
     flex-direction: column;
@@ -289,13 +287,12 @@
 
   /* --- a topic -------------------------------------------------------- */
 
-  /* Sections keep the same distance, also inside the wrapper a topic module
-     puts around them (single sign-on, Set by the environment). */
-  .zr-settings-entry,
-  .zr-settings-entry > .zr-col--loose {
-    gap: var(--zr-6);
-  }
-  /* Its group as a quiet line, its title, one sentence on what it is for. */
+  /* A topic is a column of cards (.zr-stack in the view), also inside the
+     wrapper a topic module puts around its cards (single sign-on, Set by
+     the environment): its head on the page, then one card per section, the
+     card gap between them.
+     The head: its group as a quiet line, its title, one sentence on what it
+     is for, on the page like the lead line of History. */
   .zr-settings-entry__head {
     display: flex;
     flex-direction: column;
@@ -331,36 +328,22 @@
     max-width: 100%;
   }
 
-  /* A section: its title and one line on what it holds above the card, not
-     a bar inside it. */
-  .zr-settings-section {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  /* A section is a card (.zr-module.zr-settings-card.zr-settings-section)
+     like the cards of every other page: its title in the card head, a
+     button for the whole section beside it, one line on what it holds under
+     the head, then its rows. The head starts at the inset of the rows, and a
+     long title wraps instead of being cut. */
+  .zr-settings-card > .zr-module__head {
+    padding-inline: var(--zr-row-x);
   }
-  .zr-settings-section__head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--zr-2) var(--zr-4);
-    padding: 0 2px;
-  }
-  .zr-settings-section__text {
-    display: flex;
-    flex: 1 1 18rem;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .zr-settings-section__title {
-    font-size: var(--zr-fs-md);
-    font-weight: 600;
+  .zr-settings-section > .zr-module__head > .zr-settings-section__title {
+    white-space: normal;
   }
   .zr-settings-section__title:focus {
     outline: none;
   }
   .zr-settings-section__desc {
+    padding: var(--zr-row-y) var(--zr-row-x) 0;
     color: var(--zr-text-muted);
   }
 
@@ -619,7 +602,10 @@
     box-shadow: none;
   }
 
-  /* The row a search result or an error opened, for a moment. */
+  /* The row a search result or an error opened, for a moment; for an old
+     #sec-... link, the whole section card. Without a closing keyframe the
+     tint fades back to the element's own background: transparent for a
+     row, white for a card. */
   .zr-settings-flash {
     animation: zr-settings-flash 1.6s var(--zr-ease);
   }
@@ -627,9 +613,6 @@
     0%,
     40% {
       background: var(--zr-brand-soft);
-    }
-    100% {
-      background: transparent;
     }
   }
 
@@ -711,11 +694,11 @@
   .zr-settings-advanced[open] > summary > .zr-icon {
     transform: rotate(180deg);
   }
-  /* A summary row reads like a section title line, with the same inset as
-     the rows below it. */
+  /* A summary row is the head of its card, with the same inset as the rows
+     below it (the card head rule above); it is a button, so it stands a
+     little taller. */
   :is(.zr-settings-advanced, .zr-sso-advanced) > summary {
     min-height: 44px;
-    padding-inline: var(--zr-4);
   }
 
   @media (max-width: 860px) {
@@ -726,20 +709,15 @@
     .zr-view:has(> .zr-settings-page) {
       padding-bottom: var(--zr-tabbar-h);
     }
-    .zr-settings-page {
-      --zr-settings-pad: var(--zr-3);
-      --zr-settings-inset: var(--zr-settings-pad);
-    }
     .zr-settings-page .zr-settings {
       grid-template-columns: minmax(0, 1fr);
-      gap: var(--zr-3);
-      padding: var(--zr-3) var(--zr-settings-pad) var(--zr-6);
+      padding: var(--zr-page-pad) var(--zr-page-pad) var(--zr-6);
     }
     .zr-settings {
       grid-template-columns: minmax(0, 1fr);
     }
-    /* A phone picks its topic from the list under the search field; the
-       topic list appears only to show what a search found. */
+    /* A phone picks its topic from the list under the search field, in the
+       same card; the topic list appears only to show what a search found. */
     .zr-settings-page:not([data-searching]) .zr-settings-nav {
       display: none;
     }

@@ -4,15 +4,6 @@
    ========================================================================== */
 
 @layer pages {
-  /* The page spaces its modules with gaps, so the framework's stacking margin
-     between sibling modules would only push the right column out of line. */
-  .about-page .zr-module + .zr-module {
-    margin-top: 0;
-  }
-  .about-page .card-grid {
-    gap: var(--zr-4);
-  }
-
   .about-hero {
     display: flex;
     align-items: flex-start;

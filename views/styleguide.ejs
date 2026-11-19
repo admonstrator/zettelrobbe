@@ -10,6 +10,8 @@
     version: typeof version !== 'undefined' ? version : ''
 }) %>
 
+<%# The page is one column of cards, like every page of the app. %>
+<div class="zr-stack">
 <div class="zr-viewhead">
     <h2 class="zr-viewhead__title">Framework reference</h2>
     <p class="zr-viewhead__sub">
@@ -469,77 +471,75 @@
                 <div class="zr-col zr-col--tight">
                     <span class="zr-label">A section and its rows — .zr-settings-section, .zr-settings-card</span>
                     <p class="zr-sm zr-muted">
-                        A section names itself above its card, with one line on what it holds. In the card every setting is a row,
+                        A section is a card like the cards of every other page: its title in the card head, a button for the
+                        whole section beside it if it has one, one line on what it holds under the head. A topic stacks its
+                        cards in a .zr-stack under its title and lead, which stand on the page. In the card every setting is a row,
                         ruled off by a hairline, and every control ends on the same right edge. The form of a row follows the type of
                         its control: a switch, a number, a select or a short text sits beside its label; an address, a secret, a list
                         of pills, a textarea or a control with a button beside it sits under its label across the row. Shown: both forms,
                         a switch with an unsaved change, one set by the environment, and a row "Find a setting" marked.
                     </p>
                     <div style="max-width: 720px">
-                        <section class="zr-settings-section" aria-labelledby="sgSectionTitle">
-                            <div class="zr-settings-section__head">
-                                <div class="zr-settings-section__text">
-                                    <h4 class="zr-settings-section__title" id="sgSectionTitle">Tags after the analysis</h4>
-                                    <p class="zr-settings-section__desc">What Zettelrobbe adds to a document or takes off it once its analysis is written.</p>
-                                </div>
+                        <section class="zr-module zr-settings-card zr-settings-section" aria-labelledby="sgSectionTitle">
+                            <div class="zr-module__head">
+                                <h4 class="zr-module__title zr-settings-section__title" id="sgSectionTitle">Tags after the analysis</h4>
                             </div>
-                            <div class="zr-module zr-settings-card">
-                                <div class="zr-module__body zr-col zr-col--loose">
-                                    <div class="zr-switchrow">
-                                        <div class="zr-grow">
-                                            <label for="sgRowsTagSwitch" class="zr-field__name">Tag analysed documents</label>
-                                            <p class="zr-field__hint">Adds the tag below to every analysed document.</p>
-                                        </div>
-                                        <input type="checkbox" class="zr-toggle" id="sgRowsTagSwitch" checked>
+                            <p class="zr-settings-section__desc">What Zettelrobbe adds to a document or takes off it once its analysis is written.</p>
+                            <div class="zr-module__body zr-col zr-col--loose">
+                                <div class="zr-switchrow">
+                                    <div class="zr-grow">
+                                        <label for="sgRowsTagSwitch" class="zr-field__name">Tag analysed documents</label>
+                                        <p class="zr-field__hint">Adds the tag below to every analysed document.</p>
                                     </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="sgRowsTagName" class="zr-field__name">Tag name</label>
-                                        <input type="text" id="sgRowsTagName" class="zr-input" value="ai-processed">
-                                        <p class="zr-field__hint">A short text: beside its label.</p>
+                                    <input type="checkbox" class="zr-toggle" id="sgRowsTagSwitch" checked>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="sgRowsTagName" class="zr-field__name">Tag name</label>
+                                    <input type="text" id="sgRowsTagName" class="zr-input" value="ai-processed">
+                                    <p class="zr-field__hint">A short text: beside its label.</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="sgRowsLimit" class="zr-field__name">Page limit</label>
+                                    <input type="number" id="sgRowsLimit" class="zr-input" value="40">
+                                    <p class="zr-field__hint">A number: beside its label.</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="sgRowsUrl" class="zr-field__name">Server address</label>
+                                    <input type="text" id="sgRowsUrl" class="zr-input" value="http://ollama.lan:11434" inputmode="url">
+                                    <p class="zr-field__hint">An address: under its label, across the row.</p>
+                                </div>
+                                <div class="zr-field zr-field--stacked">
+                                    <label for="sgRowsPills" class="zr-field__name">Also remove these tags</label>
+                                    <div class="zr-inputgroup">
+                                        <input type="text" id="sgRowsPills" class="zr-input" placeholder="Tag name, then Enter">
+                                        <button type="button" class="zr-btn zr-btn--primary">
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
+                                            Add
+                                        </button>
                                     </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="sgRowsLimit" class="zr-field__name">Page limit</label>
-                                        <input type="number" id="sgRowsLimit" class="zr-input" value="40">
-                                        <p class="zr-field__hint">A number: beside its label.</p>
+                                    <div class="zr-chips" role="list"><span class="zr-chip" role="listitem"><span>needs-ocr</span><button type="button" aria-label="Remove needs-ocr"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button></span></div>
+                                    <p class="zr-field__hint">A list of pills: its Add button ends on the same edge as the switches.</p>
+                                </div>
+                                <div class="zr-switchrow" data-dirty>
+                                    <div class="zr-grow">
+                                        <label for="sgRowsInboxSwitch" class="zr-field__name">Remove the inbox tags</label>
+                                        <p class="zr-field__hint">Changed and not saved yet: the bar on the left says so.</p>
                                     </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="sgRowsUrl" class="zr-field__name">Server address</label>
-                                        <input type="text" id="sgRowsUrl" class="zr-input" value="http://ollama.lan:11434" inputmode="url">
-                                        <p class="zr-field__hint">An address: under its label, across the row.</p>
+                                    <input type="checkbox" class="zr-toggle" id="sgRowsInboxSwitch">
+                                </div>
+                                <div class="zr-switchrow">
+                                    <div class="zr-grow">
+                                        <label for="sgRowsPinnedSwitch" class="zr-field__name">Send the existing names</label>
+                                        <p class="zr-field__hint">Set by the environment (USE_EXISTING_DATA).</p>
                                     </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="sgRowsPills" class="zr-field__name">Also remove these tags</label>
-                                        <div class="zr-inputgroup">
-                                            <input type="text" id="sgRowsPills" class="zr-input" placeholder="Tag name, then Enter">
-                                            <button type="button" class="zr-btn zr-btn--primary">
-                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                                Add
-                                            </button>
-                                        </div>
-                                        <div class="zr-chips" role="list"><span class="zr-chip" role="listitem"><span>needs-ocr</span><button type="button" aria-label="Remove needs-ocr"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button></span></div>
-                                        <p class="zr-field__hint">A list of pills: its Add button ends on the same edge as the switches.</p>
+                                    <input type="checkbox" class="zr-toggle" id="sgRowsPinnedSwitch" checked disabled>
+                                </div>
+                                <div class="zr-switchrow zr-settings-match">
+                                    <div class="zr-grow">
+                                        <label for="sgRowsMatchSwitch" class="zr-field__name">Skip copies of ignored documents</label>
+                                        <p class="zr-field__hint">Marked while a search for "ignored" stands.</p>
                                     </div>
-                                    <div class="zr-switchrow" data-dirty>
-                                        <div class="zr-grow">
-                                            <label for="sgRowsInboxSwitch" class="zr-field__name">Remove the inbox tags</label>
-                                            <p class="zr-field__hint">Changed and not saved yet: the bar on the left says so.</p>
-                                        </div>
-                                        <input type="checkbox" class="zr-toggle" id="sgRowsInboxSwitch">
-                                    </div>
-                                    <div class="zr-switchrow">
-                                        <div class="zr-grow">
-                                            <label for="sgRowsPinnedSwitch" class="zr-field__name">Send the existing names</label>
-                                            <p class="zr-field__hint">Set by the environment (USE_EXISTING_DATA).</p>
-                                        </div>
-                                        <input type="checkbox" class="zr-toggle" id="sgRowsPinnedSwitch" checked disabled>
-                                    </div>
-                                    <div class="zr-switchrow zr-settings-match">
-                                        <div class="zr-grow">
-                                            <label for="sgRowsMatchSwitch" class="zr-field__name">Skip copies of ignored documents</label>
-                                            <p class="zr-field__hint">Marked while a search for "ignored" stands.</p>
-                                        </div>
-                                        <input type="checkbox" class="zr-toggle" id="sgRowsMatchSwitch" checked>
-                                    </div>
+                                    <input type="checkbox" class="zr-toggle" id="sgRowsMatchSwitch" checked>
                                 </div>
                             </div>
                         </section>
@@ -552,9 +552,13 @@
                         Quick start first, ruled off; then the groups. A group heading is a button that folds its topics in and out
                         and says how many it holds; closed, it carries the dot of a topic with unsaved changes and the count of a search.
                         The list never scrolls inside itself. "Find a setting" narrows it to the topics with a match and opens their groups.
+                        Field and list sit in a card (.zr-settings-side is its body), which on a phone also holds the topic picker.
                     </p>
-                    <div class="zr-row zr-row--wrap" style="align-items: flex-start; gap: var(--zr-5)">
-                        <div class="zr-col" style="width: 232px">
+                    <div class="zr-row zr-row--wrap" style="align-items: flex-start; gap: var(--zr-card-gap)">
+                        <%# Each sample card on its own: two adjacent modules would take the stacking margin. %>
+                        <div style="width: 256px">
+                        <div class="zr-module">
+                        <div class="zr-module__body zr-settings-side">
                             <div class="zr-settings-find" role="search">
                                 <label for="sgFindIdle" class="zr-settings-find__label">Find a setting</label>
                                 <div class="zr-settings-find__box">
@@ -595,7 +599,11 @@
                                 </div>
                             </nav>
                         </div>
-                        <div class="zr-col" style="width: 232px">
+                        </div>
+                        </div>
+                        <div style="width: 256px">
+                        <div class="zr-module">
+                        <div class="zr-module__body zr-settings-side">
                             <div class="zr-settings-find" role="search">
                                 <label for="sgFindActive" class="zr-settings-find__label">Find a setting</label>
                                 <div class="zr-settings-find__box">
@@ -626,6 +634,8 @@
                                     <div class="zr-settings-nav__items" id="sgNavFoundClosed" hidden></div>
                                 </div>
                             </nav>
+                        </div>
+                        </div>
                         </div>
                     </div>
                 </div>
@@ -1062,6 +1072,28 @@
                             <h4 class="zr-module__title">.zr-module--flat</h4>
                             <p class="zr-sm zr-muted">No surface, no border, no shadow — a group heading with content under it.</p>
                         </article>
+                    </div>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">A column of cards — .zr-stack</span>
+                    <p class="zr-sm zr-muted">
+                        Every page puts its content in one: the lead line, a toolbar, an alert and the cards stand
+                        <code class="zr-mono">--zr-card-gap</code> apart (16px, 12px on a phone), and a hidden one takes no gap
+                        with it. The grid, the figures and two cards side by side keep the same gap; the page itself starts at
+                        <code class="zr-mono">--zr-page-pad</code>. A page never spaces its cards with a number of its own.
+                    </p>
+                    <div class="zr-stack" style="max-width: 480px">
+                        <p class="zr-viewhead__sub">A lead line, like the one History opens with.</p>
+                        <div class="zr-module">
+                            <div class="zr-module__head">
+                                <h4 class="zr-module__title">First card</h4>
+                            </div>
+                            <div class="zr-module__body"><p class="zr-sm zr-muted">The card gap above and below.</p></div>
+                        </div>
+                        <div class="zr-module">
+                            <div class="zr-module__body"><p class="zr-sm zr-muted">A second card.</p></div>
+                        </div>
                     </div>
                 </div>
 
@@ -1703,6 +1735,7 @@
             </div>
         </section>
     </div>
+</div>
 </div>
 
 <dialog class="zr-dialog" id="sgStaticDialog" aria-labelledby="sgStaticDialogTitle">

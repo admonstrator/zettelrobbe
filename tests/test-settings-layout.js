@@ -11,21 +11,23 @@
  * measures the page in a browser.
  *
  * Covers:
- * 1. One block, next to the rail: topic list and topic in a grid that keeps its width
- *    and leaves the air on the right
+ * 1. One block at the page padding, like every page: topic list and topic in a
+ *    grid that keeps its width and leaves the air on the right, the card gap
+ *    between them (tests/test-page-rhythm.js covers the other pages)
  * 2. The frame: the window does not scroll; a region under the top bar does,
  *    over the save bar, which is a row of the layout and hidden without
  *    changes; its Save button belongs to the form from outside it
  * 3. The phone: one column, the topic list only while searching, the frame
  *    ends on the tab bar
- * 4. No scrollbar of its own in the topic list: nothing sticky, no height
- *    cap, no overflow; groups that fold, each heading a real button
+ * 4. The topic list is a card with no scrollbar of its own: nothing sticky,
+ *    no height cap, no overflow; groups that fold, each heading a real button
  * 5. Which groups are open (openGroups) and the scroll keys on a page where
  *    nothing has the focus (scrollStep), from the shipped module
  * 6. One right edge per card: no control capped inside a settings card, the
  *    row form decided by the type of the control, the rule in the comment
- * 7. Sections: the title and one line above the card, no header bar inside;
- *    every topic says in one sentence what it is for
+ * 7. Sections are cards like those of every other page: the title in the card
+ *    head, one line under it, no card in a card; a topic stacks them with the
+ *    card gap; every topic says in one sentence what it is for
  * 8. The rows of a card: the same air above and below, blocks ruled off
  * 9. The styleguide shows the row forms, the topic list and the save bar
  */
@@ -87,15 +89,19 @@ function body(source, selector) {
 
   // ── 1. One block, next to the rail ────────────────────────────────────────────────
 
-  await test('topic list and topic are one block next to the rail, the topic at most 760px', () => {
+  await test('topic list and topic are one block at the page padding, the topic at most 760px', () => {
     const vars = body(desktop, '.zr-settings-page');
     const measure = vars.match(/--zr-settings-measure: (\d+)px;/);
     assert.ok(measure, 'the measure is one custom property');
     const width = Number(measure[1]);
     assert.ok(width >= 680 && width <= 760, `measure ${width}px`);
     assert.match(vars, /--zr-settings-list: \d+px;/);
-    // The bar lines its content up with the same block.
-    assert.match(vars, /--zr-actionbar-measure: calc\(/);
+    // The bar lines its content up with the same block: it starts at the
+    // page padding and ends where the topic column ends.
+    assert.match(
+      vars,
+      /--zr-actionbar-measure: calc\( var\(--zr-page-pad\) \* 2 \+ var\(--zr-settings-list\) \+ var\(--zr-card-gap\) \+ var\(--zr-settings-measure\) \);/
+    );
     const grid = body(desktop, '.zr-settings-page .zr-settings');
     assert.match(
       grid,
@@ -107,21 +113,22 @@ function body(source, selector) {
       /justify-content: start;/,
       'the block starts at the rail'
     );
-    const inset = vars.match(
-      /--zr-settings-inset: clamp\(var\(--zr-settings-pad\), \d+vw, (\d+)px\);/
-    );
-    assert.ok(
-      inset,
-      'the distance to the rail is one custom property with an upper bound'
-    );
-    assert.ok(
-      Number(inset[1]) <= 120,
-      `at most 120px between rail and topic list, got ${inset[1]}px`
-    );
-    assert.match(grid, /padding: [^;]*var\(--zr-settings-inset\);/);
+    // Where every page starts: the page padding under the top bar and next
+    // to the rail, no inset of its own; the list card and the topic stand
+    // the card gap apart.
     assert.match(
-      vars,
-      /--zr-actionbar-inset: var\(--zr-settings-inset\);/,
+      grid,
+      /padding: var\(--zr-page-pad\) var\(--zr-page-pad\) var\(--zr-10\);/
+    );
+    assert.match(grid, /gap: var\(--zr-card-gap\);/);
+    assert.doesNotMatch(
+      css,
+      /--zr-settings-(inset|pad|gap)|--zr-actionbar-inset/,
+      'no distance of the settings page alone'
+    );
+    assert.match(
+      body(modulesCss, '.zr-actionbar__inner'),
+      /padding: 10px var\(--zr-page-pad\);/,
       'the save bar starts with the block'
     );
     assert.ok(!/<div class="zr-settings-columns|third column/i.test(view));
@@ -136,8 +143,12 @@ function body(source, selector) {
       '<div class="zr-settings-scroll" data-el="scroller">',
       '<div class="zr-settings">',
       '<aside class="zr-settings__aside">',
-      '<div class="zr-col zr-col--loose zr-settings__main">',
-      '<form id="setupForm"',
+      '<div class="zr-module">',
+      '<div class="zr-module__body zr-settings-side">',
+      '<div class="zr-only-mobile zr-settings-picker">',
+      '</aside>',
+      '<div class="zr-stack zr-settings__main">',
+      '<form id="setupForm" class="zr-stack"',
       '</form>',
       '<div class="zr-settings-scroll__reserve" data-el="reserve" aria-hidden="true"></div>',
       '<div class="zr-actionbar" id="settingsSaveRow"',
@@ -215,17 +226,37 @@ function body(source, selector) {
       /display: none;/
     );
     assert.match(body(phone, '.zr-settings-nav a'), /white-space: normal;/);
-    // The picker stays.
+    // The picker stays, in the card of the topic list under the field.
     assert.ok(
       view.includes(
         '<select id="settingsEntrySelect" class="zr-input" data-el="select">'
       )
     );
+    const aside = view.slice(
+      view.indexOf('<aside class="zr-settings__aside">'),
+      view.indexOf('</aside>')
+    );
+    assert.ok(aside.includes('id="settingsEntrySelect"'), 'picker in the card');
+    assert.ok(
+      aside.indexOf('id="settingsSearch"') <
+        aside.indexOf('id="settingsEntrySelect"'),
+      'under the field'
+    );
+    // The phone starts at the page padding too.
+    assert.match(
+      body(phone, '.zr-settings-page .zr-settings'),
+      /padding: var\(--zr-page-pad\) var\(--zr-page-pad\) var\(--zr-6\);/
+    );
   });
 
   // ── 4. The topic list ────────────────────────────────────────────────────
 
-  await test('the topic list has no scrollbar of its own', () => {
+  await test('the topic list is a card with no scrollbar of its own', () => {
+    assert.match(
+      html,
+      /<aside class="zr-settings__aside">\s*<div class="zr-module">\s*<div class="zr-module__body zr-settings-side">/,
+      'field and list in a card, like the cards of every other page'
+    );
     const side = body(desktop, '.zr-settings-side');
     assert.doesNotMatch(side, /sticky|max-height|overflow/);
     const nav = body(desktop, '.zr-settings-nav');
@@ -414,40 +445,108 @@ function body(source, selector) {
 
   // ── 7. Sections and topics ───────────────────────────────────────────────
 
-  await test('a section names itself above its card, with one line', () => {
+  await test('a section is a card: its title in the head, one line under it', () => {
     const sections = [
       ...html.matchAll(
-        /<section class="zr-settings-section" id="([^"]+)"[^>]*>([\s\S]*?)<\/section>/g
+        /<section class="zr-module zr-settings-card zr-settings-section" id="([^"]+)"[^>]*>([\s\S]*?)<\/section>/g
       ),
     ];
     assert.ok(sections.length >= 25, `only ${sections.length} sections`);
     sections.forEach(([, id, inner]) => {
       assert.match(
         inner,
-        /^\s*<div class="zr-settings-section__head">/,
-        `${id}: the head first`
+        /^\s*<div class="zr-module__head">/,
+        `${id}: the card head first`
       );
       assert.match(
         inner,
-        /<h3 class="zr-settings-section__title" id="[^"]+">[^<]+<\/h3>/,
-        `${id}: a title`
+        /^\s*<div class="zr-module__head">\s*<h3 class="zr-module__title zr-settings-section__title" id="[^"]+">[^<]+<\/h3>/,
+        `${id}: the title in the head`
       );
       assert.match(
         inner,
-        /<p class="zr-settings-section__desc">[^<]{12,}/,
-        `${id}: one line`
-      );
-      assert.match(
-        inner,
-        /<div class="zr-module zr-settings-card">/,
-        `${id}: then the card`
+        /<\/div>\s*<p class="zr-settings-section__desc">[^<]{12,}/,
+        `${id}: one line under the head`
       );
       assert.doesNotMatch(
         inner,
-        /<div class="zr-module__head">/,
-        `${id}: no header bar`
+        /class="zr-module[ "]/,
+        `${id}: no card in the card`
       );
     });
+    // Nothing of a section stands on the page any more, and nothing else
+    // does: every section of the form is one of these cards.
+    assert.ok(!html.includes('zr-settings-section__head'));
+    const form = html.slice(
+      html.indexOf('<form id="setupForm"'),
+      html.indexOf('</form>')
+    );
+    assert.strictEqual(
+      (form.match(/<section class="zr-settings-section/g) || []).length,
+      0,
+      'a section outside a card'
+    );
+    // The head starts at the inset of the rows; a long title wraps.
+    assert.match(
+      body(desktop, '.zr-settings-card > .zr-module__head'),
+      /padding-inline: var\(--zr-row-x\);/
+    );
+    assert.match(
+      body(
+        desktop,
+        '.zr-settings-section > .zr-module__head > .zr-settings-section__title'
+      ),
+      /white-space: normal;/
+    );
+    assert.match(
+      body(desktop, '.zr-settings-section__desc'),
+      /padding: var\(--zr-row-y\) var\(--zr-row-x\) 0;/
+    );
+  });
+
+  await test('"Advanced options", Quick start and the changelog are cards too', () => {
+    const advanced = [
+      ...html.matchAll(
+        /<details class="zr-module zr-settings-card (?:zr-settings-advanced|zr-sso-advanced)"[^>]*>\s*<summary class="zr-module__head">\s*<h3 class="zr-module__title">([^<]+)<\/h3>/g
+      ),
+    ];
+    assert.ok(advanced.length >= 3, `only ${advanced.length} disclosures`);
+    assert.match(
+      html,
+      /<div class="zr-qs"[^>]*>\s*<div class="zr-module zr-qs__list">/,
+      'Quick start: its steps in one card'
+    );
+    assert.match(
+      html,
+      /<section class="zr-module zr-settings-card zr-settings-section" id="sec-release-history"/
+    );
+    // A release is a panel in that card, not a card of its own.
+    assert.match(
+      flat(read('public', 'css', 'pages', 'settings-changelog.css')),
+      /\.changelog-details \{ border: 1px solid var\(--zr-line\); border-radius: 0\.625rem; background: var\(--zr-surface-2\);/
+    );
+  });
+
+  await test('a topic is a column of cards, the card gap between them', () => {
+    const topics = [
+      ...html.matchAll(/<section class="zr-settings-entry([^"]*)" id="entry-/g),
+    ];
+    assert.ok(topics.length >= 20);
+    topics.forEach(([, classes]) => {
+      assert.match(classes, /^ zr-stack( hidden)?$/, classes);
+    });
+    // The wrappers two topic modules put around their cards are columns too.
+    assert.ok(
+      html.includes('<div class="zr-stack" data-module="settings-sso">')
+    );
+    assert.ok(
+      html.includes('<div class="zr-stack" data-module="settings-environment">')
+    );
+    assert.doesNotMatch(
+      css,
+      /\.zr-settings-entry[,\s>{][^{}]*\{[^}]*gap:/,
+      'no distance of its own between the cards of a topic'
+    );
   });
 
   await test('every topic says in one sentence what it is for', () => {
@@ -515,8 +614,22 @@ function body(source, selector) {
       'not laid out like the page'
     );
     assert.ok(styleguide.includes('id="sg-settings"'));
-    assert.ok(styleguide.includes('class="zr-settings-section"'));
-    assert.ok(styleguide.includes('class="zr-module zr-settings-card"'));
+    assert.ok(
+      styleguide.includes(
+        'class="zr-module zr-settings-card zr-settings-section"'
+      ),
+      'a section as a card'
+    );
+    assert.ok(
+      styleguide.includes(
+        'class="zr-module__title zr-settings-section__title"'
+      ),
+      'its title in the card head'
+    );
+    assert.ok(
+      styleguide.includes('<div class="zr-module__body zr-settings-side">'),
+      'the topic list in a card'
+    );
     assert.ok(
       styleguide.includes('inputmode="url"'),
       'a row of the below form'

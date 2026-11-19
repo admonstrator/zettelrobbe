@@ -63,6 +63,13 @@
     --zr-8: 32px;
     --zr-10: 40px;
 
+    /* The rhythm every page keeps. A page starts --zr-page-pad below the top
+       bar and right of the rail; two cards stand --zr-card-gap apart, side by
+       side or one above the other, and so do a lead line, a toolbar or an
+       alert and the card under it. A phone narrows both together. */
+    --zr-page-pad: var(--zr-4);
+    --zr-card-gap: var(--zr-4);
+
     --zr-r-sm: 6px;
     --zr-r-md: 8px;
     --zr-r-lg: 12px;
@@ -209,6 +216,8 @@
     :root {
       --zr-fs-base: 0.875rem;
       --zr-fs-md: 0.9375rem;
+      --zr-page-pad: var(--zr-3);
+      --zr-card-gap: var(--zr-3);
     }
   }
 }

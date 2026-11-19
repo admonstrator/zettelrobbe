@@ -13,7 +13,10 @@
  * 5. a link to the last section of the topic lands between the two bars;
  * 6. the bar goes when the change is undone, and at the end of the region
  *    the row being edited does not move when it goes;
- * 7. the window itself never scrolls.
+ * 7. the window itself never scrolls;
+ * 8. the bar's content starts at the left edge of the block (the topic list
+ *    card, at the page padding) and, once the topic column has its full
+ *    width, ends at the right edge of the topic.
  * Also: a field the browser refuses, and a "Find a setting" match, rest
  * between the bars; a list of pills and a Quick start mirror are counted and
  * named once; with the group of the open topic open the topic list fits a
@@ -85,6 +88,16 @@ const PROBE = String.raw`(async () => {
   out.barShown = !bar.hidden;
   const barR = rect(bar);
   out.regionEndsAtBar = Math.round(barR.top - rect(scroller).bottom);
+  // The bar's content starts with the block (the topic list card) and, once
+  // the topic column has its full width, ends with it.
+  const inner = bar.querySelector('.zr-actionbar__inner');
+  const pad = getComputedStyle(inner);
+  const innerR = rect(inner);
+  const asideR = rect(document.querySelector('.zr-settings__aside'));
+  const mainR = rect(document.querySelector('.zr-settings__main'));
+  out.barStart = Math.round(innerR.left + parseFloat(pad.paddingLeft) - asideR.left);
+  out.barEnd = Math.round(innerR.right - parseFloat(pad.paddingRight) - mainR.right);
+  out.columnFull = mainR.width >= 719;
   out.barOnTabbar = tabbar && getComputedStyle(tabbar).display !== 'none' ? Math.round(rect(tabbar).top - barR.bottom) : null;
 
   const things = () => [...entry.querySelectorAll('input:not([type="hidden"]), select, textarea, button, label, .zr-field__hint, .zr-settings-section__title')].filter(visible);
@@ -210,6 +223,16 @@ const BETWEEN_BARS = String.raw`((el) => {
               `bar ends ${m.barOnTabbar}px off the tab bar`
             );
           }
+          assert.ok(
+            Math.abs(m.barStart) <= 1,
+            `the bar's content starts ${m.barStart}px off the block`
+          );
+          if (m.columnFull) {
+            assert.ok(
+              Math.abs(m.barEnd) <= 1,
+              `the bar's content ends ${m.barEnd}px off the block`
+            );
+          }
           assert.strictEqual(m.overlaps, 0, 'controls under the bar');
           assert.ok(
             m.lastRowGap >= 0,
@@ -278,9 +301,10 @@ const BETWEEN_BARS = String.raw`((el) => {
 
     for (const topic of ['ai-behavior', 'runtime', 'account']) {
       await browser.goto(url(topic));
+      // The whole card of the topic list, not only the list inside it.
       const list = await browser.evaluate(`(() => {
-        const nav = document.querySelector('[data-el="nav"]').getBoundingClientRect();
-        return { bottom: Math.round(nav.bottom), height: innerHeight };
+        const card = document.querySelector('[data-el="nav"]').closest('.zr-module').getBoundingClientRect();
+        return { bottom: Math.round(card.bottom), height: innerHeight };
       })()`);
       await test(`the topic list fits a window 720px high (${topic} open)`, () => {
         assert.ok(list.bottom <= list.height, `ends at ${list.bottom}px`);

@@ -8,7 +8,7 @@
     version: typeof version !== 'undefined' ? version : '',
     chatEnabled: typeof chatEnabled !== 'undefined' ? chatEnabled : false
 }) %>
-            <div id="manualPage" data-ocr-enabled="<%= typeof ocrEnabled !== 'undefined' && ocrEnabled ? 'yes' : 'no' %>">
+            <div id="manualPage" class="zr-stack" data-ocr-enabled="<%= typeof ocrEnabled !== 'undefined' && ocrEnabled ? 'yes' : 'no' %>">
                 <!-- Document Selection -->
                 <div class="zr-module">
                     <div class="zr-module__head">
@@ -100,7 +100,7 @@
                         </div>
                     </div>
 
-                    <div>
+                    <div class="zr-stack">
                         <!-- What can be done with it -->
                         <div class="zr-module">
                             <div class="zr-module__head">

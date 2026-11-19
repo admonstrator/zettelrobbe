@@ -6,14 +6,7 @@
    ========================================================================== */
 
 @layer pages {
-  .changelog-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-
+  /* "Full release notes" sits in the head of the Release history card. */
   .changelog-source-link {
     display: inline-flex;
     align-items: center;
@@ -84,10 +77,12 @@
     box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
   }
 
+  /* A release is a recessed panel inside the Release history card (like
+     .zr-panel), not a card of its own in a card. */
   .changelog-details {
     border: 1px solid var(--zr-line);
     border-radius: 0.625rem;
-    background: var(--zr-surface);
+    background: var(--zr-surface-2);
     overflow: hidden;
   }
 
@@ -107,7 +102,7 @@
   }
 
   .changelog-summary:hover {
-    background: var(--zr-surface-2);
+    background: var(--zr-surface-sunken);
   }
 
   .changelog-summary::-webkit-details-marker {

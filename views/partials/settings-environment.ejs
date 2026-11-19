@@ -28,41 +28,39 @@
         return text.length > 160 ? text.slice(0, 160) + '…' : text;
     };
 %>
-<div class="zr-col zr-col--loose" data-module="settings-environment">
-    <section class="zr-settings-section" id="sec-env-intro" aria-labelledby="sec-env-intro-title">
-        <div class="zr-settings-section__head">
-            <div class="zr-settings-section__text">
-                <h3 class="zr-settings-section__title" id="sec-env-intro-title">What the environment decides</h3>
-                <p class="zr-settings-section__desc">Zettelrobbe takes each setting from one of two places: its stored settings, which you change on this page, or the environment it starts in.</p>
-            </div>
+<%# A column of cards like every topic: each section a card with its title
+    in the head and its one line under it. What the overview could not say
+    (nothing read, nothing set) ends the first card instead of standing on
+    the page. %>
+<div class="zr-stack" data-module="settings-environment">
+    <section class="zr-module zr-settings-card zr-settings-section" id="sec-env-intro" aria-labelledby="sec-env-intro-title">
+        <div class="zr-module__head">
+            <h3 class="zr-module__title zr-settings-section__title" id="sec-env-intro-title">What the environment decides</h3>
         </div>
-        <div class="zr-module zr-settings-card">
-            <div class="zr-module__body zr-col">
-                <p class="zr-sm">The environment is the list of variables Zettelrobbe starts with, usually the lines under <code>environment:</code> in your docker-compose file. A value set there applies, and its field on this page is locked.</p>
-                <p class="zr-sm zr-muted"><a href="#environment" class="zr-link zr-link--underline">Export</a> shows the whole configuration as a .env file.</p>
-            </div>
+        <p class="zr-settings-section__desc">Zettelrobbe takes each setting from one of two places: its stored settings, which you change on this page, or the environment it starts in.</p>
+        <div class="zr-module__body zr-col">
+            <p class="zr-sm">The environment is the list of variables Zettelrobbe starts with, usually the lines under <code>environment:</code> in your docker-compose file. A value set there applies, and its field on this page is locked.</p>
+            <p class="zr-sm zr-muted"><a href="#environment" class="zr-link zr-link--underline">Export</a> shows the whole configuration as a .env file.</p>
+            <% if (!envOverview) { %>
+            <p class="zr-sm zr-muted">Zettelrobbe could not read what the environment sets. The server log says why.</p>
+            <% } else if (envNothing) { %>
+            <p class="zr-sm zr-muted" data-env-empty>The environment sets none of Zettelrobbe's settings, so you can change every field on this page.</p>
+            <% } %>
         </div>
     </section>
 
-    <% if (!envOverview) { %>
-    <p class="zr-sm zr-muted">Zettelrobbe could not read what the environment sets. The server log says why.</p>
-    <% } else if (envNothing) { %>
-    <p class="zr-sm zr-muted" data-env-empty>The environment sets none of Zettelrobbe's settings, so you can change every field on this page.</p>
-    <% } %>
-
     <% if (envSettings.length) { %>
-    <section class="zr-settings-section" id="sec-env-settings" aria-labelledby="envSettingsTitle">
-        <div class="zr-settings-section__head">
-            <div class="zr-settings-section__text">
-                <h3 class="zr-settings-section__title" id="envSettingsTitle" tabindex="-1">Settings the environment sets</h3>
-                <p class="zr-settings-section__desc">Take over copies the value in effect into the stored settings.</p>
+    <section class="zr-module zr-settings-card zr-settings-section" id="sec-env-settings" aria-labelledby="envSettingsTitle">
+        <div class="zr-module__head">
+            <h3 class="zr-module__title zr-settings-section__title" id="envSettingsTitle" tabindex="-1">Settings the environment sets</h3>
+            <div class="zr-module__actions">
+                <button type="button" class="zr-btn" data-env-take-all<%= envAnyTakeable ? '' : ' disabled' %>>
+                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-download"/></svg>
+                    <span>Take over all</span>
+                </button>
             </div>
-            <button type="button" class="zr-btn" data-env-take-all<%= envAnyTakeable ? '' : ' disabled' %>>
-                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-download"/></svg>
-                <span>Take over all</span>
-            </button>
         </div>
-        <div class="zr-module zr-settings-card">
+        <p class="zr-settings-section__desc">Take over copies the value in effect into the stored settings.</p>
         <div class="zr-module__body zr-col">
             <p class="zr-sm">Once you delete the line from docker-compose, the stored value applies from the next start, and you can change the field here. Until then the environment still decides, so the field stays locked.</p>
             <% if (envAnySecret) { %>
@@ -123,19 +121,15 @@
             </li>
             <% }) %>
         </ul>
-        </div>
     </section>
     <% } %>
 
     <% if (envUnused.length) { %>
-    <section class="zr-settings-section" id="sec-env-unused" aria-labelledby="sec-env-unused-title">
-        <div class="zr-settings-section__head">
-            <div class="zr-settings-section__text">
-                <h3 class="zr-settings-section__title" id="sec-env-unused-title">Variables nothing reads any more</h3>
-                <p class="zr-settings-section__desc">These settings were removed from Zettelrobbe. They do no harm, and you can delete them.</p>
-            </div>
+    <section class="zr-module zr-settings-card zr-settings-section" id="sec-env-unused" aria-labelledby="sec-env-unused-title">
+        <div class="zr-module__head">
+            <h3 class="zr-module__title zr-settings-section__title" id="sec-env-unused-title">Variables nothing reads any more</h3>
         </div>
-        <div class="zr-module zr-settings-card">
+        <p class="zr-settings-section__desc">These settings were removed from Zettelrobbe. They do no harm, and you can delete them.</p>
         <ul class="zr-envlist zr-envlist--alone" role="list">
             <% envUnused.forEach((row) => { %>
             <li class="zr-envlist__row" data-env-unused="<%= row.key %>">
@@ -152,19 +146,15 @@
             </li>
             <% }) %>
         </ul>
-        </div>
     </section>
     <% } %>
 
     <% if (envBlocked.length) { %>
-    <section class="zr-settings-section" id="sec-env-blocked" aria-labelledby="sec-env-blocked-title">
-        <div class="zr-settings-section__head">
-            <div class="zr-settings-section__text">
-                <h3 class="zr-settings-section__title" id="sec-env-blocked-title">Values Zettelrobbe could not change</h3>
-                <p class="zr-settings-section__desc">Zettelrobbe would have changed these values after an update, but the environment sets them.</p>
-            </div>
+    <section class="zr-module zr-settings-card zr-settings-section" id="sec-env-blocked" aria-labelledby="sec-env-blocked-title">
+        <div class="zr-module__head">
+            <h3 class="zr-module__title zr-settings-section__title" id="sec-env-blocked-title">Values Zettelrobbe could not change</h3>
         </div>
-        <div class="zr-module zr-settings-card">
+        <p class="zr-settings-section__desc">Zettelrobbe would have changed these values after an update, but the environment sets them.</p>
         <ul class="zr-envlist zr-envlist--alone" role="list">
             <% envBlocked.forEach((row) => { %>
             <li class="zr-envlist__row" data-env-blocked="<%= row.key %>">
@@ -181,7 +171,6 @@
             </li>
             <% }) %>
         </ul>
-        </div>
     </section>
     <% } %>
 </div>
