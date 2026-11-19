@@ -3,7 +3,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const repoRoot = path.resolve(__dirname, '..');
 const configModulePath = require.resolve('../config/config');
 const setupServiceModulePath = require.resolve('../services/setupService');
 
@@ -143,16 +142,19 @@ async function main() {
     !fs.existsSync(envFilePath),
     'Expected saveConfig not to recreate data/.env in runtime-first mode'
   );
-  assert.ok(
-    !Object.prototype.hasOwnProperty.call(
-      persistedOverrides,
-      'COOKIE_SECURE_MODE'
-    ),
-    'Expected injected COOKIE_SECURE_MODE to be excluded from runtime-overrides.json'
+  // A save never writes a key the environment sets: the form's 'auto' is not
+  // stored. Nor does it delete the stored copy of such a key: that copy is
+  // what applies once the line is gone from docker-compose (Settings, Set by
+  // the environment, takes values over into it).
+  assert.strictEqual(
+    persistedOverrides.COOKIE_SECURE_MODE,
+    'always',
+    'Expected the stored copy of injected COOKIE_SECURE_MODE to stay as it was, not the submitted value'
   );
-  assert.ok(
-    !Object.prototype.hasOwnProperty.call(persistedOverrides, 'TRUST_PROXY'),
-    'Expected injected TRUST_PROXY to be excluded from runtime-overrides.json'
+  assert.strictEqual(
+    persistedOverrides.TRUST_PROXY,
+    'false',
+    'Expected the stored copy of injected TRUST_PROXY to stay as it was'
   );
   assert.strictEqual(
     persistedOverrides.LOG_LEVEL,
