@@ -24,6 +24,11 @@
     const ocrKeyConfiguredDefault = ocrStoredForAnthropic ? configuredSecrets.MISTRAL_API_KEY : (configuredSecrets.OCR_API_KEY || configuredSecrets.MISTRAL_API_KEY);
     const ocrKeyConfiguredAnthropic = ocrStoredForAnthropic && configuredSecrets.OCR_API_KEY;
 
+    // What the environment decides (partials/settings-environment.ejs, from
+    // services/environmentOverview.js); its topic link counts the variables
+    // the topic lists. A render without it shows the topic empty.
+    const environmentTopic = (typeof environmentOverview === 'object' && environmentOverview) || null;
+
     // One topic per view. The ids are the URL hashes (#sso, #ai-provider), and
     // public/js/modules/settings-nav.js maps the hashes the page used before the
     // regrouping (#ai-tab, #sec-provider, ...) onto these. Every entry stays in
@@ -62,6 +67,7 @@
             { id: 'runtime', title: 'Server' },
             { id: 'caching', title: 'Caching and history' },
             { id: 'quickstart', title: 'Detect models' },
+            { id: 'set-by-environment', title: 'Set by the environment', count: environmentTopic ? environmentTopic.count : 0 },
             { id: 'environment', title: 'Export' },
             { id: 'changelog', title: 'Changelog' }
         ] }
@@ -139,6 +145,7 @@
                                     <a href="#<%= entry.id %>"<%- group.featured ? ' class="zr-settings-nav__featured"' : '' %> data-entry-link="<%= entry.id %>" aria-current="<%= entry.id === settingsFirstEntry ? 'page' : 'false' %>">
                                         <span class="zr-grow"><%= entry.title %></span>
                                         <% if (entry.badge) { %><span class="zr-badge zr-badge--brand"><%= entry.badge %></span><% } %>
+                                        <% if (entry.count) { %><span class="zr-settings-nav__count zr-settings-nav__listed" data-entry-listed="<%= entry.id %>"><%= entry.count %><span class="zr-sr"><%= entry.count === 1 ? ' variable listed' : ' variables listed' %></span></span><% } %>
                                         <span class="zr-settings-nav__count hidden" data-entry-count="<%= entry.id %>"></span>
                                         <span class="zr-settings-nav__dirty hidden" data-entry-dirty="<%= entry.id %>" title="Unsaved changes"></span>
                                     </a>
@@ -157,7 +164,7 @@
                         <select id="settingsEntrySelect" class="zr-input" data-el="select">
                             <% settingsNavGroups.forEach((group) => { %>
                             <% group.entries.forEach((entry) => { %>
-                            <option value="<%= entry.id %>" <%= entry.id === settingsFirstEntry ? 'selected' : '' %>><%= group.featured ? entry.title : group.label + ' › ' + entry.title %><%= entry.badge ? ' (' + entry.badge + ')' : '' %></option>
+                            <option value="<%= entry.id %>" <%= entry.id === settingsFirstEntry ? 'selected' : '' %>><%= group.featured ? entry.title : group.label + ' › ' + entry.title %><%= entry.badge ? ' (' + entry.badge + ')' : '' %><%= entry.count ? ' (' + entry.count + ')' : '' %></option>
                             <% }) %>
                             <% }) %>
                         </select>
@@ -1506,6 +1513,10 @@
                                 </section>
                         <%- entryClose() %>
 
+                        <%- entryOpen('set-by-environment') %>
+                                <%- include('partials/settings-environment', { overview: environmentTopic }) %>
+                        <%- entryClose() %>
+
                         <%- entryOpen('environment') %>
                                 <section class="zr-module" id="sec-env-file" data-module="env-file">
                                     <div class="zr-module__head">
@@ -1517,6 +1528,7 @@
                                             with only the settings that have a value. Use it to move this instance or to
                                             copy its settings into a docker compose file.
                                         </p>
+                                        <p class="zr-sm zr-muted"><a href="#set-by-environment" class="zr-link zr-link--underline">Set by the environment</a> lists the settings the environment decides and takes them over into the stored settings.</p>
 
                                         <div class="zr-alert zr-alert--warn">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>

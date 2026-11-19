@@ -1,0 +1,175 @@
+<%#
+    Settings › System › Set by the environment.
+
+    What the environment decides, from services/environmentOverview.js
+    (`overview`, null when it could not be read): the settings it sets, the
+    variables nothing reads any more, and the values Zettelrobbe could not
+    change. public/js/modules/settings-environment.js names each setting the
+    way its field does, links it to its topic and runs Take over and Remove the
+    stored copy (POST /api/settings/environment/take-over and /remove-copy).
+
+    No row uses .zr-field, .zr-switchrow or .zr-checktile: "Find a setting"
+    indexes those, and these rows are a list about settings, not settings.
+    Buttons are type="button" and nothing here has a name, so the settings
+    save neither sends nor counts anything of this topic.
+%>
+<%
+    const envOverview = (typeof overview === 'object' && overview) || null;
+    const envSettings = envOverview && Array.isArray(envOverview.settings) ? envOverview.settings : [];
+    const envUnused = envOverview && Array.isArray(envOverview.unused) ? envOverview.unused : [];
+    const envBlocked = envOverview && Array.isArray(envOverview.blocked) ? envOverview.blocked : [];
+    const envNothing = envSettings.length + envUnused.length + envBlocked.length === 0;
+    const envAnyTakeable = envSettings.some((row) => row.canTakeOver);
+    const envAnySecret = envSettings.some((row) => row.secret);
+    // Long values (a prompt, custom fields) are cut for the list; the field
+    // in their topic shows them whole.
+    const envShort = (value) => {
+        const text = String(value == null ? '' : value);
+        return text.length > 160 ? text.slice(0, 160) + '…' : text;
+    };
+%>
+<div class="zr-col zr-col--loose" data-module="settings-environment">
+    <section class="zr-module" id="sec-env-intro">
+        <div class="zr-module__head">
+            <h2 class="zr-module__title">What the environment decides</h2>
+        </div>
+        <div class="zr-module__body zr-col">
+            <p class="zr-sm">Zettelrobbe takes each setting from one of two places: its stored settings, which you change on this page, or the environment it starts in.</p>
+            <p class="zr-sm">The environment is the list of variables Zettelrobbe starts with, usually the lines under <code>environment:</code> in your docker-compose file. A value set there applies, and its field on this page is locked.</p>
+            <p class="zr-sm zr-muted"><a href="#environment" class="zr-link zr-link--underline">Export</a> shows the whole configuration as a .env file.</p>
+        </div>
+    </section>
+
+    <% if (!envOverview) { %>
+    <p class="zr-sm zr-muted">Zettelrobbe could not read what the environment sets. The server log says why.</p>
+    <% } else if (envNothing) { %>
+    <p class="zr-sm zr-muted" data-env-empty>The environment sets none of Zettelrobbe's settings, so you can change every field on this page.</p>
+    <% } %>
+
+    <% if (envSettings.length) { %>
+    <section class="zr-module" id="sec-env-settings" aria-labelledby="envSettingsTitle">
+        <div class="zr-module__head">
+            <h2 class="zr-module__title" id="envSettingsTitle" tabindex="-1">Settings the environment sets</h2>
+            <button type="button" class="zr-btn" data-env-take-all<%= envAnyTakeable ? '' : ' disabled' %>>
+                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-download"/></svg>
+                <span>Take over all</span>
+            </button>
+        </div>
+        <div class="zr-module__body zr-col">
+            <p class="zr-sm">Take over copies the value in effect into the stored settings. Once you delete the line from docker-compose, the stored value applies from the next start, and you can change the field here.</p>
+            <p class="zr-sm">Until then the environment still decides, so the field stays locked.</p>
+            <% if (envAnySecret) { %>
+            <p class="zr-sm zr-muted">A secret you take over, such as an API key, is stored in <code>data/</code> like the secrets you type on this page.</p>
+            <% } %>
+        </div>
+        <ul class="zr-envlist" role="list">
+            <% envSettings.forEach((row) => { %>
+            <li class="zr-envlist__row" data-env-row="<%= row.key %>" data-anchor="<%= row.anchor || '' %>" data-stored="<%= row.stored %>">
+                <div class="zr-envlist__main">
+                    <p class="zr-envlist__title">
+                        <span class="zr-envlist__label hidden" data-env-label></span>
+                        <code class="zr-envlist__key"><%= row.key %></code>
+                    </p>
+                    <dl class="zr-envlist__facts">
+                        <div>
+                            <dt>In effect</dt>
+                            <dd><% if (row.secret) { %>Set, not shown<% } else { %><code class="zr-envlist__value"><%= envShort(row.value) %></code><% } %></dd>
+                        </div>
+                        <% if (row.anchor) { %>
+                        <div>
+                            <dt>Topic</dt>
+                            <dd><a href="#<%= row.anchor %>" class="zr-link zr-link--underline" data-env-topic>Open the field</a></dd>
+                        </div>
+                        <% } %>
+                    </dl>
+                    <p class="zr-envlist__state<%= row.stored === 'none' ? '' : ' hidden' %>" data-env-state="none">No copy in the stored settings.</p>
+                    <p class="zr-envlist__state zr-envlist__state--ok<%= row.stored === 'same' ? '' : ' hidden' %>" data-env-state="same">
+                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>
+                        <span>Stored here as well. You can delete the line from docker-compose.</span>
+                    </p>
+                    <% if (row.stored === 'different') { %>
+                    <p class="zr-envlist__state zr-envlist__state--warn" data-env-state="different">
+                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
+                        <% if (row.secret) { %>
+                        <span>The stored settings hold another value. It applies once the line is gone.</span>
+                        <% } else { %>
+                        <span>The stored settings hold another value, <code class="zr-envlist__value"><%= envShort(row.storedValue) %></code>. It applies once the line is gone.</span>
+                        <% } %>
+                    </p>
+                    <% } %>
+                    <% if (row.reason && row.stored !== 'same') { %>
+                    <p class="zr-envlist__reason"><%= row.reason %></p>
+                    <% } %>
+                </div>
+                <% if (!row.reason || row.stored === 'same') { %>
+                <div class="zr-envlist__actions">
+                    <button type="button" class="zr-btn<%= row.stored === 'same' ? ' hidden' : '' %>" data-env-take="<%= row.key %>"<%= row.reason ? ' disabled' : '' %>>
+                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-download"/></svg>
+                        <span>Take over<span class="zr-sr"> <%= row.key %></span></span>
+                    </button>
+                    <button type="button" class="zr-btn zr-btn--ghost<%= row.stored === 'same' ? '' : ' hidden' %>" data-env-remove="<%= row.key %>">
+                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-undo"/></svg>
+                        <span>Remove the stored copy<span class="zr-sr"> of <%= row.key %></span></span>
+                    </button>
+                </div>
+                <% } %>
+            </li>
+            <% }) %>
+        </ul>
+    </section>
+    <% } %>
+
+    <% if (envUnused.length) { %>
+    <section class="zr-module" id="sec-env-unused">
+        <div class="zr-module__head">
+            <h2 class="zr-module__title">Variables nothing reads any more</h2>
+        </div>
+        <div class="zr-module__body zr-col">
+            <p class="zr-sm">These settings were removed from Zettelrobbe. They do no harm, and you can delete them.</p>
+        </div>
+        <ul class="zr-envlist" role="list">
+            <% envUnused.forEach((row) => { %>
+            <li class="zr-envlist__row" data-env-unused="<%= row.key %>">
+                <div class="zr-envlist__main">
+                    <p class="zr-envlist__title"><code class="zr-envlist__key"><%= row.key %></code></p>
+                    <p class="zr-envlist__meta">Removed in <%= row.removedIn %></p>
+                    <% if (row.inEnvironment) { %>
+                    <p class="zr-envlist__state">You can delete its line from docker-compose.</p>
+                    <% } %>
+                    <% if (row.inStored) { %>
+                    <p class="zr-envlist__state">The next save on this page deletes it from the stored settings.</p>
+                    <% } %>
+                </div>
+            </li>
+            <% }) %>
+        </ul>
+    </section>
+    <% } %>
+
+    <% if (envBlocked.length) { %>
+    <section class="zr-module" id="sec-env-blocked">
+        <div class="zr-module__head">
+            <h2 class="zr-module__title">Values Zettelrobbe could not change</h2>
+        </div>
+        <div class="zr-module__body zr-col">
+            <p class="zr-sm">Zettelrobbe would have changed these values after an update, but the environment sets them.</p>
+        </div>
+        <ul class="zr-envlist" role="list">
+            <% envBlocked.forEach((row) => { %>
+            <li class="zr-envlist__row" data-env-blocked="<%= row.key %>">
+                <div class="zr-envlist__main">
+                    <p class="zr-envlist__title">
+                        <span class="zr-envlist__label"><%= row.title %></span>
+                        <code class="zr-envlist__key"><%= row.key %></code>
+                    </p>
+                    <p class="zr-envlist__state"><%= row.text %></p>
+                    <% if (row.anchor) { %>
+                    <p class="zr-envlist__meta"><a href="#<%= row.anchor %>" class="zr-link zr-link--underline">Open the field</a></p>
+                    <% } %>
+                </div>
+            </li>
+            <% }) %>
+        </ul>
+    </section>
+    <% } %>
+</div>

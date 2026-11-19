@@ -223,6 +223,8 @@ const TESTS = {
   'settings-layout': 'test-settings-layout.js',
   'settings-topics': 'test-settings-topics.js',
   'settings-wording': 'test-settings-wording.js',
+  'environment-overview': 'test-environment-overview.js',
+  'environment-take-over': 'test-environment-take-over.js',
 };
 
 const AREAS = {
@@ -426,6 +428,8 @@ const AREAS = {
     'settings-quick-start',
     'settings-topics',
     'settings-wording',
+    'environment-overview',
+    'environment-take-over',
   ],
 };
 

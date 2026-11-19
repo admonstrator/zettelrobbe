@@ -41,6 +41,7 @@
     "tests/test-typecheck-config.js",
     "services/pdfPasswordService.js",
     "services/pdfUnlockService.js",
-    "services/unlockFollowUpService.js"
+    "services/unlockFollowUpService.js",
+    "services/environmentOverview.js"
   ]
 }

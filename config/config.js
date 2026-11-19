@@ -104,6 +104,13 @@ if (!global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__) {
   global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ = { ...process.env };
 }
 
+// A copy of the environment the process started with, as taken above: every
+// variable present at startup, the Dockerfile's own defaults included. The
+// settings page lists from it what the environment decides.
+const getStartupEnvironment = () => ({
+  ...(global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ || {}),
+});
+
 const migrateLegacyEnvFileToRuntimeOverrides = (currentLevel) => {
   try {
     if (!fs.existsSync(envPath)) {
@@ -645,6 +652,8 @@ module.exports = {
   getOidcConfig,
   getSkipRulesConfig,
   isProtectedRuntimeEnvKey,
+  getStartupEnvironment,
+  dockerfileBakedKeys: [...DOCKERFILE_BAKED_KEYS],
   get apiKey() {
     return getApiKey();
   },
