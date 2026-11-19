@@ -402,7 +402,6 @@ function optionRow(html, key) {
     await test('the Claude options carry no temperature', async () => {
       const keys = rules.optionsFor('anthropic').map((option) => option.key);
       assert.ok(!keys.includes('AI_TEMPERATURE_ANALYSIS'));
-      assert.ok(!keys.includes('AI_TEMPERATURE_GENERATION'));
       assert.ok(!keys.includes('RESPONSE_TOKENS'));
       assert.ok(keys.includes('ANTHROPIC_EFFORT'));
     });

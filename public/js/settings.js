@@ -2469,10 +2469,6 @@ function initializeFormHandlers() {
       };
 
       validateTemperature('aiTemperatureAnalysis', 'AI_TEMPERATURE_ANALYSIS');
-      validateTemperature(
-        'aiTemperatureGeneration',
-        'AI_TEMPERATURE_GENERATION'
-      );
 
       const resolveModels = async (url, payload) => {
         const response = await fetch(url, {
@@ -3030,7 +3026,6 @@ function initializeRuntimeOverridePills() {
     { selector: '#paperlessUrl', envKey: 'PAPERLESS_API_URL' },
     { selector: '#paperlessPublicUrl', envKey: 'PAPERLESS_PUBLIC_URL' },
     { selector: '#paperlessToken', envKey: 'PAPERLESS_API_TOKEN' },
-    { selector: '#paperlessUsername', envKey: 'PAPERLESS_USERNAME' },
     { selector: '#scanInterval', envKey: 'SCAN_INTERVAL' },
     { selector: '#logLevel', envKey: 'LOG_LEVEL' },
     { selector: '#useExistingData', envKey: 'USE_EXISTING_DATA' },
@@ -3072,10 +3067,6 @@ function initializeRuntimeOverridePills() {
     { selector: '#tokenLimit', envKey: 'TOKEN_LIMIT' },
     { selector: '#responseTokens', envKey: 'RESPONSE_TOKENS' },
     { selector: '#aiTemperatureAnalysis', envKey: 'AI_TEMPERATURE_ANALYSIS' },
-    {
-      selector: '#aiTemperatureGeneration',
-      envKey: 'AI_TEMPERATURE_GENERATION',
-    },
     { selector: '#aiReasoningEffort', envKey: 'AI_REASONING_EFFORT' },
     { selector: '#ollamaThink', envKey: 'OLLAMA_THINK' },
     { selector: '#aiProcessedTag', envKey: 'ADD_AI_PROCESSED_TAG' },

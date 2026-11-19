@@ -225,16 +225,15 @@ class StubElement {
   // 1. Summaries
   // ──────────────────────────────────────────────────────────────────────
 
-  await test('Paperless-ngx: open until address and token are there; the user name is optional', () => {
+  await test('Paperless-ngx: open until address and token are there', () => {
     assert.deepStrictEqual(
-      qs.summarizePaperless({ url: '', tokenPresent: true, username: 'a' }),
+      qs.summarizePaperless({ url: '', tokenPresent: true }),
       { state: 'open', text: 'No address yet' }
     );
     assert.deepStrictEqual(
       qs.summarizePaperless({
         url: 'http://paperless:8000',
         tokenPresent: false,
-        username: 'admin',
       }),
       { state: 'open', text: 'http://paperless:8000 · no API token yet' }
     );
@@ -243,17 +242,8 @@ class StubElement {
       qs.summarizePaperless({
         url: 'http://paperless:8000',
         tokenPresent: true,
-        username: ' ',
       }),
       { state: 'done', text: 'http://paperless:8000' }
-    );
-    assert.deepStrictEqual(
-      qs.summarizePaperless({
-        url: 'http://paperless:8000',
-        tokenPresent: true,
-        username: 'admin',
-      }),
-      { state: 'done', text: 'http://paperless:8000 · user admin' }
     );
   });
 
@@ -261,11 +251,10 @@ class StubElement {
     const base = {
       url: 'http://paperless:8000',
       tokenPresent: true,
-      username: 'admin',
     };
     assert.deepStrictEqual(
       qs.summarizePaperless({ ...base, connection: 'ok' }),
-      { state: 'done', text: 'http://paperless:8000 · user admin · connected' }
+      { state: 'done', text: 'http://paperless:8000 · connected' }
     );
     assert.deepStrictEqual(
       qs.summarizePaperless({ ...base, connection: 'rejected' }),
@@ -295,10 +284,10 @@ class StubElement {
     const { text } = qs.summarizePaperless({
       url: 'https://user:hunter2@paperless.lan',
       tokenPresent: true,
-      username: 'admin',
+      connection: 'ok',
     });
     assert.ok(!text.includes('hunter2'), text);
-    assert.ok(text.startsWith('https://paperless.lan · '), text);
+    assert.strictEqual(text, 'https://paperless.lan · connected');
   });
 
   await test('AI model: provider label and model, open while something is missing', () => {
@@ -881,7 +870,6 @@ class StubElement {
       'aiProvider',
       'paperlessUrl',
       'paperlessToken',
-      'paperlessUsername',
       'systemPrompt',
       'mistralOcrEnabled',
       'ocrBeforeAi',

@@ -194,11 +194,6 @@
                             <input id="paperlessUrl" name="paperlessUrl" type="text" class="zr-input" placeholder="http://your-paperless-instance:8000" required value="<%= config.PAPERLESS_API_URL || '' %>">
                         </div>
                         <div class="zr-field zr-field--stacked">
-                            <label for="paperlessUsername" class="zr-field__name">Paperless username (optional)</label>
-                            <input id="paperlessUsername" name="paperlessUsername" type="text" class="zr-input" value="<%= config.PAPERLESS_USERNAME || '' %>">
-                            <p class="zr-field__hint">Zettelrobbe signs in with the API token alone.</p>
-                        </div>
-                        <div class="zr-field zr-field--stacked">
                             <label for="paperlessToken" class="zr-field__name">API token</label>
                             <input id="paperlessToken" name="paperlessToken" type="password" class="zr-input" required value="<%= config.PAPERLESS_API_TOKEN || '' %>">
                         </div>

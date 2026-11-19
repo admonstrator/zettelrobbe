@@ -59,7 +59,6 @@ const API_KEY = 'test-api-key';
 const BASE_ENV = {
   PAPERLESS_API_URL: 'http://paperless.local:8000',
   PAPERLESS_API_TOKEN: 'stored-paperless-token',
-  PAPERLESS_USERNAME: 'archivist',
   AI_PROVIDER: 'openai',
   OPENAI_API_KEY: 'stored-openai-key',
   OPENAI_MODEL: 'gpt-4o-mini',
@@ -73,7 +72,6 @@ const PAGE_BODY = {
   paperlessUrl: 'http://paperless.local:8000',
   paperlessPublicUrl: '',
   paperlessToken: '',
-  paperlessUsername: 'archivist',
   aiProvider: 'openai',
   openaiKey: '',
   openaiModel: 'gpt-4o-mini',
@@ -103,7 +101,6 @@ const PAGE_BODY = {
   tokenLimit: '128000',
   responseTokens: '1000',
   aiTemperatureAnalysis: '0.3',
-  aiTemperatureGeneration: '0.7',
   tags: '',
   ignoreTags: '',
   removeInboxTagsAfterProcessing: 'no',
@@ -210,7 +207,7 @@ const SAVE_SCENARIOS = [
   { name: 'page save, nothing touched', body: page({}) },
   {
     name: 'page save on a fresh instance without saved values',
-    unset: ['OPENAI_MODEL', 'PAPERLESS_USERNAME'],
+    unset: ['OPENAI_MODEL'],
     body: page({ paperlessUrl: '', openaiModel: '' }),
   },
 
@@ -790,6 +787,8 @@ const SAVE_SCENARIOS = [
     name: 'response tokens parsed leniently, token limit normalised',
     body: page({ responseTokens: ' 2048abc ', tokenLimit: ' 0064000 ' }),
   },
+  // aiTemperatureGeneration is a removed field. An older page or an API user
+  // may still send it; the save ignores it.
   {
     name: 'temperatures out of range and padded',
     body: page({
@@ -1024,6 +1023,7 @@ const SETUP_BASE = {
   adminUsername: ' admin ',
   adminPassword: 'correct horse battery',
   paperlessUrl: 'http://paperless.local:8000/api/',
+  // A removed field that older clients still send; the wizard ignores it.
   paperlessUsername: ' archivist ',
   paperlessToken: ' token ',
   paperlessTestPassed: 'yes',

@@ -5,17 +5,17 @@
  * Two things went wrong together. POST /api/scan/now resolved the Paperless
  * user ID and refused to start the scan when that came back null — with no log
  * line at all, which is why the reporter saw a 500 and an empty log. And
- * getOwnUserID() came back null far too easily: it only ever matched
- * PAPERLESS_USERNAME against the usernames in /api/users/, so a display name, a
- * case difference, or a response the token user cannot fully see all ended in
- * the same silent null.
+ * getOwnUserID() came back null far too easily: it only ever matched the
+ * configured user name against the usernames in /api/users/, so a display
+ * name, a case difference, or a response the token user cannot fully see all
+ * ended in the same silent null.
  *
  * The scan does not use the user ID at all, so neither the endpoint nor the
  * queue may gate on it — and since processDocument() never read the value it
- * was handed, the plumbing is gone rather than merely ungated. That leaves
- * getOwnUserID() with no caller in the processing path; it stays on the
- * service as a general Paperless helper, hardened, and is covered below so a
- * future caller inherits the fixed behaviour rather than the old one.
+ * was handed, the plumbing is gone rather than merely ungated. getOwnUserID()
+ * then had no caller; it went with the PAPERLESS_USERNAME setting it read
+ * (tests/test-paperless-username.js). What stays pinned here is that the scan
+ * routes resolve no user ID.
  *
  * The route file is read here rather than copied so the assertions cannot
  * drift away from it.
@@ -73,107 +73,13 @@ assert.ok(
   'No route may call getOwnUserID — nothing in the processing path uses the result'
 );
 
-// ── getOwnUserID() resolves the current user without a name match ────────────
+// ── Nothing left to call ─────────────────────────────────────────────────────
 
-async function run() {
-  const paperlessService = require('../services/paperlessService');
-  const originalClient = paperlessService.client;
-  const originalUsername = process.env.PAPERLESS_USERNAME;
-  const originalWarn = console.warn;
-  const originalLog = console.log;
+const paperlessService = require('../services/paperlessService');
+assert.strictEqual(
+  paperlessService.getOwnUserID,
+  undefined,
+  'getOwnUserID() had no caller and went with PAPERLESS_USERNAME'
+);
 
-  const warnings = [];
-  console.warn = (...args) => warnings.push(args.map(String).join(' '));
-  console.log = () => {};
-
-  const withUsers = (results) => {
-    paperlessService.client = {
-      get: async () => ({ data: { results } }),
-    };
-  };
-
-  try {
-    // The configured name still wins when it matches.
-    process.env.PAPERLESS_USERNAME = 'zettelrobbe';
-    withUsers([
-      { id: 7, username: 'someone-else' },
-      { id: 42, username: 'zettelrobbe' },
-    ]);
-    assert.strictEqual(
-      await paperlessService.getOwnUserID(),
-      42,
-      'A matching PAPERLESS_USERNAME must still select that user'
-    );
-
-    // Case differences must not lose the match.
-    process.env.PAPERLESS_USERNAME = '  ZettelRobbe ';
-    assert.strictEqual(
-      await paperlessService.getOwnUserID(),
-      42,
-      'The username match must ignore case and surrounding whitespace'
-    );
-
-    // current_user=true answers with one user: take it, whatever the
-    // configured name says. This is the case that used to return null.
-    process.env.PAPERLESS_USERNAME = 'a-display-name-that-matches-nothing';
-    withUsers([{ id: 5, username: 'api-token-user' }]);
-    assert.strictEqual(
-      await paperlessService.getOwnUserID(),
-      5,
-      'A single returned user is the current user and must be used even when PAPERLESS_USERNAME does not match'
-    );
-
-    // No configured name at all is the common case in the wild.
-    delete process.env.PAPERLESS_USERNAME;
-    assert.strictEqual(
-      await paperlessService.getOwnUserID(),
-      5,
-      'An unset PAPERLESS_USERNAME must not prevent resolving a single user'
-    );
-
-    // Genuinely ambiguous: null is correct, but it has to say so.
-    warnings.length = 0;
-    process.env.PAPERLESS_USERNAME = 'nobody';
-    withUsers([
-      { id: 1, username: 'alice' },
-      { id: 2, username: 'bob' },
-    ]);
-    assert.strictEqual(
-      await paperlessService.getOwnUserID(),
-      null,
-      'Several users and no match must stay unresolved'
-    );
-    assert.ok(
-      warnings.some((line) => line.includes('nobody')),
-      'An unresolved user ID must be logged with the configured username'
-    );
-
-    // An empty list is a dead end too, and equally must not be silent.
-    warnings.length = 0;
-    withUsers([]);
-    assert.strictEqual(await paperlessService.getOwnUserID(), null);
-    assert.strictEqual(
-      warnings.length,
-      1,
-      'An empty user list must produce exactly one warning'
-    );
-
-    console.log = originalLog;
-    console.log('PASS test-scan-now-user-id-independence');
-  } finally {
-    console.warn = originalWarn;
-    console.log = originalLog;
-    paperlessService.client = originalClient;
-    if (originalUsername === undefined) {
-      delete process.env.PAPERLESS_USERNAME;
-    } else {
-      process.env.PAPERLESS_USERNAME = originalUsername;
-    }
-  }
-}
-
-run().catch((error) => {
-  console.error('FAIL test-scan-now-user-id-independence');
-  console.error(error);
-  process.exit(1);
-});
+console.log('PASS test-scan-now-user-id-independence');

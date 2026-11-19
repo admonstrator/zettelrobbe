@@ -1,41 +1,42 @@
 'use strict';
 
 /**
- * Test: PAPERLESS_USERNAME, what reads it and what it is not needed for
+ * Test: Paperless-ngx with the API token alone; PAPERLESS_USERNAME is gone
  *
  * Zettelrobbe signs in to Paperless-ngx with the API token alone
  * (`Authorization: Token …`). The user name came over from
  * clusterzx/paperless-ai with the first commit of this repository (da558c1):
  * getOwnUserID() matched it against /api/users/, and three guards refused to
- * scan when that failed — at startup, behind "Scan now" and in the manual
+ * scan when that failed: at startup, behind "Scan now" and in the manual
  * queue. The ID they resolved was handed to processDocument(), which never
  * read it; whether a document may be changed was already decided by
  * Paperless-ngx's own user_can_change. 3dfc880 (#272) removed the startup
- * guard, 4fa54be (#305) the other two. Since then nothing calls
- * getOwnUserID(), and the name changes nothing Zettelrobbe does to a
- * document.
- *
- * The pages still required it: the settings page refused to save without
- * one, the setup wizard refused to continue (page, script and
- * POST /api/setup/complete), and Quick start called the Paperless-ngx row
- * unfinished. This file pins both halves, so that the answer stays true and
- * the name stays optional.
+ * guard, 4fa54be (#305) the other two, and from then on nothing called
+ * getOwnUserID(). 8a65943 made the field optional; now the setting is gone,
+ * with getOwnUserID() and getOwnerOfDocument(), which had no caller either.
+ * An installation that still has the key is covered by
+ * tests/test-removed-settings.js.
  *
  * Covers:
- *  1. In the code that runs, only the settings save, the .env export, the
- *     wizard and paperlessService.getOwnUserID() read the name;
- *     config/config.js has no getter for it, and the processing path does
- *     not mention it
- *  2. getOwnUserID() has no caller
- *  3. The Paperless-ngx client signs in with the token alone: the name is in
- *     no header, and there is no basic auth
- *  4. Writing a document and creating a tag, a correspondent and a document
+ *  1. The setting does not exist: no catalogue entry, no config getter, and
+ *     no server file, page script or view reads the key or the form field
+ *     (two API descriptions say that an old field is ignored)
+ *  2. getOwnUserID() and getOwnerOfDocument() are gone, and the processing
+ *     path resolves no user ID
+ *  3. The Paperless-ngx client signs in with the token alone: no name in a
+ *     header, no basic auth, also while an old installation still has
+ *     PAPERLESS_USERNAME set
+ *  4. The connection probe behind Quick start and the scan asks with the
+ *     token alone
+ *  5. Writing a document and creating a tag, a correspondent and a document
  *     type send no owner, no permissions and not the name
- *  5. The settings page: the field is optional and says what the name is for
- *  6. Quick start: address and token finish the Paperless-ngx row; the name
- *     is shown when there is one, and editing it does not void the probe
- *  7. The setup wizard: the page, its step check and POST /api/setup/complete
- *     accept an empty name
+ *  6. The settings page and Quick start have no user name field; the
+ *     Paperless-ngx row shows the address and the connection state only, and
+ *     the probe's word depends on address and token alone
+ *  7. The setup wizard: no field, no line in the .env preview, nothing in its
+ *     payload; POST /api/setup/complete accepts an old body that still
+ *     carries paperlessUsername, saves no name, and still refuses a missing
+ *     token
  */
 
 const assert = require('assert');
@@ -65,50 +66,51 @@ async function test(name, fn) {
 const read = (relative) =>
   fs.readFileSync(path.join(REPO_ROOT, relative), 'utf8');
 
-/** Every .js file of the server side: what runs in a running installation. */
-function serverFiles() {
-  const files = ['server.js'];
-  for (const dir of ['routes', 'services', 'middleware', 'models', 'config']) {
-    const walk = (relative) => {
-      for (const entry of fs.readdirSync(path.join(REPO_ROOT, relative), {
-        withFileTypes: true,
-      })) {
-        const child = path.join(relative, entry.name);
-        if (entry.isDirectory()) walk(child);
-        else if (entry.name.endsWith('.js')) files.push(child);
-      }
-    };
-    walk(dir);
-  }
+/** Every file below `dir` that ends in `extension`, repository-relative. */
+function filesBelow(dir, extension) {
+  const files = [];
+  const walk = (relative) => {
+    for (const entry of fs.readdirSync(path.join(REPO_ROOT, relative), {
+      withFileTypes: true,
+    })) {
+      const child = path.join(relative, entry.name);
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith(extension)) files.push(child);
+    }
+  };
+  walk(dir);
   return files.map((file) => file.split(path.sep).join('/'));
 }
+
+/** Every .js file of the server side: what runs in a running installation. */
+function serverFiles() {
+  return [
+    'server.js',
+    ...['routes', 'services', 'middleware', 'models', 'config'].flatMap((dir) =>
+      filesBelow(dir, '.js')
+    ),
+  ];
+}
+
+/** The scripts the browser loads. */
+const clientFiles = () => filesBelow('public/js', '.js');
+
+/** The page templates. */
+const viewFiles = () => filesBelow('views', '.ejs');
 
 /** True for a line that is a comment or part of a JSDoc block. */
 const isCommentLine = (line) => /^\s*(\/\/|\/?\*)/.test(line);
 
-/* ── 1–2. Who reads the name ─────────────────────────────────────────────── */
+/* ── 1–2. The setting does not exist ────────────────────────────────────── */
 
 const NAME_PATTERN = /PAPERLESS_USERNAME|paperlessUsername/;
 
 /**
- * The server files that may read the name, and what each does with it. A
- * file not listed here that starts to read it fails the census: decide
- * whether the name is needed after all, and update the hints on the settings
- * page and in the wizard that say it is not.
+ * Files that may still name the form field, in a comment only: the API
+ * descriptions of POST /settings and POST /api/setup/complete say that an
+ * older client's field is accepted and ignored.
  */
-const READERS = {
-  // The settings catalogue: the key, its form field, its .env export group.
-  'services/settingsCatalog.js': 'saved and exported',
-  // The wizard's saved configuration, built from the form body.
-  'services/settingsService.js': 'saved by the wizard',
-  // The wizard: the form field and the .env preview.
-  'routes/setupWizard.js': 'saved by the wizard',
-  // getOwnUserID() prefers the configured name; nothing calls it (case 2).
-  'services/paperlessService.js': 'getOwnUserID() only',
-};
-
-/** Files that only mention the name in a comment or in API documentation. */
-const MENTIONED_IN_COMMENTS = ['routes/scan.js', 'routes/settings.js'];
+const MENTIONED_IN_COMMENTS = ['routes/settings.js', 'routes/setupWizard.js'];
 
 /** The files a document passes through from the scan to the write-back. */
 const PROCESSING_PATH = [
@@ -122,22 +124,27 @@ const PROCESSING_PATH = [
   'services/ollamaService.js',
   'services/anthropicService.js',
   'services/mistralOcrService.js',
+  'services/paperlessService.js',
   'config/config.js',
 ];
 
 async function censusTests() {
   const files = serverFiles();
 
-  await test('Only the save, the export, the wizard and getOwnUserID() read the name', () => {
-    const readers = files.filter((file) => NAME_PATTERN.test(read(file)));
+  await test('No catalogue entry and no config getter for PAPERLESS_USERNAME', () => {
+    const catalog = require('../services/settingsCatalog');
+    assert.strictEqual(catalog.getEntry('PAPERLESS_USERNAME'), undefined);
+    assert.ok(!NAME_PATTERN.test(read('config/config.js')));
+  });
+
+  await test('No server file, page script or view reads the name', () => {
+    const readers = [...files, ...clientFiles(), ...viewFiles()].filter(
+      (file) => NAME_PATTERN.test(read(file))
+    );
     const unexpected = readers.filter(
-      (file) => !(file in READERS) && !MENTIONED_IN_COMMENTS.includes(file)
+      (file) => !MENTIONED_IN_COMMENTS.includes(file)
     );
-    assert.deepStrictEqual(
-      unexpected,
-      [],
-      'a new reader of PAPERLESS_USERNAME: decide whether Zettelrobbe needs the name, then update READERS and the hints that call it optional'
-    );
+    assert.deepStrictEqual(unexpected, [], 'files that read the name');
     for (const file of MENTIONED_IN_COMMENTS) {
       const code = read(file)
         .split('\n')
@@ -146,74 +153,26 @@ async function censusTests() {
     }
   });
 
-  await test('config/config.js has no getter for the name', () => {
-    assert.ok(!NAME_PATTERN.test(read('config/config.js')));
+  await test('getOwnUserID() and getOwnerOfDocument() are gone', () => {
+    const paperlessService = require('../services/paperlessService');
+    assert.strictEqual(paperlessService.getOwnUserID, undefined);
+    assert.strictEqual(paperlessService.getOwnerOfDocument, undefined);
+    const mentions = [...files, ...clientFiles()].filter((file) =>
+      /getOwnUserID|getOwnerOfDocument/.test(read(file))
+    );
+    assert.deepStrictEqual(mentions, []);
   });
 
-  await test('No file of the processing path reads the name or the own user ID', () => {
+  await test('No file of the processing path reads the name or an own user ID', () => {
     for (const file of PROCESSING_PATH) {
       const source = read(file);
       assert.ok(!NAME_PATTERN.test(source), `${file} reads the name`);
-      assert.ok(
-        !source.includes('getOwnUserID'),
-        `${file} resolves the own user ID`
-      );
+      assert.ok(!/ownUserId/i.test(source), `${file} resolves an own user ID`);
     }
-  });
-
-  await test('In paperlessService.js the name is read inside getOwnUserID() and nowhere else', () => {
-    const source = read('services/paperlessService.js');
-    const start = source.indexOf('async getOwnUserID()');
-    assert.ok(start > 0, 'getOwnUserID() is still defined');
-    // The comment above the method names the key as well.
-    const from = source.lastIndexOf('/*', start);
-    const end = source.indexOf('\n  }\n', start);
-    const outside = [...source.matchAll(/PAPERLESS_USERNAME/g)]
-      .map((match) => match.index)
-      .filter((index) => index < from || index > end);
-    assert.deepStrictEqual(outside, [], 'the name read outside getOwnUserID()');
-  });
-
-  await test('getOwnUserID() has no caller', () => {
-    const calls = [];
-    for (const file of [...files, ...clientFiles()]) {
-      read(file)
-        .split('\n')
-        .forEach((line, index) => {
-          if (
-            line.includes('getOwnUserID') &&
-            !isCommentLine(line) &&
-            !/async getOwnUserID\(\)/.test(line)
-          ) {
-            calls.push(`${file}:${index + 1}`);
-          }
-        });
-    }
-    assert.deepStrictEqual(
-      calls,
-      [],
-      'a caller of getOwnUserID() makes PAPERLESS_USERNAME matter again'
-    );
   });
 }
 
-/** The scripts the browser loads. */
-function clientFiles() {
-  const files = [];
-  const walk = (relative) => {
-    for (const entry of fs.readdirSync(path.join(REPO_ROOT, relative), {
-      withFileTypes: true,
-    })) {
-      const child = path.join(relative, entry.name);
-      if (entry.isDirectory()) walk(child);
-      else if (entry.name.endsWith('.js')) files.push(child);
-    }
-  };
-  walk('public/js');
-  return files.map((file) => file.split(path.sep).join('/'));
-}
-
-/* ── 3–4. The token alone ────────────────────────────────────────────────── */
+/* ── 3–5. The token alone ────────────────────────────────────────────────── */
 
 /**
  * An axios-shaped client that answers every request with something the
@@ -229,6 +188,7 @@ function recordingClient() {
     async get(url, config = {}) {
       record('get', url, undefined, config);
       return {
+        status: 200,
         data: {
           results: [],
           count: 0,
@@ -265,6 +225,7 @@ async function tokenTests() {
   const paperlessService = require('../services/paperlessService');
 
   await test('The Paperless-ngx client signs in with the token alone', () => {
+    assert.strictEqual(process.env.PAPERLESS_USERNAME, MARKER, 'a stale key');
     paperlessService.client = null;
     paperlessService.initialize();
     const defaults = paperlessService.client.defaults;
@@ -274,6 +235,21 @@ async function tokenTests() {
       !JSON.stringify(defaults.headers).includes(MARKER),
       'the name is in no header'
     );
+  });
+
+  await test('The connection probe asks with the token alone', async () => {
+    const client = recordingClient();
+    paperlessService.client = client;
+    const result = await paperlessService.checkConnection();
+    assert.deepStrictEqual(
+      { reachable: result.reachable, authorized: result.authorized },
+      { reachable: true, authorized: true }
+    );
+    assert.deepStrictEqual(
+      client.calls.map((call) => `${call.method} ${call.url}`),
+      ['get /users/']
+    );
+    assert.ok(!JSON.stringify(client.calls).includes(MARKER));
   });
 
   await test('Writes and creations send no owner, no permissions and not the name', async () => {
@@ -318,80 +294,47 @@ async function tokenTests() {
   });
 }
 
-/* ── 5–6. The settings page and Quick start ──────────────────────────────── */
-
-/** The rendered field of `id` on the settings page: label, input and hint. */
-function settingsField(html, id) {
-  const at = html.indexOf(`<input type="text" id="${id}"`);
-  assert.ok(at > 0, `#${id} is rendered`);
-  const start = html.lastIndexOf('<div class="zr-field', at);
-  const end = html.indexOf('</div>', at);
-  return html.slice(start, end);
-}
+/* ── 6. The settings page and Quick start ────────────────────────────────── */
 
 async function pageTests() {
   const { renderSettingsPage } = require('./helpers/render-settings');
   const html = await renderSettingsPage();
 
-  await test('Settings page: the user name is optional and says what it is for', () => {
-    const field = settingsField(html, 'paperlessUsername');
-    const input = field.match(/<input[^>]*>/)[0];
-    assert.ok(
-      !/\srequired\b/.test(input),
-      'a required field blocks every save of an installation without a name'
-    );
-    assert.match(field, /User name \(optional\)/);
-    assert.match(field, /signs in with the API token alone/);
-    assert.ok(
-      !field.includes('The Paperless-ngx user the token belongs to'),
-      'the old hint implied the name was needed'
-    );
-  });
-
-  await test('Quick start: the user name row is optional and says so', () => {
-    const start = html.indexOf('data-mirror="paperlessUsername"');
-    assert.ok(start > 0, 'Quick start mirrors the field');
-    const row = html.slice(
-      html.lastIndexOf('<div class="zr-qs__field"', start),
-      html.indexOf('</div>', start)
-    );
-    assert.match(row, /User name \(optional\)/);
-    assert.match(row, /signs in with the API token alone/);
+  await test('Settings page and Quick start: no user name field', () => {
+    assert.ok(!NAME_PATTERN.test(html), 'the page names the field');
+    assert.ok(!/User name/.test(html), 'a user name label');
+    assert.ok(html.includes('id="paperlessToken"'), 'the token field stays');
+    assert.ok(html.includes('data-mirror="paperlessToken"'), 'and its mirror');
   });
 
   const qs = await import(
     path.join(REPO_ROOT, 'public', 'js', 'modules', 'settings-quick-start.js')
   );
 
-  await test('Quick start: address and token finish the Paperless-ngx row', () => {
+  await test('Quick start: the Paperless-ngx row is the address and the connection state', () => {
     const base = { url: 'http://paperless:8000', tokenPresent: true };
-    assert.deepStrictEqual(qs.summarizePaperless({ ...base, username: '' }), {
+    assert.deepStrictEqual(qs.summarizePaperless(base), {
       state: 'done',
       text: 'http://paperless:8000',
     });
     assert.deepStrictEqual(
-      qs.summarizePaperless({ ...base, username: ' ', connection: 'ok' }),
+      qs.summarizePaperless({ ...base, connection: 'ok' }),
       { state: 'done', text: 'http://paperless:8000 · connected' }
     );
+    // An old caller that still hands in a name changes nothing.
     assert.deepStrictEqual(
       qs.summarizePaperless({ ...base, username: 'admin', connection: 'ok' }),
-      { state: 'done', text: 'http://paperless:8000 · user admin · connected' },
-      'a name that is there is still shown'
+      { state: 'done', text: 'http://paperless:8000 · connected' }
     );
   });
 
-  await test('Quick start: editing the name does not void the connection probe', () => {
+  await test('Quick start: the probe depends on address and token alone', () => {
     const source = read('public/js/modules/settings-quick-start.js');
-    const block = source.slice(
-      source.indexOf('const connectionFields = ['),
-      source.indexOf('];', source.indexOf('const connectionFields = ['))
-    );
+    const at = source.indexOf('const connectionFields = [');
+    const block = source.slice(at, source.indexOf('];', at));
     assert.ok(block.includes("'paperlessUrl'"));
     assert.ok(block.includes("'paperlessToken'"));
-    assert.ok(
-      !block.includes("'paperlessUsername'"),
-      'the probe never sends the name, so a new name leaves its word standing'
-    );
+    assert.strictEqual(block.match(/'/g).length, 4, 'two fields, no third');
   });
 }
 
@@ -487,8 +430,24 @@ function loadWizard() {
   vm.runInThisContext(fs.readFileSync(setupJsPath, 'utf8'), {
     filename: setupJsPath,
   });
-  return { wizard: window.setupWizard, dialogs };
+  return { wizard: window.setupWizard, dialogs, elements };
 }
+
+/** The body of a wizard that finished every step. */
+const SETUP_BODY = {
+  adminUsername: 'admin',
+  adminPassword: 'long-enough-password',
+  paperlessUrl: 'http://paperless.test',
+  paperlessToken: 'paperless-token',
+  scanAllDocuments: true,
+  aiProvider: 'openai',
+  aiApiUrl: 'https://api.openai.com/v1',
+  aiToken: 'sk-test',
+  aiModel: 'gpt-4o-mini',
+  mistralOcrEnabled: false,
+  paperlessTestPassed: true,
+  aiTestPassed: true,
+};
 
 async function wizardRouteTests() {
   const { mountRouter } = require('./helpers/mount-router');
@@ -511,65 +470,37 @@ async function wizardRouteTests() {
     appVersion: 'test',
   });
 
-  try {
-    await test('Wizard page: the user name is optional and says what it is for', async () => {
-      const html = await (await fetch(harness.base + '/setup')).text();
-      const input = html.match(/<input id="paperlessUsername"[^>]*>/);
-      assert.ok(input, 'the field is rendered');
-      assert.ok(!/\srequired\b/.test(input[0]), input[0]);
-      const field = html.slice(
-        html.lastIndexOf('<div class="zr-field', input.index),
-        html.indexOf('</div>', input.index)
-      );
-      assert.match(field, /Paperless username \(optional\)/);
-      assert.match(field, /signs in with the API token alone/);
+  const complete = (body) =>
+    fetch(harness.base + '/api/setup/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
 
-    await test('POST /api/setup/complete accepts an empty user name and saves it empty', async () => {
-      const response = await fetch(harness.base + '/api/setup/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          adminUsername: 'admin',
-          adminPassword: 'long-enough-password',
-          paperlessUrl: 'http://paperless.test',
-          paperlessUsername: '',
-          paperlessToken: 'paperless-token',
-          scanAllDocuments: true,
-          aiProvider: 'openai',
-          aiApiUrl: 'https://api.openai.com/v1',
-          aiToken: 'sk-test',
-          aiModel: 'gpt-4o-mini',
-          mistralOcrEnabled: false,
-          paperlessTestPassed: true,
-          aiTestPassed: true,
-        }),
+  try {
+    await test('Wizard page: no user name field', async () => {
+      const html = await (await fetch(harness.base + '/setup')).text();
+      assert.ok(html.includes('id="paperlessToken"'), 'the page rendered');
+      assert.ok(!NAME_PATTERN.test(html), 'the page names the field');
+      assert.ok(!/Paperless username/.test(html));
+    });
+
+    await test('POST /api/setup/complete ignores a user name an old client still sends', async () => {
+      const response = await complete({
+        ...SETUP_BODY,
+        paperlessUsername: 'archivist',
       });
       const body = await response.json();
       assert.strictEqual(response.status, 200, JSON.stringify(body));
       const saved = savedConfigs[savedConfigs.length - 1];
-      assert.strictEqual(saved.PAPERLESS_USERNAME, '');
+      assert.ok(!('PAPERLESS_USERNAME' in saved), 'a name was saved');
+      assert.ok(!JSON.stringify(saved).includes('archivist'));
       assert.strictEqual(saved.PAPERLESS_API_TOKEN, 'paperless-token');
+      assert.ok(!NAME_PATTERN.test(body.envPreview), body.envPreview);
     });
 
     await test('POST /api/setup/complete still refuses a missing token', async () => {
-      const response = await fetch(harness.base + '/api/setup/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          adminUsername: 'admin',
-          adminPassword: 'long-enough-password',
-          paperlessUrl: 'http://paperless.test',
-          paperlessUsername: 'admin',
-          paperlessToken: '',
-          scanAllDocuments: true,
-          aiProvider: 'openai',
-          aiToken: 'sk-test',
-          aiModel: 'gpt-4o-mini',
-          paperlessTestPassed: true,
-          aiTestPassed: true,
-        }),
-      });
+      const response = await complete({ ...SETUP_BODY, paperlessToken: '' });
       const body = await response.json();
       assert.strictEqual(response.status, 400);
       assert.match(body.error, /token are required/);
@@ -584,11 +515,10 @@ async function wizardScriptTests() {
   const realSetInterval = global.setInterval;
   const realClearInterval = global.clearInterval;
   try {
-    const { wizard, dialogs } = loadWizard();
+    const { wizard, dialogs, elements } = loadWizard();
 
     await test('Wizard script: address and token are enough to leave the Paperless-ngx step', async () => {
       wizard.paperlessUrl.value = 'http://paperless:8000';
-      wizard.paperlessUsername.value = '';
       wizard.paperlessToken.value = 'token';
       wizard.paperlessTestState = {
         ran: true,
@@ -598,6 +528,16 @@ async function wizardScriptTests() {
       dialogs.length = 0;
       assert.strictEqual(await wizard.validateStepBeforeContinue(2), true);
       assert.deepStrictEqual(dialogs, [], 'no "Missing values" dialog');
+    });
+
+    await test('Wizard script: no user name in the .env preview or the payload', () => {
+      assert.ok(!('paperlessUsername' in wizard), 'the wizard holds a field');
+      assert.ok(!elements.has('paperlessUsername'), 'the wizard looks it up');
+      const preview = wizard.buildEnvPreview();
+      assert.match(preview, /PAPERLESS_API_TOKEN=token/);
+      assert.ok(!NAME_PATTERN.test(preview), preview);
+      const payload = JSON.stringify(wizard.buildFinalizePayload());
+      assert.ok(!NAME_PATTERN.test(payload), payload);
     });
 
     await test('Wizard script: an empty token still stops the step', async () => {
@@ -623,15 +563,13 @@ async function wizardScriptTests() {
   process.env.LOG_LEVEL = 'error';
   process.env.PAPERLESS_API_URL = 'http://paperless.test';
   process.env.PAPERLESS_API_TOKEN = 'token-only';
+  // An older installation may still have the key set.
   process.env.PAPERLESS_USERNAME = MARKER;
 
   try {
     await censusTests();
     await tokenTests();
     await pageTests();
-    // The page tests and the token tests set the name; the wizard renders
-    // the configuration it finds, and here that has none.
-    delete process.env.PAPERLESS_USERNAME;
     await wizardRouteTests();
     await wizardScriptTests();
   } finally {

@@ -114,8 +114,8 @@ router.post('/api/scan/now', isAuthenticated, async (req, res) => {
 
     // No user-ID probe here on purpose: the scan runs with the configured API
     // token and never needs the numeric user ID. The guard that used to sit
-    // here failed a scan with an unlogged 500 whenever PAPERLESS_USERNAME did
-    // not match a name in /api/users/ (issue #305).
+    // here failed a scan with an unlogged 500 whenever the configured user
+    // name did not match a name in /api/users/ (issue #305).
     if (!scanControl.canTriggerScan()) {
       return res.status(503).json({
         success: false,

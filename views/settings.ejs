@@ -231,12 +231,6 @@
                                         <p class="zr-field__hint">Leave it empty to keep the stored token.</p>
                                         <% } %>
                                     </div>
-    
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="paperlessUsername" class="zr-field__name">User name (optional)</label>
-                                        <input type="text" id="paperlessUsername" name="paperlessUsername" value="<%= config.PAPERLESS_USERNAME %>" class="zr-input">
-                                        <p class="zr-field__hint">Zettelrobbe signs in with the API token alone and does not use this name. Quick start shows it next to the address.</p>
-                                    </div>
                                     </div>
                                 </section>
                         <%- entryClose() %>
@@ -277,7 +271,6 @@
                                 RESPONSE_TOKENS: { id: 'responseTokens', type: 'number', attrs: 'min="1" step="1"' },
                                 TOKEN_LIMIT: { id: 'tokenLimit', type: 'number', attrs: 'min="1" step="1"' },
                                 AI_TEMPERATURE_ANALYSIS: { id: 'aiTemperatureAnalysis', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
-                                AI_TEMPERATURE_GENERATION: { id: 'aiTemperatureGeneration', type: 'number', attrs: 'min="0" max="2" step="0.1"' },
                                 AI_REASONING_EFFORT: { id: 'aiReasoningEffort', type: 'select', choices: [{ value: '', label: 'Not sent' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] },
                                 ANTHROPIC_EFFORT: { id: 'anthropicEffort', type: 'select', choices: [{ value: '', label: 'Model default' }].concat(anthropicEffortLevels.map((level) => ({ value: level, label: anthropicEffortLabels[level] || level }))) },
                                 ANTHROPIC_MAX_TOKENS: { id: 'anthropicMaxTokens', type: 'number', attrs: 'min="1" step="1"' },

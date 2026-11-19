@@ -822,7 +822,6 @@ function pageConfig(surface, env, saved, version) {
  * @typedef {object} InitialSetupInput
  * @property {string} paperlessUrl
  * @property {string} paperlessToken
- * @property {string} paperlessUsername
  * @property {string} aiProvider
  * @property {string} aiApiUrl
  * @property {string} aiToken
@@ -867,7 +866,6 @@ function buildInitialSetupConfig(input, env = process.env) {
   const config = {
     PAPERLESS_API_URL: input.paperlessUrl,
     PAPERLESS_API_TOKEN: input.paperlessToken,
-    PAPERLESS_USERNAME: input.paperlessUsername,
     AI_PROVIDER: input.aiProvider,
     SCAN_INTERVAL: input.scanInterval,
     PROCESS_PREDEFINED_DOCUMENTS: input.scanAllDocuments ? 'no' : 'yes',

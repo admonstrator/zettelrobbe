@@ -50,6 +50,7 @@ const {
 const {
   abortSignal,
   abortedGenerationError,
+  generateTemperature,
   hasNumber,
   hasSystemPrompt,
   isAbortError,
@@ -641,10 +642,10 @@ class OpenAICompatibleService {
     });
 
     const request = { model, messages };
+    // The caller's temperature, otherwise 0 (DEFAULT_GENERATE_TEMPERATURE in
+    // aiGenerateOptions), where the rules say the model takes one.
     if (rules.temperature) {
-      request.temperature = hasNumber(options.temperature)
-        ? options.temperature
-        : config.aiTemperatureGeneration;
+      request.temperature = generateTemperature(options);
     }
     const cap = await this._completionCap(prompt, model, options, rules);
     if (cap !== null) request[rules.maxTokensParam] = cap;
@@ -668,8 +669,9 @@ class OpenAICompatibleService {
    * @param {string} prompt - The prompt to generate text from
    * @param {object} [options] - Optional overrides for this one call
    * @param {string} [options.systemPrompt] - Sent as the system message
-   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
-   *   on models that take a temperature
+   * @param {number} [options.temperature] - Sent to models that take a
+   *   temperature; without it the call asks with 0
+   *   (DEFAULT_GENERATE_TEMPERATURE in aiGenerateOptions)
    * @param {number} [options.maxTokens] - Completion cap, clamped to the context
    * @param {string} [options.model] - Model (Azure: deployment) for this call
    * @param {AbortSignal} [options.signal] - Cancels the request in flight

@@ -96,7 +96,6 @@ class SetupWizard {
     this.mfaStatusHint = document.getElementById('mfaStatusHint');
 
     this.paperlessUrl = document.getElementById('paperlessUrl');
-    this.paperlessUsername = document.getElementById('paperlessUsername');
     this.paperlessToken = document.getElementById('paperlessToken');
     this.testPaperlessBtn = document.getElementById('testPaperlessBtn');
     this.paperlessTestStatePill = document.getElementById('paperlessTestState');
@@ -2217,7 +2216,7 @@ class SetupWizard {
     }
 
     if (stepIndex === 2) {
-      // The user name is optional: Zettelrobbe signs in with the token alone.
+      // Zettelrobbe signs in with the token alone.
       if (
         !this.paperlessUrl.value.trim() ||
         !this.paperlessToken.value.trim()
@@ -2434,7 +2433,6 @@ class SetupWizard {
         .replace(/\/api$/, '')}`
     );
     preview.push(`PAPERLESS_API_TOKEN=${this.paperlessToken.value.trim()}`);
-    preview.push(`PAPERLESS_USERNAME=${this.paperlessUsername.value.trim()}`);
     preview.push(
       `PROCESS_PREDEFINED_DOCUMENTS=${this.scanAllDocuments.checked ? 'no' : 'yes'}`
     );
@@ -2584,7 +2582,6 @@ class SetupWizard {
       enableMfa: this.enableMfa.value === 'yes',
       mfaChallengeId: this.mfaState.challengeId,
       paperlessUrl: this.paperlessUrl.value.trim(),
-      paperlessUsername: this.paperlessUsername.value.trim(),
       paperlessToken: this.paperlessToken.value.trim(),
       scanAllDocuments: this.scanAllDocuments.checked,
       // Kept in the UI so toggling back restores them, but not submitted while
