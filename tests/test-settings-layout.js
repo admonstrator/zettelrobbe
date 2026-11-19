@@ -33,7 +33,8 @@
  *    options, a release of the changelog) is a section that folds; Quick
  *    start's steps are rows of its card
  * 8. The rows of a section: the same air above and below, blocks ruled off
- * 9. The styleguide shows the row forms, the topic list and the save bar
+ * 9. The styleguide shows a topic card with its sections and rows, the topic
+ *    list and the save bar
  */
 
 'use strict';
@@ -831,7 +832,7 @@ function textOutsideCards(html) {
 
   // ── 9. The styleguide ────────────────────────────────────────────────────
 
-  await test('the styleguide keeps its frame and shows rows, topic list and save bar', () => {
+  await test('the styleguide keeps its frame and shows a topic card, topic list and save bar', () => {
     assert.match(
       body(desktop, '.zr-settings'),
       /grid-template-columns: 220px minmax\(0, 1fr\);/
@@ -843,15 +844,30 @@ function textOutsideCards(html) {
     assert.ok(styleguide.includes('id="sg-settings"'));
     assert.ok(
       styleguide.includes(
-        'class="zr-module zr-settings-card zr-settings-section"'
+        '<section class="zr-settings-entry zr-module" aria-labelledby="sgEntryTitle">'
       ),
-      'a section as a card'
+      'a topic as a card'
     );
     assert.ok(
       styleguide.includes(
-        'class="zr-module__title zr-settings-section__title"'
+        '<header class="zr-module__head zr-settings-entry__head">'
       ),
-      'its title in the card head'
+      'its head'
+    );
+    assert.ok(
+      styleguide.includes('<section class="zr-settings-section"'),
+      'a section as a block'
+    );
+    assert.ok(
+      styleguide.includes(
+        '<details class="zr-settings-section zr-settings-disclosure">'
+      ),
+      'a section that folds'
+    );
+    assert.ok(!styleguide.includes('zr-settings-card'));
+    assert.ok(
+      !styleguide.includes('zr-module zr-qs__list'),
+      'the Quick start rows in their topic card'
     );
     assert.ok(
       styleguide.includes('<div class="zr-module__body zr-settings-side">'),
