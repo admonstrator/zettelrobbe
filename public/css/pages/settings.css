@@ -63,10 +63,11 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    /* A classic scrollbar (Windows) takes room on both sides, so the block
-       stays centred over the bar, and a short topic without a scrollbar does
-       not sit a few pixels off a long one. */
-    scrollbar-gutter: stable both-edges;
+    /* A classic scrollbar (Windows) keeps its room also when a topic is
+       short, so a short topic does not sit a few pixels off a long one. The
+       room is on the scrollbar's side only: the block starts at the same
+       left inset as the content of the save bar. */
+    scrollbar-gutter: stable;
     /* Where a focused field, a hash link, a search match or a refused field
        come to rest: inside the region, clear of its edges. The top bar and
        the save bar are outside the region, so nothing lands under them. */
@@ -79,19 +80,24 @@
     height: var(--zr-settings-reserve, 0);
   }
 
-  /* Topic list and topic are one block, centred in the region: the list,
-     then the topic in a column of a readable width. On a large display the
-     block keeps its width and the air goes to both sides; in a narrow window
-     the topic column gives way first. The save bar lines its content up
-     with the same block (--zr-actionbar-measure). */
+  /* Topic list and topic are one block that starts next to the app's own
+     navigation: the list, then the topic in a column of a readable width.
+     The distance to the rail (--zr-settings-inset) grows a little with the
+     window and stops at 96px, so on a large display the two lists stay
+     neighbours and the air goes to the right; in a narrow window the topic
+     column gives way first. The save bar lines its content up with the same
+     block (--zr-actionbar-inset, --zr-actionbar-measure). */
   .zr-settings-page {
     --zr-settings-list: 232px;
     --zr-settings-measure: 720px;
     --zr-settings-gap: var(--zr-8);
     --zr-settings-pad: var(--zr-6);
+    --zr-settings-inset: clamp(var(--zr-settings-pad), 4vw, 96px);
+    --zr-actionbar-inset: var(--zr-settings-inset);
     --zr-actionbar-measure: calc(
-      var(--zr-settings-list) + var(--zr-settings-gap) +
-        var(--zr-settings-measure) + 2 * var(--zr-settings-pad)
+      var(--zr-settings-inset) + var(--zr-settings-list) +
+        var(--zr-settings-gap) + var(--zr-settings-measure) +
+        var(--zr-settings-pad)
     );
   }
   .zr-settings-page .zr-settings {
@@ -99,9 +105,9 @@
         0,
         var(--zr-settings-measure)
       );
-    justify-content: center;
+    justify-content: start;
     gap: var(--zr-settings-gap);
-    padding: 28px var(--zr-settings-pad) var(--zr-10);
+    padding: 28px var(--zr-settings-pad) var(--zr-10) var(--zr-settings-inset);
   }
   /* The styleguide lays out its own sections with the same frame. */
   .zr-settings {
@@ -722,6 +728,7 @@
     }
     .zr-settings-page {
       --zr-settings-pad: var(--zr-3);
+      --zr-settings-inset: var(--zr-settings-pad);
     }
     .zr-settings-page .zr-settings {
       grid-template-columns: minmax(0, 1fr);

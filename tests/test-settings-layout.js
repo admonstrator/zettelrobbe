@@ -11,8 +11,8 @@
  * measures the page in a browser.
  *
  * Covers:
- * 1. One block, centred: topic list and topic in a grid that keeps its width
- *    and gives the air to both sides
+ * 1. One block, next to the rail: topic list and topic in a grid that keeps its width
+ *    and leaves the air on the right
  * 2. The frame: the window does not scroll; a region under the top bar does,
  *    over the save bar, which is a row of the layout and hidden without
  *    changes; its Save button belongs to the form from outside it
@@ -85,9 +85,9 @@ function body(source, selector) {
 (async () => {
   const html = await renderSettingsPage();
 
-  // ── 1. One block, centred ────────────────────────────────────────────────
+  // ── 1. One block, next to the rail ────────────────────────────────────────────────
 
-  await test('topic list and topic are one block, centred, the topic at most 760px', () => {
+  await test('topic list and topic are one block next to the rail, the topic at most 760px', () => {
     const vars = body(desktop, '.zr-settings-page');
     const measure = vars.match(/--zr-settings-measure: (\d+)px;/);
     assert.ok(measure, 'the measure is one custom property');
@@ -104,8 +104,25 @@ function body(source, selector) {
     );
     assert.match(
       grid,
-      /justify-content: center;/,
-      'the air goes to both sides'
+      /justify-content: start;/,
+      'the block starts at the rail'
+    );
+    const inset = vars.match(
+      /--zr-settings-inset: clamp\(var\(--zr-settings-pad\), \d+vw, (\d+)px\);/
+    );
+    assert.ok(
+      inset,
+      'the distance to the rail is one custom property with an upper bound'
+    );
+    assert.ok(
+      Number(inset[1]) <= 120,
+      `at most 120px between rail and topic list, got ${inset[1]}px`
+    );
+    assert.match(grid, /padding: [^;]*var\(--zr-settings-inset\);/);
+    assert.match(
+      vars,
+      /--zr-actionbar-inset: var\(--zr-settings-inset\);/,
+      'the save bar starts with the block'
     );
     assert.ok(!/<div class="zr-settings-columns|third column/i.test(view));
   });
@@ -146,7 +163,7 @@ function body(source, selector) {
     const region = body(desktop, '.zr-settings-scroll');
     assert.match(region, /overflow-y: auto;/);
     assert.match(region, /position: relative;/, 'clips what is positioned');
-    assert.match(region, /scrollbar-gutter: stable both-edges;/);
+    assert.match(region, /scrollbar-gutter: stable;/);
     assert.match(region, /scroll-padding-block: var\(--zr-6\);/);
   });
 
