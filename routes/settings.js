@@ -682,7 +682,7 @@ router.get(
  *                 example: "abc123def456"
  *               paperlessUsername:
  *                 type: string
- *                 description: Username for Paperless-ngx (alternative to token authentication)
+ *                 description: Optional. Shown next to the address in Quick start; Zettelrobbe signs in with paperlessToken alone and does not use the name. Empty keeps the stored name.
  *                 example: "admin"
  *               aiProvider:
  *                 type: string
@@ -788,7 +788,7 @@ router.get(
  *                 example: 0.3
  *               aiTemperatureGeneration:
  *                 type: number
- *                 description: Temperature for generation calls (range 0.0-2.0)
+ *                 description: Temperature of a generateText() call that sends none of its own (range 0.0-2.0). No current caller does; Tidy up always sends 0, so the value has no effect.
  *                 example: 0.7
  *               aiReasoningEffort:
  *                 type: string

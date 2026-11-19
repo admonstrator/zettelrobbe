@@ -1124,10 +1124,11 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       });
     }
 
-    if (!paperlessUrl || !paperlessUsername || !paperlessToken) {
+    // The user name is optional: Zettelrobbe signs in with the token alone.
+    if (!paperlessUrl || !paperlessToken) {
       return res.status(400).json({
         success: false,
-        error: 'Paperless URL, username, and token are required.',
+        error: 'Paperless URL and token are required.',
       });
     }
 

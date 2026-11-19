@@ -132,7 +132,8 @@ export function connectionState(paperless) {
  * Step 1: how Zettelrobbe reaches Paperless-ngx. The token is never shown,
  * only whether there is one. `connection` is the probe's word on the stored
  * configuration, so the caller passes null once the address or the token is
- * edited.
+ * edited. Address and token finish the step: Zettelrobbe signs in with the
+ * token alone, and the user name is only shown when there is one.
  *
  * @param {{url: string, tokenPresent: boolean, username: string, connection?: 'ok'|'rejected'|'unreachable'|null}} input
  * @returns {StepSummary}
@@ -148,8 +149,6 @@ export function summarizePaperless({
   if (!tokenPresent) {
     return { state: 'open', text: `${address} · no API token yet` };
   }
-  const user = clean(username);
-  if (!user) return { state: 'open', text: `${address} · no user name yet` };
   if (connection === 'rejected') {
     return {
       state: 'problem',
@@ -159,7 +158,9 @@ export function summarizePaperless({
   if (connection === 'unreachable') {
     return { state: 'problem', text: `${address} · not reachable` };
   }
-  const parts = [address, `user ${user}`];
+  const parts = [address];
+  const user = clean(username);
+  if (user) parts.push(`user ${user}`);
   if (connection === 'ok') parts.push('connected');
   return { state: 'done', text: parts.join(' · ') };
 }
@@ -699,14 +700,10 @@ export default function settingsQuickStart(root) {
 
   /* Paperless-ngx connection ------------------------------------------------- */
 
-  // The probe checks the stored configuration; once the address, the token or
-  // the user is edited, its word no longer applies.
+  // The probe checks the stored configuration; once the address or the token
+  // is edited, its word no longer applies. The user name is not part of it.
   let connection = null;
-  const connectionFields = [
-    'paperlessUrl',
-    'paperlessToken',
-    'paperlessUsername',
-  ];
+  const connectionFields = ['paperlessUrl', 'paperlessToken'];
   let connectionBaseline = connectionFields.map((id) => {
     const element = field(id);
     return element ? String(element.defaultValue ?? '') : '';

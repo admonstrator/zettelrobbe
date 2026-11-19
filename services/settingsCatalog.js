@@ -377,6 +377,9 @@ const CATALOG = Object.freeze([
       restart: true,
       ...PSW,
     }),
+    // Optional, and only shown: Zettelrobbe signs in with the API token
+    // alone. paperlessService.getOwnUserID() reads it and has no caller
+    // since #305 (tests/test-paperless-username.js).
     setting('PAPERLESS_USERNAME', {
       type: 'string',
       default: '',
@@ -724,6 +727,8 @@ const CATALOG = Object.freeze([
       parse: temperature('AI_TEMPERATURE_ANALYSIS'),
       ...PS,
     }),
+    // Read when a generateText() caller sends no temperature; every caller
+    // sends 0 (tests/test-generation-temperature-callers.js).
     setting('AI_TEMPERATURE_GENERATION', {
       type: 'number',
       default: '0.7',

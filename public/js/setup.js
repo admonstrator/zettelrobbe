@@ -2207,15 +2207,15 @@ class SetupWizard {
     }
 
     if (stepIndex === 2) {
+      // The user name is optional: Zettelrobbe signs in with the token alone.
       if (
         !this.paperlessUrl.value.trim() ||
-        !this.paperlessUsername.value.trim() ||
         !this.paperlessToken.value.trim()
       ) {
         await this.showPopup({
           icon: 'warning',
           title: 'Missing values',
-          text: 'Paperless URL, username, and token are required.',
+          text: 'Paperless URL and token are required.',
         });
         return false;
       }
