@@ -43,7 +43,7 @@
         ] },
         { key: 'basics', label: 'Basics', icon: 'i-home', entries: [
             { id: 'connection', title: 'Paperless-ngx connection', lead: 'Where Zettelrobbe reaches Paperless-ngx, with which token, and which address the links to a document open.' },
-            { id: 'display', title: 'Display', lead: 'How Zettelrobbe writes dates on its pages.' }
+            { id: 'display', title: 'Display', lead: 'How Zettelrobbe shows dates on its pages.' }
         ] },
         { key: 'analysis', label: 'Document analysis', icon: 'i-cpu', entries: [
             { id: 'ai-provider', title: 'AI provider', lead: 'The service and the model that read your documents, and how much of a document they get.' },
@@ -51,7 +51,7 @@
             { id: 'prompt', title: 'Prompt', lead: 'What the model is told with every document, and which names of Paperless-ngx it gets with it.' },
             { id: 'restrictions', title: 'Existing names only', lead: 'Whether the model may create tags, correspondents and document types, or only use the ones Paperless-ngx has.' },
             { id: 'custom-fields', title: 'Custom fields', lead: 'The custom fields of Paperless-ngx the model fills in for every document.' },
-            { id: 'external-data', title: 'External data', lead: 'An address Zettelrobbe asks before an analysis, and whose answer the model gets along with your prompt.' },
+            { id: 'external-data', title: 'External data', lead: 'Zettelrobbe asks an address of your choice before an analysis and hands the answer to the model with your prompt.' },
             { id: 'ocr', title: 'OCR', lead: 'When Zettelrobbe sends a document to OCR, which service reads it, and how many pages of a PDF it reads.' }
         ] },
         { key: 'processing', label: 'Processing', icon: 'i-clock', entries: [
@@ -69,7 +69,7 @@
         { key: 'system', label: 'System', icon: 'i-server', entries: [
             { id: 'runtime', title: 'Server', lead: 'How the server of Zettelrobbe runs: its port, the proxy in front of it, its cookies, how many requests it takes and how much it logs.' },
             { id: 'caching', title: 'Caching and history', lead: 'The tags and previews Zettelrobbe keeps to answer faster, and when it removes its records of documents deleted in Paperless-ngx.' },
-            { id: 'quickstart', title: 'Detect models', lead: 'Asks an AI server which models it offers and fills in the ones you pick under AI provider and OCR.' },
+            { id: 'quickstart', title: 'Detect models', lead: 'Asks a server such as Ollama or LM Studio which models it offers, and fills in the ones you pick under AI provider and OCR.' },
             { id: 'set-by-environment', title: 'Set by the environment', count: environmentTopic ? environmentTopic.count : 0, lead: 'Which settings the environment decides, usually the lines of your docker-compose file, and how to take them over into the stored settings.' },
             { id: 'environment', title: 'Export', lead: 'The configuration in use as a .env file, to move this instance or to copy its settings.' },
             { id: 'changelog', title: 'Changelog', lead: 'What changed in each release, newest first.' }
@@ -263,7 +263,7 @@
                                         <label for="paperlessToken" class="zr-field__name">API token</label>
                                         <div class="zr-inputgroup">
                                             <input type="password" id="paperlessToken" name="paperlessToken" value="" class="zr-input" placeholder="<%= configuredSecrets.PAPERLESS_API_TOKEN ? 'Configured' : 'Enter API token' %>">
-                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="paperlessToken">
+                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="paperlessToken" aria-label="Show the API token">
                                                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg>
                                             </button>
                                         </div>
@@ -373,7 +373,7 @@
                                             + `<input type="text" id="${control.id}Other" class="zr-input hidden" value="" autocomplete="off" spellcheck="false" placeholder="Model id" aria-label="${settingsEsc(option.label)}: model id" data-model-other-input="${control.id}" data-locked-by="${control.id}">`;
                                     } else if (control.type === 'secret') {
                                         input = `<div class="zr-inputgroup"><input type="password" id="${control.id}" name="${control.id}" value="" class="zr-input" autocomplete="off" placeholder="${configuredSecrets[option.key] ? 'Configured' : settingsEsc(control.placeholder || fallback)}">`
-                                            + `<button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="${control.id}"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button></div>`;
+                                            + `<button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="${control.id}" aria-label="Show the API key"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button></div>`;
                                     } else {
                                         input = `<input type="${control.type}" id="${control.id}" name="${control.id}" ${control.attrs ? control.attrs + ' ' : ''}value="${settingsEsc(current)}" class="zr-input" placeholder="${settingsEsc(control.placeholder || fallback)}">`;
                                     }
@@ -424,7 +424,7 @@
                                             <label for="openaiKey" class="zr-field__name">OpenAI API key</label>
                                             <div class="zr-inputgroup">
                                                 <input type="password" id="openaiKey" name="openaiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.OPENAI_API_KEY ? 'Configured' : 'Enter OpenAI API key' %>">
-                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="openaiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
+                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="openaiKey" aria-label="Show the API key"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
                                             <% if (configuredSecrets.OPENAI_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
@@ -470,7 +470,7 @@
                                             <label for="customApiKey" class="zr-field__name">API key</label>
                                             <div class="zr-inputgroup">
                                                 <input type="password" id="customApiKey" name="customApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.CUSTOM_API_KEY ? 'Configured' : 'Enter API key' %>">
-                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="customApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
+                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="customApiKey" aria-label="Show the API key"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
                                             <p class="zr-field__hint"><%= configuredSecrets.CUSTOM_API_KEY ? 'Leave empty to keep the stored key.' : 'Leave it empty if the server needs no key.' %></p>
                                         </div>
@@ -498,7 +498,7 @@
                                             <label for="azureApiKey" class="zr-field__name">Azure API key</label>
                                             <div class="zr-inputgroup">
                                                 <input type="password" id="azureApiKey" name="azureApiKey" value="" class="zr-input" placeholder="<%= configuredSecrets.AZURE_API_KEY ? 'Configured' : 'Enter Azure API key' %>">
-                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="azureApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
+                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="azureApiKey" aria-label="Show the API key"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
                                             <% if (configuredSecrets.AZURE_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
@@ -514,7 +514,7 @@
                                             <label for="anthropicApiKey" class="zr-field__name">Anthropic API key</label>
                                             <div class="zr-inputgroup">
                                                 <input type="password" id="anthropicApiKey" name="anthropicApiKey" value="" class="zr-input" autocomplete="off" placeholder="<%= configuredSecrets.ANTHROPIC_API_KEY ? 'Configured' : 'sk-ant-...' %>">
-                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="anthropicApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
+                                                <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="anthropicApiKey" aria-label="Show the API key"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                             </div>
                                             <% if (configuredSecrets.ANTHROPIC_API_KEY) { %><p class="zr-field__hint">Leave empty to keep the stored key.</p><% } %>
                                         </div>
@@ -543,7 +543,7 @@
                                     </div>
                                     </div>
                                 </section>
-                                <%- aiAdvanced('sec-provider-advanced', 'Lengths, creativity and options of single providers. The defaults suit most archives.', aiOptionsIn('provider', 'advanced')) %>
+                                <%- aiAdvanced('sec-provider-advanced', 'How much the model reads and writes, how freely it answers, and what single providers offer. The defaults suit most archives.', aiOptionsIn('provider', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('ai-behavior') %>
@@ -679,7 +679,7 @@
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
                                             <label for="restrictToExistingTags" class="zr-field__name">Only existing tags</label>
-                                            <p class="zr-field__hint">A tag Paperless-ngx does not have is left out. %RESTRICTED_TAGS% in your prompt gives the model the list of your tags.</p>
+                                            <p class="zr-field__hint">A tag Paperless-ngx does not have is left out. %RESTRICTED_TAGS% in your prompt gives the model the list.</p>
                                         </div>
                                         <input type="checkbox" class="zr-toggle" id="restrictToExistingTags" name="restrictToExistingTags" <%= config.RESTRICT_TO_EXISTING_TAGS === 'yes' ? 'checked' : '' %>>
                                     </div>
@@ -828,20 +828,20 @@
                                         <label for="ocrProvider" class="zr-field__name">OCR provider</label>
                                         <select id="ocrProvider" name="ocrProvider" class="zr-input">
                                             <option value="mistral" <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'selected' : '' %>>Mistral OCR API</option>
-                                            <option value="custom" <%= ((config.OCR_PROVIDER || 'mistral') === 'custom' || (config.OCR_PROVIDER || 'mistral') === 'ollama') ? 'selected' : '' %>>Custom (Ollama, LM Studio, local models)</option>
+                                            <option value="custom" <%= ((config.OCR_PROVIDER || 'mistral') === 'custom' || (config.OCR_PROVIDER || 'mistral') === 'ollama') ? 'selected' : '' %>>Local server (Ollama, LM Studio)</option>
                                             <option value="anthropic" <%= ocrStoredForAnthropic ? 'selected' : '' %>>Claude (Anthropic)</option>
                                         </select>
                                     </div>
                                     <div id="ocrApiUrlContainer" class="zr-field zr-field--stacked">
                                         <label for="ocrApiUrl" class="zr-field__name">Server address (optional)</label>
-                                        <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Leave empty to use provider default" data-placeholder-default="Leave empty to use provider default" data-placeholder-anthropic="Optional proxy URL" inputmode="url">
+                                        <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Empty uses the default of the provider" data-placeholder-default="Empty uses the default of the provider" data-placeholder-anthropic="Optional proxy address" inputmode="url">
                                         <p id="ocrApiUrlAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>">Only for a proxy. Empty uses the API address set for Claude under AI provider, else api.anthropic.com.</p>
                                     </div>
                                     <div id="ocrApiKeyContainer" class="zr-field zr-field--stacked">
                                         <label for="ocrApiKey" class="zr-field__name">OCR API key</label>
                                         <div class="zr-inputgroup">
                                             <input type="password" id="ocrApiKey" name="ocrApiKey" value="" class="zr-input" placeholder="<%= ocrStoredForAnthropic ? (ocrKeyConfiguredAnthropic ? 'Configured' : 'Optional') : (ocrKeyConfiguredDefault ? 'Configured' : 'Required for Mistral') %>" data-placeholder-default="<%= ocrKeyConfiguredDefault ? 'Configured' : 'Required for Mistral' %>" data-placeholder-anthropic="<%= ocrKeyConfiguredAnthropic ? 'Configured' : 'Optional' %>">
-                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="ocrApiKey"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
+                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="ocrApiKey" aria-label="Show the OCR API key"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                         </div>
                                         <p id="ocrApiKeyHint" class="zr-field__hint <%= ocrStoredForAnthropic ? 'hidden' : '' %>">Needed for Mistral, optional for a local server.<%= ocrKeyConfiguredDefault ? ' Leave it empty to keep the stored key.' : '' %></p>
                                         <p id="ocrApiKeyAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>"><%= ocrKeyConfiguredAnthropic ? 'Leave it empty to keep the stored key.' : 'Empty uses the Claude API key set under AI provider.' %></p>
@@ -910,7 +910,7 @@
                                         <div id="ocrBeforeAiTagContainer" class="zr-field zr-field--stacked <%= ocrBeforeAiMode === 'tagged' ? '' : 'hidden' %>">
                                             <label for="ocrBeforeAiTag" class="zr-field__name">OCR tag</label>
                                             <input type="text" id="ocrBeforeAiTag" name="ocrBeforeAiTag" value="<%= config.OCR_BEFORE_AI_TAG || 'needs-ocr' %>" class="zr-input" placeholder="needs-ocr" autocomplete="off" spellcheck="false">
-                                            <p class="zr-field__hint">The Paperless-ngx tag that sends a document to OCR first; upper and lower case do not matter. While no tag has this name, no document is sent. To take the tag off afterwards, add it to "Also remove these tags" under What the AI fills in.</p>
+                                            <p class="zr-field__hint">The Paperless-ngx tag that sends a document to OCR first. Upper and lower case do not matter. While no tag has this name, no document is sent. To take the tag off afterwards, add it to "Also remove these tags" under What the AI fills in.</p>
                                         </div>
                                         <div id="ocrBeforeAiQueueNote" class="zr-alert <%= ocrQueueRunsItself ? 'zr-alert--info' : 'zr-alert--warn' %> <%= ocrBeforeAiMode === 'off' ? 'hidden' : '' %>">
                                             <svg class="zr-icon" aria-hidden="true"><use id="ocrBeforeAiQueueIcon" href="/icons.svg#<%= ocrQueueRunsItself ? 'i-info' : 'i-alert' %>"/></svg>
@@ -959,9 +959,9 @@
                                         <% } %>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
-                                        <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout (seconds)</label>
+                                        <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout</label>
                                         <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || '' %>" class="zr-input">
-                                        <p class="zr-field__hint">How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch models wait as long.</p>
+                                        <p class="zr-field__hint">In seconds. How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch models wait as long.</p>
                                     </div>
                                     <div class="zr-row zr-row--wrap">
                                         <button type="button" id="testOcrBtn" class="zr-btn">
@@ -1041,7 +1041,7 @@
 
                         <%- entryOpen('skip-rules') %>
                                 <section class="zr-settings-section" id="sec-skip-rules" aria-labelledby="sec-skip-rules-title">
-                                    <%- sectionHead('sec-skip-rules', 'Documents that skip OCR and AI', 'A matching document goes to the <a href="/ignored" class="zr-link zr-link--underline">ignored list</a>. Take it off that list to process it anyway.') %>
+                                    <%- sectionHead('sec-skip-rules', 'Documents that skip OCR and the model', 'A matching document goes to the <a href="/ignored" class="zr-link zr-link--underline">ignored list</a>. Take it off that list to process it anyway.') %>
                                     <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
@@ -1073,11 +1073,11 @@
 
                         <%- entryOpen('runtime') %>
                                 <section class="zr-settings-section" id="sec-runtime-controls" aria-labelledby="sec-runtime-controls-title">
-                                    <%- sectionHead('sec-runtime-controls', 'Port, proxy and limits', 'Saving a change here restarts Zettelrobbe.') %>
+                                    <%- sectionHead('sec-runtime-controls', 'Network, limits and logging', 'Saving a change here restarts Zettelrobbe.') %>
                                     <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
                                         <div class="zr-field zr-field--stacked">
-                                            <label for="globalRateLimitWindowMs" class="zr-field__name">Rate limit window (ms)</label>
+                                            <label for="globalRateLimitWindowMs" class="zr-field__name">Rate limit window (milliseconds)</label>
                                             <input type="number" id="globalRateLimitWindowMs" name="globalRateLimitWindowMs" value="<%= config.GLOBAL_RATE_LIMIT_WINDOW_MS || 900000 %>" class="zr-input">
                                         </div>
                                         <div class="zr-field zr-field--stacked">
@@ -1176,7 +1176,7 @@
     
                                             <div id="mfaProvisioningBox" class="zr-col hidden">
                                                 <div class="zr-row">
-                                                    <img id="mfaQrImage" class="hidden no-invert" alt="MFA provisioning QR code" />
+                                                    <img id="mfaQrImage" class="hidden no-invert" alt="QR code for your authenticator app" />
                                                 </div>
                                                 <div class="zr-col zr-col--tight">
                                                     <label for="mfaSecretKey" class="zr-field__name">Secret key</label>
@@ -1245,7 +1245,7 @@
                                         <label for="oidcClientSecret" class="zr-field__name">Client secret</label>
                                         <div class="zr-inputgroup">
                                             <input type="password" id="oidcClientSecret" name="oidcClientSecret" value="" class="zr-input" autocomplete="new-password" placeholder="<%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Configured' : 'Empty for a public client' %>">
-                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="oidcClientSecret" aria-label="Show client secret"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
+                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="oidcClientSecret" aria-label="Show the client secret"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg></button>
                                         </div>
                                         <p class="zr-field__hint">OIDC_CLIENT_SECRET · <%= configuredSecrets.OIDC_CLIENT_SECRET ? 'Leave it empty to keep the stored secret.' : 'Only for a confidential client.' %></p>
                                     </div>
@@ -1378,12 +1378,12 @@
 
                         <%- entryOpen('api-key') %>
                                 <section class="zr-settings-section" id="sec-api-key" aria-labelledby="sec-api-key-title">
-                                    <%- sectionHead('sec-api-key', 'Your key', 'Click the key to copy it. Regenerate replaces it with a new one.') %>
+                                    <%- sectionHead('sec-api-key', 'Current key', 'Click the key to copy it. Regenerate replaces it with a new one.') %>
                                     <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col">
                                         <div class="zr-inputgroup">
                                             <div id="apiKeyContainer" class="zr-input zr-mono zr-apikey" data-api-key=""
-                                                title="Click to copy API key" role="button" tabindex="0">Loading…</div>
+                                                title="Click to copy the API key" role="button" tabindex="0">Loading…</div>
                                             <button type="button" id="regenerateBtn" class="zr-btn">
                                                 <svg class="zr-icon zr-icon--sm" id="regenerateIcon" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
                                                 <span>Regenerate</span>
@@ -1475,7 +1475,7 @@
 
                         <%- entryOpen('quickstart') %>
                                 <section class="zr-settings-section" id="sec-quickstart-auto-detect" aria-labelledby="sec-quickstart-auto-detect-title">
-                                    <%- sectionHead('sec-quickstart-auto-detect', 'Ask an AI server', 'Works with Ollama, LM Studio and other OpenAI-compatible servers. Apply fills in <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR</a>. Nothing is saved until you apply the models and save.') %>
+                                    <%- sectionHead('sec-quickstart-auto-detect', 'Ask a server', 'Works with Ollama, LM Studio and other OpenAI-compatible servers. Apply fills in <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR</a>. Nothing is saved until you apply the models and save.') %>
                                     <div class="zr-module zr-settings-card">
                                     <div class="zr-module__body zr-col zr-col--loose">
     <%
@@ -1564,7 +1564,7 @@
                                             <div class="zr-alert__body">
                                                 <p class="zr-sm">
                                                     It contains API tokens and keys in clear text. <code>JWT_SECRET</code>
-                                                    is left out; a fresh instance generates its own.
+                                                    is left out. A fresh instance generates its own.
                                                 </p>
                                             </div>
                                         </div>
@@ -1593,7 +1593,7 @@
                                     <div class="changelog-header">
                                         <div>
                                             <h3 class="zr-module__title">Release history</h3>
-                                            <p class="zr-field__hint">What changed in each release, newest first. The current release is expanded.</p>
+                                            <p class="zr-field__hint">The current release is expanded.</p>
                                         </div>
                                         <a href="https://github.com/admonstrator/zettelrobbe/releases" target="_blank" rel="noopener noreferrer" class="changelog-source-link">
                                             <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-github"/></svg>

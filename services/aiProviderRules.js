@@ -377,7 +377,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_REASONING_EFFORT',
     label: 'Thinking effort',
-    help: 'How long a reasoning model such as o3, gpt-5 or Magistral thinks before answering. Empty sends nothing. Other models may reject the setting.',
+    help: 'How long a reasoning model such as o3, gpt-5 or Magistral thinks before answering. With Not sent the request leaves it out. Other models may reject it.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom'],
     defaultValue: '',
@@ -386,7 +386,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'ANTHROPIC_EFFORT',
     label: 'Thinking effort',
-    help: 'How much the model thinks before answering. Higher helps hard documents and costs more time and tokens. Empty keeps the model default.',
+    help: 'How much the model thinks before answering. Higher helps hard documents and costs more time and tokens. Model default leaves the choice to the model.',
     level: 'advanced',
     providers: ['anthropic'],
     defaultValue: '',
@@ -431,7 +431,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'OLLAMA_THINK',
     label: 'Let the model think',
-    help: 'Lets reasoning models such as Qwen3 think before answering. That helps on hard cases and takes longer. Needs a larger answer length.',
+    help: 'Lets reasoning models such as Qwen3 think before answering. That helps on hard cases and takes longer. It needs a larger answer length.',
     level: 'advanced',
     providers: ['ollama'],
     defaultValue: 'false',
@@ -591,7 +591,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_TEMPLATE_SWITCH',
     label: 'Switch thinking through the chat template',
-    help: 'Also sends the thinking choice as chat_template_kwargs, which vLLM, llama.cpp and LM Studio pass to models such as DeepSeek or GLM. Qwen always gets it; hosted APIs often reject it.',
+    help: 'Also sends the thinking choice as chat_template_kwargs, which vLLM, llama.cpp and LM Studio pass to models such as DeepSeek or GLM. Qwen always gets it. Hosted APIs often reject it.',
     level: 'advanced',
     providers: ['custom'],
     defaultValue: 'no',

@@ -105,7 +105,7 @@
         </div>
 
         <div class="zr-qs__step" data-qs-step="ai" data-state="open">
-            <%- qsStepHead({ step: 'ai', number: 2, title: 'AI model' }) %>
+            <%- qsStepHead({ step: 'ai', number: 2, title: 'AI provider and model' }) %>
             <%- qsBodyOpen('ai') %>
                 <%- qsSelect({ target: 'aiProvider', label: 'Provider', hint: 'The service that reads your documents.' }) %>
                 <%# Each provider's fields show while that provider is selected,
@@ -131,11 +131,11 @@
             <%- qsBodyOpen('fill') %>
                 <p class="zr-field__hint">Each switch is one field of a document. Switched off, Zettelrobbe leaves that field as it is.</p>
                 <div class="zr-qs__switches">
-                    <%- qsSwitch({ target: 'activateTitle', label: 'Title', hint: 'A title from the content instead of the file name.' }) %>
-                    <%- qsSwitch({ target: 'activateTagging', label: 'Tags', hint: 'The topics the document is about.' }) %>
-                    <%- qsSwitch({ target: 'activateCorrespondents', label: 'Correspondent', hint: 'Who sent the document.' }) %>
-                    <%- qsSwitch({ target: 'activateDocumentType', label: 'Document type', hint: 'Invoice, contract, letter and the like.' }) %>
-                    <%- qsSwitch({ target: 'activateCustomFields', label: 'Custom fields', hint: 'Values for the fields listed under ' + qsLink('custom-fields', qsTopic('custom-fields')) + '.' }) %>
+                    <%- qsSwitch({ target: 'activateTitle', label: 'Title', hint: 'Replaces the title with one the model writes from the content.' }) %>
+                    <%- qsSwitch({ target: 'activateTagging', label: 'Tags', hint: 'Adds the tags the model picks to the ones the document already has.' }) %>
+                    <%- qsSwitch({ target: 'activateCorrespondents', label: 'Correspondent', hint: 'Sets the correspondent the model names.' }) %>
+                    <%- qsSwitch({ target: 'activateDocumentType', label: 'Document type', hint: 'Sets the document type the model picks, such as Invoice or Contract.' }) %>
+                    <%- qsSwitch({ target: 'activateCustomFields', label: 'Custom fields', hint: 'Fills in the fields listed under ' + qsLink('custom-fields', qsTopic('custom-fields')) + ' with values the model reads from the document.' }) %>
                 </div>
                 <%- qsMore('ai-behavior', 'All options in ' + qsTopic('ai-behavior')) %>
             </div>
@@ -166,7 +166,7 @@
                 <div class="zr-alert zr-alert--warn hidden" data-qs-ocr-queue>
                     <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
                     <div class="zr-alert__body">
-                        <p class="zr-sm">These documents wait in the OCR queue until someone starts it on the OCR page. Switch on <%- qsLink('ocrAutoProcessEnabled', 'Run the OCR queue on its own') %> in <%= qsTopic('ocr') %> to have it done on a schedule.</p>
+                        <p class="zr-sm">These documents wait in the OCR queue until someone presses "Process All Pending" on the OCR page. Switch on <%- qsLink('ocrAutoProcessEnabled', 'Run the OCR queue on its own') %> in <%= qsTopic('ocr') %> to have it done on a schedule.</p>
                     </div>
                 </div>
                 <%- qsMore('ocr', 'Provider, model, key and all options in ' + qsTopic('ocr')) %>
@@ -184,8 +184,8 @@
                     <%- qsInput({ target: 'scanInterval', label: 'Schedule (cron)', hint: '<span data-qs-cron-words></span>' }) %>
                 </div>
                 <div class="zr-qs__switches">
-                    <%- qsSwitch({ target: 'showTags', label: 'Only documents with certain tags', hint: 'A scan only picks documents that carry one of the chosen tags. <span data-qs-run-tags class="hidden"><span data-qs-run-tag-list></span> ' + qsLink('tagInput', 'Choose the tags') + ' in ' + qsTopic('schedule') + '.</span>' }) %>
-                    <%- qsSwitch({ target: 'disableAutomaticProcessing', label: 'Stop automatic scans', hint: 'While this is on, Zettelrobbe does not look for new documents by itself.' }) %>
+                    <%- qsSwitch({ target: 'showTags', label: 'Only documents with certain tags', hint: 'A scan only picks documents that carry at least one of the chosen tags. <span data-qs-run-tags class="hidden"><span data-qs-run-tag-list></span> ' + qsLink('tagInput', 'Choose the tags') + ' in ' + qsTopic('schedule') + '.</span>' }) %>
+                    <%- qsSwitch({ target: 'disableAutomaticProcessing', label: 'Stop automatic scans', hint: 'Zettelrobbe no longer scans on its schedule. Scan now on the dashboard and the webhook still work.' }) %>
                 </div>
                 <%- qsMore('schedule', 'All options in ' + qsTopic('schedule')) %>
             </div>

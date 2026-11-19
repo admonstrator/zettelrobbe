@@ -10,11 +10,18 @@
  *
  * Covers:
  * 1. The rendered page: visible text plus placeholders, titles, aria-labels
- *    and alt texts, from the topic list to the save bar
+ *    and alt texts, from the topic list to the save bar and the overlays;
+ *    the partials as written (Quick start, Set by the environment, the
+ *    switch row, the list of pills), including what only some installs see
  * 2. AI_OPTIONS: every label and help
- * 3. String literals of public/js/settings.js, the settings-* modules,
- *    public/js/chip-list.js and the API key script partial
- * 4. Labels and section titles are in sentence case
+ * 3. String literals of public/js/settings.js, the settings-* modules (Quick
+ *    start, Set by the environment, the save bar among them),
+ *    public/js/chip-list.js, the API key script partial and the sentences
+ *    services/environmentOverview.js writes for the page
+ * 4. Labels, section titles and topic names are in sentence case
+ * 5. The glossary: "AI" only in "AI provider" and "What the AI fills in";
+ *    an address is an address, "URL" only in the single sign-on terms;
+ *    every reveal button has a name
  */
 
 'use strict';
@@ -52,6 +59,9 @@ const FORBIDDEN = [
   [/\p{L}\s*—\s*\p{L}/u, 'em dash as sentence punctuation'],
   [/\p{L} – \p{L}/u, 'en dash as sentence punctuation'],
   [/!/, 'no exclamation marks'],
+  [/\bjust\b/i, 'filler'],
+  [/\bensure\b/i, 'brochure word'],
+  [/;\s+[a-z]/, 'two thoughts make two sentences'],
 ];
 
 /** The offending phrases in `text`, as "reason: …context…". */
@@ -74,6 +84,7 @@ const decode = (text) =>
     .replace(/&nbsp;/g, ' ')
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
@@ -107,9 +118,10 @@ function stringLiterals(source) {
 
 (async () => {
   const html = await renderSettingsPage();
+  // From the topic list to the save bar and the overlays after it.
   const page = html.slice(
     html.indexOf('<div class="zr-settings-page"'),
-    html.indexOf('</form>') + '</form>'.length
+    html.indexOf('window.__SETTINGS_BOOTSTRAP__')
   );
   assert.ok(page.length > 10000, 'the settings block was not found');
 
@@ -119,12 +131,20 @@ function stringLiterals(source) {
     assert.deepStrictEqual(offences(readable(page)), []);
   });
 
-  await test('the overlays of the page say none of them either', () => {
-    ['restart-overlay.ejs', 'model-test-overlay.ejs'].forEach((name) => {
-      const source = fs.readFileSync(
-        path.join(root, 'views', 'partials', name),
-        'utf8'
-      );
+  await test('the overlays and partials of the page say none of them either', () => {
+    [
+      'restart-overlay.ejs',
+      'model-test-overlay.ejs',
+      'settings-quick-start.ejs',
+      'settings-environment.ejs',
+      'settings-switch.ejs',
+      'chip-list.ejs',
+    ].forEach((name) => {
+      // The markup as written; EJS code is not text (the strings it renders
+      // are read on the page above).
+      const source = fs
+        .readFileSync(path.join(root, 'views', 'partials', name), 'utf8')
+        .replace(/<%[\s\S]*?%>/g, ' ');
       assert.deepStrictEqual(offences(readable(source)), [], name);
     });
   });
@@ -158,6 +178,7 @@ function stringLiterals(source) {
       path.join('public', 'js', 'settings.js'),
       path.join('public', 'js', 'chip-list.js'),
       path.join('views', 'partials', 'scripts', 'settings-scripts.ejs'),
+      path.join('services', 'environmentOverview.js'),
       ...modules,
     ];
     const literals = files.flatMap((file) =>
@@ -187,7 +208,7 @@ function stringLiterals(source) {
       /^(AI|API|OCR|PDF|DPI|MFA|URI|URL|ID|OpenID|Connect|JSON|HTTP|TOTP|SSO|OIDC|E-mail|Paperless-ngx|Zettelrobbe|OpenAI|OpenAI-compatible|Ollama|Azure|Anthropic|Claude|Mistral|LM|Studio|Tidy|QR|REST|S256|PKCE|\(DPI\)|\(MFA\)|\(JSON\)|\(cron\)|\(ms\)|\(seconds\)|\(optional\))$/;
     const names = [
       ...page.matchAll(
-        /class="(?:zr-field__name|zr-module__title|zr-settings-entry__title)"[^>]*>([^<]+)</g
+        /class="(?:zr-field__name|zr-module__title|zr-settings-entry__title|zr-settings-section__title)"[^>]*>([^<]+)</g
       ),
       ...page.matchAll(/class="zr-checktile">[\s\S]*?<span>([^<]+)<\/span>/g),
     ]
@@ -201,6 +222,27 @@ function stringLiterals(source) {
         .some((word) => /^[A-Z]/.test(word) && !proper.test(word))
     );
     assert.deepStrictEqual(shouting, []);
+  });
+
+  // ── 5. The glossary ──────────────────────────────────────────────────────
+
+  await test('the page keeps the words of its glossary', () => {
+    const text = readable(page).replace(/OIDC_[A-Z_]+ · [^\n]*/g, ' ');
+    const ai = [...text.matchAll(/.{0,30}\bAI\b.{0,30}/g)]
+      .map((m) => m[0])
+      .filter((s) => !/\bAI provider\b|\bWhat the AI fills in\b/.test(s));
+    assert.deepStrictEqual(ai, [], '"AI" outside "AI provider"');
+    // URL only in the single sign-on terms (Issuer URL, Redirect URI) and
+    // their hints, which carry the variable name and are taken out above.
+    const url = [...text.matchAll(/.{0,30}\bURL\b.{0,30}/g)]
+      .map((m) => m[0])
+      .filter((s) => !/Issuer URL/.test(s));
+    assert.deepStrictEqual(url, [], '"URL" where the page says address');
+    const reveal = [...page.matchAll(/<button[^>]*zr-input__reveal[^>]*>/g)];
+    assert.ok(reveal.length >= 5);
+    reveal.forEach(([tag]) =>
+      assert.match(tag, /aria-label="Show the [^"]+"/, tag)
+    );
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
