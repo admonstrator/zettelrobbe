@@ -99,7 +99,7 @@
       "OCR_BEFORE_AI": "off",
       "OCR_BEFORE_AI_TAG": "needs-ocr",
       "PDF_PASSWORDS": "",
-      "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+      "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
       "PAPERLESS_AI_PORT": "3000",
       "API_KEY": "test-api-key",
       "TRUST_PROXY": "",
@@ -2744,7 +2744,7 @@
         "OCR_BEFORE_AI": "off",
         "OCR_BEFORE_AI_TAG": "needs-ocr",
         "PDF_PASSWORDS": "",
-        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
         "PAPERLESS_AI_PORT": "3000",
         "TRUST_PROXY": "",
         "COOKIE_SECURE_MODE": "auto",
@@ -3093,7 +3093,7 @@
         "OCR_BEFORE_AI": "off",
         "OCR_BEFORE_AI_TAG": "needs-ocr",
         "PDF_PASSWORDS": "",
-        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
         "PAPERLESS_AI_PORT": "3000",
         "TRUST_PROXY": "",
         "COOKIE_SECURE_MODE": "auto",
@@ -3267,7 +3267,7 @@
         "OCR_BEFORE_AI": "off",
         "OCR_BEFORE_AI_TAG": "needs-ocr",
         "PDF_PASSWORDS": "",
-        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
         "PAPERLESS_AI_PORT": "3000",
         "TRUST_PROXY": "",
         "COOKIE_SECURE_MODE": "auto",
@@ -3373,14 +3373,15 @@
         "OCR_PROVIDER": "mistral",
         "OCR_API_URL": "",
         "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
-        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+        "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
         "SETUP_VALIDATION_TIMEOUT_MS": "30000",
         "PAPERLESS_AI_VERSION": "<PAPERLESS_AI_VERSION>"
       },
       "success": null,
       "error": null,
       "defaults": {
-        "scanInterval": "*/30 * * * *"
+        "scanInterval": "*/30 * * * *",
+        "ocrTimeoutMs": 120000
       }
     },
     "environment configured, no users yet": {
@@ -3425,7 +3426,8 @@
       "success": "Environment is configured, but no users exist. Please create at least one user.",
       "error": null,
       "defaults": {
-        "scanInterval": "0 */2 * * *"
+        "scanInterval": "0 */2 * * *",
+        "ocrTimeoutMs": 120000
       }
     }
   },
@@ -3475,7 +3477,7 @@
             "MISTRAL_API_KEY": "",
             "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
             "SETUP_VALIDATION_TIMEOUT_MS": "30000",
-            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
             "OPENAI_API_KEY": "sk-setup",
             "OPENAI_MODEL": "gpt-4o-mini"
           },
@@ -3654,7 +3656,7 @@
             "MISTRAL_API_KEY": "lm",
             "MISTRAL_OCR_MODEL": "qwen-vl",
             "SETUP_VALIDATION_TIMEOUT_MS": "30000",
-            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
             "AZURE_ENDPOINT": "https://x.openai.azure.com",
             "AZURE_API_KEY": "az",
             "AZURE_DEPLOYMENT_NAME": "gpt4o",
@@ -3715,7 +3717,7 @@
             "MISTRAL_API_KEY": "",
             "MISTRAL_OCR_MODEL": "mistral-ocr-latest",
             "SETUP_VALIDATION_TIMEOUT_MS": "30000",
-            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "30000",
+            "SETUP_OCR_VALIDATION_TIMEOUT_MS": "120000",
             "CUSTOM_BASE_URL": "http://lm:1234/v1",
             "CUSTOM_API_KEY": "",
             "CUSTOM_MODEL": "qwen"

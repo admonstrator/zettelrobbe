@@ -1124,15 +1124,19 @@ function initializeFormHandlers() {
     );
   };
 
+  /* The OCR timeout a test or a model list waits, in milliseconds. An empty
+     field stands for the value the page rendered: the timeout in effect,
+     which a save of the empty field keeps (the server's default while
+     nothing is set). With neither, the request leaves it to the server. */
   const getOcrValidationTimeoutMs = () => {
-    const rawSeconds = Number.parseInt(
-      String(ocrValidationTimeoutInput?.value || '30').trim(),
-      10
-    );
-    const normalizedSeconds = Number.isFinite(rawSeconds)
-      ? Math.min(Math.max(rawSeconds, 1), 7200)
-      : 30;
-    return normalizedSeconds * 1000;
+    const seconds = (value) => Number.parseInt(String(value ?? '').trim(), 10);
+    const typed = seconds(ocrValidationTimeoutInput?.value);
+    const value = Number.isFinite(typed)
+      ? typed
+      : seconds(ocrValidationTimeoutInput?.defaultValue);
+    return Number.isFinite(value)
+      ? Math.min(Math.max(value, 1), 7200) * 1000
+      : undefined;
   };
 
   // The provider the OCR fields were last laid out for, so a switch to
@@ -2544,14 +2548,16 @@ function initializeFormHandlers() {
       const ocrProvider = String(formData.get('ocrProvider') || 'mistral')
         .trim()
         .toLowerCase();
-      const ocrTimeoutSeconds = Number.parseInt(
-        String(formData.get('ocrValidationTimeout') || '30').trim(),
-        10
-      );
+      // An empty field is fine: the save keeps the timeout in effect.
+      const ocrTimeoutField = String(
+        formData.get('ocrValidationTimeout') ?? ''
+      ).trim();
+      const ocrTimeoutSeconds = Number.parseInt(ocrTimeoutField, 10);
       if (
-        !Number.isFinite(ocrTimeoutSeconds) ||
-        ocrTimeoutSeconds < 1 ||
-        ocrTimeoutSeconds > 7200
+        ocrTimeoutField !== '' &&
+        (!Number.isFinite(ocrTimeoutSeconds) ||
+          ocrTimeoutSeconds < 1 ||
+          ocrTimeoutSeconds > 7200)
       ) {
         throw new Error('OCR timeout must be between 1 and 7200 seconds.');
       }
@@ -3192,16 +3198,6 @@ function initializeRuntimeOverridePills() {
     {
       selector: '#ocrValidationTimeout',
       envKey: 'SETUP_OCR_VALIDATION_TIMEOUT_MS',
-      transform: (value) =>
-        String(
-          Math.min(
-            Math.max(
-              Number.parseInt(String(value || '30').trim(), 10) || 30,
-              1
-            ),
-            7200
-          ) * 1000
-        ),
     },
     { selector: '#tagCacheTTL', envKey: 'TAG_CACHE_TTL_SECONDS' },
     {

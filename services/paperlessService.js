@@ -66,8 +66,9 @@ function switchedOn(value) {
  * The settings hold one string, but server.js, the setup wizard and the
  * duplicates service have always read it as comma-separated. Reading it as a
  * single name here would turn "ai-processed,done" into one tag with a comma in
- * it. An unset or blank value yields an empty list, which is what switches the
- * completion tag off.
+ * it. A blank value yields an empty list, which is what switches the
+ * completion tag off; an unset key never gets here (config.addAIProcessedTags
+ * gives the default name).
  */
 function splitTagNames(value) {
   return String(value ?? '')
@@ -926,11 +927,11 @@ class PaperlessService {
       // Add the AI-processed tag(s) if enabled. This runs whatever the subject
       // tags were, including none at all, and it creates the tag even under
       // restrictToExistingTags: the completion tag is the app's own
-      // bookkeeping, not a name the model proposed.
-      if (process.env.ADD_AI_PROCESSED_TAG === 'yes') {
-        for (const aiTagName of splitTagNames(
-          process.env.AI_PROCESSED_TAG_NAME
-        )) {
+      // bookkeeping, not a name the model proposed. The name comes from the
+      // config getter, so an unset AI_PROCESSED_TAG_NAME is "ai-processed",
+      // the name the settings page shows, and an empty one is no tag.
+      if (config.addAIProcessedTag === 'yes') {
+        for (const aiTagName of splitTagNames(config.addAIProcessedTags)) {
           try {
             let aiTag = await this.findExistingTag(aiTagName);
 

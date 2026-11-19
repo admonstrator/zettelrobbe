@@ -251,8 +251,9 @@ class SetupWizard {
     this.mistralOcrModel.value =
       this.config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest';
     this.ocrValidationTimeout.value = this.getOcrValidationTimeoutSeconds();
+    // An empty name is kept: it adds no tag, and an empty field says so.
     this.processedTag.value =
-      this.config.AI_PROCESSED_TAG_NAME || 'ai-processed';
+      this.config.AI_PROCESSED_TAG_NAME ?? 'ai-processed';
     if (this.removeInboxTagsAfterProcessing) {
       this.removeInboxTagsAfterProcessing.checked =
         String(this.config.REMOVE_INBOX_TAGS_AFTER_PROCESSING || '')
@@ -467,11 +468,17 @@ class SetupWizard {
     );
   }
 
+  /* What OCR waits when nothing is set, in seconds. GET /setup hands it over
+     (services/ocrTimeout.js); the wizard keeps no number of its own. */
+  getOcrTimeoutDefaultSeconds() {
+    return Math.round(Number(this.defaults.ocrTimeoutMs) / 1000);
+  }
+
   getOcrValidationTimeoutSeconds() {
     return this.getNormalizedTimeoutSeconds(
       this.config.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
-        this.config.SETUP_VALIDATION_TIMEOUT_MS ||
-        '30000'
+        this.config.SETUP_VALIDATION_TIMEOUT_MS,
+      this.getOcrTimeoutDefaultSeconds() * 1000
     );
   }
 
@@ -482,7 +489,7 @@ class SetupWizard {
     );
     const normalizedSeconds = Number.isFinite(rawSeconds)
       ? Math.min(Math.max(rawSeconds, 1), 7200)
-      : 30;
+      : fallbackSeconds;
     return normalizedSeconds * 1000;
   }
 
@@ -491,7 +498,10 @@ class SetupWizard {
   }
 
   getOcrValidationTimeoutMs() {
-    return this.getTimeoutMs(this.ocrValidationTimeout, 30);
+    return this.getTimeoutMs(
+      this.ocrValidationTimeout,
+      this.getOcrTimeoutDefaultSeconds()
+    );
   }
 
   populateAiPresets() {
@@ -2359,14 +2369,16 @@ class SetupWizard {
     }
 
     if (stepIndex === 5) {
-      const ocrTimeoutSeconds = Number.parseInt(
-        String(this.ocrValidationTimeout?.value || '30').trim(),
-        10
-      );
+      // An empty field is fine: it stands for the default.
+      const ocrTimeoutField = String(
+        this.ocrValidationTimeout?.value ?? ''
+      ).trim();
+      const ocrTimeoutSeconds = Number.parseInt(ocrTimeoutField, 10);
       if (
-        !Number.isFinite(ocrTimeoutSeconds) ||
-        ocrTimeoutSeconds < 1 ||
-        ocrTimeoutSeconds > 120
+        ocrTimeoutField !== '' &&
+        (!Number.isFinite(ocrTimeoutSeconds) ||
+          ocrTimeoutSeconds < 1 ||
+          ocrTimeoutSeconds > 120)
       ) {
         await this.showPopup({
           icon: 'warning',

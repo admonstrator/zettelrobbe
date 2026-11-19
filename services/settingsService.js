@@ -39,6 +39,7 @@ const {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_EFFORT_LEVELS,
 } = require('./anthropicSupport');
+const { DEFAULT_OCR_TIMEOUT_MS } = require('./ocrTimeout');
 
 /**
  * @typedef {Record<string, any>} SettingsBody the parsed request body
@@ -122,7 +123,7 @@ function resolveOcrSettings(body, current) {
     hasValue(body.ocrValidationTimeout)
       ? Number.parseInt(String(body.ocrValidationTimeout).trim(), 10) * 1000
       : current.SETUP_OCR_VALIDATION_TIMEOUT_MS,
-    30000
+    DEFAULT_OCR_TIMEOUT_MS
   );
 
   /** @type {OcrSettings} */
@@ -966,8 +967,13 @@ function buildEnvExport(env = process.env) {
   let count = 0;
 
   settingsCatalog.exportGroups().forEach((group) => {
+    // An empty value is left out, unless it means something of its own
+    // (`keepEmpty`): left out, it would turn into the default on import.
     const present = group.keys.filter(
-      (key) => env[key] !== undefined && String(env[key]).length > 0
+      (key) =>
+        env[key] !== undefined &&
+        (String(env[key]).length > 0 ||
+          Boolean(settingsCatalog.getEntry(key)?.keepEmpty))
     );
     if (present.length === 0) return;
 

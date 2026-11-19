@@ -202,6 +202,7 @@ test('a default config/config.js spells out matches the catalogue', () => {
     const patterns = [
       new RegExp(`\\('${entry.key}',\\s*'([^']*)'`),
       new RegExp(`process\\.env\\.${entry.key}\\s*\\|\\|\\s*'([^']*)'`),
+      new RegExp(`process\\.env\\.${entry.key}\\s*\\?\\?\\s*'([^']*)'`),
       new RegExp(`env\\('${entry.key}'\\)\\s*\\|\\|\\s*'([^']*)'`),
     ];
     for (const pattern of patterns) {

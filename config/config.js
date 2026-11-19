@@ -708,7 +708,8 @@ defineLive(module.exports, {
   // high; empty sends none. Which models get it: services/aiProviderRules.js.
   aiReasoningEffort: () => env('AI_REASONING_EFFORT').trim().toLowerCase(),
   addAIProcessedTag: () => env('ADD_AI_PROCESSED_TAG', 'no'),
-  addAIProcessedTags: () => env('AI_PROCESSED_TAG_NAME', 'ai-processed'),
+  // Unset is the default name; an empty value is no name, and no tag.
+  addAIProcessedTags: () => process.env.AI_PROCESSED_TAG_NAME ?? 'ai-processed',
   // Tags taken off a document when its analysis is written back, so a
   // document the analysis filed is done. The switch covers every tag
   // Paperless-ngx marks as inbox tag; the list names further tags, matched

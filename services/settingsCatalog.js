@@ -47,6 +47,7 @@ const {
   parseOcrBeforeAiMode,
 } = require('./ocrBeforeAi');
 const { REASONING_EFFORT_LEVELS } = require('./aiProviderRules');
+const { DEFAULT_OCR_TIMEOUT_MS } = require('./ocrTimeout');
 
 /**
  * @typedef {'string'|'secret'|'boolean'|'integer'|'number'|'list'|'enum'|'url'|'cron'|'json'} SettingType
@@ -83,6 +84,7 @@ const { REASONING_EFFORT_LEVELS } = require('./aiProviderRules');
  * @property {string|number} [saveDefault] in-effect value a save assumes when unset, where it differs from `default`
  * @property {string|number} [wizardDefault] wizard value when unset, where it differs from `default`
  * @property {readonly string[]} [fallbackKeys] variables consulted, in order, when `key` is unset
+ * @property {boolean} [keepEmpty] an empty value is a value of its own, not unset: the surfaces show and keep it instead of the default
  * @property {(value: unknown) => unknown} [view] how the pages show the value
  * @property {string} [field] settings form field that carries the value
  * @property {SettingParser} [parse] turns the form value into the value to save
@@ -475,9 +477,12 @@ const CATALOG = Object.freeze([
       parse: truthyAsIs,
       ...PSW,
     }),
+    // Unset is "ai-processed"; an empty name adds no tag at all
+    // (paperlessService.processTags), so the pages show it empty.
     setting('AI_PROCESSED_TAG_NAME', {
       type: 'string',
       default: 'ai-processed',
+      keepEmpty: true,
       field: 'aiTagName',
       parse: truthyAsIs,
       ...PSW,
@@ -1177,12 +1182,14 @@ const CATALOG = Object.freeze([
       parse: parsePdfPasswords,
       ...PS,
     }),
+    // One OCR request, document OCR included. The default is the one
+    // services/ocrTimeout.js gives the runtime.
     setting('SETUP_OCR_VALIDATION_TIMEOUT_MS', {
       type: 'integer',
-      default: '30000',
+      default: String(DEFAULT_OCR_TIMEOUT_MS),
       fallbackKeys: ['SETUP_VALIDATION_TIMEOUT_MS'],
       field: 'ocrValidationTimeout',
-      readBy: 'services/mistralOcrService.js',
+      readBy: 'services/ocrTimeout.js',
       ...PSW,
     }),
     setting('SETUP_VALIDATION_TIMEOUT_MS', {
@@ -1491,7 +1498,8 @@ function exportGroups() {
 
 /**
  * The value of a setting as one surface sees it: the variable (or its
- * fallbacks) when set and non-empty, otherwise the surface's default. No view
+ * fallbacks) when set and non-empty, otherwise the surface's default. An
+ * entry marked `keepEmpty` takes an empty variable as its value. No view
  * transformation is applied.
  *
  * @param {string} key
@@ -1504,6 +1512,7 @@ function valueFromEnv(key, env = process.env, surface = 'page') {
   for (const name of [entry.key, ...(entry.fallbackKeys || [])]) {
     const value = env[name];
     if (value) return value;
+    if (entry.keepEmpty && value === '') return value;
   }
   if (surface === 'save' && entry.saveDefault !== undefined) {
     return entry.saveDefault;
