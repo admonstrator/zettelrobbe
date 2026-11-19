@@ -251,8 +251,9 @@ class SetupWizard {
     this.mistralOcrModel.value =
       this.config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest';
     this.ocrValidationTimeout.value = this.getOcrValidationTimeoutSeconds();
+    // An empty name is kept: it adds no tag, and an empty field says so.
     this.processedTag.value =
-      this.config.AI_PROCESSED_TAG_NAME || 'ai-processed';
+      this.config.AI_PROCESSED_TAG_NAME ?? 'ai-processed';
     if (this.removeInboxTagsAfterProcessing) {
       this.removeInboxTagsAfterProcessing.checked =
         String(this.config.REMOVE_INBOX_TAGS_AFTER_PROCESSING || '')

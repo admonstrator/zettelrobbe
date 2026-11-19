@@ -268,7 +268,7 @@
                         <div class="zr-field zr-field--stacked">
                             <label for="processedTag" class="zr-field__name">Tag applied after Zettelrobbe finishes</label>
                             <div class="zr-inputgroup">
-                                <input id="processedTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="e.g. ai-processed" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>">
+                                <input id="processedTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="e.g. ai-processed" value="<%= config.AI_PROCESSED_TAG_NAME ?? 'ai-processed' %>">
                             </div>
                             <p class="zr-field__hint">This tag is automatically added to excluded tags during setup finalization.</p>
                         </div>

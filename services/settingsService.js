@@ -967,8 +967,13 @@ function buildEnvExport(env = process.env) {
   let count = 0;
 
   settingsCatalog.exportGroups().forEach((group) => {
+    // An empty value is left out, unless it means something of its own
+    // (`keepEmpty`): left out, it would turn into the default on import.
     const present = group.keys.filter(
-      (key) => env[key] !== undefined && String(env[key]).length > 0
+      (key) =>
+        env[key] !== undefined &&
+        (String(env[key]).length > 0 ||
+          Boolean(settingsCatalog.getEntry(key)?.keepEmpty))
     );
     if (present.length === 0) return;
 
