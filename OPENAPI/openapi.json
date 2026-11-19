@@ -3429,7 +3429,7 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": true,
-                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually.\n",
+                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually. paperlessUsername, which older clients send, is ignored: Zettelrobbe signs in with paperlessToken alone.\n",
                 "properties": {
                   "processedTag": {
                     "type": "string",
@@ -4384,7 +4384,7 @@
       },
       "post": {
         "summary": "Update application settings",
-        "description": "Updates the configuration settings of the Zettelrobbe application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx,\nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n",
+        "description": "Updates the configuration settings of the Zettelrobbe application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx,\nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n\nA field of a removed setting (aiTemperatureGeneration, paperlessUsername) is accepted and ignored.\n",
         "tags": [
           "System",
           "Setup"
@@ -4410,11 +4410,6 @@
                     "type": "string",
                     "description": "API token for Paperless-ngx access",
                     "example": "abc123def456"
-                  },
-                  "paperlessUsername": {
-                    "type": "string",
-                    "description": "Optional. Shown next to the address in Quick start; Zettelrobbe signs in with paperlessToken alone and does not use the name. Empty keeps the stored name.",
-                    "example": "admin"
                   },
                   "aiProvider": {
                     "type": "string",
@@ -4560,11 +4555,6 @@
                     "type": "number",
                     "description": "Temperature for analysis/classification calls (range 0.0-2.0)",
                     "example": 0.3
-                  },
-                  "aiTemperatureGeneration": {
-                    "type": "number",
-                    "description": "Temperature of a generateText() call that sends none of its own (range 0.0-2.0). No current caller does; Tidy up always sends 0, so the value has no effect.",
-                    "example": 0.7
                   },
                   "aiReasoningEffort": {
                     "type": "string",

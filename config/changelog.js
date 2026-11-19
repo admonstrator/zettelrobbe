@@ -252,8 +252,9 @@ const RELEASES = [
       'Fix: The transform path of the external API is applied: a path such as data.items[0].name sends only that part of the answer to the model. If the field still holds the old JavaScript function, clear it',
       'Fix: The OCR timeout has one default, the 120 seconds OCR always waited. The form showed 30 and wrote 30 on every save; if a slow local OCR model times out, check the field under Settings, OCR',
       'Fix: With "Tag analysed documents" on and no tag name set, documents get the tag ai-processed, as the page always showed. An empty name still means no tag',
-      'Fix: The Paperless-ngx user name is optional. Zettelrobbe signs in with the API token alone',
-      'Improvement: "Generation creativity" says that it changes nothing at the moment: the analysis uses "Analysis creativity", Tidy up always asks with 0',
+      'Fix: The external API follows at most five redirects and checks each one with the same rule as the address you entered. Your configured headers go only to that address',
+      'Fix: An OCR timeout of 30 seconds that older versions saved as the form default is raised to 120 seconds once. Any other value stays, and 30 seconds you set afterwards stay too',
+      'Removed: The Paperless-ngx user name and the slider "Generation creativity". Zettelrobbe signs in with the API token alone, and nothing used the slider since the document chat was removed. PAPERLESS_USERNAME and AI_TEMPERATURE_GENERATION are ignored and can be deleted from docker-compose',
     ],
   },
 ];
