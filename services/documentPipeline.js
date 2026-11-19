@@ -56,6 +56,12 @@ const {
  * @property {boolean} applySkipRules - run the skip rules (page limit, title
  *   patterns, repeated text) before OCR and AI. Off for a rescan, for the
  *   same reason.
+ * @property {boolean} retriggerByTag - in predefined mode
+ *   (PROCESS_PREDEFINED_DOCUMENTS=yes), analyse an already processed document
+ *   again when it carries one of the TAGS. Setting the tag is how an operator
+ *   re-runs documents, e.g. after fixing a bug. Only the scan: it is the path
+ *   that selects documents by those tags; a webhook or a rescan names its
+ *   document directly.
  * @property {boolean} trackRetries - count non-terminal AI failures per
  *   document and give up after MAX_ATTEMPTS. Only the scan: it comes back to
  *   every unprocessed document on every tick and would retry forever. A
@@ -74,18 +80,21 @@ const CALLER_PROFILES = Object.freeze({
     logAlreadyProcessed: false,
     checkIgnoredList: true,
     applySkipRules: true,
+    retriggerByTag: true,
     trackRetries: true,
   }),
   webhook: Object.freeze({
     logAlreadyProcessed: true,
     checkIgnoredList: true,
     applySkipRules: true,
+    retriggerByTag: false,
     trackRetries: false,
   }),
   rescan: Object.freeze({
     logAlreadyProcessed: true,
     checkIgnoredList: false,
     applySkipRules: false,
+    retriggerByTag: false,
     trackRetries: false,
   }),
 });
@@ -190,6 +199,50 @@ class DocumentPipeline {
   }
 
   /**
+   * True when the document carries at least one of the tags configured as the
+   * predefined-scan trigger (PROCESS_PREDEFINED_DOCUMENTS=yes + TAGS). Only
+   * meaningful in predefined mode; resolves the tag names to ids through the
+   * shared tag cache.
+   *
+   * @param {PipelineDocument} doc - as returned by getAllDocuments(), with tags
+   * @returns {Promise<boolean>}
+   */
+  async carriesTriggerTag(doc) {
+    if (config.predefinedMode !== 'yes') {
+      return false;
+    }
+
+    const triggerNames = (process.env.TAGS || '')
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    if (triggerNames.length === 0) {
+      return false;
+    }
+
+    const docTagIds = new Set(
+      (Array.isArray(doc.tags) ? doc.tags : [])
+        .map((tag) => (typeof tag === 'object' ? Number(tag?.id) : Number(tag)))
+        .filter((id) => Number.isInteger(id))
+    );
+    if (docTagIds.size === 0) {
+      return false;
+    }
+
+    try {
+      const triggerIds =
+        await paperlessService.resolveTagIdsByName(triggerNames);
+      return triggerIds.some((/** @type {number} */ id) => docTagIds.has(id));
+    } catch (error) {
+      console.warn(
+        `[WARN] Could not resolve trigger tags for re-check of document ${doc.id}:`,
+        /** @type {Error} */ (error).message
+      );
+      return false;
+    }
+  }
+
+  /**
    * @param {PipelineSource} source
    * @returns {Readonly<CallerProfile>}
    */
@@ -226,12 +279,20 @@ class DocumentPipeline {
     const customPrompt = options.customPrompt || null;
 
     if (await documentModel.isDocumentProcessed(doc.id)) {
-      if (profile.logAlreadyProcessed) {
-        console.log(
-          `[DEBUG] Document ${doc.id} already in processed_documents — skipping. Remove via Rescan to reprocess.`
-        );
+      // Predefined-scan re-trigger: the trigger tag on a processed document
+      // is the operator's request to run it again. The ignored and failed
+      // checks below still apply. Outside predefined mode the record wins.
+      if (!profile.retriggerByTag || !(await this.carriesTriggerTag(doc))) {
+        if (profile.logAlreadyProcessed) {
+          console.log(
+            `[DEBUG] Document ${doc.id} already in processed_documents — skipping. Remove via Rescan to reprocess.`
+          );
+        }
+        return null;
       }
-      return null;
+      console.info(
+        `Document ${doc.id} carries a configured trigger tag; re-processing despite existing record`
+      );
     }
 
     // A document that waits in the OCR queue, or sits inside an OCR run right

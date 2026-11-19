@@ -82,6 +82,42 @@ function customFieldValueHint(field) {
 }
 
 /**
+ * The custom fields part of the analysis prompt: the template the model fills
+ * in, and the string that replaces %CUSTOMFIELDS% in the must-have prompt.
+ * Shared with ollamaService, whose prompt carries the same block.
+ *
+ * @param {string|undefined} customFieldsJson - CUSTOM_FIELDS
+ * @returns {{
+ *   customFields: Array<object>,
+ *   customFieldsTemplate: object,
+ *   customFieldsStr: string,
+ *   error: Error|null
+ * }} error is for the caller to log; the block is then empty
+ */
+function buildCustomFieldsBlock(customFieldsJson) {
+  const { fields: customFields, error } = parseCustomFields(customFieldsJson);
+
+  // An index map, not an array: {"0": {...}, "1": {...}} is what the models
+  // have always been shown, and documentProcessingService reads both.
+  const customFieldsTemplate = {};
+  customFields.forEach((field, index) => {
+    customFieldsTemplate[index] = {
+      field_name: field?.value,
+      value: customFieldValueHint(field),
+    };
+  });
+
+  const customFieldsStr =
+    '"custom_fields": ' +
+    JSON.stringify(customFieldsTemplate, null, 2)
+      .split('\n')
+      .map((line) => '    ' + line)
+      .join('\n');
+
+  return { customFields, customFieldsTemplate, customFieldsStr, error };
+}
+
+/**
  * The system prompt of one document analysis, and what goes with it.
  *
  * The inputs are what customService reads from the environment, from config
@@ -146,25 +182,12 @@ function buildAnalysisPrompt({
     ', '
   );
 
-  const { fields: customFields, error: customFieldsError } =
-    parseCustomFields(customFieldsJson);
-
-  // An index map, not an array: {"0": {...}, "1": {...}} is what the models
-  // have always been shown, and documentProcessingService reads both.
-  const customFieldsTemplate = {};
-  customFields.forEach((field, index) => {
-    customFieldsTemplate[index] = {
-      field_name: field?.value,
-      value: customFieldValueHint(field),
-    };
-  });
-
-  const customFieldsStr =
-    '"custom_fields": ' +
-    JSON.stringify(customFieldsTemplate, null, 2)
-      .split('\n')
-      .map((line) => '    ' + line)
-      .join('\n');
+  const {
+    customFields,
+    customFieldsTemplate,
+    customFieldsStr,
+    error: customFieldsError,
+  } = buildCustomFieldsBlock(customFieldsJson);
   const mustHave = String(mustHavePrompt).replace(
     '%CUSTOMFIELDS%',
     customFieldsStr
@@ -424,6 +447,7 @@ function parseAnalysisAnswer(rawContent) {
 module.exports = {
   ANALYSIS_RESPONSE_SHAPES,
   buildAnalysisPrompt,
+  buildCustomFieldsBlock,
   analysisResponseSchema,
   parseAnalysisAnswer,
 };

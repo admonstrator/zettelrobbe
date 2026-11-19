@@ -94,15 +94,13 @@ function createServer({ docTags, tagListFails = false }) {
 async function withServer(server, fn) {
   const originalClient = paperlessService.client;
   paperlessService.client = server;
-  paperlessService.tagCache.clear();
-  paperlessService.lastTagRefresh = 0;
+  paperlessService.tags.invalidate();
   paperlessService._removeTagsWarned = false;
   try {
     return await fn();
   } finally {
     paperlessService.client = originalClient;
-    paperlessService.tagCache.clear();
-    paperlessService.lastTagRefresh = 0;
+    paperlessService.tags.invalidate();
   }
 }
 

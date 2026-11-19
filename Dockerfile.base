@@ -33,8 +33,15 @@ RUN npm install -g npm@latest
 # Install PM2 process manager globally
 RUN npm install pm2 -g
 
-# Copy package files for dependency installation
+# Copy package files for dependency installation.
+# An explicit mode, as for the entrypoint in Dockerfile: the files stay owned by
+# root, and the app runs as the unprivileged user after the privilege drop. PM2
+# reads /app/package.json at start, so a build context that hands the files over
+# without read permission for others (e.g. a Samba share with a restrictive
+# create mask) would otherwise end in "Cannot read package config
+# /app/package.json: permission denied" and a restart loop.
 COPY package*.json ./
+RUN chmod 644 package.json package-lock.json
 
 # Install node dependencies with clean install using cache mount
 # npm >= 12 blocks dependency install scripts unless allowlisted via

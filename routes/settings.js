@@ -1200,7 +1200,10 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
         );
       }
     } catch (error) {
-      console.log('[ERROR] Error creating custom fields:', error);
+      if (error.code === 'CUSTOM_FIELD_TYPE_MISMATCH') {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
     }
 
     const restart = restartKeys.length > 0;

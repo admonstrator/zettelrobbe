@@ -293,23 +293,21 @@ router.get('/setup', async (req, res) => {
       console.warn(
         '[SECURITY] Attempting to access /setup in degraded state (corrupted database)'
       );
-      return res
-        .status(500)
-        .render('setup-error', {
+      try {
+        return res.status(500).render('setup-error', {
           title: 'System Configuration Error',
           errorMessage:
             'The system configuration exists but the database is inaccessible or corrupted. This is an administrative error state. Please check system logs and database integrity.',
           supportText:
             'This may occur if: (1) the database file was deleted or corrupted, (2) file permissions changed, or (3) the database is locked. Restart the application after verifying database and permissions.',
-        })
-        .catch(() => {
-          // Fallback if setup-error template doesn't exist
-          res
-            .status(500)
-            .send(
-              '<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>'
-            );
         });
+      } catch {
+        return res
+          .status(500)
+          .send(
+            '<h1>System Configuration Error</h1><p>Database is inaccessible. Please contact your administrator.</p>'
+          );
+      }
     }
 
     // Check both configuration and users
