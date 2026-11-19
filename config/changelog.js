@@ -248,6 +248,12 @@ const RELEASES = [
       'Improvement: Every label and hint on the settings page says what the setting does to a document. The switches for title, tags, correspondent, document type and custom fields moved to "What the AI fills in", and the prompt has its own topic',
       'Improvement: "Find a setting" in the topic list searches all settings and marks the matches',
       'Improvement: Every list of values (tags, title patterns, sign-on scopes, the Tidy up vocabulary) is entered as removable pills; pasting "a, b, c" makes three',
+      'Fix: With Ollama the answer of the external API now reaches the prompt; before, the model got "[object Promise]" instead',
+      'Fix: The transform path of the external API is applied: a path such as data.items[0].name sends only that part of the answer to the model. If the field still holds the old JavaScript function, clear it',
+      'Fix: The OCR timeout has one default, the 120 seconds OCR always waited. The form showed 30 and wrote 30 on every save; if a slow local OCR model times out, check the field under Settings, OCR',
+      'Fix: With "Tag analysed documents" on and no tag name set, documents get the tag ai-processed, as the page always showed. An empty name still means no tag',
+      'Fix: The Paperless-ngx user name is optional. Zettelrobbe signs in with the API token alone',
+      'Improvement: "Generation creativity" says that it changes nothing at the moment: the analysis uses "Analysis creativity", Tidy up always asks with 0',
     ],
   },
 ];
