@@ -2,66 +2,115 @@ const axios = require('axios');
 const config = require('../config/config');
 const { validateApiUrl } = require('./serviceUtils');
 
-// Maximum allowed depth for property access to prevent DoS
+/*
+ * EXTERNAL_API_TRANSFORM is a path into the JSON answer: names separated by
+ * dots, a list position in brackets, such as `data.items[0].name`, or
+ * `[0].name` when the answer itself is a list. Upstream the setting held
+ * JavaScript for new Function(); this fork never runs code from it. The value
+ * is matched against PATH_PATTERN and walked step by step over the answer's
+ * own properties, so it cannot reach a prototype or call anything.
+ */
+
+/** A path with more steps than this is refused. */
 const MAX_TRANSFORM_DEPTH = 10;
+const NAME = '[\\p{L}\\p{N}_-]+';
+const PATH_PATTERN = new RegExp(
+  `^(?:${NAME}|\\[\\d+\\])(?:\\.${NAME}|\\[\\d+\\])*$`,
+  'u'
+);
+const STEP_PATTERN = new RegExp(`\\[(\\d+)\\]|(${NAME})`, 'gu');
+/*
+ * Never a step, not even as an own key: JSON.parse turns a "__proto__" in an
+ * answer into an own property.
+ */
+const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
- * Safely apply a JSONPath-like transformation to data without using Function constructor.
- * Supports simple property access patterns like "data.items" or "response.results[0]".
- * 
- * @param {Object} data - The data to transform
- * @param {string} transform - A dot-notation path to extract (e.g., "data.items" or "response.results")
- * @returns {*} The extracted data or the original data if transform fails
+ * The steps of a transform path, or null when the value is not a path.
+ *
+ * @param {string} path - trimmed
+ * @returns {Array<string|number>|null}
  */
-function safeTransform(data, transform) {
-  if (!transform || typeof transform !== 'string') {
-    return data;
+function parsePath(path) {
+  if (!PATH_PATTERN.test(path)) {
+    return null;
   }
+  return Array.from(path.matchAll(STEP_PATTERN), (match) =>
+    match[1] !== undefined ? Number(match[1]) : match[2]
+  );
+}
 
-  // Only allow safe property access patterns (alphanumeric, dots, brackets with numbers)
-  const safePattern = /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*$/;
-  
-  // Handle "return data.path" or just "data.path" patterns
-  let path = transform.trim();
-  if (path.startsWith('return ')) {
-    path = path.substring(7).trim();
-  }
-  // Remove trailing semicolon if present
-  if (path.endsWith(';')) {
-    path = path.slice(0, -1).trim();
-  }
-
-  if (!safePattern.test(path)) {
-    console.warn('[WARNING] Transform pattern contains unsafe characters, returning original data');
-    return data;
-  }
-
-  try {
-    // Parse the path and navigate through the object
-    const parts = path.split(/\.|\[|\]/).filter(Boolean);
-    
-    // Check depth limit to prevent DoS
-    if (parts.length > MAX_TRANSFORM_DEPTH) {
-      console.warn(`[WARNING] Transform path exceeds maximum depth of ${MAX_TRANSFORM_DEPTH}, returning original data`);
-      return data;
+/**
+ * Follows the steps through the answer. A name step reads an own property of
+ * an object or list, an index step an entry of a list; anything else is no
+ * match.
+ *
+ * @param {unknown} data - the parsed answer
+ * @param {Array<string|number>} steps
+ * @returns {{ found: boolean, value?: unknown }}
+ */
+function walkPath(data, steps) {
+  let current = data;
+  for (const step of steps) {
+    if (current === null || typeof current !== 'object') {
+      return { found: false };
     }
-    
-    let result = data;
-    
-    for (const part of parts) {
-      if (result === null || result === undefined) {
-        return data;
+    if (typeof step === 'number') {
+      if (!Array.isArray(current) || step >= current.length) {
+        return { found: false };
       }
-      // Handle numeric indices and string keys
-      const key = /^\d+$/.test(part) ? parseInt(part, 10) : part;
-      result = result[key];
+    } else if (
+      BLOCKED_KEYS.has(step) ||
+      !Object.prototype.hasOwnProperty.call(current, step)
+    ) {
+      return { found: false };
     }
-    
-    return result !== undefined ? result : data;
-  } catch (error) {
-    console.warn('[WARNING] Failed to apply transform, returning original data:', error.message);
+    current = current[step];
+  }
+  return { found: true, value: current };
+}
+
+/**
+ * The part of the answer EXTERNAL_API_TRANSFORM points to.
+ *
+ * The whole answer when the setting is empty, when it is not a path (the
+ * JavaScript an upstream installation may still hold, for one) and when the
+ * path matches nothing. That is what every installation got while the setting
+ * was never read, so a value that does not fit keeps that behaviour and says
+ * so in the log.
+ *
+ * @param {unknown} data - the parsed answer
+ * @param {unknown} transform - EXTERNAL_API_TRANSFORM
+ * @returns {unknown}
+ */
+function applyTransform(data, transform) {
+  const path = typeof transform === 'string' ? transform.trim() : '';
+  if (!path) {
     return data;
   }
+
+  const steps = parsePath(path);
+  if (!steps) {
+    console.warn(
+      '[WARNING] EXTERNAL_API_TRANSFORM is not a path such as data.items[0].name, so the whole answer goes into the prompt'
+    );
+    return data;
+  }
+  if (steps.length > MAX_TRANSFORM_DEPTH) {
+    console.warn(
+      `[WARNING] EXTERNAL_API_TRANSFORM has more than ${MAX_TRANSFORM_DEPTH} steps, so the whole answer goes into the prompt`
+    );
+    return data;
+  }
+
+  const { found, value } = walkPath(data, steps);
+  if (!found) {
+    console.warn(
+      `[WARNING] EXTERNAL_API_TRANSFORM "${path}" matches nothing in the answer, so the whole answer goes into the prompt`
+    );
+    return data;
+  }
+  return value;
 }
 
 /**
@@ -69,24 +118,33 @@ function safeTransform(data, transform) {
  */
 class ExternalApiService {
   /**
-   * Fetch data from the configured external API
-   * @returns {Promise<Object|string|null>} The data from the API or null if disabled/error
+   * Fetch data from the configured external API: one request, no retry.
+   * @returns {Promise<unknown>} the answer, or the part EXTERNAL_API_TRANSFORM
+   *   picks from it (a number or boolean as text); null when the feature is
+   *   off, the address is refused, or the call fails or times out, and the
+   *   analysis then runs without it
    */
   async fetchData() {
     try {
       // Check if external API integration is enabled
-      if (!config.externalApiConfig || config.externalApiConfig.enabled !== 'yes') {
+      if (
+        !config.externalApiConfig ||
+        config.externalApiConfig.enabled !== 'yes'
+      ) {
         console.log('[DEBUG] External API integration is disabled');
         return null;
       }
 
+      // EXTERNAL_API_TRANSFORM reaches config as transformationTemplate, the
+      // name upstream gave it. This used to read `transform`, which config
+      // never had, so the setting was ignored.
       const {
         url,
         method = 'GET',
         headers = {},
         body = {},
         timeout = 5000,
-        transform
+        transformationTemplate: transform,
       } = config.externalApiConfig;
 
       if (!url) {
@@ -96,10 +154,13 @@ class ExternalApiService {
 
       // Validate URL to prevent SSRF attacks
       // Note: allowPrivateIPs is set based on environment - administrators may need internal APIs
-      const allowPrivateIPs = process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes';
+      const allowPrivateIPs =
+        process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes';
       const urlValidation = await validateApiUrl(url, { allowPrivateIPs });
       if (!urlValidation.valid) {
-        console.error(`[ERROR] External API URL validation failed: ${urlValidation.error}`);
+        console.error(
+          `[ERROR] External API URL validation failed: ${urlValidation.error}`
+        );
         return null;
       }
 
@@ -111,7 +172,10 @@ class ExternalApiService {
         try {
           parsedHeaders = JSON.parse(headers);
         } catch (error) {
-          console.error('[ERROR] Failed to parse external API headers:', error.message);
+          console.error(
+            '[ERROR] Failed to parse external API headers:',
+            error.message
+          );
           parsedHeaders = {};
         }
       }
@@ -122,7 +186,10 @@ class ExternalApiService {
         try {
           parsedBody = JSON.parse(body);
         } catch (error) {
-          console.error('[ERROR] Failed to parse external API body:', error.message);
+          console.error(
+            '[ERROR] Failed to parse external API body:',
+            error.message
+          );
           parsedBody = {};
         }
       }
@@ -142,23 +209,25 @@ class ExternalApiService {
 
       // Make the request
       const response = await axios(options);
-      let data = response.data;
+      const data = applyTransform(response.data, transform);
 
-      // Apply safe transform if provided (replaces unsafe Function constructor)
-      if (transform && typeof transform === 'string') {
-        try {
-          data = safeTransform(data, transform);
-          console.log('[DEBUG] Successfully transformed external API data');
-        } catch (error) {
-          console.error('[ERROR] Failed to execute transform:', error.message);
-        }
+      // A number or a boolean goes into the prompt as text. As a value, 0 and
+      // false would read as "no data" further on and never reach the model.
+      if (typeof data === 'number' || typeof data === 'boolean') {
+        return String(data);
       }
-
       return data;
     } catch (error) {
-      console.error('[ERROR] Failed to fetch data from external API:', error.message);
+      console.error(
+        '[ERROR] Failed to fetch data from external API:',
+        error.message
+      );
       if (error.response) {
-        console.error('[ERROR] API Response:', error.response.status, error.response.data);
+        console.error(
+          '[ERROR] API Response:',
+          error.response.status,
+          error.response.data
+        );
       }
       return null;
     }

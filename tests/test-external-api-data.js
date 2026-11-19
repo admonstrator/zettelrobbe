@@ -4,10 +4,15 @@
  * The external API data (EXTERNAL_API_*), from the user's endpoint to the
  * prompt of every provider.
  *
- * With Ollama the prompt carried "[object Promise]" instead of the data:
- * ollamaService._buildPrompt() called the async validator without awaiting
- * it, while analyzeDocument() awaited the same validator and threw its result
- * away.
+ * Two things were wrong and neither showed on the page:
+ *
+ * - With Ollama the prompt carried "[object Promise]" instead of the data:
+ *   ollamaService._buildPrompt() called the async validator without awaiting
+ *   it, while analyzeDocument() awaited the same validator and threw its
+ *   result away.
+ * - EXTERNAL_API_TRANSFORM was never applied: config exposes the value as
+ *   `transformationTemplate`, the service read `transform`, so the whole
+ *   answer always went into the prompt.
  *
  * Runs offline against real HTTP servers on 127.0.0.1: a fake endpoint that
  * stands in for the user's API, and the fakes of Ollama, an OpenAI-compatible
@@ -21,11 +26,16 @@
  * allowed, because the fake endpoint has to live on 127.0.0.1.
  *
  * Cases:
- *   1. a 500, a timeout and a closed port give null after one request each
- *   2. a scan over three documents calls the endpoint once and every
+ *   1. EXTERNAL_API_TRANSFORM picks a part of the answer: dots, [n], a top-level list
+ *   2. a value the path finds that is false or a number still reaches the prompt
+ *   3. a path that matches nothing, an empty value, JavaScript and a path of
+ *      more than ten steps give the whole answer
+ *   4. __proto__, constructor and prototype never resolve, own key or not
+ *   5. a 500, a timeout and a closed port give null after one request each
+ *   6. a scan over three documents calls the endpoint once and every
  *      provider (openai, azure, custom, ollama, anthropic) puts the same
  *      block into each of the three prompts; Ollama's carries no "[object Promise]"
- *   3. a scan against a failing endpoint calls it once and analyses all
+ *   7. a scan against a failing endpoint calls it once and analyses all
  *      three documents without the data
  */
 
@@ -119,6 +129,11 @@ async function createFakeEndpoint() {
     if (route === '/rates') {
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(RATES_BODY);
+      return;
+    }
+    if (route === '/list') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify([{ name: 'first' }, { name: 'second' }]));
       return;
     }
     if (route === '/fail') {
@@ -346,10 +361,124 @@ async function main() {
   const externalApiService = require('../services/externalApiService');
   const scanService = require('../services/scanService');
 
+  /** fetchData() with a transform, quietly. */
+  const fetchWith = async (transform, route = '/rates') => {
+    process.env.EXTERNAL_API_URL = endpoint.url(route);
+    process.env.EXTERNAL_API_TRANSFORM = transform;
+    return quiet(() => externalApiService.fetchData());
+  };
+
   try {
     console.log('\n=== External API data ===');
 
-    // ── 1. a failing endpoint ──────────────────────────────────────────────
+    // ── 1. the transform picks a part ──────────────────────────────────────
+
+    await test('EXTERNAL_API_TRANSFORM picks a part of the answer', async () => {
+      assert.strictEqual((await fetchWith('meta.source')).value, 'ECB');
+      assert.deepStrictEqual((await fetchWith('rates[0]')).value, {
+        code: 'USD',
+        value: 1.08,
+      });
+      assert.strictEqual((await fetchWith('rates[0].code')).value, 'USD');
+      assert.deepStrictEqual((await fetchWith('meta')).value, RATES.meta);
+      assert.strictEqual(
+        (await fetchWith('  rates[0].code  ')).value,
+        'USD',
+        'spaces around the path do not count'
+      );
+      assert.strictEqual(
+        (await fetchWith('[1].name', '/list')).value,
+        'second',
+        'an answer that is a list starts with an index'
+      );
+    });
+
+    // ── 2. falsy values the path finds ─────────────────────────────────────
+
+    await test('a value the path finds that is false, 0 or a number reaches the prompt as text', async () => {
+      assert.strictEqual((await fetchWith('meta.holiday')).value, 'false');
+      assert.strictEqual((await fetchWith('rates[1].value')).value, '0');
+      assert.strictEqual((await fetchWith('rates[0].value')).value, '1.08');
+      assert.strictEqual(
+        (await fetchWith('meta.note')).value,
+        null,
+        'a null the path finds adds nothing'
+      );
+    });
+
+    // ── 3. no match, empty, code ───────────────────────────────────────────
+
+    await test('a path that matches nothing gives the whole answer and says so in the log', async () => {
+      for (const transform of [
+        'rates[5].value',
+        'meta.missing',
+        'base.length.x',
+        'rates.code',
+      ]) {
+        const { value, warnings } = await fetchWith(transform);
+        assert.deepStrictEqual(value, RATES, transform);
+        assert.ok(
+          warnings.some((line) => line.includes('matches nothing')),
+          `${transform}: ${warnings.join(' | ')}`
+        );
+      }
+    });
+
+    await test('an empty transform gives the whole answer without a warning', async () => {
+      const { value, warnings } = await fetchWith('');
+      assert.deepStrictEqual(value, RATES);
+      assert.deepStrictEqual(warnings, []);
+    });
+
+    await test('JavaScript is not run: the old default and a return statement give the whole answer', async () => {
+      const oldDefault =
+        '// Function to transform API response\n// Return the data you want to include in the prompt\nfunction transform(data) {\n  return data;\n}';
+      for (const transform of [
+        oldDefault,
+        'return data.base;',
+        'data.rates.map(r => r.code)',
+        'meta["source"]',
+      ]) {
+        const { value, warnings } = await fetchWith(transform);
+        assert.deepStrictEqual(value, RATES, transform);
+        assert.ok(
+          warnings.some((line) => line.includes('not a path')),
+          `${transform}: ${warnings.join(' | ')}`
+        );
+      }
+    });
+
+    // ── 4. prototype keys ──────────────────────────────────────────────────
+
+    await test('__proto__, constructor and prototype never resolve', async () => {
+      for (const transform of [
+        '__proto__',
+        '__proto__.polluted',
+        'constructor',
+        'constructor.prototype',
+        'rates.constructor',
+        'rates[0].__proto__',
+        'meta.prototype',
+        'meta.toString',
+        'rates.length.constructor',
+      ]) {
+        const { value, warnings } = await fetchWith(transform);
+        assert.deepStrictEqual(value, RATES, transform);
+        assert.ok(
+          warnings.some((line) => line.includes('matches nothing')),
+          `${transform} is a path that resolves to nothing: ${warnings.join(' | ')}`
+        );
+      }
+      assert.strictEqual({}.polluted, undefined, 'Object.prototype untouched');
+    });
+
+    await test('a path of more than ten steps gives the whole answer', async () => {
+      const { value, warnings } = await fetchWith('a.b.c.d.e.f.g.h.i.j.k');
+      assert.deepStrictEqual(value, RATES);
+      assert.ok(warnings.some((line) => line.includes('more than 10 steps')));
+    });
+
+    // ── 5. a failing endpoint ──────────────────────────────────────────────
 
     await test('a 500, a timeout and a closed port give null after one request each', async () => {
       process.env.EXTERNAL_API_TRANSFORM = '';
@@ -379,7 +508,7 @@ async function main() {
       );
     });
 
-    // ── 2. one call per scan, the same block for every provider ────────────
+    // ── 6. one call per scan, the same block for every provider ────────────
 
     const providers = [
       {
@@ -464,7 +593,29 @@ async function main() {
       });
     }
 
-    // ── 3. a failing endpoint does not stop the scan ───────────────────────
+    await test('ollama: the transformed part is what the prompt carries', async () => {
+      process.env.EXTERNAL_API_URL = endpoint.url('/rates');
+      process.env.EXTERNAL_API_TRANSFORM = 'rates[0]';
+      const hits = await scanWith('ollama');
+      assert.deepStrictEqual(hits, ['/rates']);
+      const block = `Additional context from external API:\n${JSON.stringify(
+        RATES.rates[0],
+        null,
+        2
+      )}`;
+      for (const prompt of providers
+        .find((provider) => provider.id === 'ollama')
+        .prompts()) {
+        assert.ok(prompt.includes(block), prompt.slice(-400));
+        assert.ok(
+          !prompt.includes('"ECB"'),
+          'the rest of the answer stays out'
+        );
+      }
+      process.env.EXTERNAL_API_TRANSFORM = '';
+    });
+
+    // ── 7. a failing endpoint does not stop the scan ───────────────────────
 
     await test('a failing endpoint is called once per scan and the analyses run without it', async () => {
       process.env.EXTERNAL_API_URL = endpoint.url('/fail');
