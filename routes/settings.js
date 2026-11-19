@@ -788,7 +788,7 @@ router.get(
  *                 example: 0.3
  *               aiTemperatureGeneration:
  *                 type: number
- *                 description: Temperature for generation calls (range 0.0-2.0)
+ *                 description: Temperature of a generateText() call that sends none of its own (range 0.0-2.0). No current caller does; Tidy up always sends 0, so the value has no effect.
  *                 example: 0.7
  *               aiReasoningEffort:
  *                 type: string

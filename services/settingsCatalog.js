@@ -727,6 +727,8 @@ const CATALOG = Object.freeze([
       parse: temperature('AI_TEMPERATURE_ANALYSIS'),
       ...PS,
     }),
+    // Read when a generateText() caller sends no temperature; every caller
+    // sends 0 (tests/test-generation-temperature-callers.js).
     setting('AI_TEMPERATURE_GENERATION', {
       type: 'number',
       default: '0.7',

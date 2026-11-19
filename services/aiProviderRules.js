@@ -377,7 +377,9 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'AI_TEMPERATURE_GENERATION',
     label: 'Generation creativity',
-    help: 'How varied free-text answers outside the analysis may be, from 0 to 2. Tidy up always asks with 0.',
+    // The fallback of generateText() for a caller that sends no temperature.
+    // No caller does (tests/test-generation-temperature-callers.js).
+    help: 'Zettelrobbe does not use this value at the moment. The analysis uses Analysis creativity, and Tidy up always asks with 0.',
     level: 'advanced',
     providers: ['openai', 'azure', 'custom', 'ollama'],
     defaultValue: '0.7',
