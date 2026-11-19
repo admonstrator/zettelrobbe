@@ -16,7 +16,9 @@ function resetModule(modulePath) {
 }
 
 async function main() {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paperless-ai-env-priority-'));
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'paperless-ai-env-priority-')
+  );
   const dataDir = path.join(tempDir, 'data');
   const envFilePath = path.join(dataDir, '.env');
   const migratedEnvFilePath = path.join(dataDir, '.env.migrated');
@@ -28,7 +30,7 @@ async function main() {
     [
       'COOKIE_SECURE_MODE="always"',
       'TRUST_PROXY="false"',
-      'CUSTOM_BASE_URL="http://env.example"'
+      'CUSTOM_BASE_URL="http://env.example"',
     ].join('\n') + '\n',
     'utf8'
   );
@@ -39,7 +41,7 @@ async function main() {
         COOKIE_SECURE_MODE: 'always',
         TRUST_PROXY: 'false',
         LOG_LEVEL: 'debug',
-        CUSTOM_BASE_URL: 'http://override.example'
+        CUSTOM_BASE_URL: 'http://override.example',
       },
       null,
       2
@@ -56,7 +58,7 @@ async function main() {
     LOG_LEVEL: 'warn',
     CONFIG_SOURCE_MODE: 'runtime-first',
     // Simulate node-internal and other system vars that should not be treated as locked.
-    PATH: originalEnv.PATH || ''
+    PATH: originalEnv.PATH || '',
   };
   delete process.env.CUSTOM_BASE_URL;
   delete global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__;
@@ -128,19 +130,24 @@ async function main() {
       PAPERLESS_API_TOKEN: 'token',
       AI_PROVIDER: 'openai',
       OPENAI_API_KEY: 'test-key',
-      OPENAI_MODEL: 'gpt-4o-mini'
+      OPENAI_MODEL: 'gpt-4o-mini',
     },
     { skipValidation: true }
   );
 
-  const persistedOverrides = JSON.parse(fs.readFileSync(runtimeOverridesPath, 'utf8'));
+  const persistedOverrides = JSON.parse(
+    fs.readFileSync(runtimeOverridesPath, 'utf8')
+  );
 
   assert.ok(
     !fs.existsSync(envFilePath),
     'Expected saveConfig not to recreate data/.env in runtime-first mode'
   );
   assert.ok(
-    !Object.prototype.hasOwnProperty.call(persistedOverrides, 'COOKIE_SECURE_MODE'),
+    !Object.prototype.hasOwnProperty.call(
+      persistedOverrides,
+      'COOKIE_SECURE_MODE'
+    ),
     'Expected injected COOKIE_SECURE_MODE to be excluded from runtime-overrides.json'
   );
   assert.ok(
@@ -183,10 +190,15 @@ async function main() {
 
 main()
   .then(() => {
-    console.log('[PASS] Docker-operator-injected env vars (snapshot-based) keep priority over runtime overrides and persisted settings');
+    console.log(
+      '[PASS] Docker-operator-injected env vars (snapshot-based) keep priority over runtime overrides and persisted settings'
+    );
   })
   .catch((error) => {
-    console.error('[FAIL] Injected environment priority test failed:', error.message);
+    console.error(
+      '[FAIL] Injected environment priority test failed:',
+      error.message
+    );
     process.exitCode = 1;
   })
   .finally(() => {
