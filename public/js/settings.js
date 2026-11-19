@@ -2990,7 +2990,14 @@ function lockEnvField(setupForm, fieldElement, envKey, notedContainers) {
     sentence.className = 'zr-field__locked';
     // Hints are full sentences; the note follows as one more.
     sentence.textContent = hint.textContent.trim() ? ` ${note}` : note;
-    hint.append(sentence);
+    // The topic Set by the environment says what this means and how to take
+    // the value over. A sibling of the sentence, not inside it: the Quick
+    // start reads the sentence word for word (lockNote).
+    const link = document.createElement('a');
+    link.className = 'zr-link zr-link--underline zr-field__locked-link';
+    link.href = '#set-by-environment';
+    link.textContent = 'What this means';
+    hint.append(sentence, link);
   });
 }
 
@@ -3003,7 +3010,7 @@ function unlockEnvField(fieldElement, notedContainers) {
   const container = fieldElement.closest('.zr-field, .zr-switchrow');
   if (!container) return;
   container
-    .querySelectorAll('.zr-field__locked')
+    .querySelectorAll('.zr-field__locked, .zr-field__locked-link')
     .forEach((sentence) => sentence.remove());
   notedContainers.delete(container);
 }

@@ -1418,6 +1418,35 @@ const CATALOG = Object.freeze([
 /** @type {ReadonlyMap<string, SettingEntry>} */
 const BY_KEY = new Map(CATALOG.map((entry) => [entry.key, entry]));
 
+/* ── Settings that left the catalogue ─────────────────────────────────── */
+
+/**
+ * A setting that was removed: nothing reads its key any more, but an
+ * installation can still carry it in docker-compose or in its stored
+ * settings. The settings page lists such a key (Set by the environment), and
+ * tests/test-removed-settings.js checks every entry here. A setting that is
+ * removed gets its line here in the same change that deletes its entry above.
+ *
+ * @typedef {object} RemovedSetting
+ * @property {string} key environment variable
+ * @property {string} field settings form field that carried it
+ * @property {string} removedIn the version that removed it
+ */
+
+/** @type {ReadonlyArray<RemovedSetting>} */
+const REMOVED_SETTINGS = Object.freeze([
+  Object.freeze({
+    key: 'AI_TEMPERATURE_GENERATION',
+    field: 'aiTemperatureGeneration',
+    removedIn: 'v2026.11.04',
+  }),
+  Object.freeze({
+    key: 'PAPERLESS_USERNAME',
+    field: 'paperlessUsername',
+    removedIn: 'v2026.11.04',
+  }),
+]);
+
 /* ── Lookups ──────────────────────────────────────────────────────────── */
 
 /** @returns {ReadonlyArray<SettingEntry>} every entry, in catalogue order */
@@ -1573,4 +1602,5 @@ module.exports = {
   normalizeList,
   sanitizeSwitch,
   clampNumber,
+  REMOVED_SETTINGS,
 };

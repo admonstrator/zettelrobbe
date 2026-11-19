@@ -16,6 +16,8 @@
  *   GET   /api/settings/paperless-public-url
  *   POST  /settings                             Update application settings
  *   GET   /api/settings/env-file                Export the running configuration as a .env file
+ *   POST  /api/settings/environment/take-over   Store values the environment sets
+ *   POST  /api/settings/environment/remove-copy Remove stored copies of them again
  */
 
 const express = require('express');
@@ -44,6 +46,12 @@ const {
   matchProviderChoice,
 } = require('../services/aiFormOptions');
 const { BOOT_IDENTITY } = require('../services/bootIdentity');
+const {
+  buildEnvironmentOverview,
+  planTakeOver,
+  planRemoveCopy,
+  readEnvironmentInputs,
+} = require('../services/environmentOverview');
 const router = express.Router();
 
 /**
@@ -463,6 +471,20 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     ]),
   ].filter((key) => configFile.isProtectedRuntimeEnvKey(key));
 
+  // What the environment decides (the topic Set by the environment). Without
+  // it the page still renders, with that topic empty.
+  let environmentOverview = null;
+  try {
+    environmentOverview = buildEnvironmentOverview(
+      await readEnvironmentInputs()
+    );
+  } catch (overviewError) {
+    console.warn(
+      '[WARN] Could not list what the environment sets:',
+      overviewError.message
+    );
+  }
+
   // How many PDF passwords are stored: the list itself is a secret and stays
   // off the page like the others, the count tells the field what it keeps.
   const pdfPasswordCount = parsePasswordList(config.PDF_PASSWORDS).length;
@@ -505,6 +527,7 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     configuredSecrets,
     pdfPasswordCount,
     lockedEnvKeys,
+    environmentOverview,
     // The process's boot id; the page compares /health against it to tell
     // the restarted server from the one it saved to.
     bootId: BOOT_IDENTITY.bootId,
@@ -1272,5 +1295,278 @@ router.get('/api/settings/env-file', isAuthenticated, async (req, res) => {
       .json({ success: false, error: 'Failed to build the configuration' });
   }
 });
+
+/**
+ * @param {number} count
+ * @param {string} one
+ * @param {string} many
+ */
+const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+/**
+ * @swagger
+ * /api/settings/environment/take-over:
+ *   post:
+ *     summary: Store values the environment sets
+ *     description: |
+ *       Stores the value in effect of settings the environment sets (usually the
+ *       lines under `environment:` in docker-compose) in Zettelrobbe's own stored
+ *       settings, so that their lines can be deleted from docker-compose. The value
+ *       is normalised the way a settings save of its field normalises it; switches
+ *       and free text are stored as written.
+ *
+ *       Nothing changes about the value in effect: the environment keeps winning
+ *       while its line is there, and no restart follows, also for a key that
+ *       otherwise needs one. Once the environment no longer sets a key, the stored
+ *       value applies from the next start on. A secret is stored like a secret
+ *       typed on the settings page; the response never contains a value.
+ *
+ *       The whole request is refused when a key is not a catalogue setting the
+ *       environment sets. A value the field's own check refuses (a broken cron, a
+ *       number outside the field's range) and a setting without a field on the
+ *       settings page are not stored; `refused` says why.
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - keys
+ *             properties:
+ *               keys:
+ *                 description: Setting names, or "all" for every setting that can be taken over
+ *                 oneOf:
+ *                   - type: array
+ *                     items:
+ *                       type: string
+ *                     example: ["SCAN_INTERVAL", "OPENAI_API_KEY"]
+ *                   - type: string
+ *                     enum: ["all"]
+ *     responses:
+ *       200:
+ *         description: The values that could be stored are stored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     stored:
+ *                       type: array
+ *                       description: The keys whose value is stored now
+ *                       items:
+ *                         type: string
+ *                       example: ["SCAN_INTERVAL"]
+ *                     refused:
+ *                       type: array
+ *                       description: The keys that were not stored, each with the reason
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           key:
+ *                             type: string
+ *                           reason:
+ *                             type: string
+ *                 message:
+ *                   type: string
+ *                   example: "Zettelrobbe stored SCAN_INTERVAL. You can delete its line from docker-compose."
+ *       400:
+ *         description: No list of keys, or a key that is not a setting the environment sets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Not authenticated
+ *       422:
+ *         description: None of the keys could be stored; data.refused says why
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post(
+  '/api/settings/environment/take-over',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const plan = planTakeOver(await readEnvironmentInputs(), req.body?.keys);
+      if ('error' in plan) {
+        return res.status(400).json({ success: false, error: plan.error });
+      }
+      const stored = await setupService.storeEnvironmentValues(plan.values);
+      const data = { stored, refused: plan.refused };
+      if (stored.length === 0 && plan.refused.length > 0) {
+        return res
+          .status(422)
+          .json({ success: false, error: plan.refused[0].reason, data });
+      }
+      if (stored.length > 0) {
+        console.log(
+          `[INFO] Stored ${counted(stored.length, 'setting', 'settings')} the environment sets: ${stored.join(', ')}. The values in effect are unchanged.`
+        );
+      }
+
+      let message;
+      if (stored.length === 0) message = 'Nothing to take over.';
+      else if (stored.length === 1) {
+        message = `Zettelrobbe stored ${stored[0]}. You can delete its line from docker-compose.`;
+      } else {
+        message = `Zettelrobbe stored ${stored.length} settings. You can delete their lines from docker-compose.`;
+      }
+      if (plan.refused.length > 0) {
+        message += ` ${counted(plan.refused.length, 'setting was', 'settings were')} not stored.`;
+      }
+      return res.json({ success: true, data, message });
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/environment/take-over:', error);
+      return res
+        .status(500)
+        .json({ success: false, error: 'Failed to store the values' });
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/settings/environment/remove-copy:
+ *   post:
+ *     summary: Remove stored copies of values the environment sets
+ *     description: |
+ *       The undo of take-over: removes the stored copy of settings the environment
+ *       sets, but only a copy that equals the value in effect, so that a value
+ *       stored on purpose is not deleted by accident. Nothing changes about the
+ *       value in effect, and no restart follows. Once the environment no longer
+ *       sets the key, the default applies again.
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - keys
+ *             properties:
+ *               keys:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["SCAN_INTERVAL"]
+ *     responses:
+ *       200:
+ *         description: The copies that equal the value in effect are removed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     removed:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["SCAN_INTERVAL"]
+ *                     refused:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           key:
+ *                             type: string
+ *                           reason:
+ *                             type: string
+ *                 message:
+ *                   type: string
+ *                   example: "Zettelrobbe removed its copy of SCAN_INTERVAL. Keep the line in docker-compose."
+ *       400:
+ *         description: No list of keys, or a key that is not a setting the environment sets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Not authenticated
+ *       422:
+ *         description: None of the copies could be removed; data.refused says why
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post(
+  '/api/settings/environment/remove-copy',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const plan = planRemoveCopy(
+        await readEnvironmentInputs(),
+        req.body?.keys
+      );
+      if ('error' in plan) {
+        return res.status(400).json({ success: false, error: plan.error });
+      }
+      const removed = await setupService.removeEnvironmentValues(plan.keys);
+      const data = { removed, refused: plan.refused };
+      if (removed.length === 0) {
+        return res.status(422).json({
+          success: false,
+          error: plan.refused[0]?.reason || 'Nothing to remove.',
+          data,
+        });
+      }
+      console.log(
+        `[INFO] Removed the stored ${removed.length === 1 ? 'copy' : 'copies'} of ${removed.join(', ')}. The values in effect are unchanged.`
+      );
+      const message =
+        removed.length === 1
+          ? `Zettelrobbe removed its copy of ${removed[0]}. Keep the line in docker-compose.`
+          : `Zettelrobbe removed its copies of ${removed.length} settings. Keep their lines in docker-compose.`;
+      return res.json({ success: true, data, message });
+    } catch (error) {
+      console.error(
+        '[ERROR] POST /api/settings/environment/remove-copy:',
+        error
+      );
+      return res
+        .status(500)
+        .json({ success: false, error: 'Failed to remove the stored copies' });
+    }
+  }
+);
 
 module.exports = router;

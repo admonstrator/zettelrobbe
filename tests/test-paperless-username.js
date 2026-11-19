@@ -112,6 +112,14 @@ const NAME_PATTERN = /PAPERLESS_USERNAME|paperlessUsername/;
  */
 const MENTIONED_IN_COMMENTS = ['routes/settings.js', 'routes/setupWizard.js'];
 
+/**
+ * Files that name the key as removed, not as a setting: the release notes
+ * say it can be deleted, and the catalogue's list of removed settings
+ * (REMOVED_SETTINGS, which the settings page lists) carries it with the
+ * version that removed it.
+ */
+const NAMED_AS_REMOVED = ['config/changelog.js', 'services/settingsCatalog.js'];
+
 /** The files a document passes through from the scan to the write-back. */
 const PROCESSING_PATH = [
   'server.js',
@@ -142,9 +150,29 @@ async function censusTests() {
       (file) => NAME_PATTERN.test(read(file))
     );
     const unexpected = readers.filter(
-      (file) => !MENTIONED_IN_COMMENTS.includes(file)
+      (file) =>
+        !MENTIONED_IN_COMMENTS.includes(file) &&
+        !NAMED_AS_REMOVED.includes(file)
     );
     assert.deepStrictEqual(unexpected, [], 'files that read the name');
+    // In the catalogue, only inside the list of removed settings.
+    const catalogSource = read('services/settingsCatalog.js');
+    const removedList = catalogSource.slice(
+      catalogSource.indexOf('const REMOVED_SETTINGS'),
+      catalogSource.indexOf(
+        ']);',
+        catalogSource.indexOf('const REMOVED_SETTINGS')
+      )
+    );
+    assert.ok(
+      !NAME_PATTERN.test(catalogSource.replace(removedList, '')),
+      'services/settingsCatalog.js names it outside REMOVED_SETTINGS'
+    );
+    assert.ok(
+      require('../services/settingsCatalog').REMOVED_SETTINGS.some(
+        (setting) => setting.key === 'PAPERLESS_USERNAME'
+      )
+    );
     for (const file of MENTIONED_IN_COMMENTS) {
       const code = read(file)
         .split('\n')

@@ -23,7 +23,9 @@
  * when it first loads. In each case:
  *
  *   1. the app starts: the config loads and the routes mount
- *   2. GET /settings renders, without the field and without the key
+ *   2. GET /settings renders without the field; it names the key only in
+ *      the topic Set by the environment, which says it can be deleted, and
+ *      in the release notes of the changelog
  *   3. POST /settings with a body that still carries the field (an old page,
  *      an API user) answers 200, saves, and ignores the field
  *   4. the save leaves the key out of what it writes
@@ -39,19 +41,42 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-/** The removed settings: env key, the form field that carried it, a value. */
-const REMOVED = [
-  {
-    key: 'AI_TEMPERATURE_GENERATION',
-    field: 'aiTemperatureGeneration',
-    value: '1.3',
-  },
-  {
-    key: 'PAPERLESS_USERNAME',
-    field: 'paperlessUsername',
-    value: 'archivist',
-  },
-];
+/**
+ * The removed settings, from the one list the settings page reads too
+ * (settingsCatalog.REMOVED_SETTINGS): env key, the form field that carried
+ * it, and a value for each one.
+ */
+const VALUES = {
+  AI_TEMPERATURE_GENERATION: '1.3',
+  PAPERLESS_USERNAME: 'archivist',
+};
+const REMOVED = require('../services/settingsCatalog').REMOVED_SETTINGS.map(
+  (setting) => ({ ...setting, value: VALUES[setting.key] || 'stale-value' })
+);
+
+/**
+ * The page without the two places that name a removed key on purpose: the
+ * topic Set by the environment, and the changelog, whose release notes say
+ * the key can be deleted.
+ */
+function withoutNamingTopics(html) {
+  const cut = (text, id) => {
+    const start = text.indexOf(`id="entry-${id}"`);
+    if (start === -1) return text;
+    const end = text.indexOf('<section class="zr-settings-entry', start);
+    return text.slice(0, start) + (end === -1 ? '' : text.slice(end));
+  };
+  return cut(cut(html, 'set-by-environment'), 'changelog');
+}
+
+/** The topic Set by the environment alone. */
+function environmentTopic(html) {
+  const start = html.indexOf('id="entry-set-by-environment"');
+  return html.slice(
+    start,
+    html.indexOf('<section class="zr-settings-entry', start)
+  );
+}
 
 const CASES = {
   compose: {
@@ -176,11 +201,33 @@ async function runCase(name) {
     await check('GET /settings renders without the field', () => {
       assert.strictEqual(first.page.status, 200, first.page.text.slice(0, 200));
       assert.ok(first.page.text.includes('id="setupForm"'), 'the form');
+      const rest = withoutNamingTopics(first.page.text);
       REMOVED.forEach(({ key, field }) => {
-        assert.ok(!first.page.text.includes(key), `the page names ${key}`);
+        assert.ok(!rest.includes(key), `the page names ${key} as a setting`);
         assert.ok(!first.page.text.includes(`"${field}"`), `field ${field}`);
       });
     });
+    await check(
+      'the topic Set by the environment lists the key as one to delete',
+      () => {
+        const topic = environmentTopic(first.page.text);
+        REMOVED.forEach(({ key, removedIn }) => {
+          const row = topic.slice(
+            topic.indexOf(`data-env-unused="${key}"`),
+            topic.indexOf('</li>', topic.indexOf(`data-env-unused="${key}"`))
+          );
+          assert.ok(row.length > 0, `no row for ${key}`);
+          assert.ok(row.includes(`Removed in ${removedIn}`), removedIn);
+          if (spec.injected) {
+            assert.ok(
+              row.includes('You can delete its line from docker-compose.')
+            );
+          } else {
+            assert.ok(row.includes('The next save on this page deletes it'));
+          }
+        });
+      }
+    );
     await check('the .env export does not print the key', () => {
       assert.strictEqual(first.exported.status, 200);
       const { data } = JSON.parse(first.exported.text);
@@ -234,9 +281,18 @@ async function runCase(name) {
       assert.strictEqual(second.page.status, 200);
       assert.strictEqual(second.exported.status, 200);
       REMOVED.forEach(({ key }) => {
-        assert.ok(!second.page.text.includes(key));
+        assert.ok(!withoutNamingTopics(second.page.text).includes(key));
         assert.ok(!second.exported.text.includes(key));
       });
+      // After the save the stored copy is gone; only the environment's stays.
+      const topic = environmentTopic(second.page.text);
+      REMOVED.forEach(({ key }) =>
+        assert.strictEqual(
+          topic.includes(`data-env-unused="${key}"`),
+          Boolean(spec.injected),
+          key
+        )
+      );
     });
 
     await check('the restart starts without the stored key', () => {

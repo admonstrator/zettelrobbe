@@ -9,6 +9,7 @@ const paperlessService = require('./services/paperlessService');
 const documentModel = require('./models/document');
 const setupService = require('./services/setupService');
 const { runStartupMigrations } = require('./services/startupMigrations');
+const environmentOverview = require('./services/environmentOverview');
 const routes = require('./routes');
 const tidyUpRoutes = require('./routes/tidyUp');
 const oidcRoutes = require('./routes/oidc');
@@ -949,6 +950,7 @@ async function startServer() {
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);
       warnIfRemoteSetupExposed();
+      logEnvironmentOverview();
       oidcService.logStatus();
       startScanning();
       // Armed separately from the scan scheduler so the dashboard also warns
@@ -988,6 +990,28 @@ async function warnIfRemoteSetupExposed() {
     txtLogger.log(msg);
   } catch {
     // Non-fatal — warning is best-effort
+  }
+}
+
+/**
+ * One line at every start when the environment (docker-compose
+ * `environment:`) sets settings: how many, and where the settings page lists
+ * them. The OCR timeout case of CFG-OCR-TIMEOUT-001 is listed there too, for
+ * as long as it holds; the migration itself warns on the first start only.
+ */
+async function logEnvironmentOverview() {
+  try {
+    const line = environmentOverview.startupLine(
+      environmentOverview.buildEnvironmentOverview(
+        await environmentOverview.readEnvironmentInputs()
+      )
+    );
+    if (line) console.info(line);
+  } catch (error) {
+    console.warn(
+      '[WARN] Could not list what the environment sets:',
+      error.message
+    );
   }
 }
 

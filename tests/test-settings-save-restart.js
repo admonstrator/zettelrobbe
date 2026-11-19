@@ -356,15 +356,27 @@ function loadPlaywright() {
               hint: [...row.querySelectorAll('.zr-field__hint')]
                 .map((hint) => hint.textContent)
                 .join(' | '),
+              sentence: row.querySelector('.zr-field__locked')?.textContent,
+              link: row
+                .querySelector('.zr-field__locked-link')
+                ?.getAttribute('href'),
               badges: row.querySelectorAll('.zr-badge').length,
             };
           });
           assert.strictEqual(state.value, PINNED_VALUE);
           assert.strictEqual(state.ariaDisabled, 'true');
+          // The sentence, then a link to the topic Set by the environment.
           assert.match(
             state.hint,
-            new RegExp(`Set by the environment \\(${PINNED_KEY}\\)\\.$`)
+            new RegExp(
+              `Set by the environment \\(${PINNED_KEY}\\)\\.What this means$`
+            )
           );
+          assert.strictEqual(
+            state.sentence.trim(),
+            `Set by the environment (${PINNED_KEY}).`
+          );
+          assert.strictEqual(state.link, '#set-by-environment');
           assert.strictEqual(state.badges, 0, 'no pill next to the field');
         } finally {
           await browser.close();
