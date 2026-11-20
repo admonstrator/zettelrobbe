@@ -916,6 +916,12 @@
   .zr-qs__switch .zr-field__name {
     cursor: pointer;
   }
+  /* A block of rows that shows or hides as one, at the rhythm of the body. */
+  .zr-qs__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-4);
+  }
   .zr-qs__more {
     font-size: var(--zr-fs-sm);
   }

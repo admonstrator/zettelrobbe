@@ -160,6 +160,21 @@
             <%- qsBodyOpen('ocr') %>
                 <div class="zr-qs__switches">
                     <%- qsSwitch({ target: 'mistralOcrEnabled', label: 'Use OCR', hint: 'Reads a document again when its text from Paperless-ngx is too short or the analysis fails.' }) %>
+                    <%# Not a setting: the module copies the model of step 2 into
+                        the OCR fields and keeps this switch on while they match. %>
+                    <div class="zr-qs__field zr-qs__switch hidden" data-qs-same-model>
+                        <div class="zr-qs__switchtext">
+                            <label for="quickStartOcrSameModel" class="zr-field__name">Same model as the analysis</label>
+                            <p class="zr-field__hint" data-qs-same-model-hint></p>
+                        </div>
+                        <input type="checkbox" class="zr-toggle" id="quickStartOcrSameModel" data-qs-same-model-switch>
+                    </div>
+                </div>
+                <div class="zr-qs__group" data-qs-ocr-own>
+                    <%- qsSelect({ target: 'ocrProvider', label: 'OCR provider' }) %>
+                    <%- qsInput({ target: 'ocrApiUrl', label: 'Server address', attrs: 'inputmode="url"', hint: 'Empty uses the default of the provider. For a local server, that is the Ollama address of step 2.' }) %>
+                    <%- qsInput({ target: 'ocrApiKey', label: 'OCR API key', type: 'password', hint: qsKeyHint(qsSecrets.ocrApiKey, 'Mistral shows it in its console, under API keys.') }) %>
+                    <%- qsSelect({ target: 'mistralOcrModel', label: 'OCR model', hint: `Missing a model? ${qsLink('fetchOcrModelsBtn', 'Fetch models')} in ${qsTopic('ocr')} lists what the server offers. For a local server, pick one that reads images.` }) %>
                 </div>
                 <%# One question for the two switches that read the OCR queue
                     (OCR_RUN_RIGHT_AWAY, OCR_AUTO_PROCESS_ENABLED); the module

@@ -541,6 +541,100 @@ class StubElement {
     );
   });
 
+  await test('OCR model: the analysis model as the OCR model', () => {
+    const ollamaPlan = qs.sameModelPlan({
+      aiProvider: 'ollama',
+      values: {
+        ollamaUrl: 'http://ollama.lan:11434',
+        ollamaModel: 'qwen2.5vl:7b',
+      },
+    });
+    assert.deepStrictEqual(ollamaPlan, {
+      ocrProvider: 'custom',
+      url: 'http://ollama.lan:11434',
+      model: 'qwen2.5vl:7b',
+    });
+    assert.deepStrictEqual(
+      qs.sameModelPlan({
+        aiProvider: 'anthropic',
+        values: { anthropicModel: 'claude-sonnet-4-5' },
+      }),
+      { ocrProvider: 'anthropic', url: '', model: 'claude-sonnet-4-5' }
+    );
+    // No OCR provider of their own, and a custom key cannot be copied.
+    assert.strictEqual(qs.sameModelPlan({ aiProvider: 'openai' }), null);
+    assert.strictEqual(qs.sameModelPlan({ aiProvider: 'azure' }), null);
+    assert.strictEqual(
+      qs.sameModelPlan({ aiProvider: 'custom', customKeyPresent: true }),
+      null
+    );
+    assert.ok(qs.sameModelPlan({ aiProvider: 'custom' }));
+
+    assert.strictEqual(
+      qs.serverAddress('HTTP://Ollama.lan:11434/v1/'),
+      'http://ollama.lan:11434'
+    );
+    // The OCR side appends /v1, a stored "ollama" is the local server, and an
+    // empty local address falls back to the Ollama one.
+    const ocr = {
+      ocrProvider: 'ollama',
+      ocrUrl: 'http://ollama.lan:11434/v1',
+      ocrModel: 'qwen2.5vl:7b',
+    };
+    assert.strictEqual(qs.usesSameModel(ollamaPlan, ocr), true);
+    assert.strictEqual(
+      qs.usesSameModel(ollamaPlan, {
+        ...ocr,
+        ocrUrl: '',
+        ollamaUrl: 'http://ollama.lan:11434/',
+      }),
+      true
+    );
+    assert.strictEqual(
+      qs.usesSameModel(ollamaPlan, { ...ocr, ocrModel: 'llava:13b' }),
+      false
+    );
+    assert.strictEqual(
+      qs.usesSameModel(ollamaPlan, { ...ocr, ocrUrl: 'http://other:11434' }),
+      false
+    );
+    assert.strictEqual(
+      qs.usesSameModel(
+        { ocrProvider: 'anthropic', url: '', model: 'claude-sonnet-4-5' },
+        {
+          ocrProvider: 'anthropic',
+          ocrUrl: 'https://proxy',
+          ocrModel: 'claude-sonnet-4-5',
+        }
+      ),
+      false
+    );
+    assert.strictEqual(qs.usesSameModel(null, ocr), false);
+    assert.strictEqual(
+      qs.usesSameModel({ ...ollamaPlan, model: '' }, { ...ocr, ocrModel: '' }),
+      false
+    );
+  });
+
+  await test('Partial: the OCR step offers the analysis model, else its own', () => {
+    const source = fs.readFileSync(PARTIAL, 'utf8');
+    const ocr = source.slice(
+      source.indexOf('data-qs-step="ocr"'),
+      source.indexOf('data-qs-step="run"')
+    );
+    const at = (needle) => ocr.indexOf(needle);
+    assert.ok(
+      at('data-qs-same-model-switch') > at("target: 'mistralOcrEnabled'")
+    );
+    assert.ok(at('data-qs-ocr-own') > at('data-qs-same-model-switch'));
+    ['ocrProvider', 'ocrApiUrl', 'ocrApiKey', 'mistralOcrModel'].forEach((id) =>
+      assert.ok(at(`target: '${id}'`) > at('data-qs-ocr-own'), id)
+    );
+    assert.ok(
+      at("target: 'mistralOcrModel'") < at('data-qs-ocr-timing-picker')
+    );
+  });
+
   await test('Partial: the OCR step asks when OCR runs, right below the switch', () => {
     const source = fs.readFileSync(PARTIAL, 'utf8');
     const ocr = source.slice(

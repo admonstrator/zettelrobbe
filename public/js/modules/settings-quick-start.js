@@ -127,6 +127,102 @@ export function ocrTiming({ rightAway, schedule }) {
   return match ? match.value : 'manual';
 }
 
+/**
+ * The AI providers whose model OCR can use as well, and where the OCR fields
+ * take it from, by the id of the real field. Claude OCR falls back to the key
+ * and address of the AI provider when its own are empty, so only the model is
+ * copied; a local server gets its address and model. A custom server with an
+ * API key is left out: its key never reaches the page, so it cannot be copied.
+ * OpenAI and Azure have no OCR provider of their own.
+ */
+export const SAME_MODEL_SOURCES = Object.freeze({
+  anthropic: Object.freeze({
+    ocrProvider: 'anthropic',
+    url: '',
+    model: 'anthropicModel',
+  }),
+  ollama: Object.freeze({
+    ocrProvider: 'custom',
+    url: 'ollamaUrl',
+    model: 'ollamaModel',
+  }),
+  custom: Object.freeze({
+    ocrProvider: 'custom',
+    url: 'customBaseUrl',
+    model: 'customModel',
+    keyless: true,
+  }),
+});
+
+/**
+ * An address as compared for "same server": no case, no trailing slash, no
+ * API path (/v1, /api) the OCR side may have appended.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+export function serverAddress(url) {
+  return clean(url)
+    .toLowerCase()
+    .replace(/\/+$/, '')
+    .replace(/\/(v1|api)$/, '')
+    .replace(/\/+$/, '');
+}
+
+/**
+ * What the OCR fields hold when OCR uses the analysis model, or null when the
+ * AI provider cannot lend its model to OCR.
+ *
+ * @param {{aiProvider: string, values?: Record<string, string>, customKeyPresent?: boolean}} input
+ *   `values` by the ids named in SAME_MODEL_SOURCES
+ * @returns {{ocrProvider: string, url: string, model: string}|null}
+ */
+export function sameModelPlan({
+  aiProvider,
+  values = {},
+  customKeyPresent = false,
+}) {
+  const id = clean(aiProvider).toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(SAME_MODEL_SOURCES, id)) {
+    return null;
+  }
+  const source =
+    /** @type {{ocrProvider: string, url: string, model: string, keyless?: boolean}} */ (
+      SAME_MODEL_SOURCES[/** @type {keyof typeof SAME_MODEL_SOURCES} */ (id)]
+    );
+  if (source.keyless && customKeyPresent) return null;
+  return {
+    ocrProvider: source.ocrProvider,
+    url: source.url ? clean(values[source.url]) : '',
+    model: clean(values[source.model]),
+  };
+}
+
+/**
+ * Whether the OCR fields hold what the plan says. A stored "ollama" provider
+ * is the local server the page calls "custom"; an empty local OCR address
+ * falls back to the Ollama address (services/mistralOcrService.js).
+ *
+ * @param {{ocrProvider: string, url: string, model: string}|null} plan
+ * @param {{ocrProvider: string, ocrUrl?: string, ocrModel: string, ollamaUrl?: string}} ocr
+ * @returns {boolean}
+ */
+export function usesSameModel(
+  plan,
+  { ocrProvider, ocrUrl = '', ocrModel, ollamaUrl = '' }
+) {
+  if (!plan || !plan.model) return false;
+  const provider =
+    clean(ocrProvider).toLowerCase() === 'ollama'
+      ? 'custom'
+      : clean(ocrProvider).toLowerCase();
+  if (provider !== plan.ocrProvider || clean(ocrModel) !== plan.model)
+    return false;
+  if (plan.ocrProvider === 'anthropic') return !clean(ocrUrl);
+  const address = serverAddress(ocrUrl || ollamaUrl);
+  return Boolean(address) && address === serverAddress(plan.url);
+}
+
 /** Read out with the row, since the mark in front of it is a picture. */
 export const STATE_WORDS = Object.freeze({
   done: 'Done.',
@@ -841,6 +937,137 @@ export default function settingsQuickStart(root) {
     setText(ocrCronWords, scheduleWords(valueOf('ocrAutoProcessInterval')));
   }
 
+  /* the OCR model -------------------------------------------------------------- */
+
+  // "Same model as the analysis" is not a setting: it copies provider, address
+  // and model of step 2 into the OCR fields and is on while they match. While
+  // it is on, an edit of the analysis model is copied along. Off, the OCR
+  // provider and model show here to be chosen on their own.
+  const sameRow = root.querySelector('[data-qs-same-model]');
+  const sameSwitch = /** @type {any} */ (
+    root.querySelector('[data-qs-same-model-switch]')
+  );
+  const sameHint = root.querySelector('[data-qs-same-model-hint]');
+  const ownOcr = root.querySelector('[data-qs-ocr-own]');
+  const ocrKeyRow = root
+    .querySelector('[data-mirror="ocrApiKey"]')
+    ?.closest('[data-qs-field]');
+  const AI_MODEL_FIELDS = new Set([
+    'aiProvider',
+    'anthropicModel',
+    'ollamaUrl',
+    'ollamaModel',
+    'customBaseUrl',
+    'customModel',
+    'customApiKey',
+  ]);
+  let sameChosenOff = false;
+  let ocrSame = false;
+  let sameBefore = false;
+
+  const currentPlan = () => {
+    const provider = clean(valueOf('aiProvider')).toLowerCase();
+    const values = {};
+    [
+      'anthropicModel',
+      'ollamaUrl',
+      'ollamaModel',
+      'customBaseUrl',
+      'customModel',
+    ].forEach((id) => {
+      values[id] = valueOf(id);
+    });
+    return sameModelPlan({
+      aiProvider: provider,
+      values,
+      customKeyPresent: secretPresent('customApiKey'),
+    });
+  };
+  const ocrMatchesPlan = (plan) =>
+    usesSameModel(plan, {
+      ocrProvider: valueOf('ocrProvider'),
+      ocrUrl: valueOf('ocrApiUrl'),
+      ocrModel: valueOf('mistralOcrModel'),
+      ollamaUrl: valueOf('ollamaUrl'),
+    });
+
+  function writeReal(id, value) {
+    const real = field(id);
+    if (!real || real.disabled) return;
+    if (real.tagName === 'SELECT' && value) {
+      const known = Array.from(real.options).some(
+        (option) => option.value === value
+      );
+      if (!known) real.appendChild(new Option(value, value));
+    }
+    if (real.value === value) return;
+    real.value = value;
+    real.dispatchEvent(new Event('input', { bubbles: true }));
+    real.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // The provider first: its change listener refills the model list.
+  function copyPlan(plan) {
+    if (!plan || !plan.model) return;
+    writeReal('ocrProvider', plan.ocrProvider);
+    writeReal('ocrApiUrl', plan.url);
+    writeReal('mistralOcrModel', plan.model);
+  }
+
+  if (sameSwitch) {
+    sameSwitch.addEventListener('input', (event) => event.stopPropagation());
+    sameSwitch.addEventListener('change', (event) => {
+      event.stopPropagation();
+      sameChosenOff = !sameSwitch.checked;
+      if (sameSwitch.checked) copyPlan(currentPlan());
+      refresh();
+    });
+  }
+
+  // Runs before refresh() on every edit: an edit of the analysis model while
+  // OCR used it is copied along.
+  const followAnalysisModel = (event) => {
+    const id = event.target && event.target.id;
+    if (!AI_MODEL_FIELDS.has(id) || !sameBefore || sameChosenOff) return;
+    const plan = currentPlan();
+    if (plan && !ocrMatchesPlan(plan)) copyPlan(plan);
+  };
+  if (form) {
+    form.addEventListener('input', followAnalysisModel);
+    form.addEventListener('change', followAnalysisModel);
+  }
+
+  /** @returns {boolean} whether OCR uses the analysis model */
+  function refreshOcrModel() {
+    const plan = currentPlan();
+    const same = Boolean(plan) && !sameChosenOff && ocrMatchesPlan(plan);
+    sameBefore = same;
+    const offerSame = Boolean(plan && plan.model) && isOn('mistralOcrEnabled');
+    if (sameRow) sameRow.classList.toggle('hidden', !offerSame);
+    if (sameSwitch) {
+      if (sameSwitch.checked !== same) sameSwitch.checked = same;
+      const locked = ['ocrProvider', 'ocrApiUrl', 'mistralOcrModel'].some(
+        (id) => field(id) && field(id).disabled
+      );
+      sameSwitch.disabled = locked;
+    }
+    if (sameHint && plan) {
+      const name = `${selectedLabel('aiProvider') || valueOf('aiProvider')} · ${plan.model}`;
+      setText(
+        sameHint,
+        plan.ocrProvider === 'anthropic'
+          ? `OCR reads with ${name} from step 2, with its key. Claude reads PDFs and images.`
+          : `OCR reads with ${name} from step 2. Only a model that reads images can do OCR, such as qwen2.5vl, llava or gemma3. With a text-only model, every OCR run fails.`
+      );
+    }
+    if (ownOcr) ownOcr.classList.toggle('hidden', same && offerSame);
+    // Mistral needs a key; Claude and a local server fall back or need none.
+    if (ocrKeyRow && clean(valueOf('ocrProvider') || 'mistral') !== 'mistral') {
+      ocrKeyRow.classList.add('hidden');
+    }
+    return same && offerSame;
+  }
+
   /* Paperless-ngx connection ------------------------------------------------- */
 
   // The probe checks the stored configuration; once the address or the token
@@ -912,7 +1139,11 @@ export default function settingsQuickStart(root) {
         enabled: isOn('mistralOcrEnabled'),
         mode: valueOf('ocrBeforeAi'),
         tag: valueOf('ocrBeforeAiTag'),
-        providerLabel: selectedLabel('ocrProvider'),
+        providerLabel: ocrSame
+          ? `Same model as the analysis (${clean(valueOf('mistralOcrModel'))})`
+          : [selectedLabel('ocrProvider'), clean(valueOf('mistralOcrModel'))]
+              .filter(Boolean)
+              .join(' · '),
         needsKey:
           clean(valueOf('ocrProvider') || 'mistral') === 'mistral' &&
           !secretPresent('ocrApiKey'),
@@ -954,6 +1185,7 @@ export default function settingsQuickStart(root) {
     refreshMirrors();
     refreshSchedule();
     refreshTiming();
+    ocrSame = refreshOcrModel();
     summaries = summarize();
 
     steps.forEach((step, id) => {
