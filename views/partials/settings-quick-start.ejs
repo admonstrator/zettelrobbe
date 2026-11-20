@@ -161,14 +161,18 @@
                 <div class="zr-qs__switches">
                     <%- qsSwitch({ target: 'mistralOcrEnabled', label: 'Use OCR', hint: 'Reads a document again when its text from Paperless-ngx is too short or the analysis fails.' }) %>
                 </div>
+                <%# One question for the two switches that read the OCR queue
+                    (OCR_RUN_RIGHT_AWAY, OCR_AUTO_PROCESS_ENABLED); the module
+                    fills the answers and writes them into both switches. %>
+                <div class="zr-qs__field hidden" data-qs-ocr-timing>
+                    <label for="quickStartOcrTiming" class="zr-field__name">When should OCR run?</label>
+                    <select id="quickStartOcrTiming" class="zr-input" data-qs-ocr-timing-picker></select>
+                    <p class="zr-field__hint" data-qs-ocr-timing-hint></p>
+                    <p class="zr-field__hint zr-qs__locked hidden" data-qs-ocr-timing-note></p>
+                </div>
+                <%- qsInput({ target: 'ocrAutoProcessInterval', label: 'OCR schedule (cron)', hint: '<span data-qs-ocr-cron-words></span>' }) %>
                 <%- qsSelect({ target: 'ocrBeforeAi', label: 'OCR before the first analysis' }) %>
                 <%- qsInput({ target: 'ocrBeforeAiTag', label: 'OCR tag', hint: 'Documents with this Paperless-ngx tag go to OCR first.' }) %>
-                <div class="zr-alert zr-alert--warn hidden" data-qs-ocr-queue>
-                    <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
-                    <div class="zr-alert__body">
-                        <p class="zr-sm">These documents wait in the OCR queue until someone presses "Process All Pending" on the OCR page. Switch on <%- qsLink('ocrRunRightAway', 'Read queued documents right away') %> or <%- qsLink('ocrAutoProcessEnabled', 'Run the OCR queue on its own') %> in <%= qsTopic('ocr') %> to have them read automatically.</p>
-                    </div>
-                </div>
                 <%- qsMore('ocr', 'Provider, model, key and all options in ' + qsTopic('ocr')) %>
             </div>
         </div>
