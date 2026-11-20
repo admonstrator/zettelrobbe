@@ -14,7 +14,7 @@
  * Exports the singleton; the shapes are below.
  */
 
-/** How many finished documents a lane remembers for its "Ready" column. */
+/** How many finished documents a lane remembers. */
 const READY_LIMIT = 5;
 
 /** @typedef {'analysis' | 'ocr'} LaneName */
@@ -152,8 +152,8 @@ class ActivityService {
   }
 
   /**
-   * The lane let go of the document. Only 'done' puts it into the Ready
-   * column; a failure or a document that needed nothing just leaves.
+   * The lane let go of the document. Only 'done' puts it into the list of
+   * finished ones; a failure or a document that needed nothing just leaves.
    * Finishing a document the lane does not hold is a no-op, so a caller may
    * finish once with the outcome and once more from its finally.
    *

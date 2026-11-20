@@ -1,14 +1,14 @@
 /**
- * Test: the Task runner board on the dashboard
+ * Test: the Task runner status line on the dashboard
  *
  * Covers:
  * 1. services/activityService.js: what a lane holds, what reaches "Ready",
  *    and that bad input never throws
  * 2. The OCR queue is read oldest first, and the OCR cron's next run is known
  *    (a real database and a real node-cron task, in a child process)
- * 3. The browser helpers in public/js/modules/runner-board.js
+ * 3. The browser helpers in public/js/modules/runner-status.js
  * 4. The wiring: every caller reports to the lanes, the status endpoint
- *    carries `activity`, the card carries the board and the clock
+ *    carries `activity`, the card carries the status line and the clock
  */
 
 'use strict';
@@ -266,150 +266,152 @@ function inTempDir(code, env = {}) {
   // 3. Browser helpers
   // ────────────────────────────────────────────────────────────────────────
 
-  const board = await import(
-    path.join(ROOT, 'public', 'js', 'modules', 'runner-board.js')
+  const runnerModule = await import(
+    path.join(ROOT, 'public', 'js', 'modules', 'runner-status.js')
   );
-  const { describeBoard, describeStep, formatElapsed, WAITING_SHOWN } = board;
+  const { describeRunner, describeStep } = runnerModule;
   const now = new Date(2026, 10, 20, 14, 0, 0).getTime();
   const iso = (offsetMs) => new Date(now + offsetMs).toISOString();
 
-  await test('Steps read as words; the OCR page is named', () => {
-    assert.strictEqual(describeStep('ai'), 'Asking the AI');
-    assert.strictEqual(describeStep('writeback'), 'Writing back');
-    assert.strictEqual(describeStep('ocr'), 'Reading');
-    assert.strictEqual(describeStep('ocr', '3/7'), 'Reading page 3/7');
-    assert.strictEqual(describeStep('something'), 'Working');
+  await test('Steps read as plain words; the OCR page is named', () => {
+    assert.strictEqual(describeStep('analysis', 'ai'), 'Classifying document');
+    assert.strictEqual(
+      describeStep('analysis', 'writeback'),
+      'Writing back to Paperless-ngx'
+    );
+    assert.strictEqual(describeStep('ocr', 'ocr'), 'Reading with OCR');
+    assert.strictEqual(
+      describeStep('ocr', 'ocr', '3/7'),
+      'Reading with OCR · page 3 of 7'
+    );
+    assert.strictEqual(describeStep('ocr', 'ai'), 'Classifying document');
+    assert.strictEqual(describeStep('analysis', 'nope'), 'Processing document');
   });
 
-  await test('Elapsed time reads like a stopwatch', () => {
-    assert.strictEqual(formatElapsed(14_000), '0:14');
-    assert.strictEqual(formatElapsed(725_000), '12:05');
-    assert.strictEqual(formatElapsed(3_729_000), '1:02:09');
-    assert.strictEqual(formatElapsed(-5), '0:00');
-  });
-
-  await test('An empty or missing payload gives an empty board, OCR off', () => {
+  await test('Idle, or an empty payload, says so', () => {
     for (const data of [{}, null, undefined, { activity: {} }]) {
-      const view = describeBoard(data, { now });
-      assert.deepStrictEqual(view.analysis.active, []);
-      assert.deepStrictEqual(view.analysis.waiting.tickets, []);
-      assert.strictEqual(view.ocr.off, true);
+      const view = describeRunner(data, { now });
+      assert.strictEqual(view.label, 'System idle');
+      assert.strictEqual(view.documentId, null);
+      assert.strictEqual(view.busy, false);
+      assert.strictEqual(view.ocrWaiting, 0);
       assert.strictEqual(view.nextOcrRun, null);
-      assert.strictEqual(view.ticking, false);
     }
   });
 
-  await test('In progress: number, step and stopwatch; the board ticks', () => {
-    const view = describeBoard(
+  await test('A document in progress: its step, its title, its number', () => {
+    const view = describeRunner(
+      {
+        isScanning: true,
+        activity: {
+          analysis: {
+            active: [{ documentId: 123, title: 'Invoice', step: 'ai' }],
+          },
+        },
+      },
+      { now }
+    );
+    assert.deepStrictEqual(
+      [view.label, view.detail, view.documentId, view.busy],
+      ['Classifying document', 'Invoice', 123, true]
+    );
+  });
+
+  await test('OCR reading a page shows the page', () => {
+    const view = describeRunner(
+      {
+        activity: {
+          ocr: {
+            enabled: true,
+            running: true,
+            active: [
+              { documentId: 98, title: 'Lease', step: 'ocr', detail: '3/7' },
+            ],
+          },
+        },
+      },
+      { now }
+    );
+    assert.strictEqual(view.label, 'Reading with OCR · page 3 of 7');
+    assert.strictEqual(view.detail, 'Lease');
+    assert.strictEqual(view.documentId, 98);
+  });
+
+  await test('Analysis and OCR at once: the analysis leads, OCR is named', () => {
+    const view = describeRunner(
       {
         activity: {
           analysis: {
-            active: [
-              {
-                documentId: 123,
-                title: 'Invoice',
-                step: 'ai',
-                startedAt: iso(-14_000),
-              },
-            ],
+            active: [{ documentId: 5, title: 'Letter', step: 'checking' }],
           },
           ocr: {
             enabled: true,
-            active: [
-              {
-                documentId: 98,
-                title: 'Lease',
-                step: 'ocr',
-                detail: '3/7',
-                startedAt: iso(-161_000),
-              },
-            ],
+            active: [{ documentId: 98, title: 'Lease', step: 'ocr' }],
           },
         },
       },
       { now }
     );
-    assert.deepStrictEqual(
-      [
-        view.analysis.active[0].number,
-        view.analysis.active[0].step,
-        view.analysis.active[0].elapsed,
-      ],
-      ['#123', 'Asking the AI', '0:14']
-    );
-    assert.deepStrictEqual(
-      [
-        view.ocr.active[0].number,
-        view.ocr.active[0].step,
-        view.ocr.active[0].elapsed,
-      ],
-      ['#98', 'Reading page 3/7', '2:41']
-    );
-    assert.strictEqual(view.ticking, true);
+    assert.strictEqual(view.label, 'Checking document');
+    assert.strictEqual(view.detail, 'Letter · OCR busy with #98');
   });
 
-  await test('Waiting shows the first few tickets and counts the rest', () => {
-    const waiting = Array.from({ length: 8 }, (_, i) => ({
-      documentId: 100 + i,
-      title: `Scan ${i}`,
-    }));
-    const view = describeBoard(
-      { activity: { ocr: { enabled: true, waiting, waitingCount: 28 } } },
-      { now }
-    );
-    assert.strictEqual(view.ocr.waiting.tickets.length, WAITING_SHOWN);
-    assert.strictEqual(view.ocr.waiting.tickets[0].number, '#100');
-    assert.strictEqual(view.ocr.waiting.more, 28 - WAITING_SHOWN);
-  });
-
-  await test('The OCR waiting note says why nothing moves', () => {
-    const queue = { waiting: [{ documentId: 5 }], waitingCount: 1 };
-    const forScan = describeBoard(
-      { activity: { ocr: { enabled: true, ...queue, waitingForScan: true } } },
-      { now }
-    );
-    assert.strictEqual(forScan.ocr.note, 'Starts when the scan is done');
-
-    const scheduled = describeBoard(
+  await test('Without a document: scanning with its position, or reading the OCR queue', () => {
+    const scanning = describeRunner(
       {
-        activity: {
-          ocr: { enabled: true, ...queue, nextRunAt: iso(15 * 60_000) },
-        },
+        isScanning: true,
+        activity: { analysis: { scan: { checked: 120, total: 2300 } } },
       },
       { now }
     );
-    assert.strictEqual(scheduled.ocr.note, 'Next run 14:15');
+    assert.strictEqual(scanning.label, 'Scanning');
+    assert.strictEqual(scanning.detail, 'Checked 120 of 2300 documents');
 
-    const byHand = describeBoard(
-      { activity: { ocr: { enabled: true, ...queue } } },
+    const ocrRun = describeRunner(
+      { activity: { ocr: { enabled: true, running: true } } },
       { now }
     );
-    assert.strictEqual(byHand.ocr.note, 'Waits to be started');
-
-    const reading = describeBoard(
-      { activity: { ocr: { enabled: true, ...queue, running: true } } },
-      { now }
-    );
-    assert.strictEqual(reading.ocr.note, '');
+    assert.strictEqual(ocrRun.label, 'Reading the OCR queue');
+    assert.strictEqual(ocrRun.busy, true);
   });
 
-  await test('The analysis lane says where the scan is in its list', () => {
-    const view = describeBoard(
-      { activity: { analysis: { scan: { checked: 120, total: 2300 } } } },
+  await test('The old processing row still names the document', () => {
+    const view = describeRunner(
+      { currentlyProcessing: { documentId: 7, title: 'Old row' } },
       { now }
     );
-    assert.strictEqual(view.analysis.note, 'Scan checks 120 of 2300');
+    assert.deepStrictEqual(
+      [view.label, view.detail, view.documentId],
+      ['Processing document', 'Old row', 7]
+    );
+  });
+
+  await test('Documents waiting for OCR are counted, only with OCR on', () => {
+    assert.strictEqual(
+      describeRunner(
+        { activity: { ocr: { enabled: true, waitingCount: 28 } } },
+        { now }
+      ).ocrWaiting,
+      28
+    );
+    assert.strictEqual(
+      describeRunner(
+        { activity: { ocr: { enabled: false, waitingCount: 28 } } },
+        { now }
+      ).ocrWaiting,
+      0
+    );
   });
 
   await test('Next OCR run: clock time and countdown, "Reading now", or nothing', () => {
-    const next = describeBoard(
+    const next = describeRunner(
       { activity: { ocr: { enabled: true, nextRunAt: iso(15 * 60_000) } } },
       { now }
     );
     assert.strictEqual(next.nextOcrRun, '14:15 · in 15m 00s');
-    assert.strictEqual(next.ticking, true);
+    assert.strictEqual(next.counting, true);
 
-    const running = describeBoard(
+    const running = describeRunner(
       {
         activity: {
           ocr: { enabled: true, running: true, nextRunAt: iso(60_000) },
@@ -418,36 +420,32 @@ function inTempDir(code, env = {}) {
       { now }
     );
     assert.strictEqual(running.nextOcrRun, 'Reading now');
+    assert.strictEqual(running.counting, false);
 
-    const unarmed = describeBoard(
-      { activity: { ocr: { enabled: true, nextRunAt: null } } },
-      { now }
-    );
-    assert.strictEqual(unarmed.nextOcrRun, null);
-
-    const off = describeBoard(
-      { activity: { ocr: { enabled: false, nextRunAt: iso(60_000) } } },
-      { now }
-    );
-    assert.strictEqual(off.nextOcrRun, null);
+    for (const ocr of [
+      { enabled: true, nextRunAt: null },
+      { enabled: false, nextRunAt: iso(60_000) },
+    ]) {
+      assert.strictEqual(
+        describeRunner({ activity: { ocr } }, { now }).nextOcrRun,
+        null
+      );
+    }
   });
 
-  await test('Ready shows the last three, OCR off shows none', () => {
-    const ready = [1, 2, 3, 4, 5].map((documentId) => ({ documentId }));
-    const view = describeBoard(
+  await test('A long title is cut', () => {
+    const view = describeRunner(
       {
         activity: {
-          analysis: { ready },
-          ocr: { enabled: false, ready },
+          analysis: {
+            active: [{ documentId: 1, title: 'x'.repeat(200), step: 'ai' }],
+          },
         },
       },
       { now }
     );
-    assert.deepStrictEqual(
-      view.analysis.ready.map((t) => t.number),
-      ['#1', '#2', '#3']
-    );
-    assert.deepStrictEqual(view.ocr.ready, []);
+    assert.ok(view.detail.length <= 91);
+    assert.ok(view.detail.endsWith('…'));
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -503,22 +501,20 @@ function inTempDir(code, env = {}) {
     assert.ok(props.activity, 'activity in the response');
   });
 
-  await test('The Task runner card carries both lanes, three columns and the next OCR run', () => {
+  await test('The Task runner card carries one status line, the clock and the OCR count', () => {
     const card = read('views', 'partials', 'widgets', 'task-runner.ejs');
-    assert.ok(card.includes('id="runnerBoard"'));
-    assert.ok(card.includes("['analysis', 'Analysis'], ['ocr', 'OCR']"));
-    for (const hook of [
-      'data-lane-waiting',
-      'data-lane-active',
-      'data-lane-ready',
+    for (const id of [
+      'runnerLabel',
+      'runnerDetail',
+      'currentDocId',
+      'ocrWaitingRow',
+      'ocrWaitingCount',
+      'ocrNextRunRow',
+      'ocrNextRun',
     ]) {
-      assert.ok(card.includes(hook), hook);
+      assert.ok(card.includes(`id="${id}"`), `#${id} missing`);
     }
-    for (const label of ['Waiting', 'In progress', 'Ready']) {
-      assert.ok(card.includes(`<span>${label}</span>`), label);
-    }
-    assert.ok(card.includes('id="ocrNextRunRow"'));
-    assert.ok(card.includes('id="ocrNextRun"'));
+    assert.ok(!card.includes('runnerBoard'), 'no board any more');
     const status = read(
       'views',
       'partials',
