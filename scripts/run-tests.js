@@ -170,6 +170,7 @@ const TESTS = {
   'ocr-queue-add-endpoint': 'test-ocr-queue-add-endpoint.js',
   'ocr-before-ai': 'test-ocr-before-ai.js',
   'ocr-before-ai-once': 'test-ocr-before-ai-once.js',
+  'ocr-run-right-away': 'test-ocr-run-right-away.js',
   'entity-merge-model': 'test-entity-merge-model.js',
   'entity-name-matcher': 'test-entity-name-matcher.js',
   'duplicate-merge-service': 'test-duplicate-merge-service.js',
@@ -276,6 +277,7 @@ const AREAS = {
     'ocr-queue-add-endpoint',
     'ocr-before-ai',
     'ocr-before-ai-once',
+    'ocr-run-right-away',
   ],
   observability: [
     'changelog-releases',

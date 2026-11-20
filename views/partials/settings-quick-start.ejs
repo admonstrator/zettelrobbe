@@ -166,7 +166,7 @@
                 <div class="zr-alert zr-alert--warn hidden" data-qs-ocr-queue>
                     <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
                     <div class="zr-alert__body">
-                        <p class="zr-sm">These documents wait in the OCR queue until someone presses "Process All Pending" on the OCR page. Switch on <%- qsLink('ocrAutoProcessEnabled', 'Run the OCR queue on its own') %> in <%= qsTopic('ocr') %> to have it done on a schedule.</p>
+                        <p class="zr-sm">These documents wait in the OCR queue until someone presses "Process All Pending" on the OCR page. Switch on <%- qsLink('ocrRunRightAway', 'Read queued documents right away') %> or <%- qsLink('ocrAutoProcessEnabled', 'Run the OCR queue on its own') %> in <%= qsTopic('ocr') %> to have them read automatically.</p>
                     </div>
                 </div>
                 <%- qsMore('ocr', 'Provider, model, key and all options in ' + qsTopic('ocr')) %>

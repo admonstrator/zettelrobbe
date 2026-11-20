@@ -571,6 +571,10 @@ const mistralOcr = liveBlock({
   autoProcessEnabled: () => envBool('OCR_AUTO_PROCESS_ENABLED', 'no'),
   autoProcessInterval: () => env('OCR_AUTO_PROCESS_INTERVAL', '*/15 * * * *'),
   autoProcessBatchSize: () => envInt('OCR_AUTO_PROCESS_BATCH_SIZE', '10'),
+  // Read the queue as soon as the scan or webhook run that queued a document
+  // has ended (services/ocrAutoProcessService.js afterRun), next to the cron
+  // above. Does nothing while OCR is switched off.
+  runRightAway: () => envBool('OCR_RUN_RIGHT_AWAY', 'no'),
   // Run AI analysis right after OCR. Defaults to yes because a failed
   // content write-back leaves the OCR text local-only, where a regular
   // scan would never pick it up.

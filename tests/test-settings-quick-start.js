@@ -452,6 +452,36 @@ class StubElement {
         .text,
       'X · when the text is too short or the analysis fails'
     );
+    // OCR_RUN_RIGHT_AWAY ends a complete summary; an open one says only what
+    // is missing.
+    assert.strictEqual(
+      qs.summarizeOcr({
+        enabled: true,
+        mode: 'all',
+        providerLabel: 'Claude',
+        rightAway: true,
+      }).text,
+      'Claude · before the analysis of every new document · read right away'
+    );
+    assert.strictEqual(
+      qs.summarizeOcr({ enabled: true, providerLabel: 'X', rightAway: true })
+        .text,
+      'X · when the text is too short or the analysis fails · read right away'
+    );
+    assert.deepStrictEqual(
+      qs.summarizeOcr({
+        enabled: true,
+        mode: 'tagged',
+        tag: '',
+        providerLabel: 'X',
+        rightAway: true,
+      }),
+      { state: 'open', text: 'X · no OCR tag yet' }
+    );
+    assert.deepStrictEqual(
+      qs.summarizeOcr({ enabled: false, rightAway: true }),
+      { state: 'skipped', text: 'Off' }
+    );
   });
 
   await test('When it runs: the schedule in the words of describeSchedule', () => {

@@ -21,7 +21,7 @@ const config = require('../config/config.js');
 const paperlessService = require('./paperlessService.js');
 /** @type {Record<string, any>} */
 const documentModel = require('../models/document.js');
-/** @type {{ running: boolean }} */
+/** @type {{ running: boolean, afterRun: (trigger: string, queued: number) => unknown }} */
 const ocrAutoProcessService = require('./ocrAutoProcessService.js');
 /** @type {{ isRunning: () => boolean }} */
 const duplicateReviewJobService = require('./duplicateReviewJobService.js');
@@ -209,6 +209,9 @@ class ScanService {
     scanControl.startedAt = new Date().toISOString();
     scanControl.stopRequestedAt = null;
     scanHealthService.recordRunStart(source);
+    // What the pipeline has queued for OCR so far; the difference at the end
+    // is what this run queued.
+    const queuedForOcrAtStart = documentPipeline.queuedForOcr;
 
     console.info(`Scan started (source=${source})`);
 
@@ -368,6 +371,16 @@ class ScanService {
           `[DASHBOARD-STATS] Refresh after scan failed: ${error.message}`
         );
       });
+
+      // With OCR_RUN_RIGHT_AWAY on, the documents this run put into the OCR
+      // queue are read now rather than at the next OCR cron. The scan is
+      // over, so OCR has the AI backend to itself. Called after every run:
+      // a webhook that queued a document during the scan waits for this.
+      // Detached and never throws.
+      ocrAutoProcessService.afterRun(
+        'scan',
+        documentPipeline.queuedForOcr - queuedForOcrAtStart
+      );
     }
   }
 }

@@ -161,6 +161,17 @@ class DocumentPipeline {
      * @type {Set<number>}
      */
     this.inFlight = new Set();
+    /**
+     * Documents this process has put into the OCR queue. A caller reads it
+     * before and after its run and hands the difference to
+     * services/ocrAutoProcessService.js afterRun(), which then has the queue
+     * read right away (OCR_RUN_RIGHT_AWAY). Process-wide like inFlight: when
+     * the scan and the webhook queue run side by side, each may count a
+     * document the other queued, which only notes the same drain twice.
+     *
+     * @type {number}
+     */
+    this.queuedForOcr = 0;
   }
 
   /**
@@ -632,7 +643,9 @@ class DocumentPipeline {
       { skipIfProcessed: true }
     );
 
-    if (!queued) {
+    if (queued) {
+      this.queuedForOcr += 1;
+    } else {
       const queueItem = await documentModel.getOcrQueueItem(doc.id);
       let state = 'already processed';
       if (queueItem?.status === 'done') {

@@ -983,6 +983,15 @@ router.get(
  *                 description: OCR fallback provider. For anthropic (Claude OCR) an empty ocrApiKey uses the Anthropic AI key, and ocrApiUrl is an optional proxy URL; a key or URL stored for another provider is cleared when switching to it.
  *                 enum: ["mistral", "custom", "ollama", "anthropic"]
  *                 example: "mistral"
+ *               ocrRunRightAway:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: >-
+ *                   Read the OCR queue as soon as the scan run, webhook delivery or rescan that queued
+ *                   a document has ended, and analyse right after when ocrAutoAnalyze is on
+ *                   (OCR_RUN_RIGHT_AWAY, default no). Works next to ocrAutoProcessEnabled, does nothing
+ *                   while OCR is disabled, and applies without a restart.
+ *                 example: "no"
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)

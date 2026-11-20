@@ -1389,35 +1389,40 @@ function initializeFormHandlers() {
 
   // OCR before the first analysis: one hint per value, the tag field only
   // for "tagged", and the queue note says who works the queue, which follows
-  // the automatic processing switch.
+  // the two switches that read it: right after the run, or on a schedule.
   const ocrBeforeAiSelect = document.getElementById('ocrBeforeAi');
+  const ocrRunRightAwayInput = document.getElementById('ocrRunRightAway');
   const toggleOcrBeforeAiFields = () => {
     if (!ocrBeforeAiSelect) return;
     const mode = ocrBeforeAiSelect.value;
     const queueRunsItself = ocrAutoProcessValueInput?.value === 'yes';
+    const rightAway = ocrRunRightAwayInput?.value === 'yes';
+    const queueIsRead = queueRunsItself || rightAway;
     [
       ['ocrBeforeAiHintOff', mode === 'off'],
       ['ocrBeforeAiHintTagged', mode === 'tagged'],
       ['ocrBeforeAiHintAll', mode === 'all'],
       ['ocrBeforeAiTagContainer', mode === 'tagged'],
       ['ocrBeforeAiQueueNote', mode !== 'off'],
-      ['ocrBeforeAiQueueManual', !queueRunsItself],
-      ['ocrBeforeAiQueueAuto', queueRunsItself],
+      ['ocrBeforeAiQueueManual', !queueIsRead],
+      ['ocrBeforeAiQueueAuto', queueRunsItself && !rightAway],
+      ['ocrBeforeAiQueueRightAway', rightAway],
     ].forEach(([id, shown]) => {
       document.getElementById(id)?.classList.toggle('hidden', !shown);
     });
     const queueNote = document.getElementById('ocrBeforeAiQueueNote');
-    queueNote?.classList.toggle('zr-alert--info', queueRunsItself);
-    queueNote?.classList.toggle('zr-alert--warn', !queueRunsItself);
+    queueNote?.classList.toggle('zr-alert--info', queueIsRead);
+    queueNote?.classList.toggle('zr-alert--warn', !queueIsRead);
     document
       .getElementById('ocrBeforeAiQueueIcon')
       ?.setAttribute(
         'href',
-        `/icons.svg#${queueRunsItself ? 'i-info' : 'i-alert'}`
+        `/icons.svg#${queueIsRead ? 'i-info' : 'i-alert'}`
       );
   };
   ocrBeforeAiSelect?.addEventListener('change', toggleOcrBeforeAiFields);
   ocrAutoProcessValueInput?.addEventListener('change', toggleOcrBeforeAiFields);
+  ocrRunRightAwayInput?.addEventListener('change', toggleOcrBeforeAiFields);
   toggleOcrBeforeAiFields();
 
   const quickstartUrlInput = document.getElementById('settingsQuickstartUrl');
@@ -3184,6 +3189,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#ocrPdfRenderEnabled', envKey: 'OCR_PDF_RENDER_ENABLED' },
     { selector: '#ocrPdfRenderMaxPages', envKey: 'OCR_PDF_RENDER_MAX_PAGES' },
     { selector: '#ocrPdfRenderDpi', envKey: 'OCR_PDF_RENDER_DPI' },
+    { selector: '#ocrRunRightAway', envKey: 'OCR_RUN_RIGHT_AWAY' },
     {
       selector: '#ocrAutoProcessEnabled',
       envKey: 'OCR_AUTO_PROCESS_ENABLED',
