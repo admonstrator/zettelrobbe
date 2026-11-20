@@ -71,6 +71,62 @@ export const SCHEDULE_PRESETS = Object.freeze([
   '0 */6 * * *',
 ]);
 
+/**
+ * When OCR reads its queue, as one answer: the two switches OCR_RUN_RIGHT_AWAY
+ * (`rightAway`) and OCR_AUTO_PROCESS_ENABLED (`schedule`) in one picker. The
+ * first is the one to recommend: a document gets OCR and its analysis without
+ * waiting for a schedule.
+ */
+export const OCR_TIMINGS = Object.freeze([
+  Object.freeze({
+    value: 'right-away',
+    rightAway: true,
+    schedule: false,
+    label: 'Right after the scan (recommended)',
+    words: 'read right away',
+    hint: 'A document that needs OCR is read as soon as the scan, webhook or rescan that found it has finished, and analysed right after. Nothing waits for a schedule.',
+  }),
+  Object.freeze({
+    value: 'schedule',
+    rightAway: false,
+    schedule: true,
+    label: 'On its own schedule',
+    words: 'read on a schedule',
+    hint: 'OCR reads the queue on a schedule of its own, every 15 minutes unless you change it below. A document can wait for the scan and then for the OCR schedule.',
+  }),
+  Object.freeze({
+    value: 'both',
+    rightAway: true,
+    schedule: true,
+    label: 'Right after the scan, and on a schedule',
+    words: 'read right away and on a schedule',
+    hint: 'OCR reads a document right after the scan that found it, and the schedule reads whatever is still waiting, for example after a restart.',
+  }),
+  Object.freeze({
+    value: 'manual',
+    rightAway: false,
+    schedule: false,
+    label: 'Only when I start it',
+    words: 'read when started by hand',
+    hint: 'Documents wait in the OCR queue until someone presses "Process All Pending" on the OCR page.',
+  }),
+]);
+
+/**
+ * The answer the two switches give.
+ *
+ * @param {{rightAway: boolean, schedule: boolean}} input
+ * @returns {string} a value of OCR_TIMINGS
+ */
+export function ocrTiming({ rightAway, schedule }) {
+  const match = OCR_TIMINGS.find(
+    (timing) =>
+      timing.rightAway === Boolean(rightAway) &&
+      timing.schedule === Boolean(schedule)
+  );
+  return match ? match.value : 'manual';
+}
+
 /** Read out with the row, since the mark in front of it is a picture. */
 export const STATE_WORDS = Object.freeze({
   done: 'Done.',
@@ -258,10 +314,12 @@ export function summarizePrompt({
 /**
  * Step 5: OCR, which is optional. Off it is not counted as done, and not as
  * missing either. `mode` is OCR_BEFORE_AI (off, tagged, all); an unknown value
- * reads as off, as config/config.js reads it. `rightAway` is
- * OCR_RUN_RIGHT_AWAY: a complete summary ends with it when it is on.
+ * reads as off, as config/config.js reads it. `timing` is a value of
+ * OCR_TIMINGS: a complete summary ends with its words. Without it, `rightAway`
+ * (OCR_RUN_RIGHT_AWAY) alone adds "read right away". `undecided` is set while
+ * OCR was just switched on and nobody has said yet when it runs.
  *
- * @param {{enabled: boolean, mode?: string, tag?: string, providerLabel?: string, needsKey?: boolean, rightAway?: boolean}} input
+ * @param {{enabled: boolean, mode?: string, tag?: string, providerLabel?: string, needsKey?: boolean, rightAway?: boolean, timing?: string, undecided?: boolean}} input
  * @returns {StepSummary}
  */
 export function summarizeOcr({
@@ -271,13 +329,24 @@ export function summarizeOcr({
   providerLabel = '',
   needsKey = false,
   rightAway = false,
+  timing = '',
+  undecided = false,
 }) {
   if (!enabled) return { state: 'skipped', text: 'Off' };
   const label = clean(providerLabel) || 'OCR';
   if (needsKey) return { state: 'open', text: `${label} · no API key yet` };
+  if (undecided) {
+    return { state: 'open', text: `${label} · choose when OCR runs` };
+  }
+  const chosen = OCR_TIMINGS.find((item) => item.value === timing);
+  const tail = chosen
+    ? ` · ${chosen.words}`
+    : rightAway
+      ? ' · read right away'
+      : '';
   const done = (when) => ({
     state: 'done',
-    text: `${label} · ${when}${rightAway ? ' · read right away' : ''}`,
+    text: `${label} · ${when}${tail}`,
   });
   const when = clean(mode).toLowerCase();
   if (when === 'tagged') {
@@ -687,6 +756,91 @@ export default function settingsQuickStart(root) {
     setText(cronWords, cron ? scheduleWords(cron) : '');
   }
 
+  /* when OCR runs ------------------------------------------------------------ */
+
+  // One question for two switches of the OCR topic. Switched on here or in its
+  // own topic, OCR asks it at once when neither switch is on yet: the picker
+  // then shows no answer and the step stays open until one is chosen.
+  const timingRow = root.querySelector('[data-qs-ocr-timing]');
+  const timingPicker = root.querySelector('[data-qs-ocr-timing-picker]');
+  const timingHint = root.querySelector('[data-qs-ocr-timing-hint]');
+  const timingNote = root.querySelector('[data-qs-ocr-timing-note]');
+  const ocrCronWords = root.querySelector('[data-qs-ocr-cron-words]');
+  const timingReals = () => ({
+    rightAway: resolveMirrorTarget('ocrRunRightAway', doc),
+    schedule: resolveMirrorTarget('ocrAutoProcessEnabled', doc),
+  });
+  const placeholder = new Option('Choose when OCR runs', '');
+  placeholder.disabled = true;
+  let ocrWasOn = null;
+  let timingUndecided = false;
+
+  const currentTiming = () =>
+    ocrTiming({
+      rightAway: isOn('ocrRunRightAway'),
+      schedule: isOn('ocrAutoProcessEnabled'),
+    });
+
+  if (timingPicker) {
+    timingPicker.replaceChildren(
+      placeholder,
+      ...OCR_TIMINGS.map((timing) => new Option(timing.label, timing.value))
+    );
+    timingPicker.addEventListener('input', (event) => event.stopPropagation());
+    timingPicker.addEventListener('change', (event) => {
+      event.stopPropagation();
+      const chosen = OCR_TIMINGS.find(
+        (timing) => timing.value === timingPicker.value
+      );
+      if (!chosen) return;
+      timingUndecided = false;
+      const reals = timingReals();
+      [
+        [reals.rightAway, chosen.rightAway],
+        [reals.schedule, chosen.schedule],
+      ].forEach(([real, wanted]) => {
+        if (!real || real.disabled || real.checked === wanted) return;
+        real.checked = wanted;
+        real.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      refresh();
+    });
+  }
+
+  function refreshTiming() {
+    const ocrOn = isOn('mistralOcrEnabled');
+    // Switched on during this visit with neither switch on: ask.
+    if (ocrWasOn === false && ocrOn && currentTiming() === 'manual') {
+      timingUndecided = true;
+    }
+    if (!ocrOn) timingUndecided = false;
+    ocrWasOn = ocrOn;
+    if (!timingRow || !timingPicker) return;
+
+    const reals = timingReals();
+    const offered =
+      ocrOn && Boolean(reals.rightAway) && isAvailable(reals.rightAway);
+    timingRow.classList.toggle('hidden', !offered);
+    const value = timingUndecided ? '' : currentTiming();
+    if (timingPicker.value !== value) timingPicker.value = value;
+    timingPicker.toggleAttribute('aria-invalid', timingUndecided);
+
+    const chosen = OCR_TIMINGS.find((timing) => timing.value === value);
+    setText(
+      timingHint,
+      chosen
+        ? chosen.hint
+        : 'Right after the scan gives a document OCR and its analysis without waiting.'
+    );
+    const note =
+      lockNote(reals.rightAway, lockedKeys) ||
+      lockNote(reals.schedule, lockedKeys);
+    timingPicker.disabled = Boolean(note);
+    setText(timingNote, note);
+    if (timingNote) timingNote.classList.toggle('hidden', !note);
+    setText(ocrCronWords, scheduleWords(valueOf('ocrAutoProcessInterval')));
+  }
+
   /* Paperless-ngx connection ------------------------------------------------- */
 
   // The probe checks the stored configuration; once the address or the token
@@ -762,7 +916,8 @@ export default function settingsQuickStart(root) {
         needsKey:
           clean(valueOf('ocrProvider') || 'mistral') === 'mistral' &&
           !secretPresent('ocrApiKey'),
-        rightAway: isOn('ocrRunRightAway'),
+        timing: currentTiming(),
+        undecided: timingUndecided,
       }),
       run: summarizeRun({
         automatic: !isOn('disableAutomaticProcessing'),
@@ -778,7 +933,6 @@ export default function settingsQuickStart(root) {
     root.querySelector('[data-qs-count]') ||
     (entry && entry.querySelector('[data-qs-count]'));
   const promptTagsNote = root.querySelector('[data-qs-prompt-tags]');
-  const ocrQueueNote = root.querySelector('[data-qs-ocr-queue]');
   const runTags = root.querySelector('[data-qs-run-tags]');
   const runTagList = root.querySelector('[data-qs-run-tag-list]');
 
@@ -799,6 +953,7 @@ export default function settingsQuickStart(root) {
   function refresh() {
     refreshMirrors();
     refreshSchedule();
+    refreshTiming();
     summaries = summarize();
 
     steps.forEach((step, id) => {
@@ -818,18 +973,6 @@ export default function settingsQuickStart(root) {
 
     if (promptTagsNote) {
       promptTagsNote.classList.toggle('hidden', !isOn('usePromptTags'));
-    }
-    // OCR before the analysis only queues the document; unless the queue is
-    // read right after the run or on a schedule, it waits there until
-    // someone starts the queue.
-    if (ocrQueueNote) {
-      const queues =
-        isOn('mistralOcrEnabled') &&
-        ['tagged', 'all'].includes(clean(valueOf('ocrBeforeAi')).toLowerCase());
-      ocrQueueNote.classList.toggle(
-        'hidden',
-        !queues || isOn('ocrRunRightAway') || isOn('ocrAutoProcessEnabled')
-      );
     }
     if (runTags) {
       const tags = listFromCsv(valueOf('tags'));

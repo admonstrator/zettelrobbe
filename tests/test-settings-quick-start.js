@@ -484,6 +484,82 @@ class StubElement {
     );
   });
 
+  await test('OCR timing: one answer for the two queue switches', () => {
+    assert.deepStrictEqual(
+      qs.OCR_TIMINGS.map((timing) => timing.value),
+      ['right-away', 'schedule', 'both', 'manual']
+    );
+    assert.match(qs.OCR_TIMINGS[0].label, /recommended/);
+    assert.strictEqual(
+      qs.ocrTiming({ rightAway: true, schedule: false }),
+      'right-away'
+    );
+    assert.strictEqual(
+      qs.ocrTiming({ rightAway: false, schedule: true }),
+      'schedule'
+    );
+    assert.strictEqual(
+      qs.ocrTiming({ rightAway: true, schedule: true }),
+      'both'
+    );
+    assert.strictEqual(
+      qs.ocrTiming({ rightAway: false, schedule: false }),
+      'manual'
+    );
+    // Every answer maps back to itself.
+    qs.OCR_TIMINGS.forEach((timing) =>
+      assert.strictEqual(qs.ocrTiming(timing), timing.value)
+    );
+    // The answer ends the summary; undecided keeps the step open.
+    assert.strictEqual(
+      qs.summarizeOcr({
+        enabled: true,
+        providerLabel: 'Claude',
+        mode: 'tagged',
+        tag: 'needs-ocr',
+        timing: 'schedule',
+      }).text,
+      'Claude · before the analysis of documents tagged needs-ocr · read on a schedule'
+    );
+    assert.strictEqual(
+      qs.summarizeOcr({ enabled: true, providerLabel: 'X', timing: 'manual' })
+        .text,
+      'X · when the text is too short or the analysis fails · read when started by hand'
+    );
+    assert.deepStrictEqual(
+      qs.summarizeOcr({
+        enabled: true,
+        providerLabel: 'X',
+        timing: 'manual',
+        undecided: true,
+      }),
+      { state: 'open', text: 'X · choose when OCR runs' }
+    );
+    assert.deepStrictEqual(
+      qs.summarizeOcr({ enabled: false, undecided: true }),
+      { state: 'skipped', text: 'Off' }
+    );
+  });
+
+  await test('Partial: the OCR step asks when OCR runs, right below the switch', () => {
+    const source = fs.readFileSync(PARTIAL, 'utf8');
+    const ocr = source.slice(
+      source.indexOf('data-qs-step="ocr"'),
+      source.indexOf('data-qs-step="run"')
+    );
+    const at = (needle) => {
+      const index = ocr.indexOf(needle);
+      assert.ok(index > -1, `missing ${needle}`);
+      return index;
+    };
+    assert.ok(
+      at("target: 'mistralOcrEnabled'") < at('data-qs-ocr-timing-picker')
+    );
+    assert.ok(at('data-qs-ocr-timing-picker') < at("target: 'ocrBeforeAi'"));
+    assert.ok(at("target: 'ocrAutoProcessInterval'") > -1);
+    assert.ok(!ocr.includes('data-qs-ocr-queue'));
+  });
+
   await test('When it runs: the schedule in the words of describeSchedule', () => {
     assert.strictEqual(
       qs.scheduleWords('*/30 * * * *'),
