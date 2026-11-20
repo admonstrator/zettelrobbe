@@ -11,7 +11,7 @@ import { renderSpark } from './spark.js';
 import { renderBarList } from './bar-list.js';
 import { formatTimeAgo, updateScannerHealthBanner } from './scanner-health.js';
 import { describeScanSchedule } from './scan-schedule.js';
-import { describeBoard, renderBoard } from './runner-board.js';
+import { describeRunner } from './runner-status.js';
 import { escapeHtml } from './text-utils.js';
 import { formatDate } from './date-format.js';
 
@@ -435,10 +435,9 @@ export default function dashboard(root, { toast }) {
   /* --- scan clock ------------------------------------------------------ */
 
   // Last scan, next scan with a countdown, the schedule in words and the
-  // board of the two lanes, all in the Task runner card. The countdowns and
-  // the timers move every second between two polls by re-rendering the last
-  // status body; they only tick while something counts and the tab is
-  // visible.
+  // next OCR run, all in the Task runner card. The countdowns move every
+  // second between two polls by re-rendering the last status body; they only
+  // tick while something counts and the tab is visible.
   let scanStatus = null;
   let scanTick = null;
 
@@ -474,12 +473,13 @@ export default function dashboard(root, { toast }) {
       else schedule.removeAttribute('title');
     }
 
-    const formatDay = (date) => formatDate(date);
-    const board = describeBoard(scanStatus, { formatDay });
-    const card = byId('runnerBoard')?.closest('[data-widget="task-runner"]');
-    if (card) renderBoard(card, board);
+    const runner = describeRunner(scanStatus, {
+      formatDay: (date) => formatDate(date),
+    });
+    byId('ocrNextRunRow')?.classList.toggle('hidden', !runner.nextOcrRun);
+    if (runner.nextOcrRun) setTextOnChange('ocrNextRun', runner.nextOcrRun);
 
-    syncScanTick(view.counting || board.ticking);
+    syncScanTick(view.counting || runner.counting);
   }
 
   function updateScanClock(data) {
@@ -553,41 +553,19 @@ export default function dashboard(root, { toast }) {
       const dot = byId('runnerDot');
       const docIdBadge = byId('currentDocId');
 
-      if (data.currentlyProcessing) {
-        const title = String(data.currentlyProcessing.title || '');
-        setText('runnerLabel', 'Processing document');
-        setText(
-          'runnerDetail',
-          title.length > 90 ? `${title.slice(0, 90)}…` : title
-        );
-        if (docIdBadge) {
-          docIdBadge.textContent = `#${data.currentlyProcessing.documentId}`;
-          docIdBadge.classList.remove('hidden');
-        }
+      // One line: what happens right now and on which document.
+      const runner = describeRunner(data);
+      setText('runnerLabel', runner.label);
+      setText('runnerDetail', runner.detail);
+      if (docIdBadge) {
+        docIdBadge.textContent = runner.documentId
+          ? `#${runner.documentId}`
+          : '';
+        docIdBadge.classList.toggle('hidden', !runner.documentId);
+      }
+      if (runner.documentId) {
         setText('lastProcessed', 'in progress');
       } else {
-        // OCR reads the queue on its own, outside a scan.
-        const ocrActivity = data.activity?.ocr;
-        const ocrBusy = Boolean(
-          ocrActivity?.running || ocrActivity?.active?.length
-        );
-        setText(
-          'runnerLabel',
-          isScanning
-            ? 'Scanning'
-            : ocrBusy
-              ? 'Reading the OCR queue'
-              : 'System idle'
-        );
-        setText(
-          'runnerDetail',
-          isScanning
-            ? 'Looking for documents to process'
-            : ocrBusy
-              ? 'OCR reads one document after the other'
-              : 'Waiting for new documents'
-        );
-        docIdBadge?.classList.add('hidden');
         setText(
           'lastProcessed',
           data.lastProcessed
@@ -598,9 +576,11 @@ export default function dashboard(root, { toast }) {
             : 'no data'
         );
       }
+      byId('ocrWaitingRow')?.classList.toggle('hidden', !runner.ocrWaiting);
+      setText('ocrWaitingCount', formatNumber(runner.ocrWaiting));
 
       if (dot)
-        dot.className = `zr-dot ${isScanning || data.activity?.ocr?.running ? 'zr-dot--live' : 'zr-dot--ok'}`;
+        dot.className = `zr-dot ${runner.busy ? 'zr-dot--live' : 'zr-dot--ok'}`;
 
       setScanButtons(isScanning, Boolean(data.stopRequested));
       updateScannerHealthBanner(

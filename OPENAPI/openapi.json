@@ -478,7 +478,7 @@
       },
       "TaskRunnerDocument": {
         "type": "object",
-        "description": "A document on the Task runner board",
+        "description": "A document in one of the two lanes of `activity`",
         "properties": {
           "documentId": {
             "type": "integer",
@@ -526,7 +526,7 @@
       },
       "TaskRunnerLane": {
         "type": "object",
-        "description": "One lane of the Task runner board",
+        "description": "One lane of `activity` (analysis or OCR)",
         "properties": {
           "active": {
             "type": "array",
@@ -5817,7 +5817,7 @@
     "/api/processing-status": {
       "get": {
         "summary": "Get document processing status",
-        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n\n`scanner` also tells when the automatic scan runs: `scanInterval` is\nthe cron expression, `lastRunFinishedAt` the end of the last run and\n`nextRunAt` the next time the armed scheduler fires (null when\nautomatic processing is off or the scheduler is not armed). The\ndashboard counts down to it between two polls.\n\n`activity` is the Task runner board: for the analysis lane and the\nOCR lane, the documents that wait, the ones in progress with their\nstep, and the last ones finished (kept in memory, empty after a\nrestart). `activity.ocr.nextRunAt` is when the OCR cron reads the\nqueue next.\n",
+        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n\n`scanner` also tells when the automatic scan runs: `scanInterval` is\nthe cron expression, `lastRunFinishedAt` the end of the last run and\n`nextRunAt` the next time the armed scheduler fires (null when\nautomatic processing is off or the scheduler is not armed). The\ndashboard counts down to it between two polls.\n\n`activity` says what the analysis lane and the OCR lane are doing:\nthe documents that wait, the ones in progress with their\nstep, and the last ones finished (kept in memory, empty after a\nrestart). `activity.ocr.nextRunAt` is when the OCR cron reads the\nqueue next.\n",
         "tags": [
           "Documents",
           "System",

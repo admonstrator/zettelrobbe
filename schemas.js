@@ -394,7 +394,7 @@
  *
  *     TaskRunnerDocument:
  *       type: object
- *       description: A document on the Task runner board
+ *       description: A document in one of the two lanes of `activity`
  *       properties:
  *         documentId:
  *           type: integer
@@ -427,7 +427,7 @@
  *
  *     TaskRunnerLane:
  *       type: object
- *       description: One lane of the Task runner board
+ *       description: One lane of `activity` (analysis or OCR)
  *       properties:
  *         active:
  *           type: array

@@ -73,7 +73,7 @@
 
   /* --- the scan clock -----------------------------------------------------
      Last scan, next scan, the schedule and the next OCR run in the Task
-     runner, under the board; the rule above it separates the two. It never
+     runner, under the status line; the rule above it separates the two. It never
      shrinks in a sized tile, and every value stays on one line: the countdown changes every second and
      must not make the card grow and shrink as its text gets longer. A value
      too long for a narrow card ends in an ellipsis; the raw cron expression is
@@ -578,131 +578,6 @@
     }
     .zr-module[data-rows] > .is-clipped {
       mask-image: none;
-    }
-  }
-
-  /* --- the runner board ---------------------------------------------------
-     Two lanes (Analysis, OCR) across three columns (Waiting, In progress,
-     Ready), like the pick-up screen at a counter: a document is a ticket with
-     its number, and the column says where it is. A grid whose rows are the
-     lanes; the head and the lanes are display: contents so their cells line
-     up in one grid. In a narrow card each lane becomes a block of its own and
-     every cell names its column, since the head row is gone. */
-  .runner-board {
-    display: grid;
-    grid-template-columns: max-content repeat(3, minmax(0, 1fr));
-    gap: var(--zr-2) var(--zr-4);
-    align-items: start;
-    padding-top: var(--zr-2);
-    border-top: 1px solid var(--zr-line);
-  }
-  .runner-board__head,
-  .runner-lane {
-    display: contents;
-  }
-  .runner-board__head > span,
-  .runner-lane__label {
-    font-size: var(--zr-fs-xs);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--zr-text-faint);
-  }
-  .runner-lane__label {
-    display: none;
-  }
-  .runner-lane__name {
-    padding-top: 3px;
-    font-weight: 600;
-  }
-  .runner-lane__cell {
-    min-width: 0;
-  }
-  .runner-lane__items {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--zr-1);
-    min-width: 0;
-  }
-  .runner-lane__empty,
-  .runner-lane__more,
-  .runner-lane__note {
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-faint);
-  }
-  .runner-lane__more {
-    font-weight: 600;
-  }
-  .runner-lane__note {
-    flex-basis: 100%;
-  }
-  .runner-lane.is-off .runner-lane__name {
-    color: var(--zr-text-faint);
-  }
-
-  /* A ticket: the number large, like on the screen at the counter. */
-  .runner-ticket {
-    display: inline-flex;
-    flex-direction: column;
-    min-width: 0;
-    max-width: 100%;
-    padding: 2px var(--zr-2);
-    border-radius: var(--zr-r-sm);
-    background: var(--zr-surface-sunken);
-    color: var(--zr-text-muted);
-    line-height: 1.3;
-  }
-  .runner-ticket__no {
-    font-size: var(--zr-fs-md);
-    font-variant-numeric: tabular-nums;
-  }
-  .runner-ticket__step,
-  .runner-ticket__title {
-    overflow: hidden;
-    font-size: var(--zr-fs-xs);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .runner-ticket__step {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .runner-ticket--active {
-    flex-basis: 100%;
-    background: var(--zr-info-soft);
-    color: var(--zr-info);
-  }
-  .runner-ticket--active .runner-ticket__title {
-    color: var(--zr-text-muted);
-  }
-  .runner-ticket--ready {
-    background: var(--zr-ok-soft);
-    color: var(--zr-ok);
-  }
-
-  /* In a narrow card a lane is its name, then Waiting and Ready side by side,
-     then In progress across the whole width, so the step and the stopwatch
-     are never cut off. dense pulls Ready up beside Waiting. */
-  @container (max-width: 560px) {
-    .runner-board {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      grid-auto-flow: row dense;
-      row-gap: var(--zr-2);
-    }
-    .runner-lane__cell[data-col='active'] {
-      grid-column: 1 / -1;
-    }
-    .runner-board__head {
-      display: none;
-    }
-    .runner-lane__name {
-      grid-column: 1 / -1;
-      padding-top: var(--zr-2);
-    }
-    .runner-lane__label {
-      display: block;
-      margin-bottom: 2px;
     }
   }
 }

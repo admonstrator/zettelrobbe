@@ -33,8 +33,9 @@ const router = express.Router();
 const WAITING_LIMIT = 8;
 
 /**
- * The Task runner board: per lane what waits, what is in progress and what
- * just finished, plus when the OCR cron reads the queue next. Built for
+ * What the analysis lane and the OCR lane are doing: what waits, what is in
+ * progress and what just finished, plus when the OCR cron reads the queue
+ * next. The Task runner reads its status line from it. Built for
  * GET /api/processing-status only.
  */
 async function buildActivity() {
@@ -397,8 +398,8 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
  *       automatic processing is off or the scheduler is not armed). The
  *       dashboard counts down to it between two polls.
  *
- *       `activity` is the Task runner board: for the analysis lane and the
- *       OCR lane, the documents that wait, the ones in progress with their
+ *       `activity` says what the analysis lane and the OCR lane are doing:
+ *       the documents that wait, the ones in progress with their
  *       step, and the last ones finished (kept in memory, empty after a
  *       restart). `activity.ocr.nextRunAt` is when the OCR cron reads the
  *       queue next.
