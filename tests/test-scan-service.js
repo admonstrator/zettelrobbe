@@ -119,6 +119,7 @@ function makeWorld(scenario = {}) {
     saveFails: null,
     onSave: null,
     ocrAutoRunning: false,
+    afterRuns: [],
     reviewJobRunning: false,
     mergeWriting: false,
     ...scenario,
@@ -222,6 +223,13 @@ function makeWorld(scenario = {}) {
     ocrAutoProcessService: {
       get running() {
         return s.ocrAutoRunning;
+      },
+      // The drain right after a run has its own test
+      // (tests/test-ocr-run-right-away.js); here the run end only says how
+      // many documents it queued, apart from the call lists.
+      afterRun: (trigger, queued) => {
+        s.afterRuns.push([trigger, queued]);
+        return null;
       },
     },
     duplicateReviewJobService: { isRunning: () => s.reviewJobRunning },
@@ -378,7 +386,7 @@ async function main() {
   console.log('Scan run');
 
   await test('a good analysis is written back, then completed, counted and the cache marked stale', async () => {
-    const { calls, summaries, scanControl, logs } = await runScan({});
+    const { calls, summaries, scanControl, logs, s } = await runScan({});
     assert.deepStrictEqual(calls, [
       ...runStart(),
       ...LISTS,
@@ -389,6 +397,7 @@ async function main() {
     ]);
     assert.deepStrictEqual(summaries, [summary({ processed: 1 })]);
     assert.ok(logs.includes('info Scan started (source=scheduler)'), logs);
+    assert.deepStrictEqual(s.afterRuns, [['scan', 0]], 'the run end is told');
     assert.deepStrictEqual(scanControl.getState(), {
       running: false,
       stopRequested: false,
@@ -524,10 +533,15 @@ async function main() {
   });
 
   await test('short content goes to OCR and counts as skipped', async () => {
-    const { calls, summaries } = await runScan({
+    const { calls, summaries, s } = await runScan({
       content: 'x',
       ocrEnabled: true,
     });
+    assert.deepStrictEqual(
+      s.afterRuns,
+      [['scan', 1]],
+      'the run end says it queued one document for OCR'
+    );
     assert.deepStrictEqual(calls, [
       ...runStart(),
       ...LISTS,
@@ -764,10 +778,11 @@ async function main() {
       ],
     ];
     for (const [scenario, line] of cases) {
-      const { calls, logs, scanControl } = await runScan(scenario);
+      const { calls, logs, scanControl, s } = await runScan(scenario);
       assert.deepStrictEqual(calls, []);
       assert.deepStrictEqual(logs, [line]);
       assert.strictEqual(scanControl.isRunning(), false);
+      assert.deepStrictEqual(s.afterRuns, [], 'a run that never started');
     }
   });
 

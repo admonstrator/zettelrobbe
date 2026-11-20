@@ -18,6 +18,8 @@ const paperlessService = require('./paperlessService.js');
 const setupService = require('./setupService.js');
 const documentPipeline = require('./documentPipeline.js');
 const documentProcessingService = require('./documentProcessingService');
+/** @type {{ afterRun: (trigger: string, queued: number) => unknown }} */
+const ocrAutoProcessService = require('./ocrAutoProcessService');
 const { removeThumbnailCacheForDocumentIds } = require('./thumbnailCache');
 const { toNameList } = require('./serviceUtils');
 
@@ -142,6 +144,9 @@ class WebhookQueueService {
           continue;
         }
 
+        const pipelineSource =
+          source || (applySkipRules ? 'webhook' : 'rescan');
+        const queuedForOcrBefore = documentPipeline.queuedForOcr;
         try {
           const result = await documentPipeline.processDocument(
             doc,
@@ -149,7 +154,7 @@ class WebhookQueueService {
             existingCorrespondentNames,
             existingDocumentTypesList,
             {
-              source: source || (applySkipRules ? 'webhook' : 'rescan'),
+              source: pipelineSource,
               customPrompt: customPrompt || null,
               getExternalApiData,
             }
@@ -179,6 +184,13 @@ class WebhookQueueService {
           console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
         } finally {
           documentPipeline.release(doc.id);
+          // With OCR_RUN_RIGHT_AWAY on, a document this call put into the OCR
+          // queue is read now rather than at the next OCR cron. Detached, so
+          // the webhook answers without waiting for OCR, and never throws.
+          ocrAutoProcessService.afterRun(
+            pipelineSource,
+            documentPipeline.queuedForOcr - queuedForOcrBefore
+          );
         }
       }
     } catch (error) {

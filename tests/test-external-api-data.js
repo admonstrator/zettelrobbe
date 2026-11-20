@@ -232,7 +232,8 @@ const FAKES = {
       saved.push({ id, analysis });
     },
   },
-  '../services/ocrAutoProcessService': { running: false },
+  // The run end tells the OCR drain what it queued; nothing here queues.
+  '../services/ocrAutoProcessService': { running: false, afterRun: () => null },
   '../services/duplicateReviewJobService': { isRunning: () => false },
   '../services/duplicateMergeService': { isWriting: () => false },
   '../services/scanHealthService': {

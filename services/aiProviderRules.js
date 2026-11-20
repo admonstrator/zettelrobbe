@@ -460,21 +460,14 @@ const AI_OPTIONS = Object.freeze([
   // no model; these options govern what the model does there when a person
   // asks for it, and the guard that keeps analysis from creating new
   // near-duplicates. They apply to every provider. The first three are the
-  // basic view; the rest sit behind the section's Advanced options, budget
-  // and brakes first, then evidence, memory, thinking and request sizes.
+  // basic view, in the order of the settings page: the switch, the model it
+  // asks, then the guard; the rest sit behind the section's Advanced
+  // options, budget and brakes first, then evidence, memory, thinking and
+  // request sizes.
   {
     key: 'DUPLICATES_AI_REVIEW',
     label: 'Ask the model about unclear pairs',
     help: 'The model judges name pairs that spelling rules cannot settle, using a few document titles. Off, spelling rules decide alone.',
-    level: 'basic',
-    providers: null,
-    defaultValue: 'yes',
-    section: 'tidy-up',
-  },
-  {
-    key: 'DUPLICATES_GUARD_NEW_NAMES',
-    label: 'Reuse names that exist in another spelling',
-    help: 'When an analysis proposes a name that exists in another spelling (case, umlauts, legal form, plural, word order), Zettelrobbe uses the existing one. A mere typo is only logged.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
@@ -487,6 +480,15 @@ const AI_OPTIONS = Object.freeze([
     level: 'basic',
     providers: null,
     defaultValue: '',
+    section: 'tidy-up',
+  },
+  {
+    key: 'DUPLICATES_GUARD_NEW_NAMES',
+    label: 'Reuse names that exist in another spelling',
+    help: 'When an analysis proposes a name that exists in another spelling (case, umlauts, legal form, plural, word order), Zettelrobbe uses the existing one. A mere typo is only logged.',
+    level: 'basic',
+    providers: null,
+    defaultValue: 'yes',
     section: 'tidy-up',
   },
   {

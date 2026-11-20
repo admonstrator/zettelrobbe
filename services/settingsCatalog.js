@@ -1083,6 +1083,16 @@ const CATALOG = Object.freeze([
       parse: intInRangeOrDefault('OCR_PDF_RENDER_DPI', 72, 300, '150'),
       ...PS,
     }),
+    // Read at every run end (services/ocrAutoProcessService.js), so a saved
+    // change applies without a restart. Off keeps the behaviour from before
+    // the setting existed.
+    setting('OCR_RUN_RIGHT_AWAY', {
+      type: 'boolean',
+      default: 'no',
+      field: 'ocrRunRightAway',
+      parse: yesNoString,
+      ...PS,
+    }),
     setting('OCR_AUTO_PROCESS_ENABLED', {
       type: 'boolean',
       default: 'no',

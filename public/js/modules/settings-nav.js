@@ -557,8 +557,9 @@ export default function settingsNav(root) {
    * What a match marks. A row on screen (a closed disclosure counts, it is
    * opened) marks itself. A row a switch hides, such as the OCR fields while
    * OCR is off, marks that switch: the block a switch shows sits right after
-   * it. A row hidden for another reason (the fields and options of a provider
-   * that is not selected) marks nothing and is not counted.
+   * it, or names the switch in data-shown-by when it stands in a section of
+   * its own. A row hidden for another reason (the fields and options of a
+   * provider that is not selected) marks nothing and is not counted.
    */
   function markFor(row, entry) {
     let hidden = null;
@@ -567,6 +568,12 @@ export default function settingsNav(root) {
     }
     if (!hidden) return cardRowOf(row);
     if (hidden.matches('[data-providers]')) return null;
+    if (hidden.dataset.shownBy) {
+      const switchRow = entry
+        .querySelector(`#${hidden.dataset.shownBy}`)
+        ?.closest('.zr-switchrow');
+      return switchRow ? cardRowOf(switchRow) : null;
+    }
     let gate = hidden.previousElementSibling;
     while (gate && gate.classList.contains('hidden')) {
       gate = gate.previousElementSibling;

@@ -156,6 +156,7 @@ const PAGE_BODY = {
   ocrPdfRenderEnabled: 'yes',
   ocrPdfRenderMaxPages: '10',
   ocrPdfRenderDpi: '150',
+  ocrRunRightAway: 'no',
   ocrAutoProcessEnabled: 'no',
   ocrAutoProcessInterval: '*/15 * * * *',
   ocrAutoProcessBatchSize: '10',

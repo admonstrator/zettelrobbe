@@ -258,9 +258,10 @@ export function summarizePrompt({
 /**
  * Step 5: OCR, which is optional. Off it is not counted as done, and not as
  * missing either. `mode` is OCR_BEFORE_AI (off, tagged, all); an unknown value
- * reads as off, as config/config.js reads it.
+ * reads as off, as config/config.js reads it. `rightAway` is
+ * OCR_RUN_RIGHT_AWAY: a complete summary ends with it when it is on.
  *
- * @param {{enabled: boolean, mode?: string, tag?: string, providerLabel?: string, needsKey?: boolean}} input
+ * @param {{enabled: boolean, mode?: string, tag?: string, providerLabel?: string, needsKey?: boolean, rightAway?: boolean}} input
  * @returns {StepSummary}
  */
 export function summarizeOcr({
@@ -269,30 +270,26 @@ export function summarizeOcr({
   tag = '',
   providerLabel = '',
   needsKey = false,
+  rightAway = false,
 }) {
   if (!enabled) return { state: 'skipped', text: 'Off' };
   const label = clean(providerLabel) || 'OCR';
   if (needsKey) return { state: 'open', text: `${label} · no API key yet` };
+  const done = (when) => ({
+    state: 'done',
+    text: `${label} · ${when}${rightAway ? ' · read right away' : ''}`,
+  });
   const when = clean(mode).toLowerCase();
   if (when === 'tagged') {
     const name = clean(tag);
     return name
-      ? {
-          state: 'done',
-          text: `${label} · before the analysis of documents tagged ${name}`,
-        }
+      ? done(`before the analysis of documents tagged ${name}`)
       : { state: 'open', text: `${label} · no OCR tag yet` };
   }
   if (when === 'all') {
-    return {
-      state: 'done',
-      text: `${label} · before the analysis of every new document`,
-    };
+    return done('before the analysis of every new document');
   }
-  return {
-    state: 'done',
-    text: `${label} · when the text is too short or the analysis fails`,
-  };
+  return done('when the text is too short or the analysis fails');
 }
 
 /**
@@ -765,6 +762,7 @@ export default function settingsQuickStart(root) {
         needsKey:
           clean(valueOf('ocrProvider') || 'mistral') === 'mistral' &&
           !secretPresent('ocrApiKey'),
+        rightAway: isOn('ocrRunRightAway'),
       }),
       run: summarizeRun({
         automatic: !isOn('disableAutomaticProcessing'),
@@ -821,15 +819,16 @@ export default function settingsQuickStart(root) {
     if (promptTagsNote) {
       promptTagsNote.classList.toggle('hidden', !isOn('usePromptTags'));
     }
-    // OCR before the analysis only queues the document; without the automatic
-    // OCR run it waits there until someone starts the queue.
+    // OCR before the analysis only queues the document; unless the queue is
+    // read right after the run or on a schedule, it waits there until
+    // someone starts the queue.
     if (ocrQueueNote) {
       const queues =
         isOn('mistralOcrEnabled') &&
         ['tagged', 'all'].includes(clean(valueOf('ocrBeforeAi')).toLowerCase());
       ocrQueueNote.classList.toggle(
         'hidden',
-        !queues || isOn('ocrAutoProcessEnabled')
+        !queues || isOn('ocrRunRightAway') || isOn('ocrAutoProcessEnabled')
       );
     }
     if (runTags) {

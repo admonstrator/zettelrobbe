@@ -17,6 +17,19 @@ function applyProviderOptions(provider) {
   resetModelPickers(provider);
 }
 
+/**
+ * Shows or hides the blocks that belong to a switch but stand in a section
+ * of their own, away from it: the OCR settings under "When OCR runs" and
+ * "How OCR reads a document", the answer settings of the external API. Each
+ * names its switch in data-shown-by; "Find a setting" reads the same
+ * attribute (modules/settings-nav.js).
+ */
+function showBlocksOf(switchId, shown) {
+  document
+    .querySelectorAll(`[data-shown-by="${switchId}"]`)
+    .forEach((block) => block.classList.toggle('hidden', !shown));
+}
+
 /* The model pickers (control type 'model' in settings.ejs, today only
    "Model for Tidy up"). The select is the one element the form submits and
    the env lock marks: its first option means "no model of its own", the
@@ -1161,6 +1174,7 @@ function initializeFormHandlers() {
     if (ocrFieldsContainer) {
       ocrFieldsContainer.classList.toggle('hidden', !enabled);
     }
+    showBlocksOf('mistralOcrEnabled', enabled);
 
     if (ocrApiKeyContainer) {
       ocrApiKeyContainer.classList.toggle('hidden', !enabled);
@@ -1389,35 +1403,40 @@ function initializeFormHandlers() {
 
   // OCR before the first analysis: one hint per value, the tag field only
   // for "tagged", and the queue note says who works the queue, which follows
-  // the automatic processing switch.
+  // the two switches that read it: right after the run, or on a schedule.
   const ocrBeforeAiSelect = document.getElementById('ocrBeforeAi');
+  const ocrRunRightAwayInput = document.getElementById('ocrRunRightAway');
   const toggleOcrBeforeAiFields = () => {
     if (!ocrBeforeAiSelect) return;
     const mode = ocrBeforeAiSelect.value;
     const queueRunsItself = ocrAutoProcessValueInput?.value === 'yes';
+    const rightAway = ocrRunRightAwayInput?.value === 'yes';
+    const queueIsRead = queueRunsItself || rightAway;
     [
       ['ocrBeforeAiHintOff', mode === 'off'],
       ['ocrBeforeAiHintTagged', mode === 'tagged'],
       ['ocrBeforeAiHintAll', mode === 'all'],
       ['ocrBeforeAiTagContainer', mode === 'tagged'],
       ['ocrBeforeAiQueueNote', mode !== 'off'],
-      ['ocrBeforeAiQueueManual', !queueRunsItself],
-      ['ocrBeforeAiQueueAuto', queueRunsItself],
+      ['ocrBeforeAiQueueManual', !queueIsRead],
+      ['ocrBeforeAiQueueAuto', queueRunsItself && !rightAway],
+      ['ocrBeforeAiQueueRightAway', rightAway],
     ].forEach(([id, shown]) => {
       document.getElementById(id)?.classList.toggle('hidden', !shown);
     });
     const queueNote = document.getElementById('ocrBeforeAiQueueNote');
-    queueNote?.classList.toggle('zr-alert--info', queueRunsItself);
-    queueNote?.classList.toggle('zr-alert--warn', !queueRunsItself);
+    queueNote?.classList.toggle('zr-alert--info', queueIsRead);
+    queueNote?.classList.toggle('zr-alert--warn', !queueIsRead);
     document
       .getElementById('ocrBeforeAiQueueIcon')
       ?.setAttribute(
         'href',
-        `/icons.svg#${queueRunsItself ? 'i-info' : 'i-alert'}`
+        `/icons.svg#${queueIsRead ? 'i-info' : 'i-alert'}`
       );
   };
   ocrBeforeAiSelect?.addEventListener('change', toggleOcrBeforeAiFields);
   ocrAutoProcessValueInput?.addEventListener('change', toggleOcrBeforeAiFields);
+  ocrRunRightAwayInput?.addEventListener('change', toggleOcrBeforeAiFields);
   toggleOcrBeforeAiFields();
 
   const quickstartUrlInput = document.getElementById('settingsQuickstartUrl');
@@ -3184,6 +3203,7 @@ function initializeRuntimeOverridePills() {
     { selector: '#ocrPdfRenderEnabled', envKey: 'OCR_PDF_RENDER_ENABLED' },
     { selector: '#ocrPdfRenderMaxPages', envKey: 'OCR_PDF_RENDER_MAX_PAGES' },
     { selector: '#ocrPdfRenderDpi', envKey: 'OCR_PDF_RENDER_DPI' },
+    { selector: '#ocrRunRightAway', envKey: 'OCR_RUN_RIGHT_AWAY' },
     {
       selector: '#ocrAutoProcessEnabled',
       envKey: 'OCR_AUTO_PROCESS_ENABLED',
@@ -3310,6 +3330,7 @@ function initializeCustomFieldsManagement() {
       } else {
         externalApiSettings.classList.add('hidden');
       }
+      showBlocksOf('externalApiEnabled', this.checked);
     });
   }
 
