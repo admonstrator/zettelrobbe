@@ -261,6 +261,19 @@
                                     </div>
     
                                     <div class="zr-field zr-field--stacked">
+                                        <label for="paperlessToken" class="zr-field__name">API token</label>
+                                        <div class="zr-inputgroup">
+                                            <input type="password" id="paperlessToken" name="paperlessToken" value="" class="zr-input" placeholder="<%= configuredSecrets.PAPERLESS_API_TOKEN ? 'Configured' : 'Enter API token' %>">
+                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="paperlessToken" aria-label="Show the API token">
+                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg>
+                                            </button>
+                                        </div>
+                                        <% if (configuredSecrets.PAPERLESS_API_TOKEN) { %>
+                                        <p class="zr-field__hint">Leave it empty to keep the stored token.</p>
+                                        <% } %>
+                                    </div>
+    
+                                    <div class="zr-field zr-field--stacked">
                                         <label class="zr-field__name">Address used for links</label>
                                         <!-- Same one-row value + button shape as the secret fields. -->
                                         <div class="zr-inputgroup">
@@ -276,19 +289,6 @@
                                         <label for="paperlessPublicUrl" class="zr-field__name">Public address (optional)</label>
                                         <input type="text" id="paperlessPublicUrl" name="paperlessPublicUrl" value="<%= config.PAPERLESS_PUBLIC_URL || '' %>" class="zr-input" placeholder="https://paperless.example.com" inputmode="url">
                                         <p class="zr-field__hint">Links to a document in Paperless-ngx open at this address. Empty, Zettelrobbe uses the one Paperless-ngx reports, or else the address above.</p>
-                                    </div>
-    
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="paperlessToken" class="zr-field__name">API token</label>
-                                        <div class="zr-inputgroup">
-                                            <input type="password" id="paperlessToken" name="paperlessToken" value="" class="zr-input" placeholder="<%= configuredSecrets.PAPERLESS_API_TOKEN ? 'Configured' : 'Enter API token' %>">
-                                            <button type="button" class="zr-btn zr-btn--ghost zr-btn--icon zr-input__reveal" data-input="paperlessToken" aria-label="Show the API token">
-                                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-eye"/></svg>
-                                            </button>
-                                        </div>
-                                        <% if (configuredSecrets.PAPERLESS_API_TOKEN) { %>
-                                        <p class="zr-field__hint">Leave it empty to keep the stored token.</p>
-                                        <% } %>
                                     </div>
                                     </div>
                                 </section>
@@ -771,6 +771,12 @@
                                             <label for="externalApiUrl" class="zr-field__name">Address</label>
                                             <input type="text" id="externalApiUrl" name="externalApiUrl" value="<%= config.EXTERNAL_API_URL || '' %>" class="zr-input" inputmode="url">
                                         </div>
+                                        <%- include('partials/settings-switch', {
+                                            id: 'externalApiAllowPrivateIps',
+                                            label: 'Allow a local network address',
+                                            checked: config.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes',
+                                            hint: 'Lets the address above be a private one, such as 192.168.1.20. localhost stays blocked. Zettelrobbe checks every redirect the same way.'
+                                        }) %>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="externalApiMethod" class="zr-field__name">HTTP method</label>
                                             <select id="externalApiMethod" name="externalApiMethod" class="zr-input">
@@ -788,22 +794,22 @@
                                             <textarea id="externalApiBody" name="externalApiBody" rows="3" class="zr-textarea"><%= config.EXTERNAL_API_BODY || '' %></textarea>
                                             <p class="zr-field__hint">Sent only with POST and PUT.</p>
                                         </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="externalApiTimeout" class="zr-field__name">Timeout (milliseconds)</label>
-                                            <input type="number" id="externalApiTimeout" name="externalApiTimeout" value="<%= config.EXTERNAL_API_TIMEOUT || '5000' %>" class="zr-input">
-                                            <p class="zr-field__hint">If the address takes longer than this or answers with an error, the analysis runs without its data.</p>
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="externalApiTransform" class="zr-field__name">Transform path</label>
-                                            <input type="text" id="externalApiTransform" name="externalApiTransform" value="<%= config.EXTERNAL_API_TRANSFORM || '' %>" class="zr-input" spellcheck="false" autocomplete="off">
-                                            <p class="zr-field__hint">Picks the part of the answer the model gets, such as data.items[0].name: names separated by dots, [0] for the first entry of a list. If the path matches nothing, the model gets the whole answer.</p>
-                                        </div>
-                                        <%- include('partials/settings-switch', {
-                                            id: 'externalApiAllowPrivateIps',
-                                            label: 'Allow a local network address',
-                                            checked: config.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes',
-                                            hint: 'Lets the address above be a private one, such as 192.168.1.20. localhost stays blocked. Zettelrobbe checks every redirect the same way.'
-                                        }) %>
+                                    </div>
+                                    </div>
+                                </section>
+
+                                <section class="zr-settings-section<%= config.EXTERNAL_API_ENABLED === 'yes' ? '' : ' hidden' %>" id="sec-external-api-answer" aria-labelledby="sec-external-api-answer-title" data-shown-by="externalApiEnabled">
+                                    <%- sectionHead('sec-external-api-answer', 'The answer', 'How long Zettelrobbe waits for the answer, and which part of it the model gets.') %>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="externalApiTimeout" class="zr-field__name">Timeout (milliseconds)</label>
+                                        <input type="number" id="externalApiTimeout" name="externalApiTimeout" value="<%= config.EXTERNAL_API_TIMEOUT || '5000' %>" class="zr-input">
+                                        <p class="zr-field__hint">If the address takes longer than this or answers with an error, the analysis runs without its data.</p>
+                                    </div>
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="externalApiTransform" class="zr-field__name">Transform path</label>
+                                        <input type="text" id="externalApiTransform" name="externalApiTransform" value="<%= config.EXTERNAL_API_TRANSFORM || '' %>" class="zr-input" spellcheck="false" autocomplete="off">
+                                        <p class="zr-field__hint">Picks the part of the answer the model gets, such as data.items[0].name: names separated by dots, [0] for the first entry of a list. If the path matches nothing, the model gets the whole answer.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -855,35 +861,17 @@
                                         </div>
                                         <p id="ocrModelVisionHint" class="zr-field__hint <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">Models that read images come first, judged by their name. Others may work too.</p>
                                     </div>
-                                    <div id="ocrPromptContainer" class="zr-field zr-field--stacked <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">
-                                        <label for="ocrPrompt" class="zr-field__name">OCR prompt</label>
-                                        <textarea id="ocrPrompt" name="ocrPrompt" rows="8" class="zr-textarea" spellcheck="false" data-default-anthropic="<%= ocrPromptDefaults.anthropic %>" data-default-local="<%= ocrPromptDefaults.local %>"><%= config.OCR_PROMPT || (ocrStoredForAnthropic ? ocrPromptDefaults.anthropic : ocrPromptDefaults.local) %></textarea>
-                                        <button id="ocrPromptResetBtn" type="button" class="zr-btn" data-locked-by="ocrPrompt">
-                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
-                                            Reset to default
+                                    <div class="zr-row zr-row--wrap">
+                                        <button type="button" id="testOcrBtn" class="zr-btn">
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-flask"/></svg>
+                                            <span>Test OCR connection</span>
                                         </button>
-                                        <p class="zr-field__hint">Sent to the model with every document or page. Mistral OCR takes no prompt. Claude answers [no text] for a document without text.</p>
+                                        <span id="ocrTestState" class="zr-badge">Not tested</span>
                                     </div>
-                                    <div id="ocrPdfRenderContainer" class="zr-col zr-col--loose">
-                                        <%- include('partials/settings-switch', {
-                                            id: 'ocrPdfRenderEnabled',
-                                            label: 'Read every page of a PDF',
-                                            checked: (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes',
-                                            hint: 'A local model reads each page with poppler, one request per page. Off or without poppler, it reads only the thumbnail of the first page.'
-                                        }) %>
-                                        <div id="ocrPdfRenderOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? '' : 'hidden' %>">
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="ocrPdfRenderMaxPages" class="zr-field__name">Pages read per PDF</label>
-                                                <input type="number" id="ocrPdfRenderMaxPages" name="ocrPdfRenderMaxPages" min="1" max="50" step="1" value="<%= config.OCR_PDF_RENDER_MAX_PAGES || 10 %>" class="zr-input">
-                                                <p class="zr-field__hint">Each page is one request to the model. Pages after this number are not read.</p>
-                                            </div>
-                                            <div class="zr-field zr-field--stacked">
-                                                <label for="ocrPdfRenderDpi" class="zr-field__name">Page resolution (DPI)</label>
-                                                <input type="number" id="ocrPdfRenderDpi" name="ocrPdfRenderDpi" min="72" max="300" step="1" value="<%= config.OCR_PDF_RENDER_DPI || 150 %>" class="zr-input">
-                                                <p class="zr-field__hint">From 72 to 300. Higher values help with small print and make each image larger.</p>
-                                            </div>
-                                        </div>
                                     </div>
+                                    </div>
+                                </section>
+
                                     <%
                                         // OCR before the first analysis (OCR_BEFORE_AI). An unknown stored
                                         // value reads as off, as config/config.js reads it.
@@ -893,7 +881,10 @@
                                         const ocrRunRightAway = (config.OCR_RUN_RIGHT_AWAY || 'no') === 'yes';
                                         const ocrQueueIsRead = ocrQueueRunsItself || ocrRunRightAway;
                                     %>
-                                    <div id="ocrBeforeAiContainer" class="zr-col zr-col--loose">
+                                <section class="zr-settings-section" id="sec-ocr-when" aria-labelledby="sec-ocr-when-title">
+                                    <%- sectionHead('sec-ocr-when', 'When OCR runs', 'Which documents go to the OCR queue, and when Zettelrobbe reads the queue.') %>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                    <div id="ocrBeforeAiContainer" class="zr-col zr-col--loose <%= config.MISTRAL_OCR_ENABLED === 'yes' ? '' : 'hidden' %>" data-shown-by="mistralOcrEnabled">
                                         <div class="zr-field zr-field--stacked">
                                             <label for="ocrBeforeAi" class="zr-field__name">OCR before the first analysis</label>
                                             <select id="ocrBeforeAi" name="ocrBeforeAi" class="zr-input">
@@ -920,7 +911,12 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div id="ocrAutoProcessContainer" class="zr-col zr-col--loose">
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="minContentLength" class="zr-field__name">Minimum text length</label>
+                                        <input type="number" id="minContentLength" name="minContentLength" value="<%= config.MIN_CONTENT_LENGTH || 10 %>" class="zr-input">
+                                        <p class="zr-field__hint">In characters. A document with less text goes to the OCR queue, or to the failed list while OCR is off.</p>
+                                    </div>
+                                    <div id="ocrAutoProcessContainer" class="zr-col zr-col--loose <%= config.MISTRAL_OCR_ENABLED === 'yes' ? '' : 'hidden' %>" data-shown-by="mistralOcrEnabled">
                                         <%- include('partials/settings-switch', {
                                             id: 'ocrRunRightAway',
                                             label: 'Read queued documents right away',
@@ -952,6 +948,46 @@
                                             hint: 'Keep it on. Off, the next scan analyses the document, but only if Paperless-ngx accepted the OCR text.'
                                         }) %>
                                     </div>
+                                    </div>
+                                </section>
+
+                                <section class="zr-settings-section<%= config.MISTRAL_OCR_ENABLED === 'yes' ? '' : ' hidden' %>" id="sec-ocr-reading" aria-labelledby="sec-ocr-reading-title" data-shown-by="mistralOcrEnabled">
+                                    <%- sectionHead('sec-ocr-reading', 'How OCR reads a document', 'What the model is told, which pages of a PDF it reads, how long it may take, and how a locked PDF is opened.') %>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                    <div id="ocrPromptContainer" class="zr-field zr-field--stacked <%= (config.OCR_PROVIDER || 'mistral') === 'mistral' ? 'hidden' : '' %>">
+                                        <label for="ocrPrompt" class="zr-field__name">OCR prompt</label>
+                                        <textarea id="ocrPrompt" name="ocrPrompt" rows="8" class="zr-textarea" spellcheck="false" data-default-anthropic="<%= ocrPromptDefaults.anthropic %>" data-default-local="<%= ocrPromptDefaults.local %>"><%= config.OCR_PROMPT || (ocrStoredForAnthropic ? ocrPromptDefaults.anthropic : ocrPromptDefaults.local) %></textarea>
+                                        <button id="ocrPromptResetBtn" type="button" class="zr-btn" data-locked-by="ocrPrompt">
+                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                            Reset to default
+                                        </button>
+                                        <p class="zr-field__hint">Sent to the model with every document or page. Mistral OCR takes no prompt. Claude answers [no text] for a document without text.</p>
+                                    </div>
+                                    <div id="ocrPdfRenderContainer" class="zr-col zr-col--loose">
+                                        <%- include('partials/settings-switch', {
+                                            id: 'ocrPdfRenderEnabled',
+                                            label: 'Read every page of a PDF',
+                                            checked: (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes',
+                                            hint: 'A local model reads each page with poppler, one request per page. Off or without poppler, it reads only the thumbnail of the first page.'
+                                        }) %>
+                                        <div id="ocrPdfRenderOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? '' : 'hidden' %>">
+                                            <div class="zr-field zr-field--stacked">
+                                                <label for="ocrPdfRenderMaxPages" class="zr-field__name">Pages read per PDF</label>
+                                                <input type="number" id="ocrPdfRenderMaxPages" name="ocrPdfRenderMaxPages" min="1" max="50" step="1" value="<%= config.OCR_PDF_RENDER_MAX_PAGES || 10 %>" class="zr-input">
+                                                <p class="zr-field__hint">Each page is one request to the model. Pages after this number are not read.</p>
+                                            </div>
+                                            <div class="zr-field zr-field--stacked">
+                                                <label for="ocrPdfRenderDpi" class="zr-field__name">Page resolution (DPI)</label>
+                                                <input type="number" id="ocrPdfRenderDpi" name="ocrPdfRenderDpi" min="72" max="300" step="1" value="<%= config.OCR_PDF_RENDER_DPI || 150 %>" class="zr-input">
+                                                <p class="zr-field__hint">From 72 to 300. Higher values help with small print and make each image larger.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="zr-field zr-field--stacked">
+                                        <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout</label>
+                                        <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || '' %>" class="zr-input">
+                                        <p class="zr-field__hint">In seconds. How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch models wait as long.</p>
+                                    </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="pdfPasswords" class="zr-field__name">PDF passwords</label>
                                         <textarea id="pdfPasswords" name="pdfPasswords" rows="3" class="zr-textarea" autocomplete="off" spellcheck="false" placeholder="<%= pdfPasswordCount ? `${pdfPasswordCount} stored` : 'One password per line' %>"></textarea>
@@ -962,24 +998,6 @@
                                             Delete all passwords
                                         </button>
                                         <% } %>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout</label>
-                                        <input type="number" id="ocrValidationTimeout" name="ocrValidationTimeout" min="1" max="7200" step="1" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || '' %>" class="zr-input">
-                                        <p class="zr-field__hint">In seconds. How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch models wait as long.</p>
-                                    </div>
-                                    <div class="zr-row zr-row--wrap">
-                                        <button type="button" id="testOcrBtn" class="zr-btn">
-                                            <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-flask"/></svg>
-                                            <span>Test OCR connection</span>
-                                        </button>
-                                        <span id="ocrTestState" class="zr-badge">Not tested</span>
-                                    </div>
-                                    </div>
-                                    <div class="zr-field zr-field--stacked">
-                                        <label for="minContentLength" class="zr-field__name">Minimum text length</label>
-                                        <input type="number" id="minContentLength" name="minContentLength" value="<%= config.MIN_CONTENT_LENGTH || 10 %>" class="zr-input">
-                                        <p class="zr-field__hint">In characters. A document with less text goes to the OCR queue, or to the failed list while OCR is off.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -1074,13 +1092,9 @@
                                     <%- sectionHead('sec-runtime-controls', 'Network, limits and logging', 'Saving a change here restarts Zettelrobbe.') %>
                                     <div class="zr-settings-section__body zr-col zr-col--loose">
                                         <div class="zr-field zr-field--stacked">
-                                            <label for="globalRateLimitWindowMs" class="zr-field__name">Rate limit window (milliseconds)</label>
-                                            <input type="number" id="globalRateLimitWindowMs" name="globalRateLimitWindowMs" value="<%= config.GLOBAL_RATE_LIMIT_WINDOW_MS || 900000 %>" class="zr-input">
-                                        </div>
-                                        <div class="zr-field zr-field--stacked">
-                                            <label for="globalRateLimitMax" class="zr-field__name">Requests per window</label>
-                                            <input type="number" id="globalRateLimitMax" name="globalRateLimitMax" value="<%= config.GLOBAL_RATE_LIMIT_MAX || 1000 %>" class="zr-input">
-                                            <p class="zr-field__hint">API requests per API key, user or IP address. More are refused until the window ends.</p>
+                                            <label for="paperlessAiPort" class="zr-field__name">Port</label>
+                                            <input type="number" id="paperlessAiPort" name="paperlessAiPort" value="<%= config.PAPERLESS_AI_PORT || 3000 %>" class="zr-input">
+                                            <p class="zr-field__hint">The port Zettelrobbe listens on. In Docker, the port mapping has to match.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="trustProxy" class="zr-field__name">Trust proxy</label>
@@ -1097,9 +1111,13 @@
                                             <p class="zr-field__hint">With auto, cookies are secure over HTTPS. If signing in fails over plain HTTP, choose never.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
-                                            <label for="paperlessAiPort" class="zr-field__name">Port</label>
-                                            <input type="number" id="paperlessAiPort" name="paperlessAiPort" value="<%= config.PAPERLESS_AI_PORT || 3000 %>" class="zr-input">
-                                            <p class="zr-field__hint">The port Zettelrobbe listens on. In Docker, the port mapping has to match.</p>
+                                            <label for="globalRateLimitWindowMs" class="zr-field__name">Rate limit window (milliseconds)</label>
+                                            <input type="number" id="globalRateLimitWindowMs" name="globalRateLimitWindowMs" value="<%= config.GLOBAL_RATE_LIMIT_WINDOW_MS || 900000 %>" class="zr-input">
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="globalRateLimitMax" class="zr-field__name">Requests per window</label>
+                                            <input type="number" id="globalRateLimitMax" name="globalRateLimitMax" value="<%= config.GLOBAL_RATE_LIMIT_MAX || 1000 %>" class="zr-input">
+                                            <p class="zr-field__hint">API requests per API key, user or IP address. More are refused until the window ends.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="logLevel" class="zr-field__name">Log level</label>

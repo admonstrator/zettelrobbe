@@ -263,6 +263,9 @@ const unescape = (text) =>
       'sec-tag-filters': 'schedule',
       'sec-runtime-controls': 'runtime',
       'sec-ocr-fallback': 'ocr',
+      'sec-ocr-when': 'ocr',
+      'sec-ocr-reading': 'ocr',
+      'sec-external-api-answer': 'external-data',
       'sec-quickstart-auto-detect': 'quickstart',
       // Fields, by the id a link names.
       activateTagging: 'ai-behavior',
@@ -277,6 +280,7 @@ const unescape = (text) =>
       useExistingData: 'prompt',
       restrictToExistingTags: 'restrictions',
       minContentLength: 'ocr',
+      ocrRunRightAway: 'ocr',
       scanInterval: 'schedule',
       ignoreTags: 'schedule',
       settingsQuickstartUrl: 'quickstart',

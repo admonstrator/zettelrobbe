@@ -17,6 +17,19 @@ function applyProviderOptions(provider) {
   resetModelPickers(provider);
 }
 
+/**
+ * Shows or hides the blocks that belong to a switch but stand in a section
+ * of their own, away from it: the OCR settings under "When OCR runs" and
+ * "How OCR reads a document", the answer settings of the external API. Each
+ * names its switch in data-shown-by; "Find a setting" reads the same
+ * attribute (modules/settings-nav.js).
+ */
+function showBlocksOf(switchId, shown) {
+  document
+    .querySelectorAll(`[data-shown-by="${switchId}"]`)
+    .forEach((block) => block.classList.toggle('hidden', !shown));
+}
+
 /* The model pickers (control type 'model' in settings.ejs, today only
    "Model for Tidy up"). The select is the one element the form submits and
    the env lock marks: its first option means "no model of its own", the
@@ -1161,6 +1174,7 @@ function initializeFormHandlers() {
     if (ocrFieldsContainer) {
       ocrFieldsContainer.classList.toggle('hidden', !enabled);
     }
+    showBlocksOf('mistralOcrEnabled', enabled);
 
     if (ocrApiKeyContainer) {
       ocrApiKeyContainer.classList.toggle('hidden', !enabled);
@@ -3316,6 +3330,7 @@ function initializeCustomFieldsManagement() {
       } else {
         externalApiSettings.classList.add('hidden');
       }
+      showBlocksOf('externalApiEnabled', this.checked);
     });
   }
 
