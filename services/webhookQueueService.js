@@ -17,6 +17,7 @@ const documentModel = require('../models/document.js');
 const paperlessService = require('./paperlessService.js');
 const setupService = require('./setupService.js');
 const documentPipeline = require('./documentPipeline.js');
+const activityService = require('./activityService.js');
 const documentProcessingService = require('./documentProcessingService');
 /** @type {{ afterRun: (trigger: string, queued: number) => unknown }} */
 const ocrAutoProcessService = require('./ocrAutoProcessService');
@@ -78,6 +79,20 @@ class WebhookQueueService {
   /** @returns {number} documents waiting in the queue */
   getQueueLength() {
     return this.documentQueue.length;
+  }
+
+  /**
+   * The documents waiting in the queue, in the order they will be analysed,
+   * for the dashboard.
+   *
+   * @param {number} [limit]
+   * @returns {{ documentId: number, title: string }[]}
+   */
+  getQueuedDocuments(limit = 10) {
+    return this.documentQueue.slice(0, limit).map(({ document }) => ({
+      documentId: Number(document?.id),
+      title: String(document?.title || `Document ${document?.id}`),
+    }));
   }
 
   /**
@@ -178,9 +193,11 @@ class WebhookQueueService {
             doc.title,
             'complete'
           );
+          activityService.finish('analysis', doc.id, 'done');
         } catch (error) {
           // A failed analysis or write-back leaves no "processing" mark behind.
           await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
+          activityService.finish('analysis', doc.id, 'failed');
           console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
         } finally {
           documentPipeline.release(doc.id);

@@ -1961,13 +1961,17 @@ module.exports = {
     }
   },
 
-  async getOcrQueue(status = null) {
+  /**
+   * The OCR queue, newest first for the lists on the OCR page. A run that
+   * works the queue asks for oldestFirst: first come, first read, so a
+   * document queued early does not wait behind everything queued after it.
+   */
+  async getOcrQueue(status = null, { oldestFirst = false } = {}) {
     try {
       if (status) {
+        const order = oldestFirst ? 'added_at ASC, id ASC' : 'added_at DESC';
         return db
-          .prepare(
-            'SELECT * FROM ocr_queue WHERE status = ? ORDER BY added_at DESC'
-          )
+          .prepare(`SELECT * FROM ocr_queue WHERE status = ? ORDER BY ${order}`)
           .all(status);
       }
       return db.prepare('SELECT * FROM ocr_queue ORDER BY added_at DESC').all();

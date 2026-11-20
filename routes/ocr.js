@@ -525,7 +525,9 @@ router.post('/api/ocr/process-all', isAuthenticated, async (req, res) => {
       return res.end();
     }
 
-    const pendingItems = await documentModel.getOcrQueue('pending');
+    const pendingItems = await documentModel.getOcrQueue('pending', {
+      oldestFirst: true,
+    });
     const total = pendingItems.length;
 
     if (total === 0) {

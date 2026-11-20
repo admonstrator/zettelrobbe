@@ -27,6 +27,7 @@ const paperlessService = require('./paperlessService.js');
 const AIServiceFactory = require('./aiServiceFactory');
 const mistralOcrService = require('./mistralOcrService');
 const skipRuleService = require('./skipRuleService');
+const activityService = require('./activityService');
 const { OCR_BEFORE_AI_REASON, documentCarriesTag } = require('./ocrBeforeAi');
 const {
   shouldQueueForOcrOnAiError,
@@ -198,6 +199,10 @@ class DocumentPipeline {
    */
   release(documentId) {
     this.inFlight.delete(Number(documentId));
+    // The dashboard's analysis lane lets go of it too. A caller that finished
+    // it as done or failed already did; for every other way out (skipped,
+    // queued for OCR, not editable) this is the one place that sees it leave.
+    activityService.finish('analysis', documentId, 'skipped');
   }
 
   /**
@@ -303,6 +308,7 @@ class DocumentPipeline {
     }
 
     await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
+    activityService.start('analysis', doc, 'checking');
 
     const documentEditable = await paperlessService.getPermissionOfDocument(
       doc.id
@@ -426,6 +432,7 @@ class DocumentPipeline {
     }
     /** @type {any} */
     const aiService = AIServiceFactory.getService();
+    activityService.step('analysis', doc.id, 'ai');
     /** @type {any} */
     const analysis = await aiService.analyzeDocument(
       content,
@@ -444,6 +451,8 @@ class DocumentPipeline {
 
     // Clear the retry count on success.
     this.forgetAttempts(profile, doc.id);
+    // The caller writes the result back next.
+    activityService.step('analysis', doc.id, 'writeback');
     return { analysis, originalData };
   }
 

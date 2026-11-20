@@ -57,6 +57,45 @@ class OcrAutoProcessService {
      * @type {string|null}
      */
     this.waitingTrigger = null;
+    /**
+     * Returns when the armed OCR cron fires next; set by server.js when it
+     * arms the job, null when it did not (OCR_AUTO_PROCESS_ENABLED was off at
+     * boot).
+     *
+     * @type {(() => Date|null)|null}
+     */
+    this.nextRunProvider = null;
+  }
+
+  /**
+   * Called by server.js once the OCR cron is armed.
+   *
+   * @param {() => Date|null} nextRunProvider - `() => task.getNextRun()`
+   */
+  markArmed(nextRunProvider) {
+    this.nextRunProvider =
+      typeof nextRunProvider === 'function' ? nextRunProvider : null;
+  }
+
+  /**
+   * When the OCR cron reads the queue next (ISO), or null when it will not:
+   * not armed at boot, or automatic processing switched off since (the cron
+   * still fires then, but drainQueue() does nothing).
+   *
+   * @returns {string|null}
+   */
+  getNextRunAt() {
+    if (!this.nextRunProvider || !this.isEnabled()) {
+      return null;
+    }
+    try {
+      const next = this.nextRunProvider();
+      return next instanceof Date && !Number.isNaN(next.getTime())
+        ? next.toISOString()
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -287,7 +326,7 @@ class OcrAutoProcessService {
         }
 
         const pendingItems = (
-          await documentModel.getOcrQueue('pending')
+          await documentModel.getOcrQueue('pending', { oldestFirst: true })
         ).filter((item) => !attempted.has(Number(item.document_id)));
         if (pendingItems.length === 0) {
           remaining = 0;
