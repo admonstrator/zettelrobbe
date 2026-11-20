@@ -392,6 +392,106 @@
  *           allOf:
  *             - $ref: '#/components/schemas/PaperlessHealth'
  *
+ *     TaskRunnerDocument:
+ *       type: object
+ *       description: A document on the Task runner board
+ *       properties:
+ *         documentId:
+ *           type: integer
+ *           example: 123
+ *         title:
+ *           type: string
+ *           example: "Invoice #12345"
+ *         step:
+ *           type: string
+ *           description: In progress only, the step the document is in
+ *           enum: [checking, download, unlock, ocr, ai, writeback]
+ *           example: ai
+ *         detail:
+ *           type: string
+ *           nullable: true
+ *           description: In progress only, e.g. the page OCR reads ("3/7")
+ *           example: "3/7"
+ *         startedAt:
+ *           type: string
+ *           format: date-time
+ *           description: In progress only, when the lane took the document
+ *         stepStartedAt:
+ *           type: string
+ *           format: date-time
+ *           description: In progress only, when the current step began
+ *         finishedAt:
+ *           type: string
+ *           format: date-time
+ *           description: Ready only, when the lane finished the document
+ *
+ *     TaskRunnerLane:
+ *       type: object
+ *       description: One lane of the Task runner board
+ *       properties:
+ *         active:
+ *           type: array
+ *           description: Documents in progress, oldest first
+ *           items:
+ *             $ref: '#/components/schemas/TaskRunnerDocument'
+ *         ready:
+ *           type: array
+ *           description: The last documents finished, newest first (in memory, empty after a restart)
+ *           items:
+ *             $ref: '#/components/schemas/TaskRunnerDocument'
+ *         waiting:
+ *           type: array
+ *           description: The first documents that wait, in the order they will be read
+ *           items:
+ *             $ref: '#/components/schemas/TaskRunnerDocument'
+ *         waitingCount:
+ *           type: integer
+ *           description: All documents that wait
+ *           example: 28
+ *
+ *     TaskRunnerActivity:
+ *       type: object
+ *       description: What the analysis lane and the OCR lane are doing
+ *       properties:
+ *         analysis:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TaskRunnerLane'
+ *             - type: object
+ *               properties:
+ *                 scan:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Where the running scan is in its list, null when no scan runs
+ *                   properties:
+ *                     checked:
+ *                       type: integer
+ *                       example: 120
+ *                     total:
+ *                       type: integer
+ *                       example: 2300
+ *         ocr:
+ *           allOf:
+ *             - $ref: '#/components/schemas/TaskRunnerLane'
+ *             - type: object
+ *               properties:
+ *                 enabled:
+ *                   type: boolean
+ *                   description: Whether OCR is switched on
+ *                 running:
+ *                   type: boolean
+ *                   description: Whether a run is reading the OCR queue
+ *                 waitingForScan:
+ *                   type: boolean
+ *                   description: The queue is read once the running scan is over
+ *                 rightAway:
+ *                   type: boolean
+ *                   description: OCR_RUN_RIGHT_AWAY is on
+ *                 nextRunAt:
+ *                   type: string
+ *                   format: date-time
+ *                   nullable: true
+ *                   description: When the OCR cron reads the queue next, null when it is not armed or switched off
+ *
  *     ScannerHealth:
  *       type: object
  *       description: State of the periodic document scan loop

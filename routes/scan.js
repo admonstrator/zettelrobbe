@@ -24,7 +24,52 @@ const webhookQueueService = require('../services/webhookQueueService');
 const {
   buildScannerHealthSnapshot,
 } = require('../services/scannerHealthSnapshot');
+const activityService = require('../services/activityService');
+const mistralOcrService = require('../services/mistralOcrService');
+const ocrAutoProcessService = require('../services/ocrAutoProcessService');
 const router = express.Router();
+
+/** How many waiting documents a lane names; the rest is a count. */
+const WAITING_LIMIT = 8;
+
+/**
+ * The Task runner board: per lane what waits, what is in progress and what
+ * just finished, plus when the OCR cron reads the queue next. Built for
+ * GET /api/processing-status only.
+ */
+async function buildActivity() {
+  const snapshot = activityService.snapshot();
+  const ocrEnabled = mistralOcrService.isEnabled();
+  const pending = ocrEnabled
+    ? await documentModel.getOcrQueue('pending', { oldestFirst: true })
+    : [];
+  return {
+    analysis: {
+      active: snapshot.analysis.active,
+      ready: snapshot.analysis.ready,
+      waiting: webhookQueueService.getQueuedDocuments(WAITING_LIMIT),
+      waitingCount: webhookQueueService.getQueueLength(),
+      scan: snapshot.scan,
+    },
+    ocr: {
+      enabled: ocrEnabled,
+      active: snapshot.ocr.active,
+      ready: snapshot.ocr.ready,
+      waiting: pending.slice(0, WAITING_LIMIT).map((item) => ({
+        documentId: Number(item.document_id),
+        title: String(item.title || `Document ${item.document_id}`),
+      })),
+      waitingCount: pending.length,
+      running: Boolean(ocrAutoProcessService.running),
+      // A run queued documents and the queue is read once the scan is over.
+      waitingForScan: Boolean(
+        ocrAutoProcessService.waitingTrigger && scanControl.isRunning()
+      ),
+      rightAway: ocrAutoProcessService.isRightAwayEnabled(),
+      nextRunAt: ocrAutoProcessService.getNextRunAt(),
+    },
+  };
+}
 
 /**
  * @swagger
@@ -351,6 +396,12 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
  *       `nextRunAt` the next time the armed scheduler fires (null when
  *       automatic processing is off or the scheduler is not armed). The
  *       dashboard counts down to it between two polls.
+ *
+ *       `activity` is the Task runner board: for the analysis lane and the
+ *       OCR lane, the documents that wait, the ones in progress with their
+ *       step, and the last ones finished (kept in memory, empty after a
+ *       restart). `activity.ocr.nextRunAt` is when the OCR cron reads the
+ *       queue next.
  *     tags:
  *       - Documents
  *       - System
@@ -382,6 +433,8 @@ router.post('/api/webhook/document', isAuthenticated, async (req, res) => {
  *                   $ref: '#/components/schemas/ScannerHealth'
  *                 paperless:
  *                   $ref: '#/components/schemas/PaperlessHealth'
+ *                 activity:
+ *                   $ref: '#/components/schemas/TaskRunnerActivity'
  *                 currentlyProcessing:
  *                   type: object
  *                   description: Details about the document currently being processed (if any)
@@ -428,6 +481,7 @@ router.get('/api/processing-status', isAuthenticated, async (req, res) => {
       isScanning: Boolean(scanState.running),
       stopRequested: Boolean(scanState.stopRequested),
       ...buildScannerHealthSnapshot(),
+      activity: await buildActivity(),
     });
   } catch {
     res.status(500).json({ error: 'Failed to fetch processing status' });

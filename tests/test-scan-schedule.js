@@ -483,10 +483,10 @@ const HOUR = 60 * MINUTE;
   // 4. Markup and module lifecycle
   // ────────────────────────────────────────────────────────────────────────
 
-  const card = read('views', 'partials', 'widgets', 'processing-status.ejs');
+  const card = read('views', 'partials', 'widgets', 'task-runner.ejs');
   const dashboardSource = read('public', 'js', 'modules', 'dashboard.js');
 
-  await test('The Processing status card carries the three scan lines', () => {
+  await test('The Task runner card carries the three scan lines', () => {
     for (const id of [
       'scanClock',
       'scanLastRun',
@@ -498,9 +498,15 @@ const HOUR = 60 * MINUTE;
     for (const label of ['Last scan', 'Next scan', 'Schedule']) {
       assert.ok(card.includes(`>${label}<`), `label "${label}" missing`);
     }
-    // The donut and its legend stay where they were.
-    assert.ok(card.includes('id="processingDonut"'));
-    assert.ok(card.includes('id="processingLegend"'));
+    // The donut and its legend stay in Processing status.
+    const status = read(
+      'views',
+      'partials',
+      'widgets',
+      'processing-status.ejs'
+    );
+    assert.ok(status.includes('id="processingDonut"'));
+    assert.ok(status.includes('id="processingLegend"'));
   });
 
   await test('The countdown is not a live region', () => {

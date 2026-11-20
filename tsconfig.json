@@ -42,6 +42,7 @@
     "services/pdfPasswordService.js",
     "services/pdfUnlockService.js",
     "services/unlockFollowUpService.js",
-    "services/environmentOverview.js"
+    "services/environmentOverview.js",
+    "services/activityService.js"
   ]
 }

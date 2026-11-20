@@ -850,7 +850,7 @@ async function startScanning() {
         'Configured OCR auto-processing interval:',
         ocrAutoProcessInterval
       );
-      cron.schedule(ocrAutoProcessInterval, async () => {
+      const ocrTask = cron.schedule(ocrAutoProcessInterval, async () => {
         // Never compete with a running scan for the same AI backend.
         if (scanControl.running) {
           console.debug(
@@ -860,6 +860,8 @@ async function startScanning() {
         }
         await ocrAutoProcessService.drainQueue();
       });
+      // The dashboard shows when the queue is read next.
+      ocrAutoProcessService.markArmed(() => ocrTask.getNextRun());
     } else {
       console.info(
         '[OCR] Automatic OCR queue processing is disabled (OCR_AUTO_PROCESS_ENABLED=no).'

@@ -34,6 +34,7 @@ const dashboardStatsService = require('./dashboardStatsService.js');
 /** @type {Record<string, any>} */
 const documentProcessingService = require('./documentProcessingService.js');
 const documentPipeline = require('./documentPipeline.js');
+const activityService = require('./activityService.js');
 const scanControlService = require('./scanControl.js');
 
 /** @typedef {import('./scanControl.js').ScanState} ScanState */
@@ -268,7 +269,11 @@ class ScanService {
       // Asked once per run, when the first document gets that far.
       const getExternalApiData = documentPipeline.externalApiDataForRun();
 
+      let checked = 0;
       for (const doc of documents) {
+        // Where the run is in its list, for the dashboard.
+        activityService.scanProgress(checked, documents.length);
+        checked += 1;
         if (scanControl.stopRequested) {
           scanStats.stopRequested = true;
           console.info(
@@ -316,6 +321,7 @@ class ScanService {
             doc.title,
             'complete'
           );
+          activityService.finish('analysis', doc.id, 'done');
           scanStats.processed += 1;
           // The document counters and token figures just changed. Marking the
           // cache stale costs nothing here; the next dashboard poll pays for the
@@ -323,6 +329,7 @@ class ScanService {
           dashboardStatsService.invalidate();
         } catch (error) {
           await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
+          activityService.finish('analysis', doc.id, 'failed');
           scanStats.failed += 1;
           // A failure moves the failed counter and the failure rate, which the
           // dashboard shows just as prominently as the successes.
@@ -357,6 +364,7 @@ class ScanService {
       );
 
       scanControl.running = false;
+      activityService.scanProgress(null);
       scanControl.stopRequested = false;
       scanControl.source = null;
       scanControl.startedAt = null;

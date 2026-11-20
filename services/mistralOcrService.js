@@ -19,6 +19,7 @@ const AIServiceFactory = require('./aiServiceFactory');
 const documentProcessingService = require('./documentProcessingService');
 const pdfPasswordService = require('./pdfPasswordService');
 const pdfUnlockService = require('./pdfUnlockService');
+const activityService = require('./activityService');
 const {
   isTimeoutError,
   buildTimeoutErrorMessage,
@@ -1224,8 +1225,20 @@ class MistralOcrService {
     const { autoAnalyze = false, progressCallback = null } = opts;
     const normalizedDocumentId = Number(documentId);
     const emit = (step, message, data = {}) => {
+      // The dashboard's OCR lane follows the same steps the progress stream
+      // tells; 'done' and 'error' are handled by the finally below.
+      activityService.step(
+        'ocr',
+        normalizedDocumentId,
+        step,
+        data && data.pageNumber && data.pageCount
+          ? `${data.pageNumber}/${data.pageCount}`
+          : null
+      );
       if (progressCallback) progressCallback(step, message, data);
     };
+    // Only a finished read lands in the dashboard's Ready column.
+    let laneOutcome = 'skipped';
 
     if (!Number.isInteger(normalizedDocumentId) || normalizedDocumentId <= 0) {
       throw new Error('Invalid OCR document ID');
@@ -1260,6 +1273,11 @@ class MistralOcrService {
       await documentModel.updateOcrQueueStatus(
         normalizedDocumentId,
         'processing'
+      );
+      activityService.start(
+        'ocr',
+        { id: normalizedDocumentId, title: fallbackTitle },
+        'download'
       );
 
       // Step 1: Download
@@ -1336,7 +1354,10 @@ class MistralOcrService {
           normalizedDocumentId,
           {
             onPageProgress: (pageNumber, pageCount) =>
-              emit('ocr', `OCR page ${pageNumber}/${pageCount}…`),
+              emit('ocr', `OCR page ${pageNumber}/${pageCount}…`, {
+                pageNumber,
+                pageCount,
+              }),
           }
         );
       } catch (ocrErr) {
@@ -1439,6 +1460,7 @@ class MistralOcrService {
         await documentModel.removeFromOcrQueue(normalizedDocumentId);
       }
 
+      laneOutcome = 'done';
       emit('done', 'Processing finished successfully.');
       return { ocrText, wroteBack, aiAnalysis: aiResult };
     } catch (error) {
@@ -1457,10 +1479,12 @@ class MistralOcrService {
         );
         await recordTerminalFailure('ocr_failed', 'ocr');
       }
+      laneOutcome = 'failed';
       emit('error', error.message);
       throw error;
     } finally {
       this.activeDocumentIds.delete(normalizedDocumentId);
+      activityService.finish('ocr', normalizedDocumentId, laneOutcome);
     }
   }
 

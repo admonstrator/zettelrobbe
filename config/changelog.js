@@ -239,7 +239,7 @@ const RELEASES = [
     version: 'v2026.11.04',
     entries: [
       'New: OCR before the first analysis (Settings → OCR fallback): send every document, or only documents with a tag such as needs-ocr, through OCR before the AI reads them, instead of analysing poor text first. Off by default; each document gets at most one OCR run. With a paid OCR service "every document" bills one run per document <a href="https://github.com/admonstrator/zettelrobbe/discussions/280">(see here)</a>',
-      'New: The dashboard card "Processing status" shows the last scan, the next scheduled scan with a countdown and the schedule in words <a href="https://github.com/admonstrator/zettelrobbe/discussions/363">(see here)</a>',
+      'New: The dashboard card "Task runner" shows the last scan, the next scheduled scan with a countdown and the schedule in words <a href="https://github.com/admonstrator/zettelrobbe/discussions/363">(see here)</a>',
       'New: After an update the welcome dialog says so at the top and names the version you came from',
       'Improvement: A password-protected PDF is analysed as soon as Paperless-ngx has stored the unlocked version, instead of waiting for the next scheduled scan',
       'Improvement: The version number on the About page opens the welcome dialog again',
@@ -262,6 +262,8 @@ const RELEASES = [
       'New: OCR, "Read queued documents right away": a document the scan or webhook sends to OCR is read as soon as that run has finished and analysed right after, instead of waiting for the OCR schedule. Off by default',
       'Improvement: Quick start asks when OCR runs as soon as OCR is switched on: right after the scan, on its own schedule, both, or only when started by hand. The answer sets the two OCR queue switches',
       'Improvement: Quick start shows the OCR provider and model. "Same model as the analysis" copies the provider and model of step 2 into the OCR settings and follows when that model changes',
+      'New: The dashboard card "Task runner" shows two lanes, Analysis and OCR, like the pick-up screen at a counter: which documents wait, which one is in progress and in which step (asking the AI, reading page 3 of 7, writing back), and which ones are ready. It also shows when the OCR schedule reads the queue next',
+      'Improvement: The OCR queue is read oldest first, by the schedule, right after a run and by "Process all". A document queued early no longer waits behind everything queued after it',
       'Improvement: The settings of each topic are ordered by importance: the main switch first, then what it needs, then when it runs, then the details. OCR has three sections now',
       'Removed: The Paperless-ngx user name and the slider "Generation creativity". Zettelrobbe signs in with the API token alone, and nothing used the slider since the document chat was removed. PAPERLESS_USERNAME and AI_TEMPERATURE_GENERATION are ignored and can be deleted from docker-compose',
     ],

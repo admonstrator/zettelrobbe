@@ -24,6 +24,45 @@
             <%- include('../runner-seal') %>
         </div>
 
+        <!-- The board, like the pick-up screen at a counter: per lane the
+             documents that wait, the ones in progress and the last ones done.
+             Filled from activity in /api/processing-status by the dashboard
+             module. Not a live region: the timers change every second. -->
+        <div class="runner-board" id="runnerBoard">
+            <div class="runner-board__head" aria-hidden="true">
+                <span></span>
+                <span>Waiting</span>
+                <span>In progress</span>
+                <span>Ready</span>
+            </div>
+            <% [['analysis', 'Analysis'], ['ocr', 'OCR']].forEach(function (lane) { %>
+            <div class="runner-lane" data-lane="<%= lane[0] %>">
+                <span class="runner-lane__name"><%= lane[1] %></span>
+                <div class="runner-lane__cell" data-col="waiting">
+                    <span class="runner-lane__label">Waiting</span>
+                    <div class="runner-lane__items" data-lane-waiting></div>
+                </div>
+                <div class="runner-lane__cell" data-col="active">
+                    <span class="runner-lane__label">In progress</span>
+                    <div class="runner-lane__items" data-lane-active></div>
+                </div>
+                <div class="runner-lane__cell" data-col="ready">
+                    <span class="runner-lane__label">Ready</span>
+                    <div class="runner-lane__items" data-lane-ready></div>
+                </div>
+            </div>
+            <% }) %>
+        </div>
+
+        <!-- The scan clock. Ticks between two polls; deliberately not a live
+             region either. -->
+        <div class="scan-clock zr-sm" id="scanClock">
+            <div class="zr-kv"><span class="zr-kv__k">Last scan</span><span class="zr-kv__v" id="scanLastRun">&mdash;</span></div>
+            <div class="zr-kv"><span class="zr-kv__k">Next scan</span><span class="zr-kv__v" id="scanNextRun">&mdash;</span></div>
+            <div class="zr-kv"><span class="zr-kv__k">Schedule</span><span class="zr-kv__v" id="scanSchedule">&mdash;</span></div>
+            <div class="zr-kv hidden" id="ocrNextRunRow"><span class="zr-kv__k">Next OCR run</span><span class="zr-kv__v" id="ocrNextRun">&mdash;</span></div>
+        </div>
+
         <div class="zr-row zr-row--wrap zr-sm zr-muted" style="gap: var(--zr-4)">
             <span><strong class="zr-num" id="processedToday">0</strong> processed today</span>
             <span>last document <strong id="lastProcessed">no data</strong></span>
