@@ -232,6 +232,10 @@ because they were only ever looked at empty.
    (`applyOcrBeforeAi` in `CALLER_PROFILES`). At most once per document: `ocr_queue_history` remembers
    every document that was ever queued, also after its queue row is gone.
 6. Docs below `MIN_CONTENT_LENGTH` (default 10) are skipped or routed to OCR.
+   The OCR queue drains on its own cron (`OCR_AUTO_PROCESS_*`, `services/ocrAutoProcessService.js`), or,
+   with `OCR_RUN_RIGHT_AWAY=yes`, right after the scan or webhook/rescan/unlock run that queued a
+   document (`afterRun()`, counted by `documentPipeline.queuedForOcr`); a trigger during a drain or a
+   scan is held and starts one more drain, so OCR and a scan never call the model at once.
 7. If `PROCESS_PREDEFINED_DOCUMENTS=yes`, only docs whose tags match the `TAGS` env var are processed.
 8. The factory's AI service analyzes; results are written back via `paperlessService.updateDocument()`.
    `services/scanControl.js` holds the scan state and the start/stop levers routes use mid-scan.

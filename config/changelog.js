@@ -259,6 +259,8 @@ const RELEASES = [
       'Improvement: The settings page has one scrollbar and is made of the same cards as the other pages: one card holds the topic list, one card holds the open topic with its title and all its sections. The groups of the topic list fold, every switch says what it does, and a field ends at the same right edge as its card',
       'Improvement: The save bar of the settings page appears only when something changed, names the changed settings and never lies over a field',
       'Improvement: Every page starts at the same point under the top bar and keeps the same distance between its cards. On Manual the search card no longer touches the cards below it',
+      'New: OCR, "Read queued documents right away": a document the scan or webhook sends to OCR is read as soon as that run has finished and analysed right after, instead of waiting for the OCR schedule. Off by default',
+      'Improvement: The settings of each topic are ordered by importance: the main switch first, then what it needs, then when it runs, then the details. OCR has three sections now',
       'Removed: The Paperless-ngx user name and the slider "Generation creativity". Zettelrobbe signs in with the API token alone, and nothing used the slider since the document chat was removed. PAPERLESS_USERNAME and AI_TEMPERATURE_GENERATION are ignored and can be deleted from docker-compose',
     ],
   },
