@@ -16,7 +16,7 @@
  *             (never for a secret), whether a copy is stored and whether that
  *             copy equals the value in effect, and whether "Take over" can store
  *             one (a field on the page keeps it, the value passes the field's
- *             own check)
+ *             own check, and it is not a blocked change)
  *   unused    removed settings (settingsCatalog.REMOVED_SETTINGS) that are still
  *             set, in the environment or in the stored settings
  *   blocked   values Zettelrobbe would have changed and could not, because the
@@ -54,6 +54,8 @@ const {
  * @property {(value: string) => boolean} applies whether the value in effect is the case
  * @property {string} title what it is, in a few words
  * @property {string} text what it means and what to do
+ * @property {string} reason why its row cannot be taken over: a copy would
+ *   keep the value Zettelrobbe means to change once the line is gone
  */
 
 /**
@@ -125,6 +127,7 @@ const BLOCKED_CHANGES = Object.freeze([
     text:
       `The environment sets ${OLD_FORM_OCR_TIMEOUT_MS}, the old default of the settings form, so OCR gives up on a request after ${seconds(OLD_FORM_OCR_TIMEOUT_MS)} seconds. ` +
       `Delete the line from docker-compose without taking it over, and OCR waits the default ${seconds(DEFAULT_OCR_TIMEOUT_MS)} seconds.`,
+    reason: `${OLD_FORM_OCR_TIMEOUT_MS} is the old default of the settings form, so delete the line instead of taking it over.`,
   }),
 ]);
 
@@ -288,6 +291,39 @@ function takeOverValue(entry, value) {
 }
 
 /**
+ * The blocked change a value in effect is, if any: the environment sets the
+ * key to a value Zettelrobbe would have changed (BLOCKED_CHANGES).
+ *
+ * @param {OverviewInputs} inputs
+ * @param {string} key
+ * @param {unknown} value the value in effect
+ * @returns {BlockedChange|undefined}
+ */
+function blockedChangeOf(inputs, key, value) {
+  const raw = value == null ? '' : String(value);
+  return (inputs.blockedChanges || BLOCKED_CHANGES).find(
+    (change) => change.key === key && change.applies(raw)
+  );
+}
+
+/**
+ * What "Take over" stores for a setting the environment sets: nothing for a
+ * blocked change, whose copy would keep the value for good once the line is
+ * gone (the migration that would have changed it leaves a value the
+ * environment sets alone), else takeOverValue().
+ *
+ * @param {OverviewInputs} inputs
+ * @param {SettingEntry} entry
+ * @param {unknown} value the value in effect
+ * @returns {Storable}
+ */
+function takeOverTarget(inputs, entry, value) {
+  const blocked = blockedChangeOf(inputs, entry.key, value);
+  if (blocked) return { ok: false, reason: blocked.reason };
+  return takeOverValue(entry, value);
+}
+
+/**
  * Whether two values of a setting are the same once stored: equal as written,
  * or equal after the normalisation of storableValue().
  *
@@ -359,7 +395,7 @@ function buildEnvironmentOverview(inputs) {
     if (copy !== null) {
       state = sameValue(entry, copy, value) ? 'same' : 'different';
     }
-    const target = takeOverValue(entry, value);
+    const target = takeOverTarget(inputs, entry, value);
     settings.push({
       key: entry.key,
       anchor: anchorOf(entry),
@@ -429,8 +465,9 @@ function requestedKeys(requested, allowAll) {
 
 /**
  * What "Take over" stores: for each requested key the value storableValue()
- * gives, or why it stores none. A key that is not a catalogue setting the
- * environment sets refuses the whole request.
+ * gives, or why it stores none (a blocked change stores none either). A key
+ * that is not a catalogue setting the environment sets refuses the whole
+ * request.
  *
  * @param {OverviewInputs} inputs
  * @param {unknown} requested a list of keys, or "all": every row that can be taken over
@@ -462,7 +499,7 @@ function planTakeOver(inputs, requested) {
     const entry = /** @type {SettingEntry} */ (
       inputs.catalog.find((item) => item.key === key)
     );
-    const target = takeOverValue(entry, inputs.effective[key]);
+    const target = takeOverTarget(inputs, entry, inputs.effective[key]);
     if (target.ok) values[key] = target.value;
     else refused.push({ key, reason: target.reason });
   }

@@ -1332,8 +1332,11 @@ const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`;
  *
  *       The whole request is refused when a key is not a catalogue setting the
  *       environment sets. A value the field's own check refuses (a broken cron, a
- *       number outside the field's range) and a setting without a field on the
- *       settings page are not stored; `refused` says why.
+ *       number outside the field's range), a setting without a field on the
+ *       settings page and a value Zettelrobbe would have changed if the
+ *       environment did not set it (an OCR timeout of 30000, the old default,
+ *       whose line is to be deleted instead) are not stored; `refused` says why.
+ *       "all" leaves them out.
  *     tags:
  *       - Settings
  *     security:
