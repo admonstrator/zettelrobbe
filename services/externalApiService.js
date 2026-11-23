@@ -119,9 +119,17 @@ function applyTransform(data, transform) {
  * or the cloud metadata service, and a custom header such as X-Api-Key went
  * along to whatever host a redirect named. So the service follows them itself.
  * Every hop has to pass validateApiUrl with the options the entered address
- * got, before a request goes to it; an https request never continues over
- * plain http; and the configured headers go only to the origin the user
- * entered.
+ * got, before a request goes to it, and an https request never continues over
+ * plain http.
+ *
+ * The configured headers and the request body go only to the address the
+ * user entered (isEnteredAddress): its own origin, or the same host name when
+ * the redirect only upgrades http to https on the default ports (80 to 443,
+ * or no port to no port), as a proxy in front of an API often does. On a hop
+ * to any other address the headers stay behind. A hop that would carry the
+ * body there (307 and 308, and 301 and 302 for a method other than POST, the
+ * cases where the body is kept) is refused, because a body can hold a token
+ * as well.
  */
 
 /** Redirects followed at most; the next one is refused. */
@@ -158,6 +166,30 @@ function addressForLog(url) {
 }
 
 /**
+ * Whether a hop goes to the address the user entered, as described above:
+ * the same origin, or the same host name reached over https instead of http,
+ * both on their default port.
+ *
+ * @param {URL} entered
+ * @param {URL} target
+ * @returns {boolean}
+ */
+function isEnteredAddress(entered, target) {
+  if (target.origin === entered.origin) {
+    return true;
+  }
+  // URL drops a default port (80 for http, 443 for https), so an empty port
+  // is the default one on either side.
+  return (
+    entered.protocol === 'http:' &&
+    target.protocol === 'https:' &&
+    target.hostname === entered.hostname &&
+    entered.port === '' &&
+    target.port === ''
+  );
+}
+
+/**
  * Sends the request and follows its redirects as described above. One
  * timeout covers the whole chain, as it did while axios followed.
  *
@@ -166,7 +198,7 @@ function addressForLog(url) {
  * @returns {Promise<{ status: number, data: unknown }>} the answer that is not a redirect
  */
 async function requestCheckingRedirects(request, allowPrivateIPs) {
-  const enteredOrigin = new URL(request.url).origin;
+  const entered = new URL(request.url);
   const deadline = Date.now() + request.timeout;
   let { method, url, data } = request;
 
@@ -180,7 +212,7 @@ async function requestCheckingRedirects(request, allowPrivateIPs) {
     const options = {
       method,
       url,
-      headers: current.origin === enteredOrigin ? request.headers : {},
+      headers: isEnteredAddress(entered, current) ? request.headers : {},
       timeout: timeLeft,
       maxRedirects: 0,
       validateStatus: (status) =>
@@ -239,6 +271,12 @@ async function requestCheckingRedirects(request, allowPrivateIPs) {
       method = 'GET';
       data = undefined;
     }
+    if (data !== undefined && !isEnteredAddress(entered, target)) {
+      throw new RedirectRefusedError(
+        addressForLog(target),
+        'The request body goes only to the address you entered'
+      );
+    }
     console.debug(`[DEBUG] External API redirects to ${addressForLog(target)}`);
     url = target.href;
   }
@@ -295,7 +333,10 @@ class ExternalApiService {
         return null;
       }
 
-      console.log(`[DEBUG] Fetching data from external API: ${url}`);
+      // The address can carry a key in its user name, password or query.
+      console.log(
+        `[DEBUG] Fetching data from external API: ${addressForLog(new URL(url))}`
+      );
 
       // Parse headers if they're a string
       let parsedHeaders = headers;

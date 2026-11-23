@@ -242,7 +242,10 @@ class WebhookQueueService {
    * an OCR run is reading it, see documentPipeline.isWaitingForOcr) is left
    * alone as well: the pipeline would skip it, so deleting its records would
    * lose them for nothing. It comes back in `waitingForOcr` and is analysed
-   * once OCR has read it.
+   * once OCR has read it. The same goes for a PDF whose password was just
+   * removed while the unlock follow-up waits for its unlocked version
+   * (services/unlockFollowUpService.js): the follow-up holds its claim, so
+   * the queue would drop the entry, and the follow-up analyses it itself.
    *
    * @param {Array<number|string>} ids - Document IDs to reprocess.
    * @returns {Promise<{queued: number, notFound: number[], waitingForOcr: number[]}>}
@@ -262,9 +265,14 @@ class WebhookQueueService {
     const waitingForOcr = [];
     /** @type {{ id: number, document: QueuedDocument }[]} */
     const resolvedDocuments = [];
+    // Required here rather than at the top: the follow-up requires this module.
+    const unlockFollowUpService = require('./unlockFollowUpService.js');
 
     for (const id of numericIds) {
-      if (await documentPipeline.isWaitingForOcr(id)) {
+      if (
+        unlockFollowUpService.isWaiting(id) ||
+        (await documentPipeline.isWaitingForOcr(id))
+      ) {
         waitingForOcr.push(id);
         continue;
       }

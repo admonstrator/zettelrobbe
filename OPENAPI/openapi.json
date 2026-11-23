@@ -4740,8 +4740,8 @@
                   },
                   "aiTagName": {
                     "type": "string",
-                    "description": "Tag name to use for AI-processed documents",
-                    "example": "AI-Processed"
+                    "description": "Name of the tag added to analysed documents while aiProcessedTag is on (AI_PROCESSED_TAG_NAME). While no name is set the tag is ai-processed; a name set to the empty string means no tag.",
+                    "example": "ai-processed"
                   },
                   "usePromptTags": {
                     "type": "boolean",
@@ -4787,6 +4787,11 @@
                     "type": "string",
                     "description": "JSON string defining custom fields to extract",
                     "example": "{\"invoice_number\":{\"type\":\"string\"},\"total_amount\":{\"type\":\"number\"}}"
+                  },
+                  "externalApiTransform": {
+                    "type": "string",
+                    "description": "Which part of the external API's JSON answer goes into the prompt (EXTERNAL_API_TRANSFORM): a path of names separated by dots with list positions in brackets, such as data.items[0].name, or [0].name when the answer itself is a list. It is a path, not code: JavaScript is never run. Empty, a value that is not such a path, a path of more than ten steps and a path that matches nothing send the whole answer.",
+                    "example": "data.items[0].name"
                   },
                   "disableAutomaticProcessing": {
                     "type": "boolean",
@@ -4938,13 +4943,20 @@
                     ],
                     "example": "mistral"
                   },
+                  "ocrValidationTimeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 7200,
+                    "description": "How long OCR waits for one request, in seconds (1-7200, default 120); stored in milliseconds as SETUP_OCR_VALIDATION_TIMEOUT_MS. Out-of-range values are clamped, a value that is not a number saves the default, and an empty or missing field keeps the stored value.",
+                    "example": 120
+                  },
                   "ocrRunRightAway": {
                     "type": "string",
                     "enum": [
                       "yes",
                       "no"
                     ],
-                    "description": "Read the OCR queue as soon as the scan run, webhook delivery or rescan that queued a document has ended, and analyse right after when ocrAutoAnalyze is on (OCR_RUN_RIGHT_AWAY, default no). Works next to ocrAutoProcessEnabled, does nothing while OCR is disabled, and applies without a restart.",
+                    "description": "Read the OCR queue as soon as the scan run, webhook delivery or rescan that queued a document has ended, and analyse right after when ocrAutoAnalyze is on (OCR_RUN_RIGHT_AWAY, default no). Works next to ocrAutoProcessEnabled, does nothing while OCR is disabled or disableAutomaticProcessing is on, and applies without a restart.",
                     "example": "no"
                   },
                   "ocrAutoProcessEnabled": {
@@ -5276,7 +5288,7 @@
     "/api/settings/environment/take-over": {
       "post": {
         "summary": "Store values the environment sets",
-        "description": "Stores the value in effect of settings the environment sets (usually the\nlines under `environment:` in docker-compose) in Zettelrobbe's own stored\nsettings, so that their lines can be deleted from docker-compose. The value\nis normalised the way a settings save of its field normalises it; switches\nand free text are stored as written.\n\nNothing changes about the value in effect: the environment keeps winning\nwhile its line is there, and no restart follows, also for a key that\notherwise needs one. Once the environment no longer sets a key, the stored\nvalue applies from the next start on. A secret is stored like a secret\ntyped on the settings page; the response never contains a value.\n\nThe whole request is refused when a key is not a catalogue setting the\nenvironment sets. A value the field's own check refuses (a broken cron, a\nnumber outside the field's range) and a setting without a field on the\nsettings page are not stored; `refused` says why.\n",
+        "description": "Stores the value in effect of settings the environment sets (usually the\nlines under `environment:` in docker-compose) in Zettelrobbe's own stored\nsettings, so that their lines can be deleted from docker-compose. The value\nis normalised the way a settings save of its field normalises it; switches\nand free text are stored as written.\n\nNothing changes about the value in effect: the environment keeps winning\nwhile its line is there, and no restart follows, also for a key that\notherwise needs one. Once the environment no longer sets a key, the stored\nvalue applies from the next start on. A secret is stored like a secret\ntyped on the settings page; the response never contains a value.\n\nThe whole request is refused when a key is not a catalogue setting the\nenvironment sets. A value the field's own check refuses (a broken cron, a\nnumber outside the field's range), a setting without a field on the\nsettings page and a value Zettelrobbe would have changed if the\nenvironment did not set it (an OCR timeout of 30000, the old default,\nwhose line is to be deleted instead) are not stored; `refused` says why.\n\"all\" leaves them out.\n",
         "tags": [
           "Settings"
         ],
@@ -9126,7 +9138,7 @@
     "/api/history/{id}/rescan": {
       "post": {
         "summary": "Reset one document for reprocessing",
-        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\nA document that waits for OCR (queued or being read, while OCR is\nswitched on) is analysed once OCR has read it: nothing is changed and\nthe answer is 200 with `waitingForOcr: true`.\n",
+        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\nA document that waits for OCR (queued or being read, while OCR is\nswitched on) is analysed once OCR has read it, and a PDF whose password\nwas just removed once Paperless-ngx has stored its unlocked version\n(the unlock follow-up): nothing is changed and the answer is 200 with\n`waitingForOcr: true`.\n",
         "tags": [
           "History",
           "API"
@@ -9166,7 +9178,7 @@
                     },
                     "waitingForOcr": {
                       "type": "boolean",
-                      "description": "Present and true when the document waits for OCR; nothing was changed",
+                      "description": "Present and true when the document waits for OCR or for its unlocked version; nothing was changed",
                       "example": true
                     }
                   }
@@ -9205,7 +9217,7 @@
     "/api/history/rescan": {
       "post": {
         "summary": "Rescan (reprocess) multiple documents by ID",
-        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background. Documents\nthat wait for OCR (while OCR is switched on) are left untouched and\nlisted in `waitingForOcr`; they are analysed once OCR has read them.\n",
+        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background. Documents\nthat wait for OCR (while OCR is switched on), and PDFs whose password\nwas just removed while the unlock follow-up waits for their unlocked\nversion, are left untouched and listed in `waitingForOcr`; they are\nanalysed once OCR has read them or the unlocked version is stored.\n",
         "tags": [
           "History"
         ],
@@ -9269,6 +9281,7 @@
                     },
                     "waitingForOcr": {
                       "type": "array",
+                      "description": "Documents left untouched because they wait for OCR or for their unlocked version",
                       "items": {
                         "type": "integer"
                       },
