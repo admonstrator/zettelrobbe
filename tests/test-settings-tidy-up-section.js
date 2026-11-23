@@ -1505,9 +1505,15 @@ function sliceBetween(source, from, to) {
             },
           };
         });
-      // The submit handler awaits more than the POST; wait for the request.
+      // The save button sits in the save bar, outside the form
+      // (form="setupForm"), which shows once a change is unsaved. The submit
+      // handler awaits more than the POST; wait for the request.
       const submitAndWait = async (page, saves, count) => {
-        await page.click('#setupForm button[type="submit"]');
+        assert.ok(
+          await page.isVisible('#settingsSaveRow'),
+          'the change shows the save bar'
+        );
+        await page.click('#settingsSaveRow [data-el="save"]');
         const deadline = Date.now() + 10000;
         while (saves.length < count && Date.now() < deadline) {
           await page.waitForTimeout(25);
