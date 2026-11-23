@@ -60,7 +60,7 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.7.0",
-    "axios": "^1.21.0",
+    "axios": "^1.21.1",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^12.11.1",
     "cookie-parser": "^1.4.7",
@@ -73,7 +73,7 @@
     "express-rate-limit": "^8.7.4",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
-    "openai": "^7.53.0",
+    "openai": "^7.57.0",
     "openid-client": "^6.8.9",
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.3.0",
