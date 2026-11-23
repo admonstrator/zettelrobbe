@@ -1642,6 +1642,53 @@ function sliceBetween(source, from, to) {
           await page.close();
         });
 
+        await test('in a browser, a saved model is what a provider switch and Discard return to', async () => {
+          const { page, saves } = await openPage(browser, [
+            'gpt-4.1',
+            'o4-mini',
+          ]);
+          await page.waitForFunction(
+            () => !document.getElementById('duplicatesAiModel').disabled
+          );
+          await page.click('#fetchTidyUpModelsBtn');
+          await closeDialog(page);
+          await page.selectOption('#duplicatesAiModel', 'o4-mini');
+          await submitAndWait(page, saves, 1);
+          assert.strictEqual(saves[0].duplicatesAiModel, 'o4-mini');
+          await page.waitForSelector('#settingsSaveRow', { state: 'hidden' });
+
+          // Saved without a reload, the model is the stored one now. A
+          // person's switch, so the save bar offers Discard.
+          await page.evaluate(() => {
+            location.hash = '#ai-provider';
+          });
+          await page.selectOption('#aiProvider', 'azure');
+          let state = await pickerState(page);
+          assert.deepStrictEqual(state.options, [
+            'Same as the analysis model',
+            'o4-mini',
+            'Other…',
+          ]);
+          assert.strictEqual(state.value, 'o4-mini');
+
+          await page.click('#settingsSaveRow [data-el="reset"]');
+          await page.click(
+            'dialog.zr-dialog:not([id])[open] button[value="ok"]'
+          );
+          await page.waitForSelector('#settingsSaveRow', { state: 'hidden' });
+          state = await pickerState(page);
+          assert.strictEqual(
+            state.value,
+            'o4-mini',
+            'Discard keeps the saved model'
+          );
+          assert.strictEqual(
+            await page.$eval('#aiProvider', (select) => select.value),
+            'openai'
+          );
+          await page.close();
+        });
+
         await test('in a browser, the one provider list fills and follows the entry picked', async () => {
           const { page } = await openPage(browser, []);
           await page.goto(harness.base + '/settings#ai-provider');

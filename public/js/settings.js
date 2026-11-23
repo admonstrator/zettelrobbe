@@ -2664,6 +2664,16 @@ function initializeFormHandlers() {
       const result = await response.json();
 
       if (result.success) {
+        // A provider switch puts a model picker back on its stored value
+        // (resetModelPickers): from now on that is the value just saved, not
+        // the one the page was loaded with.
+        document
+          .querySelectorAll('select[data-model-picker]')
+          .forEach((select) => {
+            if (formData.has(select.name)) {
+              select.dataset.storedValue = String(formData.get(select.name));
+            }
+          });
         // The saved values are the new baseline for the unsaved-change count
         // and the leave warning (modules/settings-form.js).
         setupForm.dispatchEvent(new CustomEvent('zr:settings-saved'));
