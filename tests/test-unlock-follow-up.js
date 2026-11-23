@@ -14,7 +14,8 @@
  * 1. The analysis starts at the first look after the new version appears,
  *    never before, and reads the new text; the unlock answer does not wait
  * 2. The wait runs out: no analysis, no error, the claim is given back and
- *    the next scan may take the document
+ *    the next scan may take the document; the log names the cause, Paperless-
+ *    ngx or another run that held the document all along
  * 3. Paperless-ngx unreachable for a while: the looks are repeated
  * 4. DISABLE_AUTOMATIC_PROCESSING=yes: no follow-up at all
  * 5. One follow-up per document
@@ -406,10 +407,42 @@ async function main() {
       pauses.slice(0, 6),
       [5000, 10000, 15000, 30000, 60000, 60000]
     );
-    assert.ok(w.log.warn.some((line) => /next scan processes it/.test(line)));
+    assert.deepStrictEqual(
+      w.log.warn.filter((line) => /next scan processes it/.test(line)),
+      [
+        '[OCR] Document 7: Paperless-ngx has not stored the unlocked version within 15 minutes; the next scan processes it',
+      ]
+    );
     assert.deepStrictEqual(w.log.error, []);
     // Afterwards the scan claims it like any other document.
     assert.strictEqual(w.pipeline.claim(7), true);
+  });
+
+  await test('the wait runs out while another run holds the document: the log says so', async () => {
+    const w = makeWorld({ storedAfter: { 7: 0 } });
+    await quietly(w, async () => {
+      // A run that holds the document for longer than the whole wait.
+      assert.strictEqual(w.pipeline.claim(7), true);
+      await w.unlock.unlock(7, { password: 'right' });
+      await w.settle();
+    });
+    assert.deepStrictEqual(w.analyses, []);
+    assert.deepStrictEqual(w.followUps.waitingDocumentIds(), []);
+    const lines = w.log.warn.filter((line) =>
+      /next scan processes it/.test(line)
+    );
+    assert.deepStrictEqual(lines, [
+      '[OCR] Document 7: another run held the document for 15 minutes, so the follow-up after the unlock never got to it; the next scan processes it',
+    ]);
+    assert.ok(
+      !w.log.warn.some((line) =>
+        /has not stored the unlocked version/.test(line)
+      ),
+      'not blamed on Paperless-ngx'
+    );
+    // The other run's claim is untouched: the follow-up never held it.
+    assert.strictEqual(w.pipeline.claim(7), false);
+    w.pipeline.release(7);
   });
 
   await test('Paperless-ngx unreachable for a while: the looks are repeated', async () => {
