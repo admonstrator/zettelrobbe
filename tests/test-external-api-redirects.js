@@ -37,6 +37,8 @@
  *  10. https never continues over http; http may continue over https, and on
  *      the same host name with the default ports the headers and the body go
  *      along; axios is never left to follow a redirect itself
+ *  11. the log line of the request names the entered address without user
+ *      name, password, query and fragment
  */
 
 const assert = require('assert');
@@ -773,6 +775,34 @@ async function main() {
         assert.deepStrictEqual(value, { secure: true }, target);
         assert.strictEqual(calls[0].headers['X-Api-Key'], 'secret-key');
         assert.deepStrictEqual(calls[1].headers, {}, `${entered} to ${target}`);
+      }
+    });
+
+    // ── 11. the log ───────────────────────────────────────────────────────
+
+    await test('the log names the entered address without user, password, query and fragment', async () => {
+      endpoint.reset();
+      setExternalApi({
+        EXTERNAL_API_URL: `http://apiuser:secret-password@api.public.test:${endpoint.port}/data?key=secret-query#secret-fragment`,
+      });
+      const { value, lines } = await captured(() => service.fetchData());
+      assert.strictEqual(value.route, '/data');
+      const fetching = lines.filter((line) =>
+        line.includes('Fetching data from external API')
+      );
+      assert.deepStrictEqual(fetching, [
+        `[DEBUG] Fetching data from external API: http://api.public.test:${endpoint.port}/data`,
+      ]);
+      for (const secret of [
+        'apiuser',
+        'secret-password',
+        'secret-query',
+        'secret-fragment',
+      ]) {
+        assert.ok(
+          !lines.some((line) => line.includes(secret)),
+          `${secret} is in the log: ${lines.join(' | ')}`
+        );
       }
     });
   } finally {

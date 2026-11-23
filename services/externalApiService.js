@@ -333,7 +333,10 @@ class ExternalApiService {
         return null;
       }
 
-      console.log(`[DEBUG] Fetching data from external API: ${url}`);
+      // The address can carry a key in its user name, password or query.
+      console.log(
+        `[DEBUG] Fetching data from external API: ${addressForLog(new URL(url))}`
+      );
 
       // Parse headers if they're a string
       let parsedHeaders = headers;
