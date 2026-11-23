@@ -112,12 +112,17 @@ class OcrAutoProcessService {
   /**
    * Whether a run that queued documents has the queue read as soon as it
    * ends (OCR_RUN_RIGHT_AWAY). Independent of the cron switch above, and like
-   * it, nothing while OCR itself is off. Read on every call, so a saved
-   * change applies to the next run.
+   * it, nothing while OCR itself is off. Nothing either with
+   * DISABLE_AUTOMATIC_PROCESSING=yes, for which server.js arms neither the
+   * scan nor the OCR cron: a drain writes results back to Paperless-ngx,
+   * which is what that switch stops. Read on every call, so a saved change
+   * applies to the next run.
    */
   isRightAwayEnabled() {
     return (
-      config.mistralOcr?.runRightAway === 'yes' && mistralOcrService.isEnabled()
+      config.mistralOcr?.runRightAway === 'yes' &&
+      config.disableAutomaticProcessing !== 'yes' &&
+      mistralOcrService.isEnabled()
     );
   }
 
@@ -183,8 +188,10 @@ class OcrAutoProcessService {
    * scan at the end of every run (services/scanService.js), the webhook queue
    * after each document (services/webhookQueueService.js), which covers the
    * webhook, a rescan by hand and the unlock follow-up. With
-   * OCR_RUN_RIGHT_AWAY and OCR on, a run that queued at least one document
-   * starts a drain that reads every pending document.
+   * OCR_RUN_RIGHT_AWAY and OCR on (and automatic processing not switched
+   * off, isRightAwayEnabled()), a run that queued at least one document
+   * starts a drain that reads every pending document. Otherwise nothing
+   * starts and no note is kept.
    *
    * A run that ends while a drain or a scan is going on is noted, and the
    * drain starts when that is over: a drain that ends starts the noted one,
