@@ -1098,6 +1098,15 @@ class MistralOcrService {
       return;
     }
 
+    // docker-compose sets the address: it stays in effect, and no stored
+    // copy is written that would apply once its line is gone.
+    if (config.isProtectedRuntimeEnvKey('OCR_API_URL')) {
+      console.log(
+        `[OCR] The OCR API answers at ${normalizedDetectedBase}. OCR_API_URL is set by the environment, which decides, so the address is not saved.`
+      );
+      return;
+    }
+
     try {
       const setupService = require('./setupService');
       const currentConfig = (await setupService.loadConfig()) || {};
