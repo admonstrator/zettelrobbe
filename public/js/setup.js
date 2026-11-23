@@ -1831,7 +1831,7 @@ class SetupWizard {
     );
     this.toggleModelTestOverlay(
       true,
-      'Validating the selected models against your AI server…'
+      'Testing the chosen models on the server…'
     );
 
     const aiResult = await this.runSilentAiTest();
