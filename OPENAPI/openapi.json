@@ -6041,6 +6041,7 @@
     "/api/failed/reset/{documentId}": {
       "post": {
         "summary": "Reset permanently failed document",
+        "description": "Removes the document from the failed list so scanning picks it up again. If its OCR queue row is failed, the row goes back to pending (password-protected PDFs stay failed until they are unlocked). The response field requeued is the number of OCR queue rows put back.\n",
         "tags": [
           "OCR",
           "API"
@@ -6065,7 +6066,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Reset operation result"
+            "description": "Reset operation result, with requeued (OCR queue rows put back to pending)"
           },
           "400": {
             "description": "Invalid document ID"
@@ -6079,6 +6080,7 @@
     "/api/failed/reset-all": {
       "post": {
         "summary": "Reset all permanently failed documents",
+        "description": "Clears the failed list. Failed OCR queue rows of those documents go back to pending (password-protected PDFs stay failed until they are unlocked). The response carries count (entries removed from the failed list) and requeued (OCR queue rows put back to pending).\n",
         "tags": [
           "OCR",
           "API"
@@ -6093,7 +6095,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Reset operation result"
+            "description": "Reset operation result, with count and requeued"
           },
           "500": {
             "description": "Server error"

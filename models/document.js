@@ -788,6 +788,25 @@ function parseAiPairVerdictRow(row) {
   };
 }
 
+// Failed OCR rows of the given document IDs back to pending, password-protected
+// ones excluded. Runs inside the caller's transaction. Returns the number of
+// rows changed.
+function requeueFailedOcrRows(documentIds) {
+  const requeueItem = db.prepare(`
+    UPDATE ocr_queue SET
+      status = 'pending',
+      processed_at = NULL
+    WHERE document_id = ?
+      AND status = 'failed'
+      AND COALESCE(password_protected, 0) = 0
+  `);
+  let changes = 0;
+  for (const documentId of documentIds) {
+    changes += requeueItem.run(documentId).changes;
+  }
+  return changes;
+}
+
 module.exports = {
   async addProcessedDocument(documentId, title) {
     try {
@@ -2152,6 +2171,32 @@ module.exports = {
     }
   },
 
+  // Puts the failed OCR queue rows of the given documents back to pending.
+  // Used when a person resets documents on the Failed page. Password-protected
+  // PDFs stay failed: they would only fail again until they are unlocked.
+  // ocr_text and wrote_back are kept, as in updateOcrQueueStatus. Returns the
+  // number of rows that went back to pending.
+  async requeueFailedOcrQueueItems(documentIds) {
+    try {
+      const normalizedIds = Array.isArray(documentIds)
+        ? documentIds
+            .map((documentId) => Number(documentId))
+            .filter(
+              (documentId) => Number.isInteger(documentId) && documentId > 0
+            )
+        : [];
+
+      if (normalizedIds.length === 0) {
+        return 0;
+      }
+
+      return db.transaction((ids) => requeueFailedOcrRows(ids))(normalizedIds);
+    } catch (error) {
+      console.error('[ERROR] requeueing failed OCR queue items:', error);
+      return 0;
+    }
+  },
+
   async removeFromOcrQueue(documentId) {
     try {
       const result = db
@@ -2312,7 +2357,7 @@ module.exports = {
           .prepare('SELECT document_id FROM failed_documents')
           .all();
         if (!rows.length) {
-          return 0;
+          return { count: 0, requeued: 0 };
         }
 
         const documentIds = rows.map((row) => row.document_id);
@@ -2325,13 +2370,17 @@ module.exports = {
           `DELETE FROM processing_status WHERE document_id IN (${placeholders})`
         ).run(...documentIds);
 
-        return deleteFailedResult.changes;
+        // The Failed page promises that a reset makes the documents
+        // eligible again, so failed OCR rows go back to pending as well.
+        const requeued = requeueFailedOcrRows(documentIds);
+
+        return { count: deleteFailedResult.changes, requeued };
       });
 
       return resetAll();
     } catch (error) {
       console.error('[ERROR] resetting all failed documents:', error);
-      return 0;
+      return { count: 0, requeued: 0 };
     }
   },
 

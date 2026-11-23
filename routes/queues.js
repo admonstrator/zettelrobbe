@@ -28,6 +28,7 @@ const configFile = require('../config/config.js');
 const { isAuthenticated } = require('./auth.js');
 const { protectApiRoute } = require('../middleware/authGate');
 const skipRuleService = require('../services/skipRuleService');
+const dashboardStatsService = require('../services/dashboardStatsService');
 const { normalizeDocumentIdList } = require('../services/documentIdList');
 const router = express.Router();
 
@@ -178,13 +179,22 @@ router.post(
 
       const reset = await documentModel.resetFailedDocument(documentId);
       await documentModel.clearProcessingStatusByDocumentId(documentId);
+      // Only this page's own reset requeues; other callers of
+      // resetFailedDocument clear the entry as a result of success.
+      const requeued = reset
+        ? await documentModel.requeueFailedOcrQueueItems([documentId])
+        : 0;
+      if (requeued > 0) dashboardStatsService.invalidate();
 
-      return res.json({
-        success: reset,
-        message: reset
-          ? `Document ${documentId} reset. It can be scanned again.`
-          : `Document ${documentId} was not in failed queue.`,
-      });
+      let message = `Document ${documentId} was not in failed queue.`;
+      if (reset) {
+        message =
+          requeued > 0
+            ? `Document ${documentId} reset. OCR will read it again.`
+            : `Document ${documentId} reset. It can be scanned again.`;
+      }
+
+      return res.json({ success: reset, requeued, message });
     } catch (error) {
       console.error('[ERROR] POST /api/failed/reset/:documentId:', error);
       return res.status(500).json({ success: false, error: error.message });
@@ -195,16 +205,18 @@ router.post(
 // API: Reset terminal failure state for all documents in failed queue
 router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
   try {
-    const count = await documentModel.resetAllFailedDocuments();
+    const { count, requeued } = await documentModel.resetAllFailedDocuments();
+    if (requeued > 0) dashboardStatsService.invalidate();
 
-    return res.json({
-      success: true,
-      count,
-      message:
-        count > 0
-          ? `${count} failed document${count === 1 ? '' : 's'} reset. They can be scanned again.`
-          : 'No failed documents to reset.',
-    });
+    let message = 'No failed documents to reset.';
+    if (count > 0) {
+      message = `${count} failed document${count === 1 ? '' : 's'} reset. They can be scanned again.`;
+      if (requeued > 0) {
+        message += ` ${requeued} will be read by OCR again.`;
+      }
+    }
+
+    return res.json({ success: true, count, requeued, message });
   } catch (error) {
     console.error('[ERROR] POST /api/failed/reset-all:', error);
     return res.status(500).json({ success: false, error: error.message });
@@ -216,6 +228,11 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
  * /api/failed/reset/{documentId}:
  *   post:
  *     summary: Reset permanently failed document
+ *     description: >
+ *       Removes the document from the failed list so scanning picks it up
+ *       again. If its OCR queue row is failed, the row goes back to pending
+ *       (password-protected PDFs stay failed until they are unlocked). The
+ *       response field requeued is the number of OCR queue rows put back.
  *     tags:
  *       - OCR
  *       - API
@@ -230,7 +247,7 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
  *           type: integer
  *     responses:
  *       200:
- *         description: Reset operation result
+ *         description: Reset operation result, with requeued (OCR queue rows put back to pending)
  *       400:
  *         description: Invalid document ID
  *       500:
@@ -242,6 +259,11 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
  * /api/failed/reset-all:
  *   post:
  *     summary: Reset all permanently failed documents
+ *     description: >
+ *       Clears the failed list. Failed OCR queue rows of those documents go
+ *       back to pending (password-protected PDFs stay failed until they are
+ *       unlocked). The response carries count (entries removed from the
+ *       failed list) and requeued (OCR queue rows put back to pending).
  *     tags:
  *       - OCR
  *       - API
@@ -250,7 +272,7 @@ router.post('/api/failed/reset-all', isAuthenticated, async (req, res) => {
  *       - ApiKeyAuth: []
  *     responses:
  *       200:
- *         description: Reset operation result
+ *         description: Reset operation result, with count and requeued
  *       500:
  *         description: Server error
  */
