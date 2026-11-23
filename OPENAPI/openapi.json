@@ -9126,7 +9126,7 @@
     "/api/history/{id}/rescan": {
       "post": {
         "summary": "Reset one document for reprocessing",
-        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\nA document that waits for OCR (queued or being read, while OCR is\nswitched on) is analysed once OCR has read it: nothing is changed and\nthe answer is 200 with `waitingForOcr: true`.\n",
+        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\nA document that waits for OCR (queued or being read, while OCR is\nswitched on) is analysed once OCR has read it, and a PDF whose password\nwas just removed once Paperless-ngx has stored its unlocked version\n(the unlock follow-up): nothing is changed and the answer is 200 with\n`waitingForOcr: true`.\n",
         "tags": [
           "History",
           "API"
@@ -9166,7 +9166,7 @@
                     },
                     "waitingForOcr": {
                       "type": "boolean",
-                      "description": "Present and true when the document waits for OCR; nothing was changed",
+                      "description": "Present and true when the document waits for OCR or for its unlocked version; nothing was changed",
                       "example": true
                     }
                   }
@@ -9205,7 +9205,7 @@
     "/api/history/rescan": {
       "post": {
         "summary": "Rescan (reprocess) multiple documents by ID",
-        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background. Documents\nthat wait for OCR (while OCR is switched on) are left untouched and\nlisted in `waitingForOcr`; they are analysed once OCR has read them.\n",
+        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background. Documents\nthat wait for OCR (while OCR is switched on), and PDFs whose password\nwas just removed while the unlock follow-up waits for their unlocked\nversion, are left untouched and listed in `waitingForOcr`; they are\nanalysed once OCR has read them or the unlocked version is stored.\n",
         "tags": [
           "History"
         ],
@@ -9269,6 +9269,7 @@
                     },
                     "waitingForOcr": {
                       "type": "array",
+                      "description": "Documents left untouched because they wait for OCR or for their unlocked version",
                       "items": {
                         "type": "integer"
                       },

@@ -11,12 +11,19 @@
  * The hold applies only while OCR is switched on. With OCR off nothing works
  * the queue, and the rescan goes ahead as for any other document.
  *
+ * A PDF whose password was just removed is held the same way while the
+ * unlock follow-up waits for its unlocked version: the follow-up holds the
+ * document's claim, so the queue would drop the entry after the records were
+ * gone. That hold does not depend on the OCR switch.
+ *
  * Covers:
  * 1. A pending row: kept, not fetched, reported as waiting
  * 2. A processing row and a running OCR job: the same
  * 3. OCR switched off: the pending row does not hold the rescan back
  * 4. POST /api/history/:id/rescan answers 200 with waitingForOcr and a message
  * 5. POST /api/history/rescan lists the waiting ids next to queued/notFound
+ * 6. A waiting unlock follow-up holds the rescan, with OCR on or off, through
+ *    the service and both routes; once it is over the rescan goes ahead
  */
 
 'use strict';
@@ -74,6 +81,12 @@ async function main() {
   );
   const mistralOcrService = require(
     path.join(REPO_ROOT, 'services', 'mistralOcrService.js')
+  );
+  const unlockFollowUpService = require(
+    path.join(REPO_ROOT, 'services', 'unlockFollowUpService.js')
+  );
+  const documentPipeline = require(
+    path.join(REPO_ROOT, 'services', 'documentPipeline.js')
   );
 
   try {
@@ -215,6 +228,110 @@ async function main() {
         queued: 1,
         notFound: [],
         waitingForOcr: [WAITING_ID],
+      });
+    });
+
+    /**
+     * Runs fn while the unlock follow-up waits for WAITING_ID's unlocked
+     * version. Its clock stands still, so it never looks at Paperless-ngx.
+     */
+    const whileFollowUpWaits = async (fn) => {
+      const realClock = unlockFollowUpService.clock;
+      const realInfo = console.info;
+      // The harness switches automatic processing off, and with it the
+      // follow-up.
+      const automatic = process.env.DISABLE_AUTOMATIC_PROCESSING;
+      process.env.DISABLE_AUTOMATIC_PROCESSING = 'no';
+      unlockFollowUpService.clock = {
+        now: () => 0,
+        sleep: () => new Promise(() => {}),
+      };
+      console.info = () => {};
+      try {
+        assert.strictEqual(
+          unlockFollowUpService.schedule(WAITING_ID),
+          'scheduled'
+        );
+        assert.ok(unlockFollowUpService.isWaiting(WAITING_ID));
+        await fn();
+      } finally {
+        const entry = unlockFollowUpService._pending.get(WAITING_ID);
+        if (entry) unlockFollowUpService._finish(entry);
+        if (unlockFollowUpService._wake) unlockFollowUpService._wake();
+        await unlockFollowUpService.whenIdle();
+        unlockFollowUpService.clock = realClock;
+        console.info = realInfo;
+        if (automatic === undefined) {
+          delete process.env.DISABLE_AUTOMATIC_PROCESSING;
+        } else {
+          process.env.DISABLE_AUTOMATIC_PROCESSING = automatic;
+        }
+      }
+    };
+
+    await test('a waiting unlock follow-up holds the rescan, with OCR on or off', async () => {
+      for (const ocr of ['yes', 'no']) {
+        process.env.MISTRAL_OCR_ENABLED = ocr;
+        await reset(null);
+        await whileFollowUpWaits(async () => {
+          const result = await webhookQueueService.rescanDocumentsByIds([
+            WAITING_ID,
+            OTHER_ID,
+          ]);
+          assert.deepStrictEqual(
+            result,
+            { queued: 1, notFound: [], waitingForOcr: [WAITING_ID] },
+            `OCR ${ocr}`
+          );
+          assert.ok(await hasRows(WAITING_ID), `OCR ${ocr}: rows kept`);
+          assert.ok(!fetched.includes(WAITING_ID), `OCR ${ocr}: not fetched`);
+          assert.ok(
+            !webhookQueueService.documentQueue.some(
+              (entry) => entry.document.id === WAITING_ID
+            ),
+            `OCR ${ocr}: not queued`
+          );
+          assert.strictEqual(
+            documentPipeline.claim(WAITING_ID),
+            false,
+            'the follow-up still holds the claim'
+          );
+        });
+      }
+    });
+
+    await test('the routes report a document the unlock follow-up waits for', async () => {
+      process.env.MISTRAL_OCR_ENABLED = 'no';
+      await reset(null);
+      await whileFollowUpWaits(async () => {
+        const one = await post(base, `/api/history/${WAITING_ID}/rescan`);
+        assert.strictEqual(one.status, 200);
+        assert.strictEqual(one.body.waitingForOcr, true);
+        assert.ok(await hasRows(WAITING_ID));
+
+        const many = await post(base, '/api/history/rescan', {
+          ids: [WAITING_ID],
+        });
+        assert.deepStrictEqual(many, {
+          status: 200,
+          body: {
+            success: true,
+            queued: 0,
+            notFound: [],
+            waitingForOcr: [WAITING_ID],
+          },
+        });
+        assert.ok(await hasRows(WAITING_ID));
+      });
+
+      // The follow-up is over: the rescan goes ahead as for any document.
+      const after = await webhookQueueService.rescanDocumentsByIds([
+        WAITING_ID,
+      ]);
+      assert.deepStrictEqual(after, {
+        queued: 1,
+        notFound: [],
+        waitingForOcr: [],
       });
     });
   } finally {
