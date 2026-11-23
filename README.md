@@ -86,14 +86,14 @@ All environment variables: [Configuration reference](https://zettelrob.be/gettin
 
 Have these ready before you open the wizard:
 
-- the Paperless-ngx base URL, your Paperless username and an API token
+- the Paperless-ngx base URL and an API token
 - the URL, model name and (if needed) API key of your AI provider
 
 The wizard has seven steps:
 
 1. **Admin account.** A local account for Zettelrobbe, unrelated to your Paperless-ngx users. Password: 8 characters or more.
 2. **Two-factor authentication (optional).** TOTP with any authenticator app. Can be switched on later in the settings.
-3. **Paperless-ngx.** URL, username, token, then **Test Paperless connection**. The test also checks that the token has the permissions Zettelrobbe needs.
+3. **Paperless-ngx.** URL and token, then **Test Paperless connection**. The test also checks that the token has the permissions Zettelrobbe needs.
 4. **Document scope.** All documents, or only those carrying certain tags. Also the ignore tag, the "processed" marker tag and the scan interval.
 5. **AI provider.** **Quickstart** probes a local model server and picks models for you. **Manual configuration** takes a provider preset, URL, model and key; **Fetch models** reads the model list from your endpoint.
 6. **OCR (optional).** Off unless you enable it. See [OCR](#ocr).
