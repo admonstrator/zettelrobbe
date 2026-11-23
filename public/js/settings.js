@@ -718,7 +718,8 @@ function initializeFormHandlers() {
   };
 
   // A person's pick arrives as 'input' as well as 'change'; code that sets
-  // the provider dispatches 'change' only, so it never fills fields.
+  // the provider dispatches 'change' only, so it never fills fields. Apply in
+  // Ask a server sends both, as a pick does, and writes the fields after it.
   aiProviderSelect?.addEventListener('input', () => {
     const option = aiProviderSelect.selectedOptions[0];
     applyAiProviderChoice(
@@ -1360,15 +1361,27 @@ function initializeFormHandlers() {
       });
     });
 
+  // A field written by code, announced the way a person's edit is: the save
+  // bar (modules/settings-form.js) and Quick start's summaries listen on the
+  // form for a bubbling input and change.
+  const announceEdit = (field) => {
+    if (!field) return;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
   // Programmatic counterpart: sets the hidden yes/no input AND the visible
-  // switch position (used e.g. by the quickstart apply flow).
+  // switch position, and announces both (used by the quickstart apply flow).
+  // A switch the environment sets stays as it is.
   const setSwitchValue = (hiddenInput, value) => {
-    if (!hiddenInput) return;
+    if (!hiddenInput || hiddenInput.disabled) return;
     hiddenInput.value = value;
     const switchElement = document.querySelector(
       `input[data-switch-target="${hiddenInput.id}"]`
     );
     if (switchElement) switchElement.checked = value === 'yes';
+    announceEdit(switchElement);
+    announceEdit(hiddenInput);
   };
 
   // PDF render sub-options are only relevant while rendering is ON.
@@ -1607,39 +1620,38 @@ function initializeFormHandlers() {
       quickstartDetection.aiProvider === 'ollama' ? 'ollama' : 'custom';
     const quickstartKey = String(quickstartApiKeyInput?.value || '').trim();
 
-    if (aiProviderSelect) {
+    // Apply edits the real fields as a person would: one at a time, each
+    // announced (announceEdit), so the save bar lists what the save will
+    // send. A field the environment sets stays as it is.
+    const writeField = (field, write) => {
+      if (!field || field.disabled) return;
+      write(field);
+      announceEdit(field);
+    };
+
+    // The provider first: picking it may fill in the address and model of
+    // its entry, which the lines below then replace.
+    writeField(aiProviderSelect, () =>
       showAiProviderChoice(
         detectedProvider,
         quickstartDetection.resolvedAiApiUrl
-      );
-      aiProviderSelect.dispatchEvent(new Event('change'));
-    }
+      )
+    );
 
-    if (detectedProvider === 'ollama') {
-      if (ollamaUrlInput)
-        ollamaUrlInput.value = String(
-          quickstartDetection.resolvedAiApiUrl || ''
-        ).trim();
-      if (ollamaApiKeyInput) ollamaApiKeyInput.value = quickstartKey;
-      populateModelSelect(
-        ollamaModelInput,
-        [selectedAiModel],
-        'Choose a model'
-      );
-      if (ollamaModelInput) ollamaModelInput.value = selectedAiModel;
-    } else {
-      if (customBaseUrlInput)
-        customBaseUrlInput.value = String(
-          quickstartDetection.resolvedAiApiUrl || ''
-        ).trim();
-      if (customApiKeyInput) customApiKeyInput.value = quickstartKey;
-      populateModelSelect(
-        customModelInput,
-        [selectedAiModel],
-        'Choose a model'
-      );
-      if (customModelInput) customModelInput.value = selectedAiModel;
-    }
+    const [aiUrlInput, aiKeyInput, aiModelInput] =
+      detectedProvider === 'ollama'
+        ? [ollamaUrlInput, ollamaApiKeyInput, ollamaModelInput]
+        : [customBaseUrlInput, customApiKeyInput, customModelInput];
+    writeField(aiUrlInput, (field) => {
+      field.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
+    });
+    writeField(aiKeyInput, (field) => {
+      field.value = quickstartKey;
+    });
+    writeField(aiModelInput, (field) => {
+      populateModelSelect(field, [selectedAiModel], 'Choose a model');
+      field.value = selectedAiModel;
+    });
 
     const applyOcr = Boolean(quickstartEnableOcrCheckbox?.checked);
     const selectedOcrModel = String(
@@ -1649,22 +1661,21 @@ function initializeFormHandlers() {
 
     if (applyOcr && selectedOcrModel) {
       setSwitchValue(ocrEnabledSelect, 'yes');
-      if (ocrProviderSelect) {
-        ocrProviderSelect.value = quickstartDetection.ocrProvider || 'custom';
-      }
-      if (ocrApiUrlInput)
-        ocrApiUrlInput.value = String(
+      writeField(ocrProviderSelect, (field) => {
+        field.value = quickstartDetection.ocrProvider || 'custom';
+      });
+      writeField(ocrApiUrlInput, (field) => {
+        field.value = String(
           quickstartDetection.resolvedOcrApiUrl || ''
         ).trim();
-      if (ocrApiKeyInput) ocrApiKeyInput.value = quickstartKey;
-      if (ocrModelInput) {
-        populateModelSelect(
-          ocrModelInput,
-          [selectedOcrModel],
-          'Choose a model'
-        );
-        ocrModelInput.value = selectedOcrModel;
-      }
+      });
+      writeField(ocrApiKeyInput, (field) => {
+        field.value = quickstartKey;
+      });
+      writeField(ocrModelInput, (field) => {
+        populateModelSelect(field, [selectedOcrModel], 'Choose a model');
+        field.value = selectedOcrModel;
+      });
       toggleOcrFields();
       setOcrTestPill('default', 'Not tested');
       appliedOcr = true;

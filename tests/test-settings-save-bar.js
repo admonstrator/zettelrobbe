@@ -47,6 +47,51 @@ async function test(name, fn) {
 const root = path.join(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 
+const VOID = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+]);
+
+/**
+ * The start tags of the elements that hold position `at` of a rendered
+ * page, outermost first: what `closest()` walks in the browser. Comments and
+ * the content of scripts are skipped, void and self-closed elements close
+ * themselves, a closing tag closes up to its own element.
+ *
+ * @param {string} html
+ * @param {number} at
+ * @returns {string[]}
+ */
+function elementsHolding(html, at) {
+  const open = [];
+  const pattern =
+    /<!--[\s\S]*?-->|<script\b[^>]*>[\s\S]*?<\/script>|<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g;
+  let match;
+  while ((match = pattern.exec(html)) !== null && match.index < at) {
+    const [whole, close, name, , selfClose] = match;
+    if (!name) continue;
+    const tag = name.toLowerCase();
+    if (close) {
+      const index = open.map((element) => element.tag).lastIndexOf(tag);
+      if (index !== -1) open.length = index;
+    } else if (!selfClose && !VOID.has(tag)) {
+      open.push({ tag, text: whole });
+    }
+  }
+  return open.map((element) => element.text);
+}
+
 /** A stand-in for a form control, enough for countsAsSetting. */
 function control({ type = 'text', id = 'x', scope = null, attrs = [] } = {}) {
   return {
@@ -244,12 +289,39 @@ function control({ type = 'text', id = 'x', scope = null, attrs = [] } = {}) {
   await test('the page marks its tools and names the custom fields', async () => {
     const html = await renderSettingsPage();
     const tools = [...html.matchAll(/<[^>]+data-not-a-setting[^>]*>/g)].length;
-    assert.ok(tools >= 3, `only ${tools} tools marked`);
-    ['newFieldName', 'settingsQuickstartUrl', 'envFileOutput'].forEach((id) => {
-      const at = html.indexOf(`id="${id}"`);
-      const open = html.lastIndexOf('data-not-a-setting', at);
-      assert.ok(open !== -1 && open < at, `${id} sits in a tool`);
+    assert.ok(tools >= 4, `only ${tools} tools marked`);
+    [
+      'newFieldName',
+      'newFieldType',
+      // Ask a server (Detect models): nothing in it posts.
+      'settingsQuickstartUrl',
+      'settingsQuickstartApiKey',
+      'settingsQuickstartAiModel',
+      'settingsQuickstartOcrModel',
+      'settingsQuickstartEnableOcr',
+      'mfaCurrentPassword',
+      'envFileOutput',
+    ].forEach((id) => {
+      const tag = html.lastIndexOf('<', html.indexOf(`id="${id}"`));
+      assert.ok(tag !== -1, `${id} is on the page`);
+      const holders = elementsHolding(html, tag);
+      assert.ok(
+        holders.some((open) => /\sdata-not-a-setting[\s>=]/.test(open)),
+        `${id} sits in a tool: ${holders.at(-1) || 'no element holds it'}`
+      );
     });
+    // The real fields Apply writes are settings and sit in no tool.
+    ['aiProvider', 'ollamaUrl', 'customModel', 'mistralOcrModel'].forEach(
+      (id) => {
+        const tag = html.lastIndexOf('<', html.indexOf(`id="${id}"`));
+        assert.ok(
+          !elementsHolding(html, tag).some((open) =>
+            /\sdata-not-a-setting[\s>=]/.test(open)
+          ),
+          `${id} is a setting`
+        );
+      }
+    );
     assert.match(
       html,
       /<input type="hidden" id="customFieldsJson" name="customFields" value='[^']*' data-setting-label="Custom fields">/

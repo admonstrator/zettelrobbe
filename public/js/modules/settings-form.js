@@ -394,8 +394,25 @@ export default function settingsForm(root, { confirmDialog }) {
     if (!confirmed) return;
 
     fields.forEach((field) => {
-      if (field.type === 'checkbox') field.checked = initial.get(field);
-      else field.value = initial.get(field);
+      const value = initial.get(field);
+      if (field.type === 'checkbox') {
+        field.checked = value;
+      } else {
+        // A model list refilled since (Fetch models, Apply in Ask a server)
+        // may no longer offer the value in use: it is offered again, ahead
+        // of a model picker's "Other…".
+        if (
+          field.tagName === 'SELECT' &&
+          value &&
+          ![...field.options].some((option) => option.value === value)
+        ) {
+          field.add(
+            new Option(value, value),
+            field.querySelector('option[data-model-other]')
+          );
+        }
+        field.value = value;
+      }
       field.dispatchEvent(new Event('change', { bubbles: true }));
     });
     sync();

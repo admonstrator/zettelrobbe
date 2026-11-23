@@ -1469,7 +1469,9 @@
                         <%- entryOpen('quickstart') %>
                                 <section class="zr-settings-section" id="sec-quickstart-auto-detect" aria-labelledby="sec-quickstart-auto-detect-title">
                                     <%- sectionHead('sec-quickstart-auto-detect', 'Ask a server', 'Works with Ollama, LM Studio and other OpenAI-compatible servers. Apply fills in <a href="#ai-provider" class="zr-link zr-link--underline">AI provider</a> and <a href="#ocr" class="zr-link zr-link--underline">OCR</a>. Nothing is saved until you apply the models and save.') %>
-                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                    <%# Nothing here is a setting the save sends: Apply writes the
+                                        real fields of AI provider and OCR, and those count. %>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose" data-not-a-setting>
     <%
     /* Only the provider actually in use may prefill this field. config.OLLAMA_API_URL
        carries a default of http://localhost:11434 and is therefore never empty, so
