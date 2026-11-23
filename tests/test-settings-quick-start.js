@@ -541,6 +541,46 @@ class StubElement {
     );
   });
 
+  await test('OCR timing: asked when OCR goes on, answered by a switch anywhere', () => {
+    const now = (state) =>
+      qs.timingUndecidedNow({
+        undecided: false,
+        ocrWasOn: true,
+        ocrOn: true,
+        timing: 'manual',
+        ...state,
+      });
+    // OCR switched on during this visit with neither switch on: asked, and
+    // it stays asked while nothing answers.
+    assert.strictEqual(now({ ocrWasOn: false }), true);
+    assert.strictEqual(now({ undecided: true }), true);
+    // On when the page loaded, or a deliberate "Only when I start it".
+    assert.strictEqual(now({ ocrWasOn: null }), false);
+    assert.strictEqual(now({}), false);
+    // A switch of the OCR topic turned on outside Quick start answers it,
+    // and the step counts as done with that answer.
+    ['right-away', 'schedule', 'both'].forEach((timing) => {
+      assert.strictEqual(now({ undecided: true, timing }), false, timing);
+      assert.strictEqual(now({ ocrWasOn: false, timing }), false, timing);
+    });
+    assert.strictEqual(
+      qs.summarizeOcr({
+        enabled: true,
+        providerLabel: 'X',
+        timing: 'right-away',
+        undecided: now({ undecided: true, timing: 'right-away' }),
+      }).state,
+      'done'
+    );
+    // OCR off asks nothing.
+    assert.strictEqual(now({ undecided: true, ocrOn: false }), false);
+    // The topic asks through this one rule on every refresh.
+    assert.match(
+      read('public', 'js', 'modules', 'settings-quick-start.js'),
+      /function refreshTiming\(\) \{\s+const ocrOn = isOn\('mistralOcrEnabled'\);[^}]*timingUndecided = timingUndecidedNow\(\{/
+    );
+  });
+
   await test('OCR model: the analysis model as the OCR model', () => {
     const ollamaPlan = qs.sameModelPlan({
       aiProvider: 'ollama',
