@@ -1831,7 +1831,7 @@ class SetupWizard {
     );
     this.toggleModelTestOverlay(
       true,
-      'Validating the selected models against your AI server…'
+      'Testing the chosen models on the server…'
     );
 
     const aiResult = await this.runSilentAiTest();
@@ -2368,7 +2368,8 @@ class SetupWizard {
     }
 
     if (stepIndex === 5) {
-      // An empty field is fine: it stands for the default.
+      // An empty field is fine: it stands for the default. The range is the
+      // one of the settings page and the server: 1 to 7200 seconds.
       const ocrTimeoutField = String(
         this.ocrValidationTimeout?.value ?? ''
       ).trim();
@@ -2377,12 +2378,12 @@ class SetupWizard {
         ocrTimeoutField !== '' &&
         (!Number.isFinite(ocrTimeoutSeconds) ||
           ocrTimeoutSeconds < 1 ||
-          ocrTimeoutSeconds > 120)
+          ocrTimeoutSeconds > 7200)
       ) {
         await this.showPopup({
           icon: 'warning',
           title: 'Invalid OCR timeout',
-          text: 'OCR timeout must be between 1 and 120 seconds.',
+          text: 'OCR timeout must be between 1 and 7200 seconds.',
         });
         return false;
       }

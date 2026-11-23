@@ -11,6 +11,8 @@
  * Covers:
  * 1. The value settings-nav.js and the view write is one the stylesheet styles
  * 2. No pages rule restyles every topic link, which would bury the highlight
+ * 3. A hash that is not valid percent-encoding (/settings#100%) is read as
+ *    written instead of throwing, which left the page without its topics
  */
 
 'use strict';
@@ -18,6 +20,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
 let passed = 0;
 let failed = 0;
@@ -77,7 +80,43 @@ test('No settings rule restyles every topic link over the highlight', () => {
   );
 });
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
+(async () => {
+  const nav = await import(
+    pathToFileURL(path.join(root, 'public', 'js', 'modules', 'settings-nav.js'))
+      .href
+  );
+
+  test('A malformed hash is read as written, never thrown', () => {
+    assert.strictEqual(nav.hashKey('#ocr'), 'ocr');
+    assert.strictEqual(nav.hashKey('#sec-%C3%BCber'), 'sec-\u00fcber');
+    assert.strictEqual(nav.hashKey(''), '');
+    // Not percent-encoding: the text as written. It names no topic, so the
+    // page opens the first one.
+    ['100%', '%E0%A4', '%', 'ocr%zz'].forEach((raw) => {
+      assert.strictEqual(nav.hashKey(`#${raw}`), raw);
+      assert.strictEqual(
+        nav.entryForHash(raw, () => false),
+        null
+      );
+    });
+    // The topic list reads every hash through it, on load and on hashchange
+    // alike (both call resolve()).
+    assert.match(
+      navJs,
+      /function resolve\(hash\) \{\s+const key = hashKey\(hash\);/
+    );
+    assert.doesNotMatch(
+      navJs.replace(/export function hashKey[\s\S]*?\n\}\n/, ''),
+      /decodeURIComponent/,
+      'every hash goes through hashKey()'
+    );
+  });
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  if (failed > 0) {
+    process.exit(1);
+  }
+})().catch((error) => {
+  console.error(error);
   process.exit(1);
-}
+});

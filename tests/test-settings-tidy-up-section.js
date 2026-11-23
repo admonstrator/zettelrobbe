@@ -1505,9 +1505,15 @@ function sliceBetween(source, from, to) {
             },
           };
         });
-      // The submit handler awaits more than the POST; wait for the request.
+      // The save button sits in the save bar, outside the form
+      // (form="setupForm"), which shows once a change is unsaved. The submit
+      // handler awaits more than the POST; wait for the request.
       const submitAndWait = async (page, saves, count) => {
-        await page.click('#setupForm button[type="submit"]');
+        assert.ok(
+          await page.isVisible('#settingsSaveRow'),
+          'the change shows the save bar'
+        );
+        await page.click('#settingsSaveRow [data-el="save"]');
         const deadline = Date.now() + 10000;
         while (saves.length < count && Date.now() < deadline) {
           await page.waitForTimeout(25);
@@ -1633,6 +1639,53 @@ function sliceBetween(source, from, to) {
           state = await pickerState(page);
           assert.ok(!state.button.hidden, 'the button returns with Ollama');
           assert.strictEqual(state.value, 'proxy-pinned-model');
+          await page.close();
+        });
+
+        await test('in a browser, a saved model is what a provider switch and Discard return to', async () => {
+          const { page, saves } = await openPage(browser, [
+            'gpt-4.1',
+            'o4-mini',
+          ]);
+          await page.waitForFunction(
+            () => !document.getElementById('duplicatesAiModel').disabled
+          );
+          await page.click('#fetchTidyUpModelsBtn');
+          await closeDialog(page);
+          await page.selectOption('#duplicatesAiModel', 'o4-mini');
+          await submitAndWait(page, saves, 1);
+          assert.strictEqual(saves[0].duplicatesAiModel, 'o4-mini');
+          await page.waitForSelector('#settingsSaveRow', { state: 'hidden' });
+
+          // Saved without a reload, the model is the stored one now. A
+          // person's switch, so the save bar offers Discard.
+          await page.evaluate(() => {
+            location.hash = '#ai-provider';
+          });
+          await page.selectOption('#aiProvider', 'azure');
+          let state = await pickerState(page);
+          assert.deepStrictEqual(state.options, [
+            'Same as the analysis model',
+            'o4-mini',
+            'Other…',
+          ]);
+          assert.strictEqual(state.value, 'o4-mini');
+
+          await page.click('#settingsSaveRow [data-el="reset"]');
+          await page.click(
+            'dialog.zr-dialog:not([id])[open] button[value="ok"]'
+          );
+          await page.waitForSelector('#settingsSaveRow', { state: 'hidden' });
+          state = await pickerState(page);
+          assert.strictEqual(
+            state.value,
+            'o4-mini',
+            'Discard keeps the saved model'
+          );
+          assert.strictEqual(
+            await page.$eval('#aiProvider', (select) => select.value),
+            'openai'
+          );
           await page.close();
         });
 

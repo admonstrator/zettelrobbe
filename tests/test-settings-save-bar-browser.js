@@ -22,7 +22,9 @@
  * named once; with the group of the open topic open the topic list fits a
  * window 720px high; at 1477px and on a phone the page draws two cards, the
  * topic list and the open topic, and no text or box of the settings column
- * outside the topic's card.
+ * outside the topic's card. And what the bar counts: nothing typed in Ask a
+ * server (Detect models), every real field its Apply writes; Discard puts
+ * the written fields and the list of custom fields back.
  *
  * Needs Chrome (CHROME_PATH, or Google Chrome where macOS installs it);
  * without it the runner skips this test.
@@ -200,6 +202,135 @@ const BETWEEN_BARS = String.raw`((el) => {
   const r = el.getBoundingClientRect();
   return { aboveBar: Math.round(bar.top - r.bottom), belowTopbar: Math.round(r.top - top.bottom) };
 })`;
+
+/** In the page: what the save bar, the topic list and the leave warning say. */
+const UNSAVED = String.raw`const unsaved = () => {
+  const bar = document.querySelector('[data-el="actionbar"]');
+  const leave = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(leave);
+  return {
+    bar: bar.hidden ? null : document.querySelector('[data-el="changes"]').textContent,
+    topics: [...document.querySelectorAll('[data-entry-dirty]:not(.hidden)')].map((dot) => dot.dataset.entryDirty),
+    warnsOnLeave: leave.defaultPrevented,
+  };
+};
+const until = async (check) => {
+  for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 50));
+  return check();
+};
+const confirmDialog = async () => {
+  await until(() => document.querySelector('dialog.zr-dialog:not([id])[open]'));
+  document.querySelector('dialog.zr-dialog:not([id])[open] button[value="ok"]')?.click();
+  await until(() => !document.querySelector('dialog.zr-dialog:not([id])[open]'));
+  await new Promise((r) => setTimeout(r, 50));
+};
+const discard = async () => {
+  document.querySelector('[data-el="reset"]').click();
+  await confirmDialog();
+};`;
+
+/**
+ * Runs in the page: Ask a server, typed into and detected (the answer is
+ * the page's own fetch, stubbed), then Apply, then Discard.
+ */
+const ASK_A_SERVER = String.raw`(async () => {
+  ${UNSAVED}
+  const realFetch = window.fetch;
+  window.fetch = (url, init) =>
+    String(url).includes('/api/settings/quickstart/detect')
+      ? Promise.resolve(new Response(JSON.stringify({
+          success: true,
+          message: 'Detected.',
+          detection: {
+            aiProvider: 'custom',
+            ocrProvider: 'custom',
+            resolvedAiApiUrl: 'http://lmstudio.test:1234/v1',
+            resolvedOcrApiUrl: 'http://lmstudio.test:1234/v1',
+            textModels: ['qwen3-8b', 'gemma-3-12b'],
+            suggestedAiModel: 'qwen3-8b',
+            suggestedOcrModel: 'gemma-3-12b',
+          },
+        }), { headers: { 'Content-Type': 'application/json' } }))
+      : realFetch(url, init);
+  const edit = (id, value) => {
+    const field = document.getElementById(id);
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const real = () => ({
+    provider: document.getElementById('aiProvider').value,
+    url: document.getElementById('customBaseUrl').value,
+    key: document.getElementById('customApiKey').value,
+    model: document.getElementById('customModel').value,
+    ollamaModel: document.getElementById('ollamaModel').value,
+    ocr: document.getElementById('mistralOcrEnabled').value,
+    ocrSwitch: document.querySelector('[data-switch-target="mistralOcrEnabled"]').checked,
+    ocrUrl: document.getElementById('ocrApiUrl').value,
+    ocrModel: document.getElementById('mistralOcrModel').value,
+  });
+  const quickStart = () => document.querySelector('[data-entry="quick-start"]').textContent;
+  const seen = { loaded: real() };
+  edit('settingsQuickstartUrl', 'http://lmstudio.test:1234');
+  edit('settingsQuickstartApiKey', 'lm-key');
+  document.getElementById('settingsQuickstartDetectBtn').click();
+  await until(() => !document.getElementById('settingsQuickstartResults').classList.contains('hidden'));
+  edit('settingsQuickstartAiModel', 'gemma-3-12b');
+  edit('settingsQuickstartOcrModel', 'qwen3-8b');
+  document.getElementById('settingsQuickstartEnableOcr').click();
+  document.getElementById('settingsQuickstartEnableOcr').click();
+  seen.typed = unsaved();
+  seen.quickStartBefore = quickStart().includes('gemma-3-12b');
+  document.getElementById('settingsQuickstartApplyBtn').click();
+  await new Promise((r) => setTimeout(r, 100));
+  seen.applied = unsaved();
+  seen.written = real();
+  seen.quickStartAfter = quickStart().includes('gemma-3-12b');
+  await discard();
+  seen.discarded = unsaved();
+  seen.restored = real();
+  return seen;
+})()`;
+
+/**
+ * Runs in the page: the list of custom fields through add, remove and
+ * Discard; what it shows and what #customFieldsJson posts.
+ */
+const CUSTOM_FIELDS_DISCARD = String.raw`(async () => {
+  ${UNSAVED}
+  const json = document.getElementById('customFieldsJson');
+  const look = () => ({
+    rows: [...document.querySelectorAll('#customFieldsList .custom-field-item')].map((row) =>
+      row.querySelector('[data-field-name]').textContent.trim() + ' / ' + row.querySelector('[data-field-type]').textContent.trim()),
+    posts: JSON.parse(json.value).custom_fields.map((field) => field.value),
+    bar: unsaved().bar,
+  });
+  const add = (name) => {
+    document.getElementById('newFieldName').value = name;
+    document.querySelector('.customfield-add button').click();
+  };
+  const remove = async (name) => {
+    const row = [...document.querySelectorAll('#customFieldsList .custom-field-item')]
+      .find((item) => item.querySelector('[data-field-name]').textContent.trim() === name);
+    row.querySelector('button').click();
+    await confirmDialog();
+  };
+  const seen = { loaded: look() };
+  add('Due date');
+  seen.added = look();
+  await discard();
+  seen.addDiscarded = look();
+  add('Notes');
+  seen.nextAdd = look();
+  await discard();
+  await remove('Amount');
+  seen.removed = look();
+  await discard();
+  seen.removeDiscarded = look();
+  await remove('Invoice number');
+  seen.nextRemove = look();
+  return seen;
+})()`;
 
 (async () => {
   const { mountRouter } = require('./helpers/mount-router');
@@ -408,6 +539,104 @@ const BETWEEN_BARS = String.raw`((el) => {
         '1 unsaved change | Also remove these tags',
         '2 unsaved changes | Title, Also remove these tags',
       ]);
+    });
+
+    // From here on the fields Apply writes and the custom fields are stored
+    // settings, not ones the environment sets (the harness pins what it
+    // started with), so the page lets them be edited.
+    const snapshot = global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__;
+    [
+      'AI_PROVIDER',
+      'OLLAMA_API_URL',
+      'OLLAMA_MODEL',
+      'MISTRAL_OCR_ENABLED',
+      'OCR_PROVIDER',
+    ].forEach((key) => delete snapshot[key]);
+    process.env.MISTRAL_OCR_ENABLED = 'no';
+    process.env.CUSTOM_FIELDS = JSON.stringify({
+      custom_fields: [
+        { value: 'Invoice number', data_type: 'string' },
+        { value: 'Amount', data_type: 'monetary', currency: 'EUR' },
+      ],
+    });
+
+    await browser.goto(url('quickstart'));
+    const asked = await browser.evaluate(ASK_A_SERVER);
+    await test('Ask a server: typing, detecting and choosing are no unsaved change', () => {
+      assert.deepStrictEqual(asked.typed, {
+        bar: null,
+        topics: [],
+        warnsOnLeave: false,
+      });
+      assert.ok(!asked.quickStartBefore, 'nothing is applied yet');
+    });
+    await test('Ask a server: Apply writes the real fields and the bar names them', () => {
+      assert.deepStrictEqual(asked.written, {
+        provider: 'custom',
+        url: 'http://lmstudio.test:1234/v1',
+        key: 'lm-key',
+        model: 'gemma-3-12b',
+        ollamaModel: asked.loaded.ollamaModel,
+        ocr: 'yes',
+        ocrSwitch: true,
+        ocrUrl: 'http://lmstudio.test:1234/v1',
+        ocrModel: 'qwen3-8b',
+      });
+      assert.deepStrictEqual(asked.applied, {
+        bar: 'AI provider, Server address, API key, Model, Use OCR, Server address (optional), OCR API key, OCR model',
+        topics: ['ai-provider', 'ocr'],
+        warnsOnLeave: true,
+      });
+      assert.ok(asked.quickStartAfter, 'Quick start names the applied model');
+    });
+    await test('Ask a server: Discard after Apply puts every field back', () => {
+      assert.deepStrictEqual(asked.discarded, {
+        bar: null,
+        topics: [],
+        warnsOnLeave: false,
+      });
+      assert.deepStrictEqual(asked.restored, asked.loaded);
+    });
+
+    await browser.goto(url('custom-fields'));
+    const listed = await browser.evaluate(CUSTOM_FIELDS_DISCARD);
+    await test('custom fields: Discard brings the list back to what posts', () => {
+      const both = [
+        'Invoice number / Type: string',
+        'Amount / Type: monetary (EUR)',
+      ];
+      assert.deepStrictEqual(listed.loaded, {
+        rows: both,
+        posts: ['Invoice number', 'Amount'],
+        bar: null,
+      });
+      assert.deepStrictEqual(listed.added.posts, [
+        'Invoice number',
+        'Amount',
+        'Due date',
+      ]);
+      assert.strictEqual(listed.added.bar, 'Custom fields');
+      assert.deepStrictEqual(
+        listed.addDiscarded,
+        listed.loaded,
+        'an added field goes'
+      );
+      assert.deepStrictEqual(
+        listed.nextAdd.posts,
+        ['Invoice number', 'Amount', 'Notes'],
+        'the next edit starts from the restored list'
+      );
+      assert.deepStrictEqual(listed.removed.rows, [both[0]]);
+      assert.deepStrictEqual(
+        listed.removeDiscarded,
+        listed.loaded,
+        'a removed field comes back'
+      );
+      assert.deepStrictEqual(listed.nextRemove, {
+        rows: [both[1]],
+        posts: ['Amount'],
+        bar: 'Custom fields',
+      });
     });
   } finally {
     await browser.close();
