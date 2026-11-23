@@ -1268,6 +1268,9 @@
                                             </button>
                                         </div>
                                         <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider. Behind a reverse proxy, enter the address people open.</p>
+                                        <%# Shown by modules/settings-sso.js when the browser cannot copy: the
+                                            address, selected, outside the field it would otherwise fix. %>
+                                        <p class="zr-field__hint hidden" data-el="copy-redirect-by-hand">The browser could not copy it. Copy it from here: <code data-el="copy-redirect-text"></code></p>
                                     </div>
                                     <div class="zr-col zr-col--tight zr-sso-test">
                                         <div class="zr-row zr-row--wrap">

@@ -231,6 +231,7 @@ const TESTS = {
   'settings-save-bar-browser': 'test-settings-save-bar-browser.js',
   'environment-overview': 'test-environment-overview.js',
   'environment-take-over': 'test-environment-take-over.js',
+  'settings-sso-copy': 'test-settings-sso-copy.js',
 };
 
 const AREAS = {
@@ -442,6 +443,7 @@ const AREAS = {
     'settings-save-bar-browser',
     'environment-overview',
     'environment-take-over',
+    'settings-sso-copy',
   ],
 };
 
