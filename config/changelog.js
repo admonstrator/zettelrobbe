@@ -237,8 +237,18 @@ const RELEASES = [
   },
   {
     version: 'v2026.11.04',
+    highlights: [
+      'New: Settings open on a Quick start with the six decisions Zettelrobbe needs, and "Find a setting" searches all settings',
+      'New: OCR before the first analysis (Settings → OCR): every document, or only documents with a tag such as needs-ocr, is read by OCR before the AI sees it. Off by default',
+      'New: "Read queued documents right away" (Settings → OCR) reads a document as soon as the scan or webhook has sent it to OCR, instead of waiting for the OCR schedule. Off by default',
+      'New: The dashboard card "Task runner" shows what Zettelrobbe is doing right now, the last and the next scan, and when OCR reads its queue next',
+      'New: "Set by the environment" (Settings → System) lists every setting your docker-compose file decides, and "Take over" stores a value in Zettelrobbe so the line can go',
+      'Improvement: A password-protected PDF is analysed as soon as Paperless-ngx has stored the unlocked version',
+      'Removed: The Paperless-ngx user name and the slider "Generation creativity". PAPERLESS_USERNAME and AI_TEMPERATURE_GENERATION can be deleted from docker-compose',
+      'Improvement: Plus technical changes under the hood. The full list is in <a href="/settings#changelog">Settings → Changelog</a>',
+    ],
     entries: [
-      'New: OCR before the first analysis (Settings → OCR fallback): send every document, or only documents with a tag such as needs-ocr, through OCR before the AI reads them, instead of analysing poor text first. Off by default; each document gets at most one OCR run. With a paid OCR service "every document" bills one run per document <a href="https://github.com/admonstrator/zettelrobbe/discussions/280">(see here)</a>',
+      'New: OCR before the first analysis (Settings → OCR): send every document, or only documents with a tag such as needs-ocr, through OCR before the AI reads them, instead of analysing poor text first. Off by default; each document gets at most one OCR run. With a paid OCR service "every document" bills one run per document <a href="https://github.com/admonstrator/zettelrobbe/discussions/280">(see here)</a>',
       'New: The dashboard card "Task runner" shows the last scan, the next scheduled scan with a countdown and the schedule in words <a href="https://github.com/admonstrator/zettelrobbe/discussions/363">(see here)</a>',
       'New: After an update the welcome dialog says so at the top and names the version you came from',
       'Improvement: A password-protected PDF is analysed as soon as Paperless-ngx has stored the unlocked version, instead of waiting for the next scheduled scan',
