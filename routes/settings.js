@@ -1242,20 +1242,13 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
 
     // Compared before saveConfig() writes the values onto process.env. Only a
     // changed key that something reads once at boot ends in a restart.
-    const { merged, changedKeys, restartKeys } = settingsService.planSave(
-      current,
-      updates
-    );
+    const { merged, restartKeys } = settingsService.planSave(current, updates);
 
     // The values are validated above (and Paperless reachability when its
     // settings changed); saveConfig's own validateConfig would live-test
     // Paperless and the AI provider on every save.
     await setupService.saveConfig(merged, { skipValidation: true });
 
-    // The tag cache keeps its lifetime once it has read it.
-    if (changedKeys.includes('TAG_CACHE_TTL_SECONDS')) {
-      paperlessService._cacheTTL = null;
-    }
     try {
       for (const field of customFields.fields) {
         await paperlessService.createCustomFieldSafely(

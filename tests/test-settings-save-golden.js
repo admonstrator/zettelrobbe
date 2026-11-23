@@ -1229,7 +1229,6 @@ const sortedCopy = (list) => (Array.isArray(list) ? [...list].sort() : list);
   };
 
   const AFTER_MOUNT = { ...process.env };
-  const paperlessService = harness.paperlessService;
 
   function prepare(scenario, { configured = true } = {}) {
     for (const key of Object.keys(process.env)) {
@@ -1252,7 +1251,6 @@ const sortedCopy = (list) => (Array.isArray(list) ? [...list].sort() : list);
     calls.restarts = 0;
     calls.users = [];
     calls.rendered = null;
-    paperlessService._cacheTTL = 'cached';
   }
 
   async function withCapturedLogs(fn) {
@@ -1372,7 +1370,6 @@ const sortedCopy = (list) => (Array.isArray(list) ? [...list].sort() : list);
       paperlessValidations: calls.validations,
       customFieldConflictQueries: calls.conflictQueries,
       createdCustomFields: calls.createdFields,
-      tagCacheReset: paperlessService._cacheTTL === null,
       warnings: logs.warnings,
       errors: logs.errors,
     });

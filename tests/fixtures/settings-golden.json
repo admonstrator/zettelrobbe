@@ -175,7 +175,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -202,7 +201,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -231,7 +229,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -261,7 +258,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -275,7 +271,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -308,7 +303,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -341,7 +335,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -355,7 +348,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -387,7 +379,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -419,7 +410,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -433,7 +423,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -466,7 +455,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -498,7 +486,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -512,7 +499,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -547,7 +533,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -580,7 +565,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -594,7 +578,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -608,7 +591,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -622,7 +604,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -636,7 +617,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -665,7 +645,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -696,7 +675,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -727,7 +705,6 @@
       "paperlessValidations": [["http://new-paperless:8000", "new-token"]],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -743,7 +720,6 @@
       ],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -772,7 +748,6 @@
       "paperlessValidations": [["http://paperless.local:8000", "typed-token"]],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -801,7 +776,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -830,7 +804,6 @@
       "paperlessValidations": [["http://paperless.local:8000", "typed-token"]],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -863,7 +836,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -895,7 +867,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -927,7 +898,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -973,7 +943,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1030,7 +999,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1061,7 +1029,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1092,7 +1059,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1106,7 +1072,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1120,7 +1085,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1150,7 +1114,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1177,7 +1140,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [
         "[WARN] Invalid OCR_BEFORE_AI value: always. Using default: off"
       ],
@@ -1209,7 +1171,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1236,7 +1197,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1269,7 +1229,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1302,7 +1261,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1336,7 +1294,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1350,7 +1307,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1382,7 +1338,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1415,7 +1370,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1448,7 +1402,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1478,7 +1431,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [
         "[WARN] Invalid OCR_AUTO_PROCESS_BATCH_SIZE value: 0. Using default: 10",
         "[WARN] Invalid OCR_PDF_RENDER_DPI value: abc. Using default: 150",
@@ -1516,7 +1468,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": true,
       "warnings": [],
       "errors": []
     },
@@ -1545,7 +1496,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1559,7 +1509,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1603,7 +1552,6 @@
         ["Amount", "monetary", "EUR"],
         ["Due", "date", null]
       ],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1639,7 +1587,6 @@
         ]
       ],
       "createdCustomFields": [["Note", "string", null]],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1666,7 +1613,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": ["Error processing custom fields:"]
     },
@@ -1693,7 +1639,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1715,7 +1660,6 @@
         ]
       ],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1741,7 +1685,6 @@
         ]
       ],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1777,7 +1720,6 @@
         ]
       ],
       "createdCustomFields": [["Amount", "monetary", null]],
-      "tagCacheReset": false,
       "warnings": [
         "[WARN] Custom field \"Amount\" exists in Paperless-ngx with the type \"string\", not \"monetary\"."
       ],
@@ -1815,7 +1757,6 @@
         ]
       ],
       "createdCustomFields": [["X", "string", null]],
-      "tagCacheReset": false,
       "warnings": [
         "[WARN] Could not compare custom field types with Paperless-ngx; saving without the check"
       ],
@@ -1858,7 +1799,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1889,7 +1829,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1918,7 +1857,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1932,7 +1870,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1946,7 +1883,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -1976,7 +1912,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2003,7 +1938,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [
         "[WARN] Invalid AI_TEMPERATURE_ANALYSIS value: 3. Using fallback: 0.3"
       ],
@@ -2034,7 +1968,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2048,7 +1981,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2062,7 +1994,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2092,7 +2023,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2119,7 +2049,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2133,7 +2062,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2162,7 +2090,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2176,7 +2103,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2205,7 +2131,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2219,7 +2144,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2260,7 +2184,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2275,7 +2198,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2290,7 +2212,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2319,7 +2240,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2352,7 +2272,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2385,7 +2304,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2438,7 +2356,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2467,7 +2384,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2496,7 +2412,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2542,7 +2457,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2571,7 +2485,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     },
@@ -2600,7 +2513,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": true,
       "warnings": [],
       "errors": []
     },
@@ -2629,7 +2541,6 @@
       "paperlessValidations": [],
       "customFieldConflictQueries": [[]],
       "createdCustomFields": [],
-      "tagCacheReset": false,
       "warnings": [],
       "errors": []
     }
