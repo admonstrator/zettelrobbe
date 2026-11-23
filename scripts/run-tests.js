@@ -221,6 +221,7 @@ const TESTS = {
   'rescan-waiting-for-ocr': 'test-rescan-waiting-for-ocr.js',
   'tag-cache-ttl': 'test-tag-cache-ttl.js',
   'manual-unlock-check': 'test-manual-unlock-check.js',
+  'settings-post-spec': 'test-settings-post-spec.js',
   'settings-ocr-key-lock': 'test-settings-ocr-key-lock.js',
   'settings-switch-row': 'test-settings-switch-row.js',
   'settings-find': 'test-settings-find.js',
@@ -284,6 +285,7 @@ const AREAS = {
     'ocr-run-right-away',
     'tag-cache-ttl',
     'manual-unlock-check',
+    'settings-post-spec',
   ],
   observability: [
     'changelog-releases',
