@@ -219,6 +219,7 @@ const TESTS = {
   'scan-service': 'test-scan-service.js',
   'typecheck-config': 'test-typecheck-config.js',
   'rescan-waiting-for-ocr': 'test-rescan-waiting-for-ocr.js',
+  'tag-cache-ttl': 'test-tag-cache-ttl.js',
   'settings-ocr-key-lock': 'test-settings-ocr-key-lock.js',
   'settings-switch-row': 'test-settings-switch-row.js',
   'settings-find': 'test-settings-find.js',
@@ -280,6 +281,7 @@ const AREAS = {
     'ocr-before-ai',
     'ocr-before-ai-once',
     'ocr-run-right-away',
+    'tag-cache-ttl',
   ],
   observability: [
     'changelog-releases',

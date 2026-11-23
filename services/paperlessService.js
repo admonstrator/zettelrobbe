@@ -201,9 +201,6 @@ class PaperlessService {
       expiresAt: 0,
     };
     this._publicBaseUrlCacheTtlMs = 5 * 60 * 1000;
-    // Dynamic cache lifetime from config (default: 5 minutes)
-    // Lazy load to avoid circular dependency
-    this._cacheTTL = null;
     /**
      * What the creation guard compares a proposed name against, per kind:
      * kind -> { records: EntityRecord[], at: number }.
@@ -223,13 +220,15 @@ class PaperlessService {
     this._documentTypeRefreshPromise = null;
   }
 
+  /**
+   * How long the tag, correspondent and document type caches stay fresh, in
+   * milliseconds: TAG_CACHE_TTL_SECONDS, default 300 seconds. Read on every
+   * use, so a changed value applies to the next check without a restart.
+   */
   get CACHE_LIFETIME() {
-    if (this._cacheTTL === null) {
-      // Re-require config at runtime to pick up dynamic configuration values without shadowing the top-level import
-      const runtimeConfig = require('../config/config');
-      this._cacheTTL = (runtimeConfig.tagCacheTTL || 300) * 1000; // Convert to milliseconds
-    }
-    return this._cacheTTL;
+    // Re-require config at runtime to pick up dynamic configuration values without shadowing the top-level import
+    const runtimeConfig = require('../config/config');
+    return (runtimeConfig.tagCacheTTL || 300) * 1000; // Convert to milliseconds
   }
 
   initialize() {
