@@ -24,7 +24,7 @@
  * topic list and the open topic, and no text or box of the settings column
  * outside the topic's card. And what the bar counts: nothing typed in Ask a
  * server (Detect models), every real field its Apply writes; Discard puts
- * the written fields back.
+ * the written fields and the list of custom fields back.
  *
  * Needs Chrome (CHROME_PATH, or Google Chrome where macOS installs it);
  * without it the runner skips this test.
@@ -292,6 +292,46 @@ const ASK_A_SERVER = String.raw`(async () => {
   return seen;
 })()`;
 
+/**
+ * Runs in the page: the list of custom fields through add, remove and
+ * Discard; what it shows and what #customFieldsJson posts.
+ */
+const CUSTOM_FIELDS_DISCARD = String.raw`(async () => {
+  ${UNSAVED}
+  const json = document.getElementById('customFieldsJson');
+  const look = () => ({
+    rows: [...document.querySelectorAll('#customFieldsList .custom-field-item')].map((row) =>
+      row.querySelector('[data-field-name]').textContent.trim() + ' / ' + row.querySelector('[data-field-type]').textContent.trim()),
+    posts: JSON.parse(json.value).custom_fields.map((field) => field.value),
+    bar: unsaved().bar,
+  });
+  const add = (name) => {
+    document.getElementById('newFieldName').value = name;
+    document.querySelector('.customfield-add button').click();
+  };
+  const remove = async (name) => {
+    const row = [...document.querySelectorAll('#customFieldsList .custom-field-item')]
+      .find((item) => item.querySelector('[data-field-name]').textContent.trim() === name);
+    row.querySelector('button').click();
+    await confirmDialog();
+  };
+  const seen = { loaded: look() };
+  add('Due date');
+  seen.added = look();
+  await discard();
+  seen.addDiscarded = look();
+  add('Notes');
+  seen.nextAdd = look();
+  await discard();
+  await remove('Amount');
+  seen.removed = look();
+  await discard();
+  seen.removeDiscarded = look();
+  await remove('Invoice number');
+  seen.nextRemove = look();
+  return seen;
+})()`;
+
 (async () => {
   const { mountRouter } = require('./helpers/mount-router');
   const harness = await mountRouter({
@@ -501,9 +541,9 @@ const ASK_A_SERVER = String.raw`(async () => {
       ]);
     });
 
-    // From here on the fields Apply writes are stored settings, not ones
-    // the environment sets (the harness pins what it started with), so the
-    // page lets them be edited.
+    // From here on the fields Apply writes and the custom fields are stored
+    // settings, not ones the environment sets (the harness pins what it
+    // started with), so the page lets them be edited.
     const snapshot = global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__;
     [
       'AI_PROVIDER',
@@ -513,6 +553,13 @@ const ASK_A_SERVER = String.raw`(async () => {
       'OCR_PROVIDER',
     ].forEach((key) => delete snapshot[key]);
     process.env.MISTRAL_OCR_ENABLED = 'no';
+    process.env.CUSTOM_FIELDS = JSON.stringify({
+      custom_fields: [
+        { value: 'Invoice number', data_type: 'string' },
+        { value: 'Amount', data_type: 'monetary', currency: 'EUR' },
+      ],
+    });
+
     await browser.goto(url('quickstart'));
     const asked = await browser.evaluate(ASK_A_SERVER);
     await test('Ask a server: typing, detecting and choosing are no unsaved change', () => {
@@ -549,6 +596,47 @@ const ASK_A_SERVER = String.raw`(async () => {
         warnsOnLeave: false,
       });
       assert.deepStrictEqual(asked.restored, asked.loaded);
+    });
+
+    await browser.goto(url('custom-fields'));
+    const listed = await browser.evaluate(CUSTOM_FIELDS_DISCARD);
+    await test('custom fields: Discard brings the list back to what posts', () => {
+      const both = [
+        'Invoice number / Type: string',
+        'Amount / Type: monetary (EUR)',
+      ];
+      assert.deepStrictEqual(listed.loaded, {
+        rows: both,
+        posts: ['Invoice number', 'Amount'],
+        bar: null,
+      });
+      assert.deepStrictEqual(listed.added.posts, [
+        'Invoice number',
+        'Amount',
+        'Due date',
+      ]);
+      assert.strictEqual(listed.added.bar, 'Custom fields');
+      assert.deepStrictEqual(
+        listed.addDiscarded,
+        listed.loaded,
+        'an added field goes'
+      );
+      assert.deepStrictEqual(
+        listed.nextAdd.posts,
+        ['Invoice number', 'Amount', 'Notes'],
+        'the next edit starts from the restored list'
+      );
+      assert.deepStrictEqual(listed.removed.rows, [both[0]]);
+      assert.deepStrictEqual(
+        listed.removeDiscarded,
+        listed.loaded,
+        'a removed field comes back'
+      );
+      assert.deepStrictEqual(listed.nextRemove, {
+        rows: [both[1]],
+        posts: ['Amount'],
+        bar: 'Custom fields',
+      });
     });
   } finally {
     await browser.close();

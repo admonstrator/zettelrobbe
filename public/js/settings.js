@@ -3345,6 +3345,12 @@ function initializeCustomFieldsManagement() {
     });
   }
 
+  const customFieldsJson = document.getElementById('customFieldsJson');
+  if (customFieldsJson) {
+    customFieldsListJson = customFieldsJson.value;
+    customFieldsJson.addEventListener('change', followCustomFieldsJson);
+  }
+
   const fieldsList = document.getElementById('customFieldsList');
   if (fieldsList) {
     // Initialize Sortable
@@ -3926,6 +3932,9 @@ function toggleCurrencySelect() {
 
 const CUSTOM_FIELD_NAME_SELECTOR = '[data-field-name]';
 const CUSTOM_FIELD_TYPE_SELECTOR = '[data-field-type]';
+// The value of #customFieldsJson the visible list stands for
+// (followCustomFieldsJson).
+let customFieldsListJson = null;
 
 function updateCustomFieldsJson() {
   const fieldItems = document.querySelectorAll('.custom-field-item');
@@ -3963,6 +3972,7 @@ function updateCustomFieldsJson() {
   json.value = JSON.stringify({
     custom_fields: fields,
   });
+  customFieldsListJson = json.value;
   // The save bar counts the list as one unsaved change ("Custom fields").
   json.dispatchEvent(new Event('change', { bubbles: true }));
 }
@@ -3997,6 +4007,32 @@ function createFieldElement(fieldName, data_type, currency = null) {
   div.querySelector('[data-field-type]').textContent = typeDisplay;
 
   return div;
+}
+
+/* #customFieldsJson is the one value that posts, and the list shows it.
+   When the value changes from outside the list (Discard puts back the one
+   in use, modules/settings-form.js), the list is drawn again from it: a
+   discarded row goes, a removed one comes back, and the next edit of the
+   list starts from there. */
+function followCustomFieldsJson() {
+  const json = document.getElementById('customFieldsJson');
+  const fieldsList = document.getElementById('customFieldsList');
+  if (!json || !fieldsList || json.value === customFieldsListJson) return;
+  let fields = [];
+  try {
+    const parsed = JSON.parse(json.value || '{}');
+    if (Array.isArray(parsed.custom_fields)) fields = parsed.custom_fields;
+  } catch {
+    return;
+  }
+  fieldsList.replaceChildren(
+    ...fields
+      .filter((field) => field && field.value && field.data_type)
+      .map((field) =>
+        createFieldElement(field.value, field.data_type, field.currency)
+      )
+  );
+  customFieldsListJson = json.value;
 }
 
 function addCustomField() {
