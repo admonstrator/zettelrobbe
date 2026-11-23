@@ -348,6 +348,9 @@
       if (seq !== loadSeq) return;
       state.fetching = null;
       renderViewer();
+      // The document still shown goes on waiting for its unlocked version:
+      // its check gave up while this load was under way.
+      watchUnlock(state.doc);
       toast(
         `Document ${documentId} could not be loaded: ${error.message}`,
         'error'
@@ -368,12 +371,17 @@
 
   // While Paperless-ngx stores the unlocked version, ask now and then whether
   // it is there, and load the document anew once it is. The check leaves the
-  // page alone until then, so nothing typed into the fields is lost.
+  // page alone until then, so nothing typed into the fields is lost. It gives
+  // up while another document is loading: loading this one again would drop
+  // that one's answer (loadSeq).
   function watchUnlock(doc) {
     clearTimeout(unlockTimer);
     if (!doc || !doc.unlocking) return;
     unlockTimer = setTimeout(async () => {
-      const current = () => state.doc && state.doc.id === doc.id;
+      const current = () =>
+        state.doc &&
+        state.doc.id === doc.id &&
+        (!state.fetching || state.fetching === Number(doc.id));
       if (!current()) return;
       try {
         const fresh = await request(`/manual/preview/${doc.id}`);
