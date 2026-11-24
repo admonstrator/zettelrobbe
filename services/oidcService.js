@@ -428,12 +428,15 @@ class OidcService {
    * authorization code that cannot exist. The token endpoint authenticates
    * the client before it looks at the code (RFC 6749, section 5.2), so
    * "invalid_client" means the client ID, secret or auth method is wrong,
-   * while "invalid_grant" means the client was accepted.
+   * while "invalid_grant" means the client was accepted. The request carries
+   * the redirect URI a login would use: some providers (Authentik) compare it
+   * with the registered ones before anything else and answer a mismatch with
+   * "invalid_client" too.
    *
    * Throws an Error whose message is meant for the settings page when the
    * provider cannot be used.
    *
-   * @param {{ issuerUrl: string, clientId: string, clientSecret: string, tokenAuthMethod: string }} settings
+   * @param {{ issuerUrl: string, clientId: string, clientSecret: string, tokenAuthMethod: string, redirectUri: string }} settings
    * @returns {Promise<{ issuer: string, tokenAuthMethods: string[], chosenAuthMethod: string, pkce: boolean }>}
    */
   async testConnection(settings) {
@@ -471,14 +474,14 @@ class OidcService {
     try {
       await client.genericGrantRequest(clientConfig, 'authorization_code', {
         code: client.randomState(),
-        redirect_uri: `${new URL(serverMetadata.issuer).origin}${CALLBACK_PATH}`,
+        redirect_uri: settings.redirectUri,
         code_verifier: client.randomPKCECodeVerifier(),
       });
     } catch (error) {
       const code = error?.error;
       if (code === 'invalid_client' || error?.status === 401) {
         throw new Error(
-          `The provider refused the client (${code || `HTTP ${error.status}`}). Check the client ID, the client secret and the token authentication (${chosenAuthMethod}).`,
+          `The provider refused the client (${code || `HTTP ${error.status}`}). Check the client ID, the client secret and the token authentication (${chosenAuthMethod}). Some providers answer the same way when the redirect URI ${settings.redirectUri} is not registered with them.`,
           { cause: error }
         );
       }

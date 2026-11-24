@@ -314,7 +314,9 @@ router.post(
  *       method the login would use, and checks the client credentials by
  *       redeeming an authorization code that cannot exist: the provider
  *       answers invalid_client for wrong credentials and invalid_grant for
- *       right ones. Nobody is signed in and nothing is saved.
+ *       right ones. Nobody is signed in and nothing is saved. The request
+ *       carries the redirect URI a login would use, since some providers
+ *       (Authentik) check it first and answer a mismatch with invalid_client.
  *
  *       An empty `clientSecret` uses the stored OIDC_CLIENT_SECRET, but only
  *       when the issuer has the same origin (scheme, host, port) as the
@@ -352,6 +354,10 @@ router.post(
  *                 description: Empty picks the method automatically
  *                 enum: ["", "client_secret_basic", "client_secret_post", "none"]
  *                 example: ""
+ *               redirectUri:
+ *                 type: string
+ *                 description: Redirect URI registered with the provider (http or https). Empty uses OIDC_REDIRECT_URI, else the one derived from the request.
+ *                 example: "https://zettelrobbe.example.com/auth/oidc/callback"
  *     responses:
  *       200:
  *         description: |
@@ -393,7 +399,7 @@ router.post(
  *                       example: "The provider answered and accepted the client."
  *                 - $ref: '#/components/schemas/Error'
  *       400:
- *         description: Invalid input (issuer not an http(s) URL, empty client ID, unknown auth method, or a method that needs a secret without one)
+ *         description: Invalid input (issuer or redirect URI not an http(s) URL, empty client ID, unknown auth method, or a method that needs a secret without one)
  *         content:
  *           application/json:
  *             schema:
@@ -412,6 +418,7 @@ router.post(
       const tokenAuthMethod = String(req.body?.tokenAuthMethod || '')
         .trim()
         .toLowerCase();
+      const typedRedirectUri = String(req.body?.redirectUri || '').trim();
 
       if (!oidcService.isAbsoluteHttpUrl(issuerUrl)) {
         return res.status(400).json({
@@ -423,6 +430,15 @@ router.post(
         return res
           .status(400)
           .json({ success: false, error: 'The client ID is missing.' });
+      }
+      if (
+        typedRedirectUri &&
+        !oidcService.isAbsoluteHttpUrl(typedRedirectUri)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: 'The redirect URI must start with https:// or http://.',
+        });
       }
       if (
         tokenAuthMethod &&
@@ -455,6 +471,9 @@ router.post(
           clientId,
           clientSecret,
           tokenAuthMethod,
+          // What a login would send: the typed value, else OIDC_REDIRECT_URI,
+          // else the callback derived from this request.
+          redirectUri: typedRedirectUri || oidcService.resolveRedirectUri(req),
         });
       } catch (error) {
         console.warn(

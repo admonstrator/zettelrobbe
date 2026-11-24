@@ -3916,7 +3916,7 @@
     "/api/settings/oidc/test": {
       "post": {
         "summary": "Test a single sign-on provider from the settings page",
-        "description": "Reads the provider's discovery document, picks the token endpoint auth\nmethod the login would use, and checks the client credentials by\nredeeming an authorization code that cannot exist: the provider\nanswers invalid_client for wrong credentials and invalid_grant for\nright ones. Nobody is signed in and nothing is saved.\n\nAn empty `clientSecret` uses the stored OIDC_CLIENT_SECRET, but only\nwhen the issuer has the same origin (scheme, host, port) as the\nconfigured OIDC_ISSUER_URL; for any other issuer the test runs\nwithout a secret. Private network addresses are allowed, since\nidentity providers usually run next to the application.\n",
+        "description": "Reads the provider's discovery document, picks the token endpoint auth\nmethod the login would use, and checks the client credentials by\nredeeming an authorization code that cannot exist: the provider\nanswers invalid_client for wrong credentials and invalid_grant for\nright ones. Nobody is signed in and nothing is saved. The request\ncarries the redirect URI a login would use, since some providers\n(Authentik) check it first and answer a mismatch with invalid_client.\n\nAn empty `clientSecret` uses the stored OIDC_CLIENT_SECRET, but only\nwhen the issuer has the same origin (scheme, host, port) as the\nconfigured OIDC_ISSUER_URL; for any other issuer the test runs\nwithout a secret. Private network addresses are allowed, since\nidentity providers usually run next to the application.\n",
         "tags": [
           "Settings"
         ],
@@ -3963,6 +3963,11 @@
                       "none"
                     ],
                     "example": ""
+                  },
+                  "redirectUri": {
+                    "type": "string",
+                    "description": "Redirect URI registered with the provider (http or https). Empty uses OIDC_REDIRECT_URI, else the one derived from the request.",
+                    "example": "https://zettelrobbe.example.com/auth/oidc/callback"
                   }
                 }
               }
@@ -4032,7 +4037,7 @@
             "description": "Not signed in; redirected to /login like every other route behind the authentication guard"
           },
           "400": {
-            "description": "Invalid input (issuer not an http(s) URL, empty client ID, unknown auth method, or a method that needs a secret without one)",
+            "description": "Invalid input (issuer or redirect URI not an http(s) URL, empty client ID, unknown auth method, or a method that needs a secret without one)",
             "content": {
               "application/json": {
                 "schema": {
