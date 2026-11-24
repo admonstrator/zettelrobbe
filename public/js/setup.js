@@ -1281,7 +1281,7 @@ class SetupWizard {
         this.loadPaperlessMetadata({ silent: true });
         await this.showPopup({
           icon: 'success',
-          title: 'Paperless test successful',
+          title: 'Paperless test passed',
           text: result.message || 'Connection and permissions look good.',
         });
       } else {
@@ -2237,7 +2237,7 @@ class SetupWizard {
         ? 'Paperless test failed'
         : 'Paperless test not run';
       const text = this.paperlessTestState.ran
-        ? 'The Paperless test failed. Do you want to continue anyway?'
+        ? 'The Paperless test failed. Continue anyway?'
         : 'No Paperless test has been run. Continue anyway?';
 
       const result = await this.showPopup({

@@ -186,7 +186,7 @@
 
                 <section class="zr-steppane" data-step-index="2" data-step-title="Paperless connection">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-link"/></svg> Paperless-ngx connection</h3>
-                    <p class="zr-sm zr-muted">Enter your Paperless-ngx API credentials and run a connectivity test.</p>
+                    <p class="zr-sm zr-muted">Enter the URL and API token of your Paperless-ngx instance, then test the connection.</p>
 
                     <div class="zr-formgrid">
                         <div class="zr-field zr-field--stacked zr-formgrid__wide">
@@ -236,7 +236,7 @@
                             <input id="scanAllDocuments" type="checkbox" class="zr-toggle">
                             <span>
                                 <strong>Always scan all documents</strong>
-                                <span class="zr-field__hint">If enabled, no include-tag filter is used.</span>
+                                <span class="zr-field__hint">If on, documents are not selected by tag.</span>
                             </span>
                         </label>
 
@@ -266,7 +266,7 @@
                             <div class="zr-inputgroup">
                                 <input id="processedTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="e.g. ai-processed" value="<%= config.AI_PROCESSED_TAG_NAME ?? 'ai-processed' %>">
                             </div>
-                            <p class="zr-field__hint">This tag is automatically added to excluded tags during setup finalization.</p>
+                            <p class="zr-field__hint">Setup also adds this tag to the excluded tags.</p>
                         </div>
 
                         <label class="zr-row">

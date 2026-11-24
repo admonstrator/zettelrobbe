@@ -207,8 +207,7 @@ async function validatePaperlessConnectionForSetup(
     return {
       success: false,
       stage: 'reachability',
-      message:
-        'Paperless-ngx could not be reached with the provided URL and token.',
+      message: 'Could not reach Paperless-ngx with this URL and token.',
     };
   }
 

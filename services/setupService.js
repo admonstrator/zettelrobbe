@@ -542,7 +542,7 @@ class SetupService {
           console.error(`API permissions validation failed for ${endpoint}`);
           return {
             success: false,
-            message: `API permissions validation failed for endpoint '/api/${endpoint}/'`,
+            message: `Permission check failed for '/api/${endpoint}/'.`,
           };
         }
       } catch (error) {
@@ -552,7 +552,7 @@ class SetupService {
         );
         return {
           success: false,
-          message: `API permissions validation failed for endpoint '/api/${endpoint}/'`,
+          message: `Permission check failed for '/api/${endpoint}/'.`,
         };
       }
     }
