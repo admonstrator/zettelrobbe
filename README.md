@@ -145,11 +145,11 @@ Things that are easy to miss and cost time when you do.
 
 ### Tagging
 
-- **"Restrict to existing tags" does not show the model your tags.** The toggle only discards names that do not exist yet. To let the model pick from your list, put `%RESTRICTED_TAGS%` into your prompt (also `%RESTRICTED_CORRESPONDENTS%` and `%RESTRICTED_DOCUMENT_TYPES%`). With the toggle alone, documents simply come back with fewer tags than you expected. Details and a worked example: [The system prompt](https://zettelrob.be/getting-started/configuration/#the-system-prompt).
+- **"Restrict to existing tags" does not show the model your tags.** The toggle only discards names that do not exist yet. To let the model pick from your list, put `%RESTRICTED_TAGS%` into your prompt (also `%RESTRICTED_CORRESPONDENTS%` and `%RESTRICTED_DOCUMENT_TYPES%`). With the toggle alone, documents come back with fewer tags than you expected. Details and a worked example: [The system prompt](https://zettelrob.be/getting-started/configuration/#the-system-prompt).
 - **Those lists are sent with every document** and count against `TOKEN_LIMIT`. With a thousand tags, less of the document itself fits into the request.
-- **You do not ask for JSON in your prompt.** Zettelrobbe appends the output format itself.
+- **Your prompt does not need to ask for JSON.** Zettelrobbe appends the output format itself.
 - **Near-duplicates are caught for tags and correspondents:** if the model proposes `Invoices` and `invoice` exists, the existing one is used. This does not cover document types and does not catch typos.
-- **A document is given up on after three failed attempts** and parked on the Failed page, so it cannot block the others.
+- **After three failed attempts a document is parked on the Failed page**, so it cannot block the others.
 
 ### OCR
 
@@ -181,9 +181,9 @@ For scans, photos and faxes where Paperless-ngx found little or no text. Enable 
 - **Mistral OCR** (`mistral`): hosted, paid, reads PDFs directly.
 - **A local vision model** (`ollama`): Ollama, LM Studio, vLLM or any OpenAI-compatible server with a model that accepts images, for example `llama3.2-vision`, `gemma3`, `qwen2-vl` or `llava`. **Quickstart** detects which of your models can read images.
 
-With a local model, each PDF page is rendered to an image and sent separately. The Docker image brings the renderer (poppler) along. On a bare-metal install, add `poppler-utils`; without it only the first page is read.
+With a local model, each PDF page is rendered to an image and sent separately. The Docker image includes the renderer (poppler). On a bare-metal install, add `poppler-utils`; without it only the first page is read.
 
-To let the queue work itself off on a schedule:
+To work through the queue on a schedule:
 
 ```yaml
 environment:
@@ -236,7 +236,7 @@ The `data` volume survives updates. It holds:
 
 Back it up together with Paperless-ngx. Without `documents.db`, **Restore Original** has nothing to restore from.
 
-**Image tags:** `latest` follows the newest release. Releases are tagged `vYYYY.MM.##`, for example `v2026.11.02`; pin one of those if you want to decide yourself when to update. The image is about 500–700 MB. What changed in each release: [Changelog](https://zettelrob.be/changelog/).
+**Image tags:** `latest` follows the newest release. Releases are tagged `vYYYY.MM.##`, for example `v2026.11.02`; pin one of those if you want to choose when to update. The image is about 500–700 MB. What changed in each release: [Changelog](https://zettelrob.be/changelog/).
 
 ---
 
