@@ -473,7 +473,7 @@ router.post('/api/setup/mfa/setup', express.json(), async (req, res) => {
     console.error('[ERROR] POST /api/setup/mfa/setup:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to initialize MFA setup.',
+      error: 'Could not start MFA setup.',
     });
   }
 });

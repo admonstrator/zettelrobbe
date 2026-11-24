@@ -1165,7 +1165,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'warning',
         title: 'Username required',
-        text: 'Please complete username first.',
+        text: 'Enter a username first.',
       });
       return;
     }
@@ -2177,7 +2177,7 @@ class SetupWizard {
         await this.showPopup({
           icon: 'warning',
           title: 'Required fields',
-          text: 'Please fill all account fields.',
+          text: 'Fill in all account fields.',
         });
         return false;
       }
@@ -2195,7 +2195,7 @@ class SetupWizard {
         await this.showPopup({
           icon: 'warning',
           title: 'Password mismatch',
-          text: 'The two password fields must match.',
+          text: 'The passwords do not match.',
         });
         return false;
       }
@@ -2208,7 +2208,7 @@ class SetupWizard {
         await this.showPopup({
           icon: 'warning',
           title: 'MFA not confirmed',
-          text: 'Generate QR code and validate one code before continuing.',
+          text: 'Generate the QR code and confirm a code first.',
         });
         return false;
       }
