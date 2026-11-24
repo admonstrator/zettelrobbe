@@ -219,7 +219,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /Zettelrobbe takes these tags off a document once its analysis is written, also when the model proposed one of them\./
+        /Zettelrobbe takes these tags off a document once its analysis is written, even when the model proposed one of them\./
       );
     });
 

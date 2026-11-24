@@ -48,10 +48,10 @@
         { key: 'analysis', label: 'Document analysis', icon: 'i-cpu', entries: [
             { id: 'ai-provider', title: 'AI provider', lead: 'The service and the model that read your documents, and how much of a document they get.' },
             { id: 'ai-behavior', title: 'What the AI fills in', lead: 'Which fields of a document Zettelrobbe writes, and which tags it adds or takes off once the analysis is written.' },
-            { id: 'prompt', title: 'Prompt', lead: 'What the model is told with every document, and which names of Paperless-ngx it gets with it.' },
+            { id: 'prompt', title: 'Prompt', lead: 'What the model is told with every document, and which Paperless-ngx names it gets with it.' },
             { id: 'restrictions', title: 'Existing names only', lead: 'Whether the model may create tags, correspondents and document types, or only use the ones Paperless-ngx has.' },
-            { id: 'custom-fields', title: 'Custom fields', lead: 'The custom fields of Paperless-ngx the model fills in for every document.' },
-            { id: 'external-data', title: 'External data', lead: 'Zettelrobbe asks an address of your choice before an analysis and hands the answer to the model with your prompt.' },
+            { id: 'custom-fields', title: 'Custom fields', lead: 'The Paperless-ngx custom fields the model fills in for every document.' },
+            { id: 'external-data', title: 'External data', lead: 'Zettelrobbe calls an address of your choice before an analysis and hands the answer to the model with your prompt.' },
             { id: 'ocr', title: 'OCR', lead: 'When Zettelrobbe sends a document to OCR, which service reads it, and how many pages of a PDF it reads.' }
         ] },
         { key: 'processing', label: 'Processing', icon: 'i-clock', entries: [
@@ -63,11 +63,11 @@
         ] },
         { key: 'security', label: 'Sign-in and security', icon: 'i-shield', entries: [
             { id: 'account', title: 'Account and two-factor', lead: 'A code from an authenticator app as a second step when you sign in.' },
-            { id: 'sso', title: 'Single sign-on', badge: 'New', lead: 'Signing in through an OpenID Connect provider, next to signing in with the password.' },
+            { id: 'sso', title: 'Single sign-on', badge: 'New', lead: 'Signing in through an OpenID Connect provider, in addition to the password.' },
             { id: 'api-key', title: 'API key', lead: 'The key the REST API and the Paperless-ngx post-consume script sign in with.' }
         ] },
         { key: 'system', label: 'System', icon: 'i-server', entries: [
-            { id: 'runtime', title: 'Server', lead: 'How the server of Zettelrobbe runs: its port, the proxy in front of it, its cookies, how many requests it takes and how much it logs.' },
+            { id: 'runtime', title: 'Server', lead: 'How the Zettelrobbe server runs: its port, the proxy in front of it, its cookies, how many requests it takes and how much it logs.' },
             { id: 'caching', title: 'Caching and history', lead: 'The tags and previews Zettelrobbe keeps to answer faster, and when it removes its records of documents deleted in Paperless-ngx.' },
             { id: 'quickstart', title: 'Detect models', lead: 'Asks a server such as Ollama or LM Studio which models it offers, and fills in the ones you pick under AI provider and OCR.' },
             { id: 'set-by-environment', title: 'Set by the environment', count: environmentTopic ? environmentTopic.count : 0, lead: 'Which settings the environment decides, usually the lines of your docker-compose file, and how to take them over into the stored settings.' },
@@ -248,7 +248,7 @@
 
                         <%- entryOpen('connection') %>
                                 <section class="zr-settings-section" id="sec-connection" aria-labelledby="sec-connection-title">
-                                    <%- sectionHead('sec-connection', 'Connection', 'Zettelrobbe reads your documents and writes its results through the API of Paperless-ngx.') %>
+                                    <%- sectionHead('sec-connection', 'Connection', 'Zettelrobbe reads your documents and writes its results through the Paperless-ngx API.') %>
                                     <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="paperlessUrl" class="zr-field__name">
@@ -288,7 +288,7 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="paperlessPublicUrl" class="zr-field__name">Public address (optional)</label>
                                         <input type="text" id="paperlessPublicUrl" name="paperlessPublicUrl" value="<%= config.PAPERLESS_PUBLIC_URL || '' %>" class="zr-input" placeholder="https://paperless.example.com" inputmode="url">
-                                        <p class="zr-field__hint">Links to a document in Paperless-ngx open at this address. Empty, Zettelrobbe uses the one Paperless-ngx reports, or else the address above.</p>
+                                        <p class="zr-field__hint">Links to a document in Paperless-ngx open at this address. When empty, Zettelrobbe uses the one Paperless-ngx reports, or else the address above.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -552,12 +552,12 @@
                                     <%- aiOptionBlock(aiOptionsIn('provider', 'basic')) %>
                                     </div>
                                 </section>
-                                <%- aiAdvanced('sec-provider-advanced', 'How much the model reads and writes, how freely it answers, and what single providers offer. The defaults suit most archives.', aiOptionsIn('provider', 'advanced')) %>
+                                <%- aiAdvanced('sec-provider-advanced', 'How much the model reads and writes, how freely it answers, and what individual providers offer. The defaults suit most archives.', aiOptionsIn('provider', 'advanced')) %>
                         <%- entryClose() %>
 
                         <%- entryOpen('ai-behavior') %>
                                 <section class="zr-settings-section" id="sec-ai-function-limits" aria-labelledby="sec-ai-function-limits-title">
-                                    <%- sectionHead('sec-ai-function-limits', 'Fields of a document', 'Switched off, Zettelrobbe leaves that field as it is. The created date is always taken from the analysis.') %>
+                                    <%- sectionHead('sec-ai-function-limits', 'Fields of a document', 'With a switch off, Zettelrobbe leaves that field as it is. The created date is always taken from the analysis.') %>
                                     <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <%# The five switches post their own checkbox (name, "on"), as
                                         they always did; only the row around them changed. %>
@@ -571,7 +571,7 @@
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
                                             <label for="activateCorrespondents" class="zr-field__name">Correspondent</label>
-                                            <p class="zr-field__hint">Sets the correspondent the model names. Without one from the model, the document keeps its own.</p>
+                                            <p class="zr-field__hint">Sets the correspondent the model names. If the model names none, the document keeps its own.</p>
                                         </div>
                                         <input type="checkbox" class="zr-toggle" id="activateCorrespondents" name="activateCorrespondents" <%= config.ACTIVATE_CORRESPONDENTS === 'yes' ? 'checked' : '' %>>
                                     </div>
@@ -606,7 +606,7 @@
                                         id: 'aiProcessedTag',
                                         label: 'Tag analysed documents',
                                         checked: config.ADD_AI_PROCESSED_TAG === 'yes',
-                                        hint: 'Adds the tag below to every analysed document, also with Tags switched off. Zettelrobbe creates the tag if it does not exist.'
+                                        hint: 'Adds the tag below to every analysed document, even with Tags switched off. Zettelrobbe creates the tag if it does not exist.'
                                     }) %>
                                     <div id="aiTagNameSection" class="<%= config.ADD_AI_PROCESSED_TAG === 'yes' ? '' : 'hidden' %> zr-field zr-field--stacked">
                                         <label for="aiTagName" class="zr-field__name">Tag name</label>
@@ -628,7 +628,7 @@
                                             valueId: 'removeTags', items: config.REMOVE_TAGS_AFTER_PROCESSING, envKey: 'REMOVE_TAGS_AFTER_PROCESSING',
                                             placeholder: 'Tag name, then Enter'
                                         }) %>
-                                        <p class="zr-field__hint">Zettelrobbe takes these tags off a document once its analysis is written, also when the model proposed one of them.</p>
+                                        <p class="zr-field__hint">Zettelrobbe takes these tags off a document once its analysis is written, even when the model proposed one of them.</p>
                                     </div>
                                     </div>
                                 </section>
@@ -636,7 +636,7 @@
 
                         <%- entryOpen('prompt') %>
                                 <section class="zr-settings-section" id="sec-ai-behavior" aria-labelledby="sec-ai-behavior-title">
-                                    <%- sectionHead('sec-ai-behavior', 'What the model is told', 'Your own instructions to the model, and the names of Paperless-ngx it may reuse.') %>
+                                    <%- sectionHead('sec-ai-behavior', 'What the model is told', 'Your own instructions to the model, and the Paperless-ngx names it may reuse.') %>
                                     <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="systemPrompt" class="zr-field__name">Your prompt</label>
@@ -652,7 +652,7 @@
                                         id: 'useExistingData',
                                         label: 'Send the existing names',
                                         checked: config.USE_EXISTING_DATA === 'yes',
-                                        hint: 'Lists every tag, correspondent and document type of Paperless-ngx before your prompt, so the model can reuse them. Not sent while tags or correspondents are limited to existing names.'
+                                        hint: 'Lists every Paperless-ngx tag, correspondent and document type before your prompt, so the model can reuse them. Not sent while tags or correspondents are limited to existing names.'
                                     }) %>
 
                                     <%- include('partials/settings-switch', {
@@ -676,7 +676,7 @@
 
                         <%- entryOpen('restrictions') %>
                                 <section class="zr-settings-section" id="sec-restrictions" aria-labelledby="sec-restrictions-title">
-                                    <%- sectionHead('sec-restrictions', 'Tags, correspondents and document types', 'Switched on, the model may only use a name that already exists in Paperless-ngx. Zettelrobbe leaves out a new name the model proposes instead of creating it.') %>
+                                    <%- sectionHead('sec-restrictions', 'Tags, correspondents and document types', 'With a switch on, the model may only use a name that already exists in Paperless-ngx. Zettelrobbe leaves out a new name the model proposes instead of creating it.') %>
                                     <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-switchrow">
                                         <div class="zr-grow">
@@ -836,7 +836,7 @@
                                     </div>
                                     <div id="ocrApiUrlContainer" class="zr-field zr-field--stacked">
                                         <label for="ocrApiUrl" class="zr-field__name">Server address (optional)</label>
-                                        <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Empty uses the default of the provider" data-placeholder-default="Empty uses the default of the provider" data-placeholder-anthropic="Optional proxy address" inputmode="url">
+                                        <input type="text" id="ocrApiUrl" name="ocrApiUrl" value="<%= config.OCR_API_URL || '' %>" class="zr-input" placeholder="Empty uses the provider's default" data-placeholder-default="Empty uses the provider's default" data-placeholder-anthropic="Optional proxy address" inputmode="url">
                                         <p id="ocrApiUrlAnthropicHint" class="zr-field__hint <%= ocrStoredForAnthropic ? '' : 'hidden' %>">Only for a proxy. Empty uses the API address set for Claude under AI provider, else api.anthropic.com.</p>
                                     </div>
                                     <div id="ocrApiKeyContainer" class="zr-field zr-field--stacked">
@@ -894,7 +894,7 @@
                                             </select>
                                             <p id="ocrBeforeAiHintOff" class="zr-field__hint <%= ocrBeforeAiMode === 'off' ? '' : 'hidden' %>">Documents are analysed with the text Paperless-ngx recognised. OCR only steps in when that text is too short or the analysis fails.</p>
                                             <p id="ocrBeforeAiHintTagged" class="zr-field__hint <%= ocrBeforeAiMode === 'tagged' ? '' : 'hidden' %>">Documents not analysed yet that carry the tag below go to the OCR queue first and are analysed once OCR has read them. All other documents are analysed right away.</p>
-                                            <p id="ocrBeforeAiHintAll" class="zr-field__hint <%= ocrBeforeAiMode === 'all' ? '' : 'hidden' %>">Every document Zettelrobbe has not analysed yet goes to the OCR queue first and is analysed once OCR has read it. A local model costs only time. A paid OCR service such as Mistral or Claude bills one OCR run per document, which adds up quickly, above all on the first scan of an existing archive.</p>
+                                            <p id="ocrBeforeAiHintAll" class="zr-field__hint <%= ocrBeforeAiMode === 'all' ? '' : 'hidden' %>">Every document Zettelrobbe has not analysed yet goes to the OCR queue first and is analysed once OCR has read it. A local model costs only time. A paid OCR service such as Mistral or Claude bills one OCR run per document, which adds up quickly, especially on the first scan of an existing archive.</p>
                                         </div>
                                         <div id="ocrBeforeAiTagContainer" class="zr-field zr-field--stacked <%= ocrBeforeAiMode === 'tagged' ? '' : 'hidden' %>">
                                             <label for="ocrBeforeAiTag" class="zr-field__name">OCR tag</label>
@@ -927,7 +927,7 @@
                                             id: 'ocrAutoProcessEnabled',
                                             label: 'Run the OCR queue on its own',
                                             checked: (config.OCR_AUTO_PROCESS_ENABLED || 'no') === 'yes',
-                                            hint: 'Off, the queue waits until someone presses "Process All Pending" on the OCR page.'
+                                            hint: 'When off, the queue waits until someone presses "Process All Pending" on the OCR page.'
                                         }) %>
                                         <div id="ocrAutoProcessOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_AUTO_PROCESS_ENABLED || 'no') === 'yes' ? '' : 'hidden' %>">
                                             <div class="zr-field zr-field--stacked">
@@ -945,7 +945,7 @@
                                             id: 'ocrAutoAnalyze',
                                             label: 'Analyse right after OCR',
                                             checked: (config.OCR_AUTO_ANALYZE || 'yes') === 'yes',
-                                            hint: 'Keep it on. Off, the next scan analyses the document, but only if Paperless-ngx accepted the OCR text.'
+                                            hint: 'Keep it on. When off, the next scan analyses the document, but only if Paperless-ngx accepted the OCR text.'
                                         }) %>
                                     </div>
                                     </div>
@@ -968,7 +968,7 @@
                                             id: 'ocrPdfRenderEnabled',
                                             label: 'Read every page of a PDF',
                                             checked: (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes',
-                                            hint: 'A local model reads each page with poppler, one request per page. Off or without poppler, it reads only the thumbnail of the first page.'
+                                            hint: 'A local model reads each page with poppler, one request per page. When off, or without poppler, it reads only the thumbnail of the first page.'
                                         }) %>
                                         <div id="ocrPdfRenderOptionsContainer" class="zr-col zr-col--loose <%= (config.OCR_PDF_RENDER_ENABLED || 'yes') === 'yes' ? '' : 'hidden' %>">
                                             <div class="zr-field zr-field--stacked">
@@ -1099,7 +1099,7 @@
                                         <div class="zr-field zr-field--stacked">
                                             <label for="trustProxy" class="zr-field__name">Trust proxy</label>
                                             <input type="text" id="trustProxy" name="trustProxy" value="<%= config.TRUST_PROXY %>" class="zr-input" placeholder="false | true | 1 | loopback">
-                                            <p class="zr-field__hint">Set it behind a reverse proxy, so Zettelrobbe sees the address of each client.</p>
+                                            <p class="zr-field__hint">Set it behind a reverse proxy so Zettelrobbe sees each client's address.</p>
                                         </div>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="cookieSecureMode" class="zr-field__name">Secure cookies</label>
@@ -1243,12 +1243,12 @@
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcIssuerUrl" class="zr-field__name">Issuer URL</label>
                                         <input type="text" inputmode="url" id="oidcIssuerUrl" name="oidcIssuerUrl" value="<%= config.OIDC_ISSUER_URL || '' %>" class="zr-input" placeholder="https://auth.example.com/application/o/zettelrobbe/" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_ISSUER_URL · The issuer URL of the provider. Its full discovery URL works too.</p>
+                                        <p class="zr-field__hint">OIDC_ISSUER_URL · The provider's issuer URL. Its full discovery URL works too.</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcClientId" class="zr-field__name">Client ID</label>
                                         <input type="text" id="oidcClientId" name="oidcClientId" value="<%= config.OIDC_CLIENT_ID || '' %>" class="zr-input" placeholder="zettelrobbe" autocomplete="off" spellcheck="false">
-                                        <p class="zr-field__hint">OIDC_CLIENT_ID · The ID of the application you registered at the provider.</p>
+                                        <p class="zr-field__hint">OIDC_CLIENT_ID · The ID of the application you registered with the provider.</p>
                                     </div>
                                     <div class="zr-field zr-field--stacked">
                                         <label for="oidcClientSecret" class="zr-field__name">Client secret</label>
@@ -1267,7 +1267,7 @@
                                                 <span>Copy</span>
                                             </button>
                                         </div>
-                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL at the provider. Behind a reverse proxy, enter the address people open.</p>
+                                        <p class="zr-field__hint">OIDC_REDIRECT_URI · Register exactly this URL with the provider. Behind a reverse proxy, enter the address people open.</p>
                                         <%# Shown by modules/settings-sso.js when the browser cannot copy: the
                                             address, selected, outside the field it would otherwise fix. %>
                                         <p class="zr-field__hint hidden" data-el="copy-redirect-by-hand">The browser could not copy it. Copy it from here: <code data-el="copy-redirect-text"></code></p>
@@ -1396,7 +1396,7 @@
 
                         <%- entryOpen('caching') %>
                                 <section class="zr-settings-section" id="sec-caching" aria-labelledby="sec-caching-title">
-                                    <%- sectionHead('sec-caching', 'Caching', 'Zettelrobbe keeps the tags of Paperless-ngx for a while and the previews of documents on disk, so its pages load faster.') %>
+                                    <%- sectionHead('sec-caching', 'Caching', 'Zettelrobbe keeps the Paperless-ngx tags for a while and document previews on disk, so its pages load faster.') %>
                                     <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="tagCacheTTL" class="zr-field__name">
@@ -1451,7 +1451,7 @@
                                             id: 'reconciliationEnabled',
                                             label: 'Clean up on a schedule',
                                             checked: String(config.RECONCILIATION_ENABLED || 'yes').toLowerCase() === 'yes',
-                                            hint: 'Runs the clean-up on the schedule below. Off, it runs only when you press Clean up now.'
+                                            hint: 'Runs the clean-up on the schedule below. With the switch off, it runs only when you press Clean up now.'
                                         }) %>
                                         <div class="zr-field zr-field--stacked">
                                             <label for="reconciliationInterval" class="zr-field__name">Clean-up schedule (cron)</label>

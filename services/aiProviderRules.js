@@ -467,7 +467,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_REVIEW',
     label: 'Ask the model about unclear pairs',
-    help: 'The model judges name pairs that spelling rules cannot settle, using a few document titles. Off, spelling rules decide alone.',
+    help: 'The model judges name pairs that spelling rules cannot settle, using a few document titles. When off, spelling rules decide alone.',
     level: 'basic',
     providers: null,
     defaultValue: 'yes',
@@ -476,7 +476,7 @@ const AI_OPTIONS = Object.freeze([
   {
     key: 'DUPLICATES_AI_MODEL',
     label: 'Model for Tidy up',
-    help: 'A stronger model of the same provider, used only for the questions the Tidy up page asks. Empty uses the model set under AI provider.',
+    help: 'A stronger model from the same provider, used only for the questions the Tidy up page asks. Empty uses the model set under AI provider.',
     level: 'basic',
     providers: null,
     defaultValue: '',
