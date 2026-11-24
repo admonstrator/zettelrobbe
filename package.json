@@ -59,10 +59,10 @@
   "author": "admonstrator",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.7.0",
-    "axios": "^1.21.0",
+    "@anthropic-ai/sdk": "^1.13.0",
+    "axios": "^1.21.1",
     "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.2.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "csrf-csrf": "^4.1.0",
@@ -70,11 +70,11 @@
     "dotenv": "^18.0.10",
     "ejs": "^7.0.2",
     "express": "^5.3.0",
-    "express-rate-limit": "^8.7.4",
+    "express-rate-limit": "^8.7.5",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
-    "openai": "^7.53.0",
-    "openid-client": "^6.8.9",
+    "openai": "^7.63.0",
+    "openid-client": "^6.9.1",
     "qrcode": "^1.5.4",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
@@ -84,27 +84,32 @@
     "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.6",
-    "eslint": "^10.14.0",
+    "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.1",
-    "eslint-plugin-jsdoc": "^65.4.5",
+    "eslint-plugin-jsdoc": "^65.5.4",
     "globals": "^17.14.0",
     "nodemon": "^3.1.9",
-    "prettier": "^3.9.10",
-    "stylelint": "^18.0.0",
-    "stylelint-config-standard": "^41.0.0",
+    "prettier": "^3.10.1",
+    "stylelint": "^18.1.0",
+    "stylelint-config-standard": "^41.1.0",
     "typescript": "^7.0.2"
   },
   "allowScripts": {
-    "better-sqlite3": true,
+    "better-sqlite3": false,
     "@scarf/scarf": false
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "@scarf/scarf",
-      "better-sqlite3"
+      "@scarf/scarf"
     ]
   },
   "overrides": {
-    "typescript": "$typescript"
+    "typescript": "$typescript",
+    "swagger-jsdoc": {
+      "glob": "^14.0.6"
+    },
+    "nodemon": {
+      "minimatch": "^11.0.9"
+    }
   }
 }

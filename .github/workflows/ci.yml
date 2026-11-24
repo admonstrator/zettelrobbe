@@ -33,7 +33,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      # --ignore-scripts skips the better-sqlite3 native build, which
+      # --ignore-scripts skips every dependency install script, which
       # eslint/prettier/stylelint do not need.
       - name: Install dependencies (no native builds)
         run: npm ci --ignore-scripts
