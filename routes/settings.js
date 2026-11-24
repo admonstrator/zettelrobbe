@@ -665,7 +665,7 @@ router.get(
       console.error('[ERROR] GET /api/settings/paperless-public-url:', error);
       return res.status(500).json({
         success: false,
-        error: 'Could not ask Paperless-ngx for its public address.',
+        error: 'Could not detect the public address.',
       });
     }
   }

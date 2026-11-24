@@ -2710,7 +2710,7 @@ class SetupWizard {
     } catch (error) {
       await this.showPopup({
         icon: 'error',
-        title: 'Setup not saved',
+        title: 'Setup not finished',
         text: error.message,
       });
     } finally {

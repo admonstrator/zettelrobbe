@@ -35,7 +35,7 @@
     }
 
     if (failedBadge) {
-      failedBadge.title = 'Open permanently failed documents';
+      failedBadge.title = 'Open failed documents';
       failedBadge.addEventListener('click', function (event) {
         event.preventDefault();
         event.stopPropagation();

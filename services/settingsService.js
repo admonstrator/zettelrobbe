@@ -514,7 +514,7 @@ function buildAnthropicUpdate(body, current) {
   if (effort && !ANTHROPIC_EFFORT_LEVELS.includes(effort)) {
     return {
       updates,
-      error: `Thinking effort for Claude must be ${ANTHROPIC_EFFORT_LEVELS.join(', ')}, or empty for the model default.`,
+      error: `Thinking effort for Claude must be one of ${ANTHROPIC_EFFORT_LEVELS.join(', ')}, or empty for the model default.`,
     };
   }
 

@@ -182,7 +182,7 @@
       const data = await resp.json();
 
       if (data.success) {
-        showToast(data.message || 'Document reset.');
+        showToast(data.message || 'Document reset');
       } else {
         showToast(data.message || data.error || 'Reset failed', 'error');
       }
@@ -229,7 +229,7 @@
         throw new Error(data.error || data.message || 'Reset all failed');
       }
 
-      showToast(data.message || 'All failed documents reset.');
+      showToast(data.message || 'All failed documents reset');
       currentPage = 0;
       await loadQueue();
     } catch (error) {

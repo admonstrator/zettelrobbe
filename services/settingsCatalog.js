@@ -736,7 +736,7 @@ const CATALOG = Object.freeze([
         return level === '' || REASONING_EFFORT_LEVELS.includes(level)
           ? { value: level }
           : {
-              error: `Thinking effort must be ${REASONING_EFFORT_LEVELS.join(', ')}, or empty to send none.`,
+              error: `Thinking effort must be one of ${REASONING_EFFORT_LEVELS.join(', ')}, or empty to send none.`,
             };
       },
       ...PS,
