@@ -992,7 +992,7 @@ router.post('/api/ocr/unlock-all', isAuthenticated, async (req, res) => {
       send({
         step: 'error',
         message:
-          'No passwords are stored. Add them under Settings → OCR Fallback → PDF Passwords.',
+          'No passwords are stored. Add them under Settings → OCR → PDF passwords.',
       });
       return res.end();
     }

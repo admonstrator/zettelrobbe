@@ -94,7 +94,7 @@ The wizard has seven steps:
 1. **Admin account.** A local account for Zettelrobbe, unrelated to your Paperless-ngx users. Password: 8 characters or more.
 2. **Two-factor authentication (optional).** TOTP with any authenticator app. Can be switched on later in the settings.
 3. **Paperless-ngx.** URL and token, then **Test Paperless connection**. The test also checks that the token has the permissions Zettelrobbe needs.
-4. **Document scope.** All documents, or only those carrying certain tags. Also the ignore tag, the "processed" marker tag and the scan interval.
+4. **Document scope.** All documents, or only those carrying certain tags. Also the excluded tags, the "processed" marker tag and the scan interval.
 5. **AI provider.** **Quickstart** probes a local model server and picks models for you. **Manual configuration** takes a provider preset, URL, model and key; **Fetch models** reads the model list from your endpoint.
 6. **OCR (optional).** Off unless you enable it. See [OCR](#ocr).
 7. **Review.** Shows the configuration it is about to write, then **Save and restart container**.
@@ -102,7 +102,7 @@ The wizard has seven steps:
 After that `/setup` is closed for good and you sign in at the login page. Screenshots of every step: [First Setup](https://zettelrob.be/getting-started/first-setup/).
 
 > [!TIP]
-> For the first run, choose "only documents with these tags" in step 4 and put that tag on five or ten documents in Paperless-ngx. Look at the results, adjust the prompt, and widen the scope once you like what you get.
+> For the first run, switch off "Always scan all documents" in step 4, enter one tag, and put that tag on five or ten documents in Paperless-ngx. Look at the results, adjust the prompt, and widen the scope once you like what you get.
 
 ### Your first document
 
