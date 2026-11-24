@@ -16,253 +16,177 @@
  *     the original report,
  *   - server-rendered chips could not be removed.
  *
- * The buttons carry ids now and are looked up by id. This test drives the real
- * TagsManager, read out of public/js/settings.js, against a DOM stub built from
- * the markup views/settings.ejs actually renders, so it fails if either side
- * drifts again.
+ * TagsManager is gone: every list on the page is views/partials/chip-list.ejs,
+ * driven by the shared public/js/chip-list.js (tests/test-chip-list.js pins its
+ * behaviour). The list names its text field, Add button and hidden input by
+ * id. This test renders the Tags and Ignore Tags fields with the real partial,
+ * builds the same elements in tests/helpers/mini-dom.js and runs the real
+ * script on them, so it fails if the view and the script drift apart again.
  */
 
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
+const ejs = require('ejs');
+const { createDocument } = require('./helpers/mini-dom');
 
-const SETTINGS_JS = path.join(__dirname, '..', 'public', 'js', 'settings.js');
-const SETTINGS_EJS = path.join(__dirname, '..', 'views', 'settings.ejs');
+const ROOT = path.join(__dirname, '..');
+const SETTINGS_JS = path.join(ROOT, 'public', 'js', 'settings.js');
+const CHIP_LIST_JS = path.join(ROOT, 'public', 'js', 'chip-list.js');
+const SETTINGS_EJS = path.join(ROOT, 'views', 'settings.ejs');
+const PARTIAL = path.join(ROOT, 'views', 'partials', 'chip-list.ejs');
 const source = fs.readFileSync(SETTINGS_JS, 'utf8');
 const view = fs.readFileSync(SETTINGS_EJS, 'utf8');
 
-// ── A DOM small enough to reason about, real enough to run against ───────────
-
-class StubElement {
-  constructor(tag) {
-    this.tagName = String(tag || '').toUpperCase();
-    this.children = [];
-    this.parent = null;
-    this.className = '';
-    this.value = '';
-    this.type = '';
-    this.id = '';
-    this._text = '';
-    this._listeners = {};
-  }
-
-  get textContent() {
-    if (this.children.length === 0) return this._text;
-    return this.children.map((child) => child.textContent).join('');
-  }
-
-  set textContent(value) {
-    this._text = String(value);
-    this.children = [];
-  }
-
-  // Only ever assigned an <svg> icon by createTagElement; the chip's text lives
-  // in its own span, so treating it as opaque markup loses nothing.
-  set innerHTML(value) {
-    this._html = String(value);
-  }
-
-  get innerHTML() {
-    return this._html || '';
-  }
-
-  appendChild(child) {
-    child.parent = this;
-    this.children.push(child);
-    return child;
-  }
-
-  remove() {
-    if (!this.parent) return;
-    this.parent.children = this.parent.children.filter((c) => c !== this);
-    this.parent = null;
-  }
-
-  addEventListener(type, handler) {
-    (this._listeners[type] = this._listeners[type] || []).push(handler);
-  }
-
-  dispatch(type, event = {}) {
-    (this._listeners[type] || []).forEach((handler) =>
-      handler.call(this, { preventDefault() {}, ...event })
-    );
-  }
-
-  _descendants() {
-    return this.children.flatMap((child) => [child, ...child._descendants()]);
-  }
-
-  matches(selector) {
-    if (selector.startsWith('.')) {
-      return this.className.split(/\s+/).includes(selector.slice(1));
-    }
-    return this.tagName === selector.toUpperCase();
-  }
-
-  querySelector(selector) {
-    return this.querySelectorAll(selector)[0] || null;
-  }
-
-  querySelectorAll(selector) {
-    // Only the two shapes TagsManager uses: '.zr-chip', '.zr-chip span', 'button'.
-    const parts = selector.split(/\s+/).filter(Boolean);
-    let matches = this._descendants().filter((el) => el.matches(parts[0]));
-    parts.slice(1).forEach((part) => {
-      matches = matches.flatMap((el) =>
-        el._descendants().filter((child) => child.matches(part))
-      );
-    });
-    return matches;
-  }
-
-  closest(selector) {
-    let node = this;
-    while (node) {
-      if (
-        selector
-          .split(',')
-          .map((part) => part.trim())
-          .some((part) => node.matches(part))
-      ) {
-        return node;
-      }
-      node = node.parent;
-    }
-    return null;
-  }
-}
-
-/* Mirrors the field as views/settings.ejs renders it: an input and an add
-   button inside .zr-inputgroup, a chip container, and the hidden input the
-   form actually posts. `existing` seeds server-rendered chips. */
-function buildField({ inputId, addButtonId, containerId, hiddenId, existing }) {
-  const byId = new Map();
-  const make = (tag, props = {}) => {
-    const el = new StubElement(tag);
-    Object.assign(el, props);
-    if (el.id) byId.set(el.id, el);
-    return el;
-  };
-
-  const field = make('div', { className: 'zr-field zr-field--stacked' });
-  const group = make('div', { className: 'zr-inputgroup' });
-  const input = make('input', { id: inputId, type: 'text' });
-  const addButton = make('button', {
-    id: addButtonId,
-    className: 'zr-btn zr-btn--primary',
-  });
-  group.appendChild(input);
-  group.appendChild(addButton);
-
-  const container = make('div', { id: containerId, className: 'zr-chips' });
-  (existing || []).forEach((name) => {
-    const chip = make('div', { className: 'zr-chip' });
-    const label = make('span');
-    label.textContent = name;
-    chip.appendChild(label);
-    chip.appendChild(make('button', { className: 'zr-link' }));
-    container.appendChild(chip);
-  });
-
-  const hidden = make('input', {
-    id: hiddenId,
-    type: 'hidden',
-    value: (existing || []).join(','),
-  });
-
-  field.appendChild(group);
-  field.appendChild(container);
-  field.appendChild(hidden);
-
-  return { field, byId, input, addButton, container, hidden };
-}
-
-function loadTagsManager(byId) {
-  const start = source.indexOf('class TagsManager {');
-  assert.ok(
-    start !== -1,
-    'Could not find TagsManager in public/js/settings.js — did it move or get renamed?'
+/** The include parameters settings.ejs passes for the list whose text field is `id`. */
+function includeFor(id) {
+  const match = view.match(
+    new RegExp(
+      `include\\('partials/chip-list', \\{\\s*id: '${id}', addId: '([^']+)', listId: '([^']+)',\\s*valueId: '([^']+)'`
+    )
   );
-  const end = source.indexOf('\n}', start);
-  assert.ok(end > start, 'Could not delimit TagsManager');
-
-  const documentStub = {
-    getElementById: (id) => byId.get(id) || null,
-    createElement: (tag) => new StubElement(tag),
-  };
-
-  return new Function(
-    'document',
-    'zrDialog',
-    `${source.slice(start, end + 2)}\nreturn TagsManager;`
-  )(documentStub, async () => ({ isConfirmed: true }));
+  assert.ok(match, `views/settings.ejs renders ${id} with partials/chip-list`);
+  return { id, addId: match[1], listId: match[2], valueId: match[3] };
 }
 
-async function testField(name, ids) {
-  const dom = buildField({ ...ids, existing: ['alpha'] });
-  const TagsManager = loadTagsManager(dom.byId);
-  new TagsManager(ids.inputId, ids.containerId, ids.hiddenId, ids.addButtonId);
+/** Renders the partial and reads the wiring back out of its markup. */
+async function renderedWiring(params, items) {
+  const html = await ejs.renderFile(PARTIAL, { ...params, items });
+  const list = html.match(/<div id="([^"]+)" class="zr-chips"[^>]*>/);
+  assert.ok(list, 'the partial renders a .zr-chips list');
+  const attr = (name) =>
+    (list[0].match(new RegExp(`${name}="([^"]*)"`)) || [])[1];
+  assert.ok(
+    html.includes(`<button type="button" id="${params.addId}"`),
+    'the Add button carries its id'
+  );
+  return {
+    html,
+    listId: list[1],
+    input: attr('data-chip-input'),
+    add: attr('data-chip-add'),
+    value: attr('data-chip-value'),
+  };
+}
+
+function page({ wiring, existing, withAddButton = true }) {
+  const dom = createDocument();
+  const { el, document } = dom;
+  const input = el('input', { id: wiring.input, type: 'text' });
+  const add = el('button', { id: wiring.add, type: 'button' });
+  const list = el('div', {
+    id: wiring.listId,
+    class: 'zr-chips',
+    'data-chip-list': true,
+    'data-chip-input': wiring.input,
+    'data-chip-add': wiring.add,
+    'data-chip-value': wiring.value,
+  });
+  const hidden = el('input', {
+    id: wiring.value,
+    type: 'hidden',
+    name: wiring.value,
+    value: existing.join(','),
+  });
+  const group = el(
+    'div',
+    { class: 'zr-inputgroup' },
+    withAddButton ? [input, add] : [input]
+  );
+  const form = el('form', { id: 'setupForm' }, [
+    el('div', { class: 'zr-field zr-field--stacked' }, [group, list, hidden]),
+  ]);
+  document.body.appendChild(form);
+  vm.runInNewContext(fs.readFileSync(CHIP_LIST_JS, 'utf8'), {
+    window: dom.window,
+    document,
+    Event: dom.Event,
+    setTimeout: () => {},
+  });
+  // What initializeChipLists() in settings.js does on DOMContentLoaded.
+  dom.window.zrChipList.attachAll(form);
+  const texts = () =>
+    list
+      .querySelectorAll('.zr-chip')
+      .map((pill) => pill.firstElementChild.textContent);
+  return { ...dom, input, add, list, hidden, texts };
+}
+
+async function testField(name, id) {
+  const params = includeFor(id);
+  const wiring = await renderedWiring(params, ['alpha']);
+  assert.strictEqual(
+    wiring.input,
+    id,
+    `${name}: the list names its text field`
+  );
+  assert.strictEqual(
+    wiring.add,
+    params.addId,
+    `${name}: the list names its Add button`
+  );
+  assert.strictEqual(
+    wiring.value,
+    params.valueId,
+    `${name}: the list names its hidden input`
+  );
+  assert.ok(
+    wiring.html.includes('<span>alpha</span>'),
+    `${name}: a stored tag is rendered as a chip`
+  );
+
+  const p = page({ wiring, existing: ['alpha'] });
 
   // The Add button commits — this is what did nothing before.
-  dom.input.value = 'beta';
-  dom.addButton.dispatch('click');
-  await new Promise((resolve) => setImmediate(resolve));
+  p.input.value = 'beta';
+  p.add.click();
   assert.deepStrictEqual(
-    dom.container.querySelectorAll('.zr-chip span').map((s) => s.textContent),
+    p.texts(),
     ['alpha', 'beta'],
     `${name}: the Add button must add the typed tag`
   );
   assert.strictEqual(
-    dom.hidden.value,
+    p.hidden.value,
     'alpha,beta',
     `${name}: the hidden input the form posts must carry the new tag`
   );
-  assert.strictEqual(dom.input.value, '', `${name}: the input is cleared`);
+  assert.strictEqual(p.input.value, '', `${name}: the input is cleared`);
 
   // Enter commits too, and must not be left to bubble into a form submit.
-  let defaultPrevented = false;
-  dom.input.value = 'gamma';
-  dom.input.dispatch('keypress', {
-    key: 'Enter',
-    preventDefault() {
-      defaultPrevented = true;
-    },
-  });
-  await new Promise((resolve) => setImmediate(resolve));
+  p.input.value = 'gamma';
+  const enter = p.event('keydown', { key: 'Enter' });
+  p.input.dispatchEvent(enter);
   assert.deepStrictEqual(
-    dom.container.querySelectorAll('.zr-chip span').map((s) => s.textContent),
+    p.texts(),
     ['alpha', 'beta', 'gamma'],
     `${name}: Enter must add the tag`
   );
   assert.ok(
-    defaultPrevented,
+    enter.defaultPrevented,
     `${name}: Enter must be prevented from submitting the settings form`
   );
 
   // A server-rendered chip must be removable.
-  const firstChipButton =
-    dom.container.querySelectorAll('.zr-chip')[0].children[1];
-  firstChipButton.dispatch('click');
-  await new Promise((resolve) => setImmediate(resolve));
+  p.list.querySelectorAll('.zr-chip button')[0].click();
   assert.deepStrictEqual(
-    dom.container.querySelectorAll('.zr-chip span').map((s) => s.textContent),
+    p.texts(),
     ['beta', 'gamma'],
     `${name}: a server-rendered chip must be removable`
   );
   assert.strictEqual(
-    dom.hidden.value,
+    p.hidden.value,
     'beta,gamma',
     `${name}: removing a chip must update the posted value`
   );
 
-  // Duplicates of the separator would corrupt the comma-joined hidden input.
-  dom.input.value = 'a,b';
-  dom.addButton.dispatch('click');
-  await new Promise((resolve) => setImmediate(resolve));
+  // A comma cannot reach the comma-joined value inside one tag: it ends one.
+  p.input.value = 'a,b';
+  p.add.click();
   assert.strictEqual(
-    dom.hidden.value,
-    'beta,gamma',
-    `${name}: a tag containing a comma must be refused`
+    p.hidden.value,
+    'beta,gamma,a,b',
+    `${name}: a comma separates two tags`
   );
 }
 
@@ -270,26 +194,17 @@ async function testEnterSurvivesAMissingButton() {
   // The button is the part that may legitimately be absent; losing it must not
   // take Enter and chip removal down with it, which is exactly what the old
   // three-way guard did.
-  const dom = buildField({
-    inputId: 'tagInput',
-    addButtonId: 'tagAddButton',
-    containerId: 'tagsContainer',
-    hiddenId: 'tags',
-    existing: [],
-  });
-  dom.byId.delete('tagAddButton');
-
-  const TagsManager = loadTagsManager(dom.byId);
-  new TagsManager('tagInput', 'tagsContainer', 'tags', 'tagAddButton');
-
-  dom.input.value = 'delta';
-  dom.input.dispatch('keypress', { key: 'Enter' });
-  await new Promise((resolve) => setImmediate(resolve));
+  const wiring = await renderedWiring(includeFor('tagInput'), []);
+  const p = page({ wiring, existing: [], withAddButton: false });
+  p.input.value = 'delta';
+  p.input.dispatchEvent(p.event('keydown', { key: 'Enter' }));
   assert.strictEqual(
-    dom.hidden.value,
+    p.hidden.value,
     'delta',
     'Enter must keep working even when the add button is missing'
   );
+  p.list.querySelector('.zr-chip button').click();
+  assert.strictEqual(p.hidden.value, '', 'and so must removing a chip');
 }
 
 // ── The wiring the view and the script have to agree on ──────────────────────
@@ -300,16 +215,15 @@ function testWiringContract() {
     'public/js/settings.js must not look up ancestors by .space-y-2 — that Tailwind class is gone from every view, so the lookup silently returns null'
   );
 
-  ['tagAddButton', 'ignoreTagAddButton'].forEach((id) => {
-    assert.ok(
-      new RegExp(`id="${id}"`).test(view),
-      `views/settings.ejs must give the add button id="${id}" so it is addressed directly instead of by walking the DOM`
-    );
-    assert.ok(
-      new RegExp(`'${id}'`).test(source),
-      `public/js/settings.js must pass '${id}' to TagsManager`
-    );
-  });
+  assert.match(
+    source,
+    /window\.zrChipList\.attachAll\(form\)/,
+    'public/js/settings.js attaches every list of the form'
+  );
+  assert.ok(
+    view.includes('<script src="/js/chip-list.js"></script>'),
+    'views/settings.ejs loads the shared list script'
+  );
 
   // The runtime-override / locked-env pills bailed out on the same dead class,
   // so none of them ever rendered.
@@ -321,18 +235,8 @@ function testWiringContract() {
 
 async function run() {
   testWiringContract();
-  await testField('Tags', {
-    inputId: 'tagInput',
-    addButtonId: 'tagAddButton',
-    containerId: 'tagsContainer',
-    hiddenId: 'tags',
-  });
-  await testField('Ignore Tags', {
-    inputId: 'ignoreTagInput',
-    addButtonId: 'ignoreTagAddButton',
-    containerId: 'ignoreTagsContainer',
-    hiddenId: 'ignoreTags',
-  });
+  await testField('Tags', 'tagInput');
+  await testField('Ignore Tags', 'ignoreTagInput');
   await testEnterSurvivesAMissingButton();
   console.log('PASS test-settings-tag-input-wiring');
 }

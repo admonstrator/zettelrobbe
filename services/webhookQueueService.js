@@ -5,7 +5,9 @@
  * The in-memory queue behind the webhook and the manual rescan: documents are
  * pushed here and processed one at a time, outside the scheduled scan of
  * server.js. Both go through services/documentPipeline.js like the scan; a
- * webhook entry as source 'webhook', a rescan entry as source 'rescan'.
+ * webhook entry as source 'webhook', a rescan entry as source 'rescan', and a
+ * PDF that was just unlocked (services/unlockFollowUpService.js) as source
+ * 'unlock'.
  *
  * The queue and its "is processing" flag must exist once: two copies would
  * process the same document twice in parallel.
@@ -15,7 +17,10 @@ const documentModel = require('../models/document.js');
 const paperlessService = require('./paperlessService.js');
 const setupService = require('./setupService.js');
 const documentPipeline = require('./documentPipeline.js');
+const activityService = require('./activityService.js');
 const documentProcessingService = require('./documentProcessingService');
+/** @type {{ afterRun: (trigger: string, queued: number) => unknown }} */
+const ocrAutoProcessService = require('./ocrAutoProcessService');
 const { removeThumbnailCacheForDocumentIds } = require('./thumbnailCache');
 const { toNameList } = require('./serviceUtils');
 
@@ -30,6 +35,9 @@ const { toNameList } = require('./serviceUtils');
  * @typedef {object} QueueEntry
  * @property {QueuedDocument} document
  * @property {boolean} applySkipRules - true for webhook deliveries, false for a rescan by hand
+ * @property {import('./documentPipeline.js').PipelineSource} [source] - the
+ *   caller profile, when it is neither of those two; without it applySkipRules
+ *   picks 'webhook' or 'rescan'
  */
 
 class WebhookQueueService {
@@ -57,16 +65,34 @@ class WebhookQueueService {
    * processQueue() for that.
    *
    * @param {QueuedDocument} document
-   * @param {{ applySkipRules: boolean }} options
+   * @param {{ applySkipRules: boolean, source?: import('./documentPipeline.js').PipelineSource }} options
    * @returns {void}
    */
-  enqueue(document, { applySkipRules }) {
-    this.documentQueue.push({ document, applySkipRules });
+  enqueue(document, { applySkipRules, source }) {
+    this.documentQueue.push(
+      source
+        ? { document, applySkipRules, source }
+        : { document, applySkipRules }
+    );
   }
 
   /** @returns {number} documents waiting in the queue */
   getQueueLength() {
     return this.documentQueue.length;
+  }
+
+  /**
+   * The documents waiting in the queue, in the order they will be analysed,
+   * for the dashboard.
+   *
+   * @param {number} [limit]
+   * @returns {{ documentId: number, title: string }[]}
+   */
+  getQueuedDocuments(limit = 10) {
+    return this.documentQueue.slice(0, limit).map(({ document }) => ({
+      documentId: Number(document?.id),
+      title: String(document?.title || `Document ${document?.id}`),
+    }));
   }
 
   /**
@@ -118,9 +144,11 @@ class WebhookQueueService {
       const getExternalApiData = documentPipeline.externalApiDataForRun();
 
       while (this.documentQueue.length > 0) {
-        const { document: doc, applySkipRules } = /** @type {QueueEntry} */ (
-          this.documentQueue.shift()
-        );
+        const {
+          document: doc,
+          applySkipRules,
+          source,
+        } = /** @type {QueueEntry} */ (this.documentQueue.shift());
 
         // The scan may be on this document right now and writes its result
         // back itself; a second analysis would be paid twice.
@@ -131,6 +159,9 @@ class WebhookQueueService {
           continue;
         }
 
+        const pipelineSource =
+          source || (applySkipRules ? 'webhook' : 'rescan');
+        const queuedForOcrBefore = documentPipeline.queuedForOcr;
         try {
           const result = await documentPipeline.processDocument(
             doc,
@@ -138,7 +169,7 @@ class WebhookQueueService {
             existingCorrespondentNames,
             existingDocumentTypesList,
             {
-              source: applySkipRules ? 'webhook' : 'rescan',
+              source: pipelineSource,
               customPrompt: customPrompt || null,
               getExternalApiData,
             }
@@ -162,12 +193,21 @@ class WebhookQueueService {
             doc.title,
             'complete'
           );
+          activityService.finish('analysis', doc.id, 'done');
         } catch (error) {
           // A failed analysis or write-back leaves no "processing" mark behind.
           await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
+          activityService.finish('analysis', doc.id, 'failed');
           console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
         } finally {
           documentPipeline.release(doc.id);
+          // With OCR_RUN_RIGHT_AWAY on, a document this call put into the OCR
+          // queue is read now rather than at the next OCR cron. Detached, so
+          // the webhook answers without waiting for OCR, and never throws.
+          ocrAutoProcessService.afterRun(
+            pipelineSource,
+            documentPipeline.queuedForOcr - queuedForOcrBefore
+          );
         }
       }
     } catch (error) {
@@ -202,7 +242,10 @@ class WebhookQueueService {
    * an OCR run is reading it, see documentPipeline.isWaitingForOcr) is left
    * alone as well: the pipeline would skip it, so deleting its records would
    * lose them for nothing. It comes back in `waitingForOcr` and is analysed
-   * once OCR has read it.
+   * once OCR has read it. The same goes for a PDF whose password was just
+   * removed while the unlock follow-up waits for its unlocked version
+   * (services/unlockFollowUpService.js): the follow-up holds its claim, so
+   * the queue would drop the entry, and the follow-up analyses it itself.
    *
    * @param {Array<number|string>} ids - Document IDs to reprocess.
    * @returns {Promise<{queued: number, notFound: number[], waitingForOcr: number[]}>}
@@ -222,9 +265,14 @@ class WebhookQueueService {
     const waitingForOcr = [];
     /** @type {{ id: number, document: QueuedDocument }[]} */
     const resolvedDocuments = [];
+    // Required here rather than at the top: the follow-up requires this module.
+    const unlockFollowUpService = require('./unlockFollowUpService.js');
 
     for (const id of numericIds) {
-      if (await documentPipeline.isWaitingForOcr(id)) {
+      if (
+        unlockFollowUpService.isWaiting(id) ||
+        (await documentPipeline.isWaitingForOcr(id))
+      ) {
         waitingForOcr.push(id);
         continue;
       }

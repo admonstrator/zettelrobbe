@@ -130,15 +130,26 @@
     animation: zr-pulse 1.8s ease-out infinite;
   }
 
+  /* A list of values as pills (js/chip-list.js, views/partials/chip-list.ejs).
+     min-width lets the row shrink inside a grid or flex parent, so a long
+     value wraps inside its pill instead of pushing the page sideways. */
   .zr-chips {
     display: flex;
     flex-wrap: wrap;
     gap: 5px;
+    min-width: 0;
+  }
+  /* An empty list says so where the page asks for it (data-empty). */
+  .zr-chips[data-empty]:empty::before {
+    content: attr(data-empty);
+    font-size: var(--zr-fs-sm);
+    color: var(--zr-text-faint);
   }
   .zr-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    max-width: 100%;
     padding: 2px 4px 2px 8px;
     border-radius: var(--zr-r-full);
     background: var(--zr-brand-soft);
@@ -146,8 +157,18 @@
     font-size: var(--zr-fs-sm);
     font-weight: 500;
   }
+  .zr-chip > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* A value typed a second time lights up the pill that already holds it. */
+  .zr-chip[data-flash] {
+    box-shadow: 0 0 0 2px var(--zr-brand);
+  }
   .zr-chip button {
+    position: relative;
     display: grid;
+    flex: none;
     place-items: center;
     width: 15px;
     height: 15px;
@@ -155,7 +176,15 @@
     color: inherit;
     opacity: 0.65;
   }
-  .zr-chip button:hover {
+  /* The visible button is 15px; the click and touch target reaches 25px
+     without making the pill taller. */
+  .zr-chip button::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+  }
+  .zr-chip button:hover,
+  .zr-chip button:focus-visible {
     opacity: 1;
     background: color-mix(in srgb, var(--zr-brand) 18%, transparent);
   }

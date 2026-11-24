@@ -102,8 +102,7 @@ router.post(
       console.log('[INFO] Tag cache cleared manually by user');
       res.json({
         success: true,
-        message:
-          'Tag cache cleared successfully. Cache will refresh on next use.',
+        message: 'Tag cache cleared. It refreshes on next use.',
       });
     } catch (error) {
       console.error('[ERROR] clearing tag cache:', error);

@@ -429,12 +429,19 @@
   }
 
   /* --- remaining page-specific pieces ------------------------------------- */
-  /* manual: the document/preview column pair */
+  /* Two columns of cards (Manual, About), apart by the card gap like every
+     other pair of cards. Like .zr-grid it takes back the framework's
+     stacking margin: on the second card of a row it would push that card
+     below its neighbour and double the gap once the columns stack. */
   .card-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: var(--zr-3);
+    gap: var(--zr-card-gap);
     align-items: start;
+  }
+  .card-grid > .zr-module,
+  .card-grid > .zr-alert {
+    margin-top: 0;
   }
 
   /* settings: draggable custom-field row */

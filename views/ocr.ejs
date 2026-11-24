@@ -9,10 +9,10 @@
     chatEnabled: typeof chatEnabled !== 'undefined' ? chatEnabled : false
 }) %>
 
-            <div>
+            <div class="zr-stack">
                 <div class="zr-viewhead">
                     <p class="zr-viewhead__sub">
-                        Documents with missing or insufficient OCR text queued for OCR reprocessing.
+                        Documents with little or no text, waiting for OCR.
                     </p>
                     <% if (ocrEnabled) { %>
                     <div class="zr-viewhead__actions">
@@ -37,7 +37,7 @@
                         <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>
                         <h2 class="zr-viewhead__title">OCR is not enabled</h2>
                         <p class="zr-muted">
-                            Enable OCR in settings and configure your OCR provider. You can optionally set these values in <strong>data/.env</strong> and restart the service:
+                            Turn on OCR in Settings and set up your OCR provider. You can also set these values in <strong>data/.env</strong> and restart the service:
                         </p>
                         <pre class="ocr-env-codeblock">MISTRAL_OCR_ENABLED=yes
 OCR_PROVIDER=mistral|custom
@@ -91,7 +91,7 @@ MISTRAL_OCR_MODEL=mistral-ocr-latest</pre>
 
                         <span class="zr-grow"></span>
 
-                        <label class="zr-row" title="Applies to the runs you start on this page and is remembered in this browser. The scheduled queue drain follows Settings &rarr; OCR &rarr; AI Analysis After OCR.">
+                        <label class="zr-row" title="Applies to the runs you start on this page and is remembered in this browser. The scheduled queue drain follows Settings &rarr; OCR &rarr; Analyse right after OCR.">
                             <input type="checkbox" class="zr-toggle" id="autoAnalyzeToggle" <%= (typeof ocrAutoAnalyze !== 'undefined' && ocrAutoAnalyze) ? 'checked' : '' %>>
                             <span>AI analysis after OCR</span>
                         </label>

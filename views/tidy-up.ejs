@@ -2,6 +2,7 @@
 <html lang="en" data-theme="<%= theme || 'light' %>">
 <%- include('partials/shell/head-start', { pageTitle: 'Tidy up - Zettelrobbe' }) %>
     <script src="/js/dialogs.js"></script>
+    <script src="/js/chip-list.js"></script>
 <%- include('partials/shell/head-end') %>
 <%- include('partials/shell/body-open', {
     pageTitle: 'Tidy up',
@@ -45,7 +46,7 @@ if (tidyLastRun) {
             <!-- One page in four states, all drawn by js/modules/tidy-up.js:
                  the start (server-rendered below), the run while it works, the
                  suggestions, and a failure notice in place of the run. -->
-            <div class="tidy-page" data-tidy-page data-module="tidy-up"
+            <div class="tidy-page zr-stack" data-tidy-page data-module="tidy-up"
                 data-model-available="<%= tidyModel ? 'yes' : 'no' %>"
                 data-model-label="<%= tidyModelLabel %>"
                 data-splits-available="<%= tidySplits ? 'yes' : 'no' %>">
@@ -136,17 +137,17 @@ if (tidyLastRun) {
 
                 <!-- 2 · While it works, or 4 · the failure that ended it -->
                 <section class="zr-module tidy-run hidden" data-tidy-run aria-live="polite"></section>
-                <div class="tidy-notices hidden" data-tidy-notices></div>
+                <div class="tidy-notices zr-stack hidden" data-tidy-notices></div>
 
                 <!-- 3 · Suggestions (also the ones found so far, while a run works) -->
-                <section class="tidy-results hidden" data-tidy-results aria-label="Suggestions">
+                <section class="tidy-results zr-stack hidden" data-tidy-results aria-label="Suggestions">
                     <div class="zr-module tidy-summary hidden" data-tidy-summary></div>
                     <div class="tidy-sofar hidden" data-tidy-sofar></div>
                     <div class="tidy-banner hidden" data-tidy-banner role="status"></div>
                     <div class="tidy-filters hidden" data-tidy-filters></div>
                     <!-- What a decide or undo is writing right now (activity) -->
                     <div class="tidy-activity hidden" data-tidy-activity role="status" aria-live="polite"></div>
-                    <div class="tidy-list" data-tidy-list></div>
+                    <div class="tidy-list zr-stack" data-tidy-list></div>
                 </section>
 
                 <!-- Recent changes, with their undo -->

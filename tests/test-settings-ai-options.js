@@ -162,7 +162,11 @@ function esc(value) {
 /** [start, end) of every advanced disclosure on the page. */
 function disclosureRanges(html) {
   const ranges = [];
-  const pattern = /<details class="zr-module zr-settings-advanced"[^>]*>/g;
+  // A section of the topic card that folds, its rows like the rows of the
+  // sections above it; data-advanced tells it from Advanced of single
+  // sign-on.
+  const pattern =
+    /<details class="zr-settings-section zr-settings-disclosure"[^>]*\sdata-advanced[^>]*>/g;
   let match;
   while ((match = pattern.exec(html))) {
     const end = html.indexOf('</details>', match.index);
@@ -402,7 +406,6 @@ function optionRow(html, key) {
     await test('the Claude options carry no temperature', async () => {
       const keys = rules.optionsFor('anthropic').map((option) => option.key);
       assert.ok(!keys.includes('AI_TEMPERATURE_ANALYSIS'));
-      assert.ok(!keys.includes('AI_TEMPERATURE_GENERATION'));
       assert.ok(!keys.includes('RESPONSE_TOKENS'));
       assert.ok(keys.includes('ANTHROPIC_EFFORT'));
     });

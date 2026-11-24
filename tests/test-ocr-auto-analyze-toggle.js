@@ -160,7 +160,7 @@ assert.ok(
   'the toggle must say it applies to runs started here, not to the scheduled drain'
 );
 assert.ok(
-  /Settings .* OCR .* AI Analysis After OCR/.test(view),
+  /Settings .* OCR .* Analyse right after OCR/.test(view),
   'the toggle must point at the setting that owns the default'
 );
 

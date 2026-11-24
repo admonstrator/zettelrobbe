@@ -2,6 +2,7 @@
 <html lang="en" data-theme="<%= theme || 'light' %>">
 <%- include('partials/shell/head-start', { pageTitle: 'Initial Setup - Zettelrobbe' }) %>
 <script src="/js/dialogs.js"></script>
+<script src="/js/chip-list.js"></script>
 <%- include('partials/shell/head-end') %>
 <body>
     <div class="zr-setup">
@@ -143,7 +144,7 @@
 
                 <section class="zr-steppane" data-step-index="1" data-step-title="Two-factor auth">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-shield"/></svg> Multi-factor authentication (MFA)</h3>
-                    <p class="zr-sm zr-muted">Would you like to enable MFA for the admin account?</p>
+                    <p class="zr-sm zr-muted">Enable MFA for the admin account?</p>
 
                     <div class="zr-field zr-field--stacked">
                         <label for="enableMfa" class="zr-field__name">Enable MFA</label>
@@ -185,16 +186,12 @@
 
                 <section class="zr-steppane" data-step-index="2" data-step-title="Paperless connection">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-link"/></svg> Paperless-ngx connection</h3>
-                    <p class="zr-sm zr-muted">Enter your Paperless-ngx API credentials and run a connectivity test.</p>
+                    <p class="zr-sm zr-muted">Enter your Paperless-ngx URL and API token, then test the connection.</p>
 
                     <div class="zr-formgrid">
                         <div class="zr-field zr-field--stacked zr-formgrid__wide">
                             <label for="paperlessUrl" class="zr-field__name">Paperless-ngx API URL</label>
                             <input id="paperlessUrl" name="paperlessUrl" type="text" class="zr-input" placeholder="http://your-paperless-instance:8000" required value="<%= config.PAPERLESS_API_URL || '' %>">
-                        </div>
-                        <div class="zr-field zr-field--stacked">
-                            <label for="paperlessUsername" class="zr-field__name">Paperless username</label>
-                            <input id="paperlessUsername" name="paperlessUsername" type="text" class="zr-input" required value="<%= config.PAPERLESS_USERNAME || '' %>">
                         </div>
                         <div class="zr-field zr-field--stacked">
                             <label for="paperlessToken" class="zr-field__name">API token</label>
@@ -239,7 +236,7 @@
                             <input id="scanAllDocuments" type="checkbox" class="zr-toggle">
                             <span>
                                 <strong>Always scan all documents</strong>
-                                <span class="zr-field__hint">If enabled, no include-tag filter is used.</span>
+                                <span class="zr-field__hint">If on, include tags are not used.</span>
                             </span>
                         </label>
 
@@ -247,35 +244,29 @@
                              include filter has no effect in that mode. -->
                         <div id="includeTagsSection" class="zr-field zr-field--stacked">
                             <label for="includeTag" class="zr-field__name">Tags used to select documents for processing</label>
-                            <div class="zr-inputgroup">
-                                <input id="includeTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="Type a tag and press Enter">
-                                <button type="button" id="addIncludeTagBtn" class="zr-btn zr-btn--primary">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                    Add
-                                </button>
-                            </div>
-                            <p class="zr-field__hint">Press Enter to confirm a tag.</p>
-                            <div id="includeTagsContainer" class="zr-chips"></div>
+                            <%- include('partials/chip-list', {
+                                id: 'includeTag', addId: 'addIncludeTagBtn', listId: 'includeTagsContainer',
+                                items: [], datalist: 'paperlessTagsDatalist', emptyText: 'No include tags selected.',
+                                placeholder: 'Tag name, then Enter'
+                            }) %>
+                            <p class="zr-field__hint">Enter or a comma adds the tag. Pasted text is split at commas and line breaks.</p>
                         </div>
 
                         <div class="zr-field zr-field--stacked">
                             <label for="excludeTagInput" class="zr-field__name">Excluded tags</label>
-                            <div class="zr-inputgroup">
-                                <input id="excludeTagInput" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="Select a tag to exclude">
-                                <button type="button" id="addExcludeTagBtn" class="zr-btn zr-btn--primary">
-                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
-                                    Add
-                                </button>
-                            </div>
-                            <div id="excludeTagsContainer" class="zr-chips"></div>
+                            <%- include('partials/chip-list', {
+                                id: 'excludeTagInput', addId: 'addExcludeTagBtn', listId: 'excludeTagsContainer',
+                                items: [], datalist: 'paperlessTagsDatalist', emptyText: 'No excluded tags selected.',
+                                placeholder: 'Tag name, then Enter'
+                            }) %>
                         </div>
 
                         <div class="zr-field zr-field--stacked">
                             <label for="processedTag" class="zr-field__name">Tag applied after Zettelrobbe finishes</label>
                             <div class="zr-inputgroup">
-                                <input id="processedTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="e.g. ai-processed" value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>">
+                                <input id="processedTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="e.g. ai-processed" value="<%= config.AI_PROCESSED_TAG_NAME ?? 'ai-processed' %>">
                             </div>
-                            <p class="zr-field__hint">This tag is automatically added to excluded tags during setup finalization.</p>
+                            <p class="zr-field__hint">Setup also adds this tag to the excluded tags.</p>
                         </div>
 
                         <label class="zr-row">
@@ -383,7 +374,7 @@
                             <div class="zr-field zr-field--stacked zr-formgrid__wide">
                                 <label for="aiToken" class="zr-field__name">API key</label>
                                 <input id="aiToken" type="password" class="zr-input" placeholder="Enter token if required">
-                                <p class="zr-field__hint">For Ollama and custom endpoints, this field can stay empty if the API does not require authentication.</p>
+                                <p class="zr-field__hint">For Ollama and custom endpoints, leave this empty if the API needs no key.</p>
                             </div>
                             <div class="zr-field zr-field--stacked zr-formgrid__wide">
                                 <label for="aiModel" class="zr-field__name">Model</label>
@@ -421,7 +412,7 @@
 
                 <section class="zr-steppane" data-step-index="5" data-step-title="OCR fallback">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-file"/></svg> OCR fallback</h3>
-                    <p class="zr-sm zr-muted">Configure OCR fallback for documents where AI extraction needs OCR assistance.</p>
+                    <p class="zr-sm zr-muted">OCR steps in when the AI cannot work with a document's text.</p>
 
                     <div id="ocrQuickstartNotice" class="zr-alert zr-alert--ok hidden"></div>
 
@@ -445,7 +436,7 @@
                         <div id="ocrApiUrlContainer" class="zr-field zr-field--stacked">
                             <label for="ocrApiUrl" class="zr-field__name">OCR API URL (optional override)</label>
                             <input id="ocrApiUrl" type="text" class="zr-input" value="<%= config.OCR_API_URL || '' %>" placeholder="Leave empty to use provider default URL" data-placeholder-default="Leave empty to use provider default URL" data-placeholder-anthropic="Optional proxy URL">
-                            <p id="ocrApiUrlHint" class="zr-field__hint">For custom provider, set URL to your local endpoint (e.g. Ollama or LM Studio /v1).</p>
+                            <p id="ocrApiUrlHint" class="zr-field__hint">For a custom provider, enter your local endpoint (e.g. Ollama or LM Studio /v1).</p>
                             <p id="ocrApiUrlAnthropicHint" class="zr-field__hint hidden">Only for a proxy; empty uses the Anthropic API URL of the AI provider, then api.anthropic.com.</p>
                         </div>
                         <div id="ocrApiKeyContainer" class="zr-field zr-field--stacked">
@@ -469,11 +460,12 @@
                         </div>
                         <div class="zr-field zr-field--stacked">
                             <label for="ocrValidationTimeout" class="zr-field__name">OCR timeout</label>
+                            <% const ocrTimeoutDefaultSeconds = Math.round(Number(defaults && defaults.ocrTimeoutMs) / 1000); %>
                             <div class="zr-row">
-                                <input id="ocrValidationTimeout" type="number" min="1" max="120" step="1" class="zr-input" value="30">
+                                <input id="ocrValidationTimeout" type="number" min="1" max="7200" step="1" class="zr-input" value="<%= Math.round(Number(config.SETUP_OCR_VALIDATION_TIMEOUT_MS || config.SETUP_VALIDATION_TIMEOUT_MS) / 1000) || ocrTimeoutDefaultSeconds %>">
                                 <span class="zr-field__hint">seconds</span>
                             </div>
-                            <p class="zr-field__hint">Used for OCR model discovery, connection tests and document processing. Default: 30s.</p>
+                            <p class="zr-field__hint">How long Zettelrobbe waits for one OCR request. Test OCR connection and Fetch OCR models wait as long. Default: <%= ocrTimeoutDefaultSeconds %> seconds.</p>
                         </div>
                         <div class="zr-row zr-row--wrap">
                             <button type="button" id="testOcrBtn" class="zr-btn">
@@ -487,7 +479,7 @@
 
                 <section class="zr-steppane" data-step-index="6" data-step-title="Review and finish">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg> Review and finish</h3>
-                    <p class="zr-sm zr-muted">Review generated environment keys, copy if needed, then finalize setup.</p>
+                    <p class="zr-sm zr-muted">Check the environment variables, copy them if needed, then finish setup.</p>
 
                     <div class="zr-field zr-field--stacked">
                         <label for="envPreview" class="zr-field__name">For docker compose copy</label>

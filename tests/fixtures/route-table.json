@@ -392,6 +392,14 @@
     ]
   },
   {
+    "route": "POST /api/settings/environment/remove-copy",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
+  },
+  {
+    "route": "POST /api/settings/environment/take-over",
+    "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
+  },
+  {
     "route": "POST /api/settings/mfa/disable",
     "guards": ["remoteSetupGuard", "authGate", "isAuthenticated", "jsonParser"]
   },

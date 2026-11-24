@@ -36,6 +36,36 @@ export function resolveButtonIcon(value) {
   return { type: 'default' };
 }
 
+/**
+ * Copies text without the Clipboard API, which a page served over plain http
+ * does not have: a temporary off-screen textarea outside the form and
+ * execCommand('copy'). The focus goes back where it was.
+ *
+ * @param {string} text
+ * @param {Document} [doc]
+ * @returns {boolean} whether the browser reports the copy
+ */
+export function copyWithoutClipboardApi(text, doc = document) {
+  const before = doc.activeElement;
+  const area = doc.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.setAttribute('aria-hidden', 'true');
+  area.style.position = 'fixed';
+  area.style.top = '-1000px';
+  doc.body.appendChild(area);
+  area.select();
+  let copied;
+  try {
+    copied = doc.execCommand('copy') === true;
+  } catch {
+    copied = false;
+  }
+  area.remove();
+  if (before && typeof before.focus === 'function') before.focus();
+  return copied;
+}
+
 export default function settingsSso(root, { toast }) {
   const $ = (selector) => root.querySelector(selector);
   const field = (id) => document.getElementById(id);
@@ -49,21 +79,32 @@ export default function settingsSso(root, { toast }) {
     redirect.placeholder = redirect.dataset.detected;
   }
 
+  // Copy never writes into the field: it is an override, and an address
+  // stored there would no longer follow the address people open.
   const copyButton = $('[data-el="copy-redirect"]');
+  const byHand = $('[data-el="copy-redirect-by-hand"]');
+  const byHandText = $('[data-el="copy-redirect-text"]');
   if (copyButton && redirect) {
     copyButton.addEventListener('click', async () => {
       const value = redirect.value.trim() || redirect.dataset.detected || '';
+      byHand?.classList.add('hidden');
       try {
         await navigator.clipboard.writeText(value);
-        toast(`Copied ${value}`, { tone: 'ok' });
       } catch {
-        // No clipboard (plain http, or permission refused): select the text so
-        // it can be copied by hand.
-        redirect.focus();
-        if (!redirect.value) redirect.value = value;
-        redirect.select();
-        toast('Copy it from the selected field.', { tone: 'warn' });
+        // No Clipboard API (plain http) or permission refused: the older
+        // way, and when that fails too, the address selected under the field
+        // to be copied by hand.
+        if (!copyWithoutClipboardApi(value)) {
+          if (byHand && byHandText) {
+            byHandText.textContent = value;
+            byHand.classList.remove('hidden');
+            window.getSelection?.()?.selectAllChildren(byHandText);
+          }
+          toast('Copy the address shown under the field.', { tone: 'warn' });
+          return;
+        }
       }
+      toast(`Copied ${value}`, { tone: 'ok' });
     });
   }
 
@@ -179,7 +220,7 @@ export default function settingsSso(root, { toast }) {
       if (data.pkce === false) {
         lines.push([
           '',
-          'The provider does not list PKCE (S256); sign-in still sends it.',
+          'The provider does not list PKCE (S256). Sign-in still sends it.',
         ]);
       }
       showResult('ok', result.message || 'The provider answered', lines);

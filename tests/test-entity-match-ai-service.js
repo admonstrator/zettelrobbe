@@ -221,6 +221,9 @@ async function main() {
   process.env.OPENAI_MODEL = 'test-model';
 
   const config = require('../config/config');
+  const {
+    DEFAULT_GENERATE_TEMPERATURE,
+  } = require('../services/aiGenerateOptions');
   const documentModel = require('../models/document');
   const paperlessService = require('../services/paperlessService');
   const dashboardStatsService = require('../services/dashboardStatsService');
@@ -904,14 +907,16 @@ async function main() {
           false,
           'OpenAI sent no cap before, and still sends none'
         );
+        // The one deliberate change: without a temperature of its own every
+        // provider asks with 0 (DEFAULT_GENERATE_TEMPERATURE), no longer with
+        // the removed AI_TEMPERATURE_GENERATION.
         assert.strictEqual(
           stub.sent.openai.temperature,
-          config.aiTemperatureGeneration
+          DEFAULT_GENERATE_TEMPERATURE
         );
-        // The configured value now, no longer a hard-coded 0.7.
         assert.strictEqual(
           stub.sent.azure.temperature,
-          config.aiTemperatureGeneration
+          DEFAULT_GENERATE_TEMPERATURE
         );
         assert.strictEqual(
           stub.sent.azure.max_tokens,
@@ -919,7 +924,7 @@ async function main() {
         );
         assert.strictEqual(
           stub.sent.custom.temperature,
-          config.aiTemperatureGeneration
+          DEFAULT_GENERATE_TEMPERATURE
         );
         assert.strictEqual(
           stub.sent.custom.max_tokens,
@@ -933,7 +938,7 @@ async function main() {
         assert.match(stub.sent.ollama.system, /helpful assistant/);
         assert.strictEqual(
           stub.sent.ollama.options.temperature,
-          config.aiTemperatureGeneration
+          DEFAULT_GENERATE_TEMPERATURE
         );
       } finally {
         stub.restore();

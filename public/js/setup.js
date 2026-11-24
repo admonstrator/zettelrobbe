@@ -96,7 +96,6 @@ class SetupWizard {
     this.mfaStatusHint = document.getElementById('mfaStatusHint');
 
     this.paperlessUrl = document.getElementById('paperlessUrl');
-    this.paperlessUsername = document.getElementById('paperlessUsername');
     this.paperlessToken = document.getElementById('paperlessToken');
     this.testPaperlessBtn = document.getElementById('testPaperlessBtn');
     this.paperlessTestStatePill = document.getElementById('paperlessTestState');
@@ -177,8 +176,7 @@ class SetupWizard {
     this.populateInitialValues();
     this.populateAiPresets();
     this.bindEvents();
-    this.renderIncludeTags();
-    this.renderExcludeTags();
+    this.attachTagLists();
     this.updateMfaPanelVisibility();
     this.toggleIncludeTagField();
     this.toggleMistralFields();
@@ -252,8 +250,9 @@ class SetupWizard {
     this.mistralOcrModel.value =
       this.config.MISTRAL_OCR_MODEL || 'mistral-ocr-latest';
     this.ocrValidationTimeout.value = this.getOcrValidationTimeoutSeconds();
+    // An empty name is kept: it adds no tag, and an empty field says so.
     this.processedTag.value =
-      this.config.AI_PROCESSED_TAG_NAME || 'ai-processed';
+      this.config.AI_PROCESSED_TAG_NAME ?? 'ai-processed';
     if (this.removeInboxTagsAfterProcessing) {
       this.removeInboxTagsAfterProcessing.checked =
         String(this.config.REMOVE_INBOX_TAGS_AFTER_PROCESSING || '')
@@ -468,11 +467,17 @@ class SetupWizard {
     );
   }
 
+  /* What OCR waits when nothing is set, in seconds. GET /setup hands it over
+     (services/ocrTimeout.js); the wizard keeps no number of its own. */
+  getOcrTimeoutDefaultSeconds() {
+    return Math.round(Number(this.defaults.ocrTimeoutMs) / 1000);
+  }
+
   getOcrValidationTimeoutSeconds() {
     return this.getNormalizedTimeoutSeconds(
       this.config.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
-        this.config.SETUP_VALIDATION_TIMEOUT_MS ||
-        '30000'
+        this.config.SETUP_VALIDATION_TIMEOUT_MS,
+      this.getOcrTimeoutDefaultSeconds() * 1000
     );
   }
 
@@ -483,7 +488,7 @@ class SetupWizard {
     );
     const normalizedSeconds = Number.isFinite(rawSeconds)
       ? Math.min(Math.max(rawSeconds, 1), 7200)
-      : 30;
+      : fallbackSeconds;
     return normalizedSeconds * 1000;
   }
 
@@ -492,7 +497,10 @@ class SetupWizard {
   }
 
   getOcrValidationTimeoutMs() {
-    return this.getTimeoutMs(this.ocrValidationTimeout, 30);
+    return this.getTimeoutMs(
+      this.ocrValidationTimeout,
+      this.getOcrTimeoutDefaultSeconds()
+    );
   }
 
   populateAiPresets() {
@@ -547,37 +555,6 @@ class SetupWizard {
     this.scanAllDocuments.addEventListener('change', () =>
       this.toggleIncludeTagField()
     );
-    if (this.addIncludeTagBtn) {
-      this.addIncludeTagBtn.addEventListener('click', () =>
-        this.addIncludeTag(this.includeTag.value)
-      );
-    }
-    if (this.includeTag) {
-      this.includeTag.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter') {
-          return;
-        }
-
-        event.preventDefault();
-        this.addIncludeTag(this.includeTag.value);
-      });
-    }
-
-    if (this.addExcludeTagBtn) {
-      this.addExcludeTagBtn.addEventListener('click', () =>
-        this.addExcludeTag(this.excludeTagInput.value)
-      );
-    }
-    if (this.excludeTagInput) {
-      this.excludeTagInput.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter') {
-          return;
-        }
-        event.preventDefault();
-        this.addExcludeTag(this.excludeTagInput.value);
-      });
-    }
-
     this.testPaperlessBtn.addEventListener('click', () =>
       this.testPaperlessConnection()
     );
@@ -746,8 +723,8 @@ class SetupWizard {
         : '';
     const original = String(originalMessage || '').trim();
     return original
-      ? `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed. Original error: ${original}`
-      : `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed.`;
+      ? `${normalizedScope} timed out${timeoutPart}. Check that the provider is reachable and raise the timeout if needed. Original error: ${original}`
+      : `${normalizedScope} timed out${timeoutPart}. Check that the provider is reachable and raise the timeout if needed.`;
   }
 
   getOperationErrorDetails(scope, error, timeoutMs) {
@@ -943,72 +920,37 @@ class SetupWizard {
     );
   }
 
-  addIncludeTag(value) {
-    const normalized = String(value || '').trim();
-    if (!normalized) {
+  // Both tag lists are pills from /js/chip-list.js, the code the settings
+  // page uses too: Enter, a comma or Add adds, a pasted list is split, a
+  // repeated tag is not added twice. The arrays stay the wizard's model;
+  // the lists only report back into them.
+  attachTagLists() {
+    if (!window.zrChipList) {
       return;
     }
-
-    if (!this.includeTags.includes(normalized)) {
-      this.includeTags.push(normalized);
-      this.renderIncludeTags();
-    }
-
-    this.includeTag.value = '';
-  }
-
-  removeIncludeTag(tag) {
-    this.includeTags = this.includeTags.filter((entry) => entry !== tag);
-    this.renderIncludeTags();
-  }
-
-  renderIncludeTags() {
-    if (!this.includeTagsContainer) {
-      return;
-    }
-
-    this.includeTagsContainer.innerHTML = '';
-    const tags = this.getEffectiveIncludeTags();
-
-    if (tags.length === 0) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      hint.textContent = 'No include tags selected.';
-      this.includeTagsContainer.appendChild(hint);
-      return;
-    }
-
-    tags.forEach((tag) => {
-      this.includeTagsContainer.appendChild(
-        this.createTagChip(tag, () => this.removeIncludeTag(tag))
-      );
+    this.includeTagList = window.zrChipList.attach(this.includeTagsContainer, {
+      input: this.includeTag,
+      addButton: this.addIncludeTagBtn,
+      values: this.getEffectiveIncludeTags(),
+      onChange: (values) => {
+        this.includeTags = values;
+      },
+    });
+    this.excludeTagList = window.zrChipList.attach(this.excludeTagsContainer, {
+      input: this.excludeTagInput,
+      addButton: this.addExcludeTagBtn,
+      values: this.excludeTags,
+      onChange: (values) => {
+        this.excludeTags = values;
+      },
     });
   }
 
-  // One chip shape for both tag lists. Tag names are user input, so the label
-  // goes in as a text node rather than through innerHTML.
-  createTagChip(tag, onRemove) {
-    const chip = document.createElement('div');
-    chip.className = 'zr-chip';
-
-    const label = document.createElement('span');
-    label.textContent = tag;
-    chip.appendChild(label);
-
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.setAttribute('aria-label', `Remove tag ${tag}`);
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    icon.setAttribute('class', 'zr-icon zr-icon--sm');
-    icon.setAttribute('aria-hidden', 'true');
-    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-    use.setAttribute('href', '/icons.svg#i-x');
-    icon.appendChild(use);
-    removeBtn.appendChild(icon);
-    removeBtn.addEventListener('click', onRemove);
-
-    chip.appendChild(removeBtn);
-    return chip;
+  // A tag typed but not yet added counts, instead of being dropped when the
+  // wizard moves on.
+  commitTypedTags() {
+    this.includeTagList?.commit();
+    this.excludeTagList?.commit();
   }
 
   toggleMistralFields() {
@@ -1131,7 +1073,7 @@ class SetupWizard {
         this.setPillState(this.ocrTestStatePill, 'success', 'Connection valid');
         await this.showPopup({
           icon: 'success',
-          title: 'OCR test successful',
+          title: 'OCR test passed',
           text: result.message || 'OCR provider is reachable.',
         });
       } else {
@@ -1223,7 +1165,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'warning',
         title: 'Username required',
-        text: 'Please complete username first.',
+        text: 'Enter a username first.',
       });
       return;
     }
@@ -1339,7 +1281,7 @@ class SetupWizard {
         this.loadPaperlessMetadata({ silent: true });
         await this.showPopup({
           icon: 'success',
-          title: 'Paperless test successful',
+          title: 'Paperless test passed',
           text: result.message || 'Connection and permissions look good.',
         });
       } else {
@@ -1442,43 +1384,6 @@ class SetupWizard {
     }
 
     return Array.from(new Set([...normalizedManualTags, processedTag]));
-  }
-
-  addExcludeTag(value) {
-    const normalized = String(value || '').trim();
-    if (!normalized) {
-      return;
-    }
-
-    if (!this.excludeTags.includes(normalized)) {
-      this.excludeTags.push(normalized);
-      this.renderExcludeTags();
-    }
-
-    this.excludeTagInput.value = '';
-  }
-
-  removeExcludeTag(tag) {
-    this.excludeTags = this.excludeTags.filter((entry) => entry !== tag);
-    this.renderExcludeTags();
-  }
-
-  renderExcludeTags() {
-    this.excludeTagsContainer.innerHTML = '';
-
-    if (this.excludeTags.length === 0) {
-      const hint = document.createElement('p');
-      hint.className = 'zr-field__hint';
-      hint.textContent = 'No excluded tags selected.';
-      this.excludeTagsContainer.appendChild(hint);
-      return;
-    }
-
-    this.excludeTags.forEach((tag) => {
-      this.excludeTagsContainer.appendChild(
-        this.createTagChip(tag, () => this.removeExcludeTag(tag))
-      );
-    });
   }
 
   applyPreset(preset) {
@@ -1724,7 +1629,7 @@ class SetupWizard {
 
       if (this.ocrQuickstartNotice) {
         this.ocrQuickstartNotice.classList.remove('hidden');
-        this.ocrQuickstartNotice.textContent = `OCR was prefilled by Quickstart (model "${selectedOcrModel}" via ${detection.resolvedOcrApiUrl || 'detected endpoint'}). Adjust below if needed.`;
+        this.ocrQuickstartNotice.textContent = `Quickstart set up OCR (model "${selectedOcrModel}" via ${detection.resolvedOcrApiUrl || 'detected endpoint'}). Adjust below if needed.`;
       }
     } else if (this.quickstartState.ocrApplied) {
       // The user unchecked the OCR option after a previous apply.
@@ -1926,7 +1831,7 @@ class SetupWizard {
     );
     this.toggleModelTestOverlay(
       true,
-      'Validating the selected models against your AI server…'
+      'Testing the chosen models on the server…'
     );
 
     const aiResult = await this.runSilentAiTest();
@@ -2059,7 +1964,7 @@ class SetupWizard {
                 ? 'success'
                 : 'info',
           title: 'AI models loaded',
-          text: `${result.message || (models.length > 0 ? 'Models discovered successfully.' : 'No models found.')}${resolvedInfo}`,
+          text: `${result.message || (models.length > 0 ? 'Models discovered.' : 'No models found.')}${resolvedInfo}`,
         });
       }
 
@@ -2147,7 +2052,7 @@ class SetupWizard {
           text:
             result.message ||
             (models.length > 0
-              ? 'OCR models discovered successfully.'
+              ? 'OCR models discovered.'
               : 'No OCR models found.'),
         });
       }
@@ -2228,7 +2133,7 @@ class SetupWizard {
           : '';
         await this.showPopup({
           icon: 'success',
-          title: 'AI test successful',
+          title: 'AI test passed',
           text: `${result.message || 'AI provider is reachable.'}${resolvedInfo}`,
         });
       } else {
@@ -2272,7 +2177,7 @@ class SetupWizard {
         await this.showPopup({
           icon: 'warning',
           title: 'Required fields',
-          text: 'Please fill all account fields.',
+          text: 'Fill in all account fields.',
         });
         return false;
       }
@@ -2290,7 +2195,7 @@ class SetupWizard {
         await this.showPopup({
           icon: 'warning',
           title: 'Password mismatch',
-          text: 'The two password fields must match.',
+          text: 'The passwords do not match.',
         });
         return false;
       }
@@ -2303,7 +2208,7 @@ class SetupWizard {
         await this.showPopup({
           icon: 'warning',
           title: 'MFA not confirmed',
-          text: 'Generate QR code and validate one code before continuing.',
+          text: 'Generate the QR code and confirm a code first.',
         });
         return false;
       }
@@ -2311,15 +2216,15 @@ class SetupWizard {
     }
 
     if (stepIndex === 2) {
+      // Zettelrobbe signs in with the token alone.
       if (
         !this.paperlessUrl.value.trim() ||
-        !this.paperlessUsername.value.trim() ||
         !this.paperlessToken.value.trim()
       ) {
         await this.showPopup({
           icon: 'warning',
           title: 'Missing values',
-          text: 'Paperless URL, username, and token are required.',
+          text: 'Paperless URL and token are required.',
         });
         return false;
       }
@@ -2332,7 +2237,7 @@ class SetupWizard {
         ? 'Paperless test failed'
         : 'Paperless test not run';
       const text = this.paperlessTestState.ran
-        ? 'The Paperless test failed. Do you want to continue anyway?'
+        ? 'The Paperless test failed. Continue anyway?'
         : 'No Paperless test has been run. Continue anyway?';
 
       const result = await this.showPopup({
@@ -2352,6 +2257,7 @@ class SetupWizard {
       // Metadata loads by itself after the connection test and is only there to
       // offer tag suggestions, so a missing load is not worth blocking on — a
       // fresh Paperless install legitimately has no tags at all.
+      this.commitTypedTags();
 
       if (
         !this.scanAllDocuments.checked &&
@@ -2450,7 +2356,7 @@ class SetupWizard {
         icon: 'warning',
         title: this.aiTestState.ran ? 'AI test failed' : 'AI test not run',
         text: this.aiTestState.ran
-          ? 'The AI test failed. Do you want to continue anyway?'
+          ? 'The AI test failed. Continue anyway?'
           : 'No AI test has been run. Continue anyway?',
         showCancelButton: true,
         confirmButtonText: 'Continue anyway',
@@ -2462,19 +2368,22 @@ class SetupWizard {
     }
 
     if (stepIndex === 5) {
-      const ocrTimeoutSeconds = Number.parseInt(
-        String(this.ocrValidationTimeout?.value || '30').trim(),
-        10
-      );
+      // An empty field is fine: it stands for the default. The range is the
+      // one of the settings page and the server: 1 to 7200 seconds.
+      const ocrTimeoutField = String(
+        this.ocrValidationTimeout?.value ?? ''
+      ).trim();
+      const ocrTimeoutSeconds = Number.parseInt(ocrTimeoutField, 10);
       if (
-        !Number.isFinite(ocrTimeoutSeconds) ||
-        ocrTimeoutSeconds < 1 ||
-        ocrTimeoutSeconds > 120
+        ocrTimeoutField !== '' &&
+        (!Number.isFinite(ocrTimeoutSeconds) ||
+          ocrTimeoutSeconds < 1 ||
+          ocrTimeoutSeconds > 7200)
       ) {
         await this.showPopup({
           icon: 'warning',
           title: 'Invalid OCR timeout',
-          text: 'OCR timeout must be between 1 and 120 seconds.',
+          text: 'OCR timeout must be between 1 and 7200 seconds.',
         });
         return false;
       }
@@ -2525,7 +2434,6 @@ class SetupWizard {
         .replace(/\/api$/, '')}`
     );
     preview.push(`PAPERLESS_API_TOKEN=${this.paperlessToken.value.trim()}`);
-    preview.push(`PAPERLESS_USERNAME=${this.paperlessUsername.value.trim()}`);
     preview.push(
       `PROCESS_PREDEFINED_DOCUMENTS=${this.scanAllDocuments.checked ? 'no' : 'yes'}`
     );
@@ -2615,7 +2523,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'success',
         title: 'Copied',
-        text: 'Environment keys copied to clipboard.',
+        text: 'Environment variables copied.',
       });
     } catch {
       this.envPreview.select();
@@ -2623,7 +2531,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'success',
         title: 'Copied',
-        text: 'Environment keys copied to clipboard.',
+        text: 'Environment variables copied.',
       });
     }
   }
@@ -2660,6 +2568,7 @@ class SetupWizard {
   }
 
   buildFinalizePayload() {
+    this.commitTypedTags();
     const scanAll = this.scanAllDocuments.checked;
     const signatures = this.connectionSignatures();
     // Tells the server which connections the wizard already proved reachable
@@ -2674,7 +2583,6 @@ class SetupWizard {
       enableMfa: this.enableMfa.value === 'yes',
       mfaChallengeId: this.mfaState.challengeId,
       paperlessUrl: this.paperlessUrl.value.trim(),
-      paperlessUsername: this.paperlessUsername.value.trim(),
       paperlessToken: this.paperlessToken.value.trim(),
       scanAllDocuments: this.scanAllDocuments.checked,
       // Kept in the UI so toggling back restores them, but not submitted while
@@ -2773,7 +2681,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'success',
         title: 'Setup saved',
-        text: result.message || 'Setup completed successfully.',
+        text: result.message || 'Setup is complete.',
         timer: 1800,
         showConfirmButton: false,
       });
@@ -2802,7 +2710,7 @@ class SetupWizard {
     } catch (error) {
       await this.showPopup({
         icon: 'error',
-        title: 'Finalize failed',
+        title: 'Setup not finished',
         text: error.message,
       });
     } finally {

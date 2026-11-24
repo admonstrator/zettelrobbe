@@ -1,37 +1,37 @@
-/** Chip input for tag lists. Enter or the add button commits, backspace removes. */
+/**
+ * Lists of values as removable pills, for module land.
+ *
+ * The implementation lives in the classic script /js/chip-list.js: the
+ * settings page and the setup wizard are classic scripts and cannot import an
+ * ES module, and one implementation beats two. This adapter lets a module name
+ * the dependency in its import list (as modules/date-format.js does for the
+ * date formatter). A page that uses it loads /js/chip-list.js in its <head>,
+ * so the script has run before any module does.
+ *
+ * As a data-module ("tag-input") it turns every list rendered by
+ * views/partials/chip-list.ejs inside the element into pills.
+ */
+
+/** Attaches the pill behaviour to one .zr-chips list; null without the script. */
+export function attachChipList(list, options) {
+  return window.zrChipList ? window.zrChipList.attach(list, options) : null;
+}
+
+/** Turns text still typed in the lists below `root` into pills. */
+export function commitChipLists(root) {
+  if (window.zrChipList) window.zrChipList.commitAll(root);
+}
+
+/** Splits typed or pasted text into values the way the lists do. */
+export function splitValues(text, separator) {
+  return window.zrChipList
+    ? window.zrChipList.split(text, separator)
+    : String(text || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+}
+
 export default function tagInput(el) {
-  const input = el.querySelector('input');
-  const list = el.querySelector('[data-el="chips"]');
-  const addBtn = el.querySelector('[data-el="add"]');
-
-  function add(value) {
-    const name = value.trim();
-    if (!name) return;
-    if ([...list.children].some((c) => c.dataset.value === name)) return;
-    const chip = document.createElement('span');
-    chip.className = 'zr-chip';
-    chip.dataset.value = name;
-    chip.innerHTML = `<span></span><button type="button" aria-label="Remove ${name}"><svg class="zr-icon zr-icon--sm"><use href="/icons.svg#i-x"/></svg></button>`;
-    chip.firstElementChild.textContent = name;
-    chip.querySelector('button').addEventListener('click', () => chip.remove());
-    list.append(chip);
-    input.value = '';
-  }
-
-  input.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') {
-      ev.preventDefault();
-      add(input.value);
-    }
-    if (ev.key === 'Backspace' && !input.value && list.lastElementChild) {
-      list.lastElementChild.remove();
-    }
-  });
-  addBtn?.addEventListener('click', () => add(input.value));
-
-  list
-    .querySelectorAll('.zr-chip button')
-    .forEach((btn) =>
-      btn.addEventListener('click', () => btn.closest('.zr-chip').remove())
-    );
+  if (window.zrChipList) window.zrChipList.attachAll(el);
 }

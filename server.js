@@ -9,6 +9,7 @@ const paperlessService = require('./services/paperlessService');
 const documentModel = require('./models/document');
 const setupService = require('./services/setupService');
 const { runStartupMigrations } = require('./services/startupMigrations');
+const environmentOverview = require('./services/environmentOverview');
 const routes = require('./routes');
 const tidyUpRoutes = require('./routes/tidyUp');
 const oidcRoutes = require('./routes/oidc');
@@ -261,7 +262,7 @@ app.use((req, res, next) => {
 
   if (req.path === '/login' && csrfCookieSecure && !isHttpsRequest(req)) {
     res.locals.loginCookieSecurityWarning =
-      'You are accessing the login page over HTTP while the system is configured to use HTTPS by default. To resolve this, either switch to HTTPS or set COOKIE_SECURE_MODE=never in your .env or docker-compose.yml file and restart the container.';
+      'You opened the login page over HTTP, but Zettelrobbe expects HTTPS. Switch to HTTPS, or set COOKIE_SECURE_MODE=never in your .env or docker-compose.yml file and restart the container.';
   }
 
   next();
@@ -311,7 +312,7 @@ app.use((req, res, next) => {
           const baseError =
             'Invalid CSRF token. The login page may have expired or your browser did not send the CSRF cookie.';
           const guidance = res.locals.loginCookieSecurityWarning
-            ? ' This is commonly caused by HTTP access with secure cookies enabled. Set COOKIE_SECURE_MODE=never for local HTTP and restart, or switch to HTTPS. See: https://zettelrob.be/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values'
+            ? ' This usually happens on plain HTTP with secure cookies on. Set COOKIE_SECURE_MODE=never for local HTTP and restart, or switch to HTTPS. See: https://zettelrob.be/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values'
             : ' Refresh the login page and try again.';
 
           return res.status(403).render('login', {
@@ -623,7 +624,7 @@ app.get('/', async (req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).send('Something broke!');
+  res.status(500).send('Internal server error.');
 });
 
 // Backoff schedule for the startup connectivity retry, in milliseconds.
@@ -849,7 +850,7 @@ async function startScanning() {
         'Configured OCR auto-processing interval:',
         ocrAutoProcessInterval
       );
-      cron.schedule(ocrAutoProcessInterval, async () => {
+      const ocrTask = cron.schedule(ocrAutoProcessInterval, async () => {
         // Never compete with a running scan for the same AI backend.
         if (scanControl.running) {
           console.debug(
@@ -859,6 +860,8 @@ async function startScanning() {
         }
         await ocrAutoProcessService.drainQueue();
       });
+      // The dashboard shows when the queue is read next.
+      ocrAutoProcessService.markArmed(() => ocrTask.getNextRun());
     } else {
       console.info(
         '[OCR] Automatic OCR queue processing is disabled (OCR_AUTO_PROCESS_ENABLED=no).'
@@ -869,7 +872,7 @@ async function startScanning() {
     // at startup must never leave the app running without a scan loop —
     // every scheduled run re-checks connectivity on its own.
     console.log('Configured scan interval:', config.scanInterval);
-    cron.schedule(config.scanInterval, async () => {
+    const scanTask = cron.schedule(config.scanInterval, async () => {
       console.log(`Starting scheduled scan at ${new Date().toISOString()}`);
       if (!(await setupService.isConfigured())) {
         console.warn('Scheduled scan skipped: setup is not completed.');
@@ -877,7 +880,12 @@ async function startScanning() {
       }
       await scanService.scanDocuments();
     });
-    scanHealthService.markArmed(config.scanInterval);
+    // The dashboard's "Next scan" asks this task, so it shows the time
+    // node-cron will really fire at. SCAN_INTERVAL is a restart key, so the
+    // task lives exactly as long as the process.
+    scanHealthService.markArmed(config.scanInterval, () =>
+      scanTask.getNextRun()
+    );
 
     // Detached on purpose: startup must not block while Paperless-ngx is still
     // coming up. unhandledRejection terminates the process, so catch here.
@@ -944,6 +952,7 @@ async function startServer() {
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);
       warnIfRemoteSetupExposed();
+      logEnvironmentOverview();
       oidcService.logStatus();
       startScanning();
       // Armed separately from the scan scheduler so the dashboard also warns
@@ -983,6 +992,28 @@ async function warnIfRemoteSetupExposed() {
     txtLogger.log(msg);
   } catch {
     // Non-fatal — warning is best-effort
+  }
+}
+
+/**
+ * One line at every start when the environment (docker-compose
+ * `environment:`) sets settings: how many, and where the settings page lists
+ * them. The OCR timeout case of CFG-OCR-TIMEOUT-001 is listed there too, for
+ * as long as it holds; the migration itself warns on the first start only.
+ */
+async function logEnvironmentOverview() {
+  try {
+    const line = environmentOverview.startupLine(
+      environmentOverview.buildEnvironmentOverview(
+        await environmentOverview.readEnvironmentInputs()
+      )
+    );
+    if (line) console.info(line);
+  } catch (error) {
+    console.warn(
+      '[WARN] Could not list what the environment sets:',
+      error.message
+    );
   }
 }
 

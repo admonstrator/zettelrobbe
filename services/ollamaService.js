@@ -3,6 +3,7 @@ const {
   abortSignal,
   abortedGenerationError,
   createProgressCollector,
+  generateTemperature,
   hasNumber,
   hasSystemPrompt,
   isAbortError,
@@ -170,7 +171,7 @@ class OllamaService {
           existingTags,
           existingCorrespondentList,
           existingDocumentTypesList,
-          options
+          validatedExternalApiData
         );
       } else {
         // Parse CUSTOM_FIELDS for custom prompt
@@ -308,6 +309,9 @@ class OllamaService {
    * @param {Array} existingTags - List of existing tags
    * @param {Array} existingCorrespondent - List of existing correspondents
    * @param {Array} existingDocumentTypes - List of existing document types
+   * @param {string|null} [externalApiText] - the external API data as
+   *   analyzeDocument() validated and truncated it. It used to be validated
+   *   here a second time without await, and the prompt read "[object Promise]".
    * @returns {string} Formatted prompt
    */
   _buildPrompt(
@@ -315,7 +319,7 @@ class OllamaService {
     existingTags = [],
     existingCorrespondent = [],
     existingDocumentTypes = [],
-    options = {}
+    externalApiText = null
   ) {
     let systemPrompt;
 
@@ -392,23 +396,6 @@ class OllamaService {
       systemPrompt = process.env.SYSTEM_PROMPT + '\n\n' + mustHavePrompt;
     }
 
-    // Get validated external API data if available
-    let validatedExternalApiData = null;
-    if (options.externalApiData) {
-      try {
-        validatedExternalApiData = this._validateAndTruncateExternalApiData(
-          options.externalApiData
-        );
-        console.log('[DEBUG] External API data validated and included');
-      } catch (error) {
-        console.warn(
-          '[WARNING] External API data validation failed:',
-          error.message
-        );
-        validatedExternalApiData = null;
-      }
-    }
-
     // Process placeholder replacements in system prompt
     systemPrompt = RestrictionPromptService.processRestrictionsInPrompt(
       systemPrompt,
@@ -417,9 +404,10 @@ class OllamaService {
       existingDocumentTypes
     );
 
-    // Include validated external API data if available
-    if (validatedExternalApiData) {
-      systemPrompt += `\n\nAdditional context from external API:\n${validatedExternalApiData}`;
+    // After the restrictions and before USE_PROMPT_TAGS, as in
+    // services/analysisPrompt.js.
+    if (typeof externalApiText === 'string' && externalApiText) {
+      systemPrompt += `\n\nAdditional context from external API:\n${externalApiText}`;
     }
 
     if (process.env.USE_PROMPT_TAGS === 'yes') {
@@ -888,7 +876,8 @@ class OllamaService {
    * @param {string} prompt - The prompt to generate text from
    * @param {object} [options] - Optional overrides for this one call
    * @param {string} [options.systemPrompt] - Replaces the generic system prompt
-   * @param {number} [options.temperature] - Overrides AI_TEMPERATURE_GENERATION
+   * @param {number} [options.temperature] - Without it the call asks with 0
+   *   (DEFAULT_GENERATE_TEMPERATURE in aiGenerateOptions)
    * @param {number} [options.maxTokens] - Overrides RESPONSE_TOKENS (num_predict)
    * @param {AbortSignal} [options.signal] - Cancels the request in flight
    * @param {Function} [options.onProgress] - Streams the answer and reports it
@@ -923,10 +912,10 @@ class OllamaService {
       const model = modelOverride(options) || this.model;
       const rules = this._rules(model);
       const generateOptions = {};
+      // The caller's temperature, otherwise 0 (DEFAULT_GENERATE_TEMPERATURE
+      // in aiGenerateOptions), where the rules say the model takes one.
       if (rules.temperature) {
-        generateOptions.temperature = hasNumber(options.temperature)
-          ? options.temperature
-          : config.aiTemperatureGeneration;
+        generateOptions.temperature = generateTemperature(options);
       }
       generateOptions.top_p = 0.9;
       // The line above reserves the same number in the context; a constant

@@ -3,8 +3,11 @@
     save handler and API keep their string semantics. A generic initializer in
     public/js/settings.js syncs the hidden input and re-emits 'change' on it.
     Params: id (string), label (string), checked (boolean), hint (string, optional) %>
-<%# Label left, switch right — the same orientation as the feature toggles
-    and the restriction switches, so the settings form reads one way. %>
+<%# One row: label and hint on the left, the switch on the right. forms.css
+    adds the state ("On"/"Off") next to the switch from the checkbox itself and
+    stretches the label over the row, so a click anywhere on it toggles the
+    switch. The attribute order of the checkbox is read by several tests
+    (data-switch-target="..." checked). %>
 <div class="zr-switchrow">
     <div class="zr-grow">
         <label for="<%= id %>Switch" class="zr-field__name"><%= label %></label>

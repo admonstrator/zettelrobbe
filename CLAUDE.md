@@ -98,7 +98,7 @@ provider's built-in prompt (Claude's, or the short local one); Mistral takes non
 that needs a password stops the run before any provider call (`services/pdfPasswordService.js`, poppler's
 `pdfinfo`); `services/pdfUnlockService.js` finds the password (typed, or the `PDF_PASSWORDS` list) locally
 and has Paperless-ngx 3.0+ remove it (`POST /api/documents/remove_password/`, a new version of the same
-document), then releases the document to the normal scan. Zettelrobbe never writes a decrypted file itself.
+document), then releases the document; `services/unlockFollowUpService.js` waits until Paperless-ngx lists the new version and sends it through the pipeline once (caller profile `unlock`), with the next scan as the fallback. Zettelrobbe never writes a decrypted file itself.
 
 **Database:** `models/document.js` — better-sqlite3 at `data/documents.db`, WAL mode, prepared
 statements throughout. Key tables: `processed_documents`, `history_documents` (server-side paginated
@@ -161,6 +161,11 @@ in the wrong file silently loses (or wins) no matter how specific it is, and eve
 layered — one unlayered rule would outrank the lot. Only two link positions in `head-start.ejs` are
 load-bearing: tokens.css first, and buttons.css before forms.css.
 
+**One page rhythm.** Every page puts its content in one `.zr-stack` that starts at `--zr-page-pad`;
+the distance between two cards comes only from `--zr-card-gap` (both in `tokens.css`, 16px, 12px on
+a phone). No view or page stylesheet sets its own margin or gap between cards;
+`tests/test-page-rhythm.js` checks that.
+
 **Page behaviour is one ES module per job.** `public/js/zr.js` is the kernel: theme, drawer, rail,
 active nav, the toast, and a registry that imports `public/js/modules/<name>.js` for each
 `data-module="<name>"` it finds. A page therefore costs its own modules and nothing else. Classic
@@ -168,7 +173,26 @@ scripts (`public/js/*.js`) cannot import ES modules — they reach the kernel th
 `window.__zrToast` / `window.zrDialog` (see `failed.js` for the six-line adapter) and must never
 build their own toast host.
 
-**Settings page:** the AI provider and Tidy up sections render their fields from `AI_OPTIONS`
+**Settings page:** one form, one topic per view, the topic list (a card) and the topic as
+one block at the page padding (`--zr-settings-list`, `--zr-settings-measure`); each topic is one
+`.zr-module` (`.zr-settings-entry`) that holds its title, lead and sections; a section
+(`.zr-settings-section`) is a ruled block inside it, never a card in a card. The window does not scroll on this page:
+`.zr-settings-scroll` is the one scroll region and the save bar (`.zr-actionbar`) is a layout row
+below it, present only with unsaved changes, so it never covers a field
+(`tests/test-settings-save-bar-browser.js` measures that in headless Chrome and self-skips without
+one). The groups of the topic list fold (`settings-nav.js`, `sessionStorage` key `zr.settings.groups`).
+In a card, short controls (switch, number, select, short text) sit beside the label, long ones
+(address, secret, chip list, textarea, field with button) below it at full width — by type, see the
+"Row forms" comment in `public/css/pages/settings.css`. Every switch row carries a hint.
+The first topic is Quick start (`views/partials/settings-quick-start.ejs`,
+`public/js/modules/settings-quick-start.js`): six rows whose summaries are computed from the real
+fields, and whose controls carry no `name` — each mirrors a real field (`data-mirror="<id>"`) and
+fires its events, so never add a second named control there. "Find a setting"
+(`public/js/modules/settings-find.js`, wired in `settings-nav.js`) searches the DOM that is there.
+A switch row is `views/partials/settings-switch.ejs`; its On/Off word is drawn in CSS. A field that
+holds several values is `views/partials/chip-list.ejs` driven by `public/js/chip-list.js`
+(`window.zrChipList`, a classic script shared by settings, the wizard and Tidy up); the value still
+posts through one hidden input. The AI provider and Tidy up sections render their fields from `AI_OPTIONS`
 (`aiOptions` local); each section has one closed "Advanced options" disclosure
 (`public/js/modules/settings-advanced.js` remembers the choice per browser), and options carry
 `data-providers` so they follow the provider switch. Every settings key has one entry in
@@ -203,9 +227,18 @@ because they were only ever looked at empty.
 4. Skip rules (`services/skipRuleService.js`: `MAX_PAGE_COUNT`, `IGNORE_TITLE_PATTERNS`, text fingerprint of
    ignored docs) move a doc to the ignored list before any OCR or AI call; the webhook applies them too,
    a manual rescan does not. Unignoring a doc exempts it from the rules.
-5. Docs below `MIN_CONTENT_LENGTH` (default 10) are skipped or routed to OCR.
-6. If `PROCESS_PREDEFINED_DOCUMENTS=yes`, only docs whose tags match the `TAGS` env var are processed.
-7. The factory's AI service analyzes; results are written back via `paperlessService.updateDocument()`.
+5. With `OCR_BEFORE_AI` (`off` | `tagged` | `all`, `services/ocrBeforeAi.js`) a document the setting applies to
+   goes to the OCR queue before its first AI call — scan, webhook and the unlock follow-up, not a manual rescan
+   (`applyOcrBeforeAi` in `CALLER_PROFILES`). At most once per document: `ocr_queue_history` remembers
+   every document that was ever queued, also after its queue row is gone.
+6. Docs below `MIN_CONTENT_LENGTH` (default 10) are skipped or routed to OCR.
+   The OCR queue drains on its own cron (`OCR_AUTO_PROCESS_*`, `services/ocrAutoProcessService.js`), or,
+   with `OCR_RUN_RIGHT_AWAY=yes`, right after the scan or webhook/rescan/unlock run that queued a
+   document (`afterRun()`, counted by `documentPipeline.queuedForOcr`); a trigger during a drain or a
+   scan is held and starts one more drain, so OCR and a scan never call the model at once. With
+   `DISABLE_AUTOMATIC_PROCESSING=yes` neither the OCR cron nor `afterRun()` reads the queue.
+7. If `PROCESS_PREDEFINED_DOCUMENTS=yes`, only docs whose tags match the `TAGS` env var are processed.
+8. The factory's AI service analyzes; results are written back via `paperlessService.updateDocument()`.
    `services/scanControl.js` holds the scan state and the start/stop levers routes use mid-scan.
 
 ## Configuration system (important)
@@ -224,6 +257,12 @@ a restart. Do not cache a config value in a module constant or a service constru
   (`NODE_ENV`, `LOG_LEVEL`, `ANONYMIZED_TELEMETRY`, `PAPERLESS_AI_COMMIT_SHA`). The settings page does not
   explain this; a pinned field is simply disabled with "Set by the environment (KEY)." and the `.env`
   export under System → Export is the one expert surface.
+- **What the environment decides:** the settings topic "Set by the environment"
+  (`services/environmentOverview.js`, `views/partials/settings-environment.ejs`) lists the protected
+  keys, the set-but-removed ones (`REMOVED_SETTINGS` in `services/settingsCatalog.js`) and the values
+  a migration could not change. "Take over" (`POST /api/settings/environment/take-over`) stores the
+  value in effect without changing which side wins. A save never writes a protected key, and never
+  deletes the stored copy of one either: that copy is what applies once the line is gone.
 - **Restarts:** the catalogue entries marked `restart: true` (read through
   `config/restartRequiredKeys.js`) are the keys something reads once at boot (port, proxy
   and cookie flags, rate limiter, cron schedules and their switches, the Paperless client, log level).

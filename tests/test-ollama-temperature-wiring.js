@@ -18,7 +18,7 @@ function restoreEnvironment() {
       id: axiosModulePath,
       filename: axiosModulePath,
       loaded: true,
-      exports: originalAxiosExport
+      exports: originalAxiosExport,
     };
   }
 }
@@ -32,7 +32,7 @@ function loadOllamaServiceWithAxiosMock(axiosMock) {
     id: axiosModulePath,
     filename: axiosModulePath,
     loaded: true,
-    exports: axiosMock
+    exports: axiosMock,
   };
 
   return require('../services/ollamaService');
@@ -55,28 +55,37 @@ async function main() {
                 title: '',
                 document_date: '',
                 document_type: '',
-                language: ''
-              }
-            }
+                language: '',
+              },
+            },
           };
-        }
+        },
       };
-    }
+    },
   };
 
   try {
     process.env.AI_TEMPERATURE_ANALYSIS = '0.2';
+    // Removed setting: an older installation may still have it set, and it
+    // must not reach a request.
     process.env.AI_TEMPERATURE_GENERATION = '1.1';
 
     const ollamaService = loadOllamaServiceWithAxiosMock(axiosMock);
 
-    await ollamaService._callOllamaAPI('prompt', 'system', 512, { type: 'object' });
+    await ollamaService._callOllamaAPI('prompt', 'system', 512, {
+      type: 'object',
+    });
 
     ollamaService._calculatePromptTokenCount = () => 12;
     ollamaService._calculateNumCtx = () => 1024;
     await ollamaService.generateText('hello');
+    await ollamaService.generateText('hello', { temperature: 0.6 });
 
-    assert.strictEqual(capturedRequests.length, 2, 'Expected two outgoing Ollama requests');
+    assert.strictEqual(
+      capturedRequests.length,
+      3,
+      'Expected three outgoing Ollama requests'
+    );
     assert.strictEqual(
       capturedRequests[0].options.temperature,
       0.2,
@@ -84,8 +93,13 @@ async function main() {
     );
     assert.strictEqual(
       capturedRequests[1].options.temperature,
-      1.1,
-      'Expected generation request temperature to use AI_TEMPERATURE_GENERATION'
+      0,
+      'Expected a generation request without a temperature of its own to ask with 0'
+    );
+    assert.strictEqual(
+      capturedRequests[2].options.temperature,
+      0.6,
+      "Expected a generation request to use the caller's temperature"
     );
   } finally {
     restoreEnvironment();
@@ -94,9 +108,14 @@ async function main() {
 
 main()
   .then(() => {
-    console.log('[PASS] Ollama temperature wiring uses configured analysis and generation values');
+    console.log(
+      "[PASS] Ollama temperature wiring: the analysis uses AI_TEMPERATURE_ANALYSIS, generateText() the caller's value or 0"
+    );
   })
   .catch((error) => {
-    console.error('[FAIL] Ollama temperature wiring test failed:', error.message);
+    console.error(
+      '[FAIL] Ollama temperature wiring test failed:',
+      error.message
+    );
     process.exitCode = 1;
   });

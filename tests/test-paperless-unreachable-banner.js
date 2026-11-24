@@ -233,7 +233,7 @@ test('A rejected token is reported as a credentials problem', () => {
   });
 
   assert.strictEqual(banner.classList.contains('hidden'), false);
-  assert.match(message.textContent, /rejected the API credentials/i);
+  assert.match(message.textContent, /rejected the API token/i);
   assert.doesNotMatch(
     message.textContent,
     /not reachable/i,
@@ -265,7 +265,7 @@ test('The warning appears with automatic processing disabled', () => {
   assert.match(message.textContent, /not reachable/i);
   assert.doesNotMatch(
     message.textContent,
-    /scheduler is not armed/i,
+    /scheduler is not running/i,
     'An intentionally disabled scheduler must not be reported as broken'
   );
 });
@@ -314,7 +314,7 @@ test('An unarmed scheduler is still reported', () => {
     paperless: { reachable: true, authorized: true, usable: true },
   });
 
-  assert.match(message.textContent, /scheduler is not armed/i);
+  assert.match(message.textContent, /scheduler is not running/i);
 });
 
 test('An unprobed connection is not treated as an outage', () => {
@@ -390,7 +390,7 @@ test('A changed banner message is still written', () => {
   });
 
   assert.strictEqual(writes.message, afterFirst + 1);
-  assert.match(elements.message.textContent, /rejected the API credentials/i);
+  assert.match(elements.message.textContent, /rejected the API token/i);
 });
 
 test('The dashboard banner is a status region, not an assertive alert', () => {

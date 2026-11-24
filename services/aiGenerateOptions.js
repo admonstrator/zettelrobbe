@@ -38,6 +38,37 @@ function hasNumber(value) {
 }
 
 /**
+ * The temperature of a generateText() call that names none: 0.
+ *
+ * Every caller today (the four in Tidy up, listed in
+ * tests/test-generation-temperature-callers.js) passes 0 itself: each asks
+ * for a verdict or a lookup in a fixed JSON shape and needs the same answer
+ * on every run. A call that leaves the option out gets the same, not the
+ * provider's own default (OpenAI's is 1), so a forgotten option cannot make
+ * an answer less repeatable. A caller that wants varied text passes a number
+ * of its own. The fallback used to be the AI_TEMPERATURE_GENERATION setting
+ * (default 0.7), which no caller reached after the RAG chat was removed.
+ *
+ * Whether a request carries a temperature at all is not decided here:
+ * resolveRules() leaves it out for the models that reject one (gpt-5, the
+ * o-series), and the Anthropic transport never sends one.
+ */
+const DEFAULT_GENERATE_TEMPERATURE = 0;
+
+/**
+ * The temperature one generateText() call asks for: the caller's own number,
+ * otherwise DEFAULT_GENERATE_TEMPERATURE.
+ *
+ * @param {{temperature?: unknown}} [options]
+ * @returns {number}
+ */
+function generateTemperature(options) {
+  return hasNumber(options?.temperature)
+    ? options.temperature
+    : DEFAULT_GENERATE_TEMPERATURE;
+}
+
+/**
  * True when the options carry a system prompt worth sending.
  *
  * @param {{systemPrompt?: unknown}} [options]
@@ -815,6 +846,8 @@ module.exports = {
   progressHandler,
   abortSignal,
   hasNumber,
+  DEFAULT_GENERATE_TEMPERATURE,
+  generateTemperature,
   hasSystemPrompt,
   modelOverride,
   readCompletionUsage,

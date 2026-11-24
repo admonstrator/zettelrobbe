@@ -197,7 +197,7 @@ router.get('/auth/oidc/callback', oidcLimiter, async (req, res) => {
     return res.redirect('/dashboard');
   } catch (error) {
     console.error('[ERROR] OIDC sign-in error:', error);
-    return renderLoginError(res, 500, 'An error occurred during login');
+    return renderLoginError(res, 500, 'Could not complete the login.');
   }
 });
 

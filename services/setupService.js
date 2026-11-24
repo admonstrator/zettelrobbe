@@ -3,6 +3,7 @@ const path = require('path');
 const axios = require('axios');
 const { OpenAI } = require('openai');
 const config = require('../config/config');
+const settingsCatalog = require('./settingsCatalog');
 const AzureOpenAI = require('openai').AzureOpenAI;
 const { validateApiUrl, stripTrailingSlashes } = require('./serviceUtils');
 const {
@@ -204,6 +205,117 @@ class SetupService {
   }
 
   /**
+   * The stored values of settings the environment sets: the catalogue keys
+   * among `storedValues` that are present in the environment the process
+   * started with.
+   *
+   * Every write keeps them as they are. A save never writes a key the
+   * environment sets, and it does not delete the stored copy of one either:
+   * the copy is what applies once the line is gone from docker-compose, and
+   * "Take over" on the settings page (storeEnvironmentValues) writes it for
+   * exactly that. Keys outside the catalogue (a removed setting, JWT_SECRET)
+   * are not kept, as before.
+   *
+   * @param {Record<string, unknown>} storedValues
+   * @returns {Record<string, string>}
+   */
+  environmentCopies(storedValues) {
+    return Object.fromEntries(
+      Object.entries(storedValues || {})
+        .filter(
+          ([key, value]) =>
+            value != null &&
+            config.isProtectedRuntimeEnvKey(key) &&
+            Boolean(settingsCatalog.getEntry(key))
+        )
+        .map(([key, value]) => [key, String(value)])
+    );
+  }
+
+  /**
+   * Every value stored in Zettelrobbe's own files, the keys the environment
+   * sets included: data/runtime-overrides.json, in legacy mode merged over
+   * data/.env as loadConfig() merges them.
+   *
+   * @returns {Promise<Record<string, string>>}
+   */
+  async loadStoredValues() {
+    return (await this.loadConfig({ includeEnvironmentKeys: true })) || {};
+  }
+
+  /**
+   * Stores values of settings the environment sets, so that their lines can
+   * be deleted from docker-compose: once the environment no longer sets a
+   * key, its stored value applies from the next start on. The value in
+   * effect does not change, here or in process.env, and the environment
+   * keeps winning while its line is there. A key the environment does not
+   * set is not written by this method; the settings save is for those.
+   *
+   * @param {Record<string, string>} values already normalised by the caller
+   * @returns {Promise<string[]>} the keys written
+   */
+  async storeEnvironmentValues(values) {
+    const updates = Object.fromEntries(
+      Object.entries(values || {})
+        .filter(([key]) => config.isProtectedRuntimeEnvKey(key))
+        .map(([key, value]) => [key, this.normalizeEnvironmentValue(value)])
+    );
+    const keys = Object.keys(updates);
+    if (keys.length > 0) {
+      await this.rewriteStoredValues((stored) => ({ ...stored, ...updates }));
+    }
+    return keys;
+  }
+
+  /**
+   * Removes the stored copies of settings the environment sets: the undo of
+   * storeEnvironmentValues(). The value in effect does not change.
+   *
+   * @param {string[]} keys
+   * @returns {Promise<string[]>} the keys removed
+   */
+  async removeEnvironmentValues(keys) {
+    const removed = (keys || []).filter((key) =>
+      config.isProtectedRuntimeEnvKey(key)
+    );
+    if (removed.length > 0) {
+      await this.rewriteStoredValues((stored) =>
+        Object.fromEntries(
+          Object.entries(stored).filter(([key]) => !removed.includes(key))
+        )
+      );
+    }
+    return removed;
+  }
+
+  /**
+   * Rewrites the stored values with `change` in both places a save writes
+   * them (data/.env only in legacy mode). Nothing else is changed: every
+   * other key keeps its stored value.
+   *
+   * @param {(stored: Record<string, unknown>) => Record<string, unknown>} change
+   */
+  async rewriteStoredValues(change) {
+    if (this.isLegacyConfigSourceMode()) {
+      const next = change(await this.loadStoredValues());
+      const envContent = Object.entries(next)
+        .map(([key, value]) => `${key}=${this.encodeEnvValue(value)}`)
+        .join('\n');
+      await fs.mkdir(path.dirname(this.envPath), { recursive: true });
+      await fs.writeFile(this.envPath, envContent);
+    }
+
+    const next = change(await this.loadRuntimeOverrides());
+    await fs.mkdir(path.dirname(this.runtimeOverridesPath), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      this.runtimeOverridesPath,
+      JSON.stringify(next, null, 2)
+    );
+  }
+
+  /**
    * The keys a save of `configValues` would actually change: those whose
    * value differs from the one in effect. `current` is what is in effect —
    * process.env by default; the settings route passes process.env with its
@@ -226,12 +338,25 @@ class SetupService {
       .map(([key]) => key);
   }
 
-  async saveRuntimeOverrides(configValues) {
+  /**
+   * Writes data/runtime-overrides.json: `configValues` without the keys the
+   * environment sets, plus the stored copies of those keys
+   * (environmentCopies), which no save drops.
+   *
+   * @param {Record<string, unknown>} configValues
+   * @param {Record<string, string>} [environmentCopies] the copies to keep; by
+   *   default the ones the file holds now
+   */
+  async saveRuntimeOverrides(configValues, environmentCopies) {
     try {
       const dataDir = path.dirname(this.runtimeOverridesPath);
       await fs.mkdir(dataDir, { recursive: true });
 
-      const persistentConfig = this.filterProtectedInjectedConfig(configValues);
+      const persistentConfig = {
+        ...(environmentCopies ||
+          this.environmentCopies(await this.loadRuntimeOverrides())),
+        ...this.filterProtectedInjectedConfig(configValues),
+      };
       const normalizedConfig = Object.fromEntries(
         Object.entries(persistentConfig).map(([key, value]) => [
           key,
@@ -267,7 +392,8 @@ class SetupService {
 
     if (this.isLegacyConfigSourceMode()) {
       const current = (await this.loadConfig()) || {};
-      const envContent = Object.entries({ ...current, ...updates })
+      const copies = this.environmentCopies(await this.loadStoredValues());
+      const envContent = Object.entries({ ...copies, ...current, ...updates })
         .map(([key, value]) => `${key}=${this.encodeEnvValue(value)}`)
         .join('\n');
       await fs.mkdir(path.dirname(this.envPath), { recursive: true });
@@ -297,10 +423,19 @@ class SetupService {
     }
   }
 
-  async loadConfig() {
-    const runtimeOverrides = this.filterProtectedInjectedConfig(
-      await this.loadRuntimeOverrides()
-    );
+  /**
+   * The stored configuration without the keys the environment sets (their
+   * stored copies do not apply), or null when nothing is stored.
+   *
+   * @param {{ includeEnvironmentKeys?: boolean }} [options] keep the stored
+   *   copies of keys the environment sets (loadStoredValues)
+   */
+  async loadConfig(options = {}) {
+    const keep = (values) =>
+      options.includeEnvironmentKeys
+        ? values
+        : this.filterProtectedInjectedConfig(values);
+    const runtimeOverrides = keep(await this.loadRuntimeOverrides());
 
     if (!this.isLegacyConfigSourceMode()) {
       return Object.keys(runtimeOverrides).length > 0 ? runtimeOverrides : null;
@@ -328,7 +463,7 @@ class SetupService {
 
         configValues[key] = this.decodeEnvValue(value);
       });
-      return this.filterProtectedInjectedConfig({
+      return keep({
         ...configValues,
         ...runtimeOverrides,
       });
@@ -407,7 +542,7 @@ class SetupService {
           console.error(`API permissions validation failed for ${endpoint}`);
           return {
             success: false,
-            message: `API permissions validation failed for endpoint '/api/${endpoint}/'`,
+            message: `Permission check failed for '/api/${endpoint}/'.`,
           };
         }
       } catch (error) {
@@ -417,7 +552,7 @@ class SetupService {
         );
         return {
           success: false,
-          message: `API permissions validation failed for endpoint '/api/${endpoint}/'`,
+          message: `Permission check failed for '/api/${endpoint}/'.`,
         };
       }
     }
@@ -1842,16 +1977,18 @@ class SetupService {
       await fs.mkdir(dataDir, { recursive: true });
 
       const persistentConfig = this.filterProtectedInjectedConfig(configValues);
+      // The stored copies of keys the environment sets stay as they are.
+      const copies = this.environmentCopies(await this.loadStoredValues());
 
       if (this.isLegacyConfigSourceMode()) {
-        const envContent = Object.entries(persistentConfig)
+        const envContent = Object.entries({ ...copies, ...persistentConfig })
           .map(([key, value]) => `${key}=${this.encodeEnvValue(value)}`)
           .join('\n');
 
         await fs.writeFile(this.envPath, envContent);
       }
 
-      await this.saveRuntimeOverrides(configValues);
+      await this.saveRuntimeOverrides(configValues, copies);
 
       // Reload environment variables
       Object.entries(persistentConfig).forEach(([key, value]) => {

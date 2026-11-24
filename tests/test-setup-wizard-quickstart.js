@@ -70,7 +70,6 @@ const elementIds = [
   'confirmMfaCodeBtn',
   'mfaStatusHint',
   'paperlessUrl',
-  'paperlessUsername',
   'paperlessToken',
   'testPaperlessBtn',
   'paperlessTestState',
@@ -479,7 +478,6 @@ wizard.quickstartApiKey.value = 'test-key';
   wizard.confirmPassword.value = 'password123';
   wizard.enableMfa.value = 'no';
   wizard.paperlessUrl.value = 'http://paperless:8000';
-  wizard.paperlessUsername.value = 'admin';
   wizard.paperlessToken.value = 'token';
   wizard.paperlessTestState = { ran: true, success: true, allowFailure: false };
   wizard.metadataState.loaded = true;
@@ -567,6 +565,48 @@ wizard.quickstartApiKey.value = 'test-key';
     wizard.ocrProvider.value,
     'mistral',
     'A detected api.mistral.ai host should default the OCR provider to mistral'
+  );
+
+  // The OCR timeout takes the range of the settings page and the server,
+  // 1 to 7200 seconds: a stored 300 000 ms is prefilled as 300 and step 5
+  // lets it through.
+  const popups = [];
+  wizard.showPopup = async (options) => {
+    popups.push(options);
+    return { isConfirmed: false, isDismissed: true };
+  };
+  wizard.config.SETUP_OCR_VALIDATION_TIMEOUT_MS = '300000';
+  wizard.populateInitialValues();
+  wizard.mistralOcrEnabled.value = 'no';
+  assert.strictEqual(wizard.ocrValidationTimeout.value, '300');
+  assert.strictEqual(
+    await wizard.validateStepBeforeContinue(5),
+    true,
+    'A stored OCR timeout of 300 seconds must not block step 5'
+  );
+  wizard.ocrValidationTimeout.value = '7200';
+  assert.strictEqual(await wizard.validateStepBeforeContinue(5), true);
+  assert.deepStrictEqual(popups, []);
+  for (const outside of ['7201', '0']) {
+    wizard.ocrValidationTimeout.value = outside;
+    assert.strictEqual(
+      await wizard.validateStepBeforeContinue(5),
+      false,
+      `${outside} seconds is outside the range`
+    );
+    assert.strictEqual(
+      popups.pop().text,
+      'OCR timeout must be between 1 and 7200 seconds.'
+    );
+  }
+  const setupView = fs.readFileSync(
+    path.join(__dirname, '..', 'views', 'setup.ejs'),
+    'utf8'
+  );
+  assert.match(
+    setupView,
+    /<input id="ocrValidationTimeout" type="number" min="1" max="7200" /,
+    'The OCR timeout field allows what the settings page allows'
   );
 
   console.log('✅ test-setup-wizard-quickstart passed');

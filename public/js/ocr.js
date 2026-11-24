@@ -179,6 +179,8 @@
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>AI failed (unknown)',
       manual:
         '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-user"/></svg>Manual',
+      ocr_before_ai:
+        '<svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-scan"/></svg>OCR before analysis',
     };
 
     if (reasonMap[reason]) {
@@ -428,7 +430,7 @@
     unlockAllBtn.disabled = !storedPasswords;
     unlockAllBtn.title = storedPasswords
       ? `Try the ${storedPasswords} password(s) stored in Settings on every password-protected document`
-      : 'No passwords stored. Add them under Settings → OCR Fallback → PDF Passwords.';
+      : 'No passwords stored. Add them under Settings → OCR → PDF passwords.';
   }
 
   async function unlockSingle(documentId) {

@@ -66,8 +66,9 @@ function switchedOn(value) {
  * The settings hold one string, but server.js, the setup wizard and the
  * duplicates service have always read it as comma-separated. Reading it as a
  * single name here would turn "ai-processed,done" into one tag with a comma in
- * it. An unset or blank value yields an empty list, which is what switches the
- * completion tag off.
+ * it. A blank value yields an empty list, which is what switches the
+ * completion tag off; an unset key never gets here (config.addAIProcessedTags
+ * gives the default name).
  */
 function splitTagNames(value) {
   return String(value ?? '')
@@ -200,9 +201,6 @@ class PaperlessService {
       expiresAt: 0,
     };
     this._publicBaseUrlCacheTtlMs = 5 * 60 * 1000;
-    // Dynamic cache lifetime from config (default: 5 minutes)
-    // Lazy load to avoid circular dependency
-    this._cacheTTL = null;
     /**
      * What the creation guard compares a proposed name against, per kind:
      * kind -> { records: EntityRecord[], at: number }.
@@ -222,13 +220,15 @@ class PaperlessService {
     this._documentTypeRefreshPromise = null;
   }
 
+  /**
+   * How long the tag, correspondent and document type caches stay fresh, in
+   * milliseconds: TAG_CACHE_TTL_SECONDS, default 300 seconds. Read on every
+   * use, so a changed value applies to the next check without a restart.
+   */
   get CACHE_LIFETIME() {
-    if (this._cacheTTL === null) {
-      // Re-require config at runtime to pick up dynamic configuration values without shadowing the top-level import
-      const runtimeConfig = require('../config/config');
-      this._cacheTTL = (runtimeConfig.tagCacheTTL || 300) * 1000; // Convert to milliseconds
-    }
-    return this._cacheTTL;
+    // Re-require config at runtime to pick up dynamic configuration values without shadowing the top-level import
+    const runtimeConfig = require('../config/config');
+    return (runtimeConfig.tagCacheTTL || 300) * 1000; // Convert to milliseconds
   }
 
   initialize() {
@@ -926,11 +926,11 @@ class PaperlessService {
       // Add the AI-processed tag(s) if enabled. This runs whatever the subject
       // tags were, including none at all, and it creates the tag even under
       // restrictToExistingTags: the completion tag is the app's own
-      // bookkeeping, not a name the model proposed.
-      if (process.env.ADD_AI_PROCESSED_TAG === 'yes') {
-        for (const aiTagName of splitTagNames(
-          process.env.AI_PROCESSED_TAG_NAME
-        )) {
+      // bookkeeping, not a name the model proposed. The name comes from the
+      // config getter, so an unset AI_PROCESSED_TAG_NAME is "ai-processed",
+      // the name the settings page shows, and an empty one is no tag.
+      if (config.addAIProcessedTag === 'yes') {
+        for (const aiTagName of splitTagNames(config.addAIProcessedTags)) {
           try {
             let aiTag = await this.findExistingTag(aiTagName);
 
@@ -2362,6 +2362,33 @@ class PaperlessService {
     }
   }
 
+  /**
+   * The ids of every version of a document, the original included, as
+   * Paperless-ngx 3.0 and later list them under `versions`; null when the
+   * answer carries no such list.
+   *
+   * A version shows up here only once Paperless-ngx has stored it completely:
+   * its consumer writes the file, the archive copy and the text and creates
+   * the version in one database transaction, so an id that was not listed
+   * before means the new file and its text are there.
+   *
+   * @param {number} documentId
+   * @returns {Promise<number[]|null>}
+   */
+  async getDocumentVersionIds(documentId) {
+    this.initialize();
+    const response = await this.client.get(`/documents/${documentId}/`, {
+      params: { fields: 'id,versions' },
+    });
+    const versions = response.data?.versions;
+    if (!Array.isArray(versions)) return null;
+    return versions
+      .map((version) =>
+        Number(typeof version === 'object' ? version?.id : version)
+      )
+      .filter((id) => Number.isInteger(id) && id > 0);
+  }
+
   async searchForCorrespondentById(id) {
     try {
       const response = await this.client.get('/correspondents/', {
@@ -2762,82 +2789,6 @@ class PaperlessService {
         status,
         error: error.message || 'Unknown connection error',
       };
-    }
-  }
-
-  /* Resolving the own user ID used to hinge entirely on PAPERLESS_USERNAME
-     matching a name in the response, and returned null without a word when it
-     did not — a configured display name, a case difference or a token whose
-     user cannot list other users all ended in the same silent null. The
-     configured name still wins when it matches; a single-entry response is
-     taken at face value (that is what current_user=true asks for), and the
-     dead end says why. */
-  async getOwnUserID() {
-    this.initialize();
-    try {
-      const response = await this.client.get('/users/', {
-        params: {
-          current_user: true,
-          full_perms: true,
-        },
-      });
-
-      const users = Array.isArray(response?.data?.results)
-        ? response.data.results
-        : [];
-      if (users.length === 0) {
-        console.warn(
-          '[WARN] Could not resolve own user ID: Paperless-ngx returned no users.'
-        );
-        return null;
-      }
-
-      const configuredUsername = String(
-        process.env.PAPERLESS_USERNAME || ''
-      ).trim();
-      const matched = configuredUsername
-        ? users.find(
-            (user) =>
-              String(user?.username || '')
-                .trim()
-                .toLowerCase() === configuredUsername.toLowerCase()
-          )
-        : null;
-
-      if (matched?.id != null) {
-        console.log(`[DEBUG] Found own user ID: ${matched.id}`);
-        return matched.id;
-      }
-
-      if (users.length === 1 && users[0]?.id != null) {
-        console.log(
-          `[DEBUG] Found own user ID: ${users[0].id} (current user, no PAPERLESS_USERNAME match)`
-        );
-        return users[0].id;
-      }
-
-      console.warn(
-        `[WARN] Could not resolve own user ID: ${users.length} user(s) returned and none matches ` +
-          `PAPERLESS_USERNAME (${configuredUsername || 'not set'}).`
-      );
-      return null;
-    } catch (error) {
-      console.error('[ERROR] fetching own user ID:', error.message);
-      return null;
-    }
-  }
-  //Remove if not needed?
-  async getOwnerOfDocument(documentId) {
-    this.initialize();
-    try {
-      const response = await this.client.get(`/documents/${documentId}/`);
-      return response.data.owner;
-    } catch (error) {
-      console.error(
-        `[ERROR] fetching owner of document ${documentId}:`,
-        error.message
-      );
-      return null;
     }
   }
 
