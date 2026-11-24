@@ -47,7 +47,7 @@ export function describePaperlessProblem(paperless) {
     : '';
 
   if (paperless.reachable && paperless.authorized === false) {
-    return `Paperless-ngx rejected the API credentials${detail}. Check PAPERLESS_API_TOKEN in the settings.${checked}`;
+    return `Paperless-ngx rejected the API token${detail}. Check PAPERLESS_API_TOKEN in the settings.${checked}`;
   }
 
   return `Paperless-ngx is not reachable${detail}.${checked}`;
@@ -68,7 +68,7 @@ export function buildScannerHealthMessage(scanner, paperless, paperlessDown) {
 
   if (!scanner.armed) {
     parts.push(
-      'The scan scheduler is not armed. Check the server logs and restart the application.'
+      'The scan scheduler is not running. Check the server logs and restart the application.'
     );
     return parts.join(' ');
   }

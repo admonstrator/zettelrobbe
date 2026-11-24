@@ -262,7 +262,7 @@ app.use((req, res, next) => {
 
   if (req.path === '/login' && csrfCookieSecure && !isHttpsRequest(req)) {
     res.locals.loginCookieSecurityWarning =
-      'You are accessing the login page over HTTP while the system is configured to use HTTPS by default. To resolve this, either switch to HTTPS or set COOKIE_SECURE_MODE=never in your .env or docker-compose.yml file and restart the container.';
+      'You opened the login page over HTTP, but Zettelrobbe expects HTTPS. Switch to HTTPS, or set COOKIE_SECURE_MODE=never in your .env or docker-compose.yml file and restart the container.';
   }
 
   next();
@@ -312,7 +312,7 @@ app.use((req, res, next) => {
           const baseError =
             'Invalid CSRF token. The login page may have expired or your browser did not send the CSRF cookie.';
           const guidance = res.locals.loginCookieSecurityWarning
-            ? ' This is commonly caused by HTTP access with secure cookies enabled. Set COOKIE_SECURE_MODE=never for local HTTP and restart, or switch to HTTPS. See: https://zettelrob.be/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values'
+            ? ' This usually happens on plain HTTP with secure cookies on. Set COOKIE_SECURE_MODE=never for local HTTP and restart, or switch to HTTPS. See: https://zettelrob.be/getting-started/configuration/#cookie-and-proxy-flags-all-supported-values'
             : ' Refresh the login page and try again.';
 
           return res.status(403).render('login', {
@@ -624,7 +624,7 @@ app.get('/', async (req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).send('Something broke!');
+  res.status(500).send('Internal server error.');
 });
 
 // Backoff schedule for the startup connectivity retry, in milliseconds.
