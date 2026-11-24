@@ -15,7 +15,8 @@
  *    source; the OCR timeout of 30000; nothing to show; the startup line
  * 2. What Take over stores: the field's normalisation (a list), switches and
  *    free text as written, the field's own checks (cron, range, a parse
- *    error, an unknown provider), empty values, a setting without a field;
+ *    error, an unknown provider), empty values, a setting without a field,
+ *    the old OCR timeout of 30000 (never taken over, not even by "all");
  *    the plans of both actions refuse keys the environment does not set
  * 3. The page: the topic renders its rows and its count, every link of a row
  *    lands on a field of the page, no row is a setting row "Find a setting"
@@ -262,7 +263,13 @@ const entry = (key) => catalog.getEntry(key);
       1,
       'the row and the case are one variable'
     );
-    assert.ok(rowOf(pinned, 'SETUP_OCR_VALIDATION_TIMEOUT_MS').canTakeOver);
+    // Taking it over would keep 30 seconds for good once the line is gone:
+    // the migration that raises a stored 30000 has run by then.
+    const row = rowOf(pinned, 'SETUP_OCR_VALIDATION_TIMEOUT_MS');
+    assert.strictEqual(row.canTakeOver, false);
+    assert.match(row.reason, /old default/);
+    assert.match(row.reason, /delete the line instead of taking it over/);
+    assert.ok(!/\.\s+\S/.test(row.reason.trim()), 'one sentence');
 
     const other = buildEnvironmentOverview(
       inputs({ environment: { SETUP_OCR_VALIDATION_TIMEOUT_MS: '120000' } })
@@ -288,6 +295,7 @@ const entry = (key) => catalog.getEntry(key);
           applies: (value) => value === '4096',
           title: 'A small context',
           text: 'Something to do.',
+          reason: 'Delete the line.',
         },
       ],
     });
@@ -299,6 +307,9 @@ const entry = (key) => catalog.getEntry(key);
         text: 'Something to do.',
       },
     ]);
+    const row = rowOf(overview, 'TOKEN_LIMIT');
+    assert.strictEqual(row.canTakeOver, false);
+    assert.strictEqual(row.reason, 'Delete the line.');
   });
 
   await test('nothing to show: three empty lists and no startup line', () => {
@@ -466,6 +477,41 @@ const entry = (key) => catalog.getEntry(key);
         /Send keys/
       );
     }
+  });
+
+  await test('Take over leaves out the OCR timeout of 30000, and refuses it when asked', () => {
+    const environment = {
+      SCAN_INTERVAL: '*/5 * * * *',
+      SETUP_OCR_VALIDATION_TIMEOUT_MS: '30000',
+    };
+    const all = planTakeOver(inputs({ environment }), 'all');
+    assert.deepStrictEqual(all, {
+      values: { SCAN_INTERVAL: '*/5 * * * *' },
+      refused: [],
+    });
+    const asked = planTakeOver(inputs({ environment }), [
+      'SETUP_OCR_VALIDATION_TIMEOUT_MS',
+    ]);
+    assert.deepStrictEqual(asked.values, {});
+    assert.deepStrictEqual(
+      asked.refused.map((refusal) => refusal.key),
+      ['SETUP_OCR_VALIDATION_TIMEOUT_MS']
+    );
+    assert.match(asked.refused[0].reason, /old default/);
+    // Spaces around it are the same value; any other timeout is taken over.
+    const spaced = planTakeOver(
+      inputs({ environment: { SETUP_OCR_VALIDATION_TIMEOUT_MS: ' 30000 ' } }),
+      ['SETUP_OCR_VALIDATION_TIMEOUT_MS']
+    );
+    assert.deepStrictEqual(spaced.values, {});
+    const other = planTakeOver(
+      inputs({ environment: { SETUP_OCR_VALIDATION_TIMEOUT_MS: '60000' } }),
+      ['SETUP_OCR_VALIDATION_TIMEOUT_MS']
+    );
+    assert.deepStrictEqual(other, {
+      values: { SETUP_OCR_VALIDATION_TIMEOUT_MS: '60000' },
+      refused: [],
+    });
   });
 
   await test('Remove the stored copy plans only a copy of the value in effect', () => {

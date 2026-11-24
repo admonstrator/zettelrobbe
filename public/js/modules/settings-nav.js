@@ -127,6 +127,23 @@ export function entryForHash(key, isEntry) {
   return alias && isEntry(alias) ? alias : null;
 }
 
+/**
+ * The key a location hash holds: without its "#", percent-decoded. A hash
+ * that is not valid percent-encoding (#100%, #%E0%A4) is taken as written
+ * rather than stopping the page.
+ *
+ * @param {string} hash
+ * @returns {string}
+ */
+export function hashKey(hash) {
+  const raw = String(hash || '').replace(/^#/, '');
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 const ROW_SELECTOR = '.zr-field, .zr-switchrow, .zr-checktile';
 const MATCH_CLASS = 'zr-settings-match';
 const CONTROL_SELECTOR =
@@ -286,7 +303,7 @@ export default function settingsNav(root) {
    * one (a section id from an old link), the element to scroll to.
    */
   function resolve(hash) {
-    const key = decodeURIComponent(String(hash || '').replace(/^#/, ''));
+    const key = hashKey(hash);
     if (!key) return { id: firstId, target: null };
     const named = entryForHash(key, (id) => byId.has(id));
     if (named) return { id: named, target: null };

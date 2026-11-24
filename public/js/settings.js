@@ -718,7 +718,8 @@ function initializeFormHandlers() {
   };
 
   // A person's pick arrives as 'input' as well as 'change'; code that sets
-  // the provider dispatches 'change' only, so it never fills fields.
+  // the provider dispatches 'change' only, so it never fills fields. Apply in
+  // Ask a server sends both, as a pick does, and writes the fields after it.
   aiProviderSelect?.addEventListener('input', () => {
     const option = aiProviderSelect.selectedOptions[0];
     applyAiProviderChoice(
@@ -1360,15 +1361,27 @@ function initializeFormHandlers() {
       });
     });
 
+  // A field written by code, announced the way a person's edit is: the save
+  // bar (modules/settings-form.js) and Quick start's summaries listen on the
+  // form for a bubbling input and change.
+  const announceEdit = (field) => {
+    if (!field) return;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
   // Programmatic counterpart: sets the hidden yes/no input AND the visible
-  // switch position (used e.g. by the quickstart apply flow).
+  // switch position, and announces both (used by the quickstart apply flow).
+  // A switch the environment sets stays as it is.
   const setSwitchValue = (hiddenInput, value) => {
-    if (!hiddenInput) return;
+    if (!hiddenInput || hiddenInput.disabled) return;
     hiddenInput.value = value;
     const switchElement = document.querySelector(
       `input[data-switch-target="${hiddenInput.id}"]`
     );
     if (switchElement) switchElement.checked = value === 'yes';
+    announceEdit(switchElement);
+    announceEdit(hiddenInput);
   };
 
   // PDF render sub-options are only relevant while rendering is ON.
@@ -1607,39 +1620,38 @@ function initializeFormHandlers() {
       quickstartDetection.aiProvider === 'ollama' ? 'ollama' : 'custom';
     const quickstartKey = String(quickstartApiKeyInput?.value || '').trim();
 
-    if (aiProviderSelect) {
+    // Apply edits the real fields as a person would: one at a time, each
+    // announced (announceEdit), so the save bar lists what the save will
+    // send. A field the environment sets stays as it is.
+    const writeField = (field, write) => {
+      if (!field || field.disabled) return;
+      write(field);
+      announceEdit(field);
+    };
+
+    // The provider first: picking it may fill in the address and model of
+    // its entry, which the lines below then replace.
+    writeField(aiProviderSelect, () =>
       showAiProviderChoice(
         detectedProvider,
         quickstartDetection.resolvedAiApiUrl
-      );
-      aiProviderSelect.dispatchEvent(new Event('change'));
-    }
+      )
+    );
 
-    if (detectedProvider === 'ollama') {
-      if (ollamaUrlInput)
-        ollamaUrlInput.value = String(
-          quickstartDetection.resolvedAiApiUrl || ''
-        ).trim();
-      if (ollamaApiKeyInput) ollamaApiKeyInput.value = quickstartKey;
-      populateModelSelect(
-        ollamaModelInput,
-        [selectedAiModel],
-        'Choose a model'
-      );
-      if (ollamaModelInput) ollamaModelInput.value = selectedAiModel;
-    } else {
-      if (customBaseUrlInput)
-        customBaseUrlInput.value = String(
-          quickstartDetection.resolvedAiApiUrl || ''
-        ).trim();
-      if (customApiKeyInput) customApiKeyInput.value = quickstartKey;
-      populateModelSelect(
-        customModelInput,
-        [selectedAiModel],
-        'Choose a model'
-      );
-      if (customModelInput) customModelInput.value = selectedAiModel;
-    }
+    const [aiUrlInput, aiKeyInput, aiModelInput] =
+      detectedProvider === 'ollama'
+        ? [ollamaUrlInput, ollamaApiKeyInput, ollamaModelInput]
+        : [customBaseUrlInput, customApiKeyInput, customModelInput];
+    writeField(aiUrlInput, (field) => {
+      field.value = String(quickstartDetection.resolvedAiApiUrl || '').trim();
+    });
+    writeField(aiKeyInput, (field) => {
+      field.value = quickstartKey;
+    });
+    writeField(aiModelInput, (field) => {
+      populateModelSelect(field, [selectedAiModel], 'Choose a model');
+      field.value = selectedAiModel;
+    });
 
     const applyOcr = Boolean(quickstartEnableOcrCheckbox?.checked);
     const selectedOcrModel = String(
@@ -1649,22 +1661,21 @@ function initializeFormHandlers() {
 
     if (applyOcr && selectedOcrModel) {
       setSwitchValue(ocrEnabledSelect, 'yes');
-      if (ocrProviderSelect) {
-        ocrProviderSelect.value = quickstartDetection.ocrProvider || 'custom';
-      }
-      if (ocrApiUrlInput)
-        ocrApiUrlInput.value = String(
+      writeField(ocrProviderSelect, (field) => {
+        field.value = quickstartDetection.ocrProvider || 'custom';
+      });
+      writeField(ocrApiUrlInput, (field) => {
+        field.value = String(
           quickstartDetection.resolvedOcrApiUrl || ''
         ).trim();
-      if (ocrApiKeyInput) ocrApiKeyInput.value = quickstartKey;
-      if (ocrModelInput) {
-        populateModelSelect(
-          ocrModelInput,
-          [selectedOcrModel],
-          'Choose a model'
-        );
-        ocrModelInput.value = selectedOcrModel;
-      }
+      });
+      writeField(ocrApiKeyInput, (field) => {
+        field.value = quickstartKey;
+      });
+      writeField(ocrModelInput, (field) => {
+        populateModelSelect(field, [selectedOcrModel], 'Choose a model');
+        field.value = selectedOcrModel;
+      });
       toggleOcrFields();
       setOcrTestPill('default', 'Not tested');
       appliedOcr = true;
@@ -2653,6 +2664,16 @@ function initializeFormHandlers() {
       const result = await response.json();
 
       if (result.success) {
+        // A provider switch puts a model picker back on its stored value
+        // (resetModelPickers): from now on that is the value just saved, not
+        // the one the page was loaded with.
+        document
+          .querySelectorAll('select[data-model-picker]')
+          .forEach((select) => {
+            if (formData.has(select.name)) {
+              select.dataset.storedValue = String(formData.get(select.name));
+            }
+          });
         // The saved values are the new baseline for the unsaved-change count
         // and the leave warning (modules/settings-form.js).
         setupForm.dispatchEvent(new CustomEvent('zr:settings-saved'));
@@ -3334,6 +3355,12 @@ function initializeCustomFieldsManagement() {
     });
   }
 
+  const customFieldsJson = document.getElementById('customFieldsJson');
+  if (customFieldsJson) {
+    customFieldsListJson = customFieldsJson.value;
+    customFieldsJson.addEventListener('change', followCustomFieldsJson);
+  }
+
   const fieldsList = document.getElementById('customFieldsList');
   if (fieldsList) {
     // Initialize Sortable
@@ -3915,6 +3942,9 @@ function toggleCurrencySelect() {
 
 const CUSTOM_FIELD_NAME_SELECTOR = '[data-field-name]';
 const CUSTOM_FIELD_TYPE_SELECTOR = '[data-field-type]';
+// The value of #customFieldsJson the visible list stands for
+// (followCustomFieldsJson).
+let customFieldsListJson = null;
 
 function updateCustomFieldsJson() {
   const fieldItems = document.querySelectorAll('.custom-field-item');
@@ -3952,6 +3982,7 @@ function updateCustomFieldsJson() {
   json.value = JSON.stringify({
     custom_fields: fields,
   });
+  customFieldsListJson = json.value;
   // The save bar counts the list as one unsaved change ("Custom fields").
   json.dispatchEvent(new Event('change', { bubbles: true }));
 }
@@ -3986,6 +4017,32 @@ function createFieldElement(fieldName, data_type, currency = null) {
   div.querySelector('[data-field-type]').textContent = typeDisplay;
 
   return div;
+}
+
+/* #customFieldsJson is the one value that posts, and the list shows it.
+   When the value changes from outside the list (Discard puts back the one
+   in use, modules/settings-form.js), the list is drawn again from it: a
+   discarded row goes, a removed one comes back, and the next edit of the
+   list starts from there. */
+function followCustomFieldsJson() {
+  const json = document.getElementById('customFieldsJson');
+  const fieldsList = document.getElementById('customFieldsList');
+  if (!json || !fieldsList || json.value === customFieldsListJson) return;
+  let fields = [];
+  try {
+    const parsed = JSON.parse(json.value || '{}');
+    if (Array.isArray(parsed.custom_fields)) fields = parsed.custom_fields;
+  } catch {
+    return;
+  }
+  fieldsList.replaceChildren(
+    ...fields
+      .filter((field) => field && field.value && field.data_type)
+      .map((field) =>
+        createFieldElement(field.value, field.data_type, field.currency)
+      )
+  );
+  customFieldsListJson = json.value;
 }
 
 function addCustomField() {

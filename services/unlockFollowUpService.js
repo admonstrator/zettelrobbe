@@ -302,9 +302,15 @@ class UnlockFollowUpService {
 
     const now = this.clock.now();
     if (now >= entry.deadline) {
+      // Once claimed, a follow-up keeps its claim until it ends. Without it,
+      // it never asked Paperless-ngx: another run held the document all along.
+      const neverClaimed = !entry.claimed;
       this._finish(entry);
+      const minutes = Math.round(this.timing.maxWaitMs / 60000);
       console.warn(
-        `[OCR] Document ${id}: Paperless-ngx has not stored the unlocked version within ${Math.round(this.timing.maxWaitMs / 60000)} minutes; the next scan processes it`
+        neverClaimed
+          ? `[OCR] Document ${id}: another run held the document for ${minutes} minutes, so the follow-up after the unlock never got to it; the next scan processes it`
+          : `[OCR] Document ${id}: Paperless-ngx has not stored the unlocked version within ${minutes} minutes; the next scan processes it`
       );
       return;
     }

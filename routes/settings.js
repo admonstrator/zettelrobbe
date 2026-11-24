@@ -831,8 +831,11 @@ router.get(
  *                 example: true
  *               aiTagName:
  *                 type: string
- *                 description: Tag name to use for AI-processed documents
- *                 example: "AI-Processed"
+ *                 description: >-
+ *                   Name of the tag added to analysed documents while aiProcessedTag is on
+ *                   (AI_PROCESSED_TAG_NAME). While no name is set the tag is ai-processed; a name
+ *                   set to the empty string means no tag.
+ *                 example: "ai-processed"
  *               usePromptTags:
  *                 type: boolean
  *                 description: Whether to use tags in prompts
@@ -869,6 +872,16 @@ router.get(
  *                 type: string
  *                 description: JSON string defining custom fields to extract
  *                 example: '{"invoice_number":{"type":"string"},"total_amount":{"type":"number"}}'
+ *               externalApiTransform:
+ *                 type: string
+ *                 description: >-
+ *                   Which part of the external API's JSON answer goes into the prompt
+ *                   (EXTERNAL_API_TRANSFORM): a path of names separated by dots with list positions in
+ *                   brackets, such as data.items[0].name, or [0].name when the answer itself is a list.
+ *                   It is a path, not code: JavaScript is never run. Empty, a value that is not such a
+ *                   path, a path of more than ten steps and a path that matches nothing send the whole
+ *                   answer.
+ *                 example: "data.items[0].name"
  *               disableAutomaticProcessing:
  *                 type: boolean
  *                 description: Disable automatic document processing
@@ -983,6 +996,16 @@ router.get(
  *                 description: OCR fallback provider. For anthropic (Claude OCR) an empty ocrApiKey uses the Anthropic AI key, and ocrApiUrl is an optional proxy URL; a key or URL stored for another provider is cleared when switching to it.
  *                 enum: ["mistral", "custom", "ollama", "anthropic"]
  *                 example: "mistral"
+ *               ocrValidationTimeout:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 7200
+ *                 description: >-
+ *                   How long OCR waits for one request, in seconds (1-7200, default 120); stored in
+ *                   milliseconds as SETUP_OCR_VALIDATION_TIMEOUT_MS. Out-of-range values are clamped,
+ *                   a value that is not a number saves the default, and an empty or missing field
+ *                   keeps the stored value.
+ *                 example: 120
  *               ocrRunRightAway:
  *                 type: string
  *                 enum: ["yes", "no"]
@@ -990,7 +1013,8 @@ router.get(
  *                   Read the OCR queue as soon as the scan run, webhook delivery or rescan that queued
  *                   a document has ended, and analyse right after when ocrAutoAnalyze is on
  *                   (OCR_RUN_RIGHT_AWAY, default no). Works next to ocrAutoProcessEnabled, does nothing
- *                   while OCR is disabled, and applies without a restart.
+ *                   while OCR is disabled or disableAutomaticProcessing is on, and applies without a
+ *                   restart.
  *                 example: "no"
  *               ocrAutoProcessEnabled:
  *                 type: string
@@ -1218,20 +1242,13 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
 
     // Compared before saveConfig() writes the values onto process.env. Only a
     // changed key that something reads once at boot ends in a restart.
-    const { merged, changedKeys, restartKeys } = settingsService.planSave(
-      current,
-      updates
-    );
+    const { merged, restartKeys } = settingsService.planSave(current, updates);
 
     // The values are validated above (and Paperless reachability when its
     // settings changed); saveConfig's own validateConfig would live-test
     // Paperless and the AI provider on every save.
     await setupService.saveConfig(merged, { skipValidation: true });
 
-    // The tag cache keeps its lifetime once it has read it.
-    if (changedKeys.includes('TAG_CACHE_TTL_SECONDS')) {
-      paperlessService._cacheTTL = null;
-    }
     try {
       for (const field of customFields.fields) {
         await paperlessService.createCustomFieldSafely(
@@ -1332,8 +1349,11 @@ const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`;
  *
  *       The whole request is refused when a key is not a catalogue setting the
  *       environment sets. A value the field's own check refuses (a broken cron, a
- *       number outside the field's range) and a setting without a field on the
- *       settings page are not stored; `refused` says why.
+ *       number outside the field's range), a setting without a field on the
+ *       settings page and a value Zettelrobbe would have changed if the
+ *       environment did not set it (an OCR timeout of 30000, the old default,
+ *       whose line is to be deleted instead) are not stored; `refused` says why.
+ *       "all" leaves them out.
  *     tags:
  *       - Settings
  *     security:

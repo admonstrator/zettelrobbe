@@ -128,6 +128,21 @@ export function ocrTiming({ rightAway, schedule }) {
 }
 
 /**
+ * Whether "When should OCR run?" still waits for an answer. OCR switched on
+ * during this visit with neither switch on asks it; an answer anywhere
+ * settles it: the picker, or a switch of the OCR topic turned on. OCR off
+ * asks nothing.
+ *
+ * @param {{undecided: boolean, ocrWasOn: boolean|null, ocrOn: boolean, timing: string}} state
+ *   the answer so far, OCR before and now, and ocrTiming() of the switches
+ * @returns {boolean}
+ */
+export function timingUndecidedNow({ undecided, ocrWasOn, ocrOn, timing }) {
+  if (!ocrOn || timing !== 'manual') return false;
+  return undecided || ocrWasOn === false;
+}
+
+/**
  * The AI providers whose model OCR can use as well, and where the OCR fields
  * take it from, by the id of the real field. Claude OCR falls back to the key
  * and address of the AI provider when its own are empty, so only the model is
@@ -856,7 +871,8 @@ export default function settingsQuickStart(root) {
 
   // One question for two switches of the OCR topic. Switched on here or in its
   // own topic, OCR asks it at once when neither switch is on yet: the picker
-  // then shows no answer and the step stays open until one is chosen.
+  // then shows no answer and the step stays open until one is chosen, here
+  // or by turning on a switch in the OCR topic.
   const timingRow = root.querySelector('[data-qs-ocr-timing]');
   const timingPicker = root.querySelector('[data-qs-ocr-timing-picker]');
   const timingHint = root.querySelector('[data-qs-ocr-timing-hint]');
@@ -905,11 +921,14 @@ export default function settingsQuickStart(root) {
 
   function refreshTiming() {
     const ocrOn = isOn('mistralOcrEnabled');
-    // Switched on during this visit with neither switch on: ask.
-    if (ocrWasOn === false && ocrOn && currentTiming() === 'manual') {
-      timingUndecided = true;
-    }
-    if (!ocrOn) timingUndecided = false;
+    // Switched on during this visit with neither switch on: ask, until a
+    // switch is on, here or in the OCR topic.
+    timingUndecided = timingUndecidedNow({
+      undecided: timingUndecided,
+      ocrWasOn,
+      ocrOn,
+      timing: currentTiming(),
+    });
     ocrWasOn = ocrOn;
     if (!timingRow || !timingPicker) return;
 

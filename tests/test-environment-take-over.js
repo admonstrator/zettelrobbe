@@ -18,7 +18,8 @@
  *   3. a restart key is stored without a restart and without an exit
  *   4. a key that is no catalogue setting, or one the environment does not
  *      set, refuses the request and writes nothing; a value the field would
- *      refuse is not stored and the answer says why
+ *      refuse, or the old OCR timeout of 30000, is not stored and the answer
+ *      says why
  *   5. the page shows the row as stored; an anonymous call is refused
  *   6. a settings save keeps the stored copies
  *   7. Remove the stored copy removes only a copy of the value in effect
@@ -42,6 +43,8 @@ const ENVIRONMENT = {
   PAPERLESS_AI_PORT: '3123',
   DUPLICATES_AI_REVIEW_BATCH_SIZE: '500',
   ACTIVATE_TAGGING: 'no',
+  // The old form default: never taken over, the line is to be deleted.
+  SETUP_OCR_VALIDATION_TIMEOUT_MS: '30000',
 };
 
 /** What was stored before the lines went into docker-compose. */
@@ -262,6 +265,15 @@ async function runMode(mode) {
         assert.match(refused.json.error, /turns 500 into 100/);
         assert.deepStrictEqual(refused.json.data.stored, []);
         assert.ok(!('DUPLICATES_AI_REVIEW_BATCH_SIZE' in readOverrides()));
+        const timeout = await takeOver(['SETUP_OCR_VALIDATION_TIMEOUT_MS']);
+        assert.strictEqual(timeout.status, 422, timeout.text);
+        assert.match(timeout.json.error, /old default/);
+        assert.ok(
+          storedEverywhere('SETUP_OCR_VALIDATION_TIMEOUT_MS').every(
+            (value) => value === undefined
+          ),
+          'the old OCR timeout'
+        );
       }
     );
     await check(
@@ -277,6 +289,11 @@ async function runMode(mode) {
           !stored.includes('DUPLICATES_AI_REVIEW_BATCH_SIZE'),
           'refused by its field'
         );
+        assert.ok(
+          !stored.includes('SETUP_OCR_VALIDATION_TIMEOUT_MS'),
+          'the old OCR timeout'
+        );
+        assert.ok(!('SETUP_OCR_VALIDATION_TIMEOUT_MS' in readOverrides()));
         assert.deepStrictEqual(all.json.data.refused, []);
         const again = await takeOver('all');
         assert.strictEqual(again.status, 200, again.text);

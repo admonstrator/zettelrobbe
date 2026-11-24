@@ -17,7 +17,8 @@
  * Paperless-ngx are replaced through the require cache.
  *
  * Covers: off by default (catalogue, config, a scan that queues), OCR off,
- * the trigger after a scan run and after a webhook document or rescan, a
+ * DISABLE_AUTOMATIC_PROCESSING=yes (nothing read, no trigger held), the
+ * trigger after a scan run and after a webhook document or rescan, a
  * webhook document queued during a scan, coalescing (triggers during a drain
  * make one more drain), a drain over several batches, an item that stays
  * pending or fails is tried once, an unusable Paperless-ngx stops the drain,
@@ -99,6 +100,7 @@ function makeWorld(scenario = {}) {
     ocrEnabled: true,
     // undefined: the variable is not set at all
     runRightAway: 'yes',
+    disableAutomaticProcessing: 'no',
     autoProcessEnabled: 'no',
     autoAnalyze: 'yes',
     batchSize: 10,
@@ -132,6 +134,7 @@ function makeWorld(scenario = {}) {
       restrictToExistingTags: 'no',
       restrictToExistingCorrespondents: 'no',
       externalApiConfig: { enabled: 'no' },
+      disableAutomaticProcessing: s.disableAutomaticProcessing,
       mistralOcr: {
         enabled: s.ocrEnabled ? 'yes' : 'no',
         runRightAway: s.runRightAway,
@@ -453,6 +456,57 @@ async function main() {
       'pending',
       'a queue row from before stays where it is'
     );
+  });
+
+  await test('DISABLE_AUTOMATIC_PROCESSING=yes: nothing is read right away after a scan, a webhook or a rescan', async () => {
+    const world = makeWorld({ disableAutomaticProcessing: 'yes' });
+    pending(world, 42);
+    const { logs } = await captured(async () => {
+      assert.strictEqual(world.ocr.afterRun('scan', 3), null);
+      assert.strictEqual(world.ocr.waitingTrigger, null, 'no trigger held');
+      assert.strictEqual(world.ocr.isRightAwayEnabled(), false);
+      await world.scan.scanDocuments();
+      world.webhook.enqueue(
+        { id: 7, title: 'Scan 7' },
+        { applySkipRules: true }
+      );
+      world.webhook.enqueue(
+        { id: 7, title: 'Scan 7' },
+        { applySkipRules: false }
+      );
+      await world.webhook.processQueue();
+      await idle(world);
+    });
+    assert.ok(world.calls.includes('addToOcrQueue'), 'the scan queued it');
+    assert.deepStrictEqual(world.ocrCalls, [], 'OCR read nothing');
+    assert.strictEqual(world.queue.get(7).status, 'pending');
+    assert.strictEqual(world.queue.get(42).status, 'pending');
+    assert.deepStrictEqual(drainLines(logs), []);
+    assert.strictEqual(world.ocr.waitingTrigger, null);
+    assert.strictEqual(world.ocr.running, false);
+  });
+
+  await test('DISABLE_AUTOMATIC_PROCESSING is read at call time: a held trigger is dropped', async () => {
+    const ocrGate = gate();
+    const world = makeWorld({ ocrGate: ocrGate.promise });
+    pending(world, 7);
+    await captured(async () => {
+      const first = world.ocr.afterRun('scan', 1);
+      await until(() => world.ocrCalls.length === 1);
+      pending(world, 8);
+      world.ocr.afterRun('webhook', 1);
+      assert.strictEqual(world.ocr.waitingTrigger, 'webhook');
+      world.fakes.config.disableAutomaticProcessing = 'yes';
+      ocrGate.open();
+      await first;
+      await idle(world);
+    });
+    assert.deepStrictEqual(
+      world.ocrCalls.map((call) => call.id),
+      [7]
+    );
+    assert.strictEqual(world.queue.get(8).status, 'pending');
+    assert.strictEqual(world.ocr.waitingTrigger, null);
   });
 
   console.log('After a scan run');

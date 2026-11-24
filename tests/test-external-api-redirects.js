@@ -30,10 +30,15 @@
  *   5. a scheme other than http and https is refused
  *   6. a loop ends after five redirects
  *   7. the configured headers go to the entered origin only
- *   8. POST and the body follow the HTTP rules for 303 and 307
+ *   8. POST and the body follow the HTTP rules for 303 and 307; a hop that
+ *      would carry the body to another host is refused, one without the body
+ *      is followed without the headers
  *   9. one timeout covers the whole chain
- *  10. https never continues over http; http may continue over https; axios
- *      is never left to follow a redirect itself
+ *  10. https never continues over http; http may continue over https, and on
+ *      the same host name with the default ports the headers and the body go
+ *      along; axios is never left to follow a redirect itself
+ *  11. the log line of the request names the entered address without user
+ *      name, password, query and fragment
  */
 
 const assert = require('assert');
@@ -164,6 +169,15 @@ async function createEndpoint() {
       }
       if (route === '/loop') {
         response.writeHead(302, { Location: '/loop' });
+        response.end();
+        return;
+      }
+      // A redirect with the status in its name to another host.
+      const away = /^\/(30[1278])-away$/.exec(route);
+      if (away) {
+        response.writeHead(Number(away[1]), {
+          Location: `http://other.public.test:${port}/echo`,
+        });
         response.end();
         return;
       }
@@ -539,6 +553,60 @@ async function main() {
       assert.deepStrictEqual(JSON.parse(after307.value.body), { q: 'rates' });
     });
 
+    await test('a redirect that would carry the body to another host is refused', async () => {
+      for (const [method, route] of [
+        ['POST', '/307-away'],
+        ['POST', '/308-away'],
+        ['PUT', '/301-away'],
+        ['PUT', '/302-away'],
+        ['PUT', '/307-away'],
+      ]) {
+        const { value, lines } = await fetchFrom('api.public.test', route, {
+          EXTERNAL_API_METHOD: method,
+          EXTERNAL_API_BODY: '{"token":"secret-in-body"}',
+          EXTERNAL_API_HEADERS: HEADERS,
+        });
+        assert.strictEqual(value, null, `${method} ${route}`);
+        assert.deepStrictEqual(
+          endpoint.hostsHit(),
+          [`api.public.test ${route}`],
+          `${method} ${route}: no request to the other host`
+        );
+        assertOneRefusal(
+          lines,
+          `http://other.public.test:${endpoint.port}/echo`,
+          'The request body goes only to the address you entered'
+        );
+      }
+    });
+
+    await test('a redirect to another host that leaves the body behind is followed without the headers', async () => {
+      for (const [method, route, expected] of [
+        ['POST', '/301-away', 'GET'],
+        ['POST', '/302-away', 'GET'],
+        ['GET', '/307-away', 'GET'],
+      ]) {
+        const { value } = await fetchFrom('api.public.test', route, {
+          EXTERNAL_API_METHOD: method,
+          EXTERNAL_API_BODY: '{"token":"secret-in-body"}',
+          EXTERNAL_API_HEADERS: HEADERS,
+        });
+        assert.deepStrictEqual(
+          value,
+          {
+            host: 'other.public.test',
+            route: '/echo',
+            method: expected,
+            body: '',
+          },
+          `${method} ${route}`
+        );
+        const second = endpoint.hits[1];
+        assert.strictEqual(second.headers['x-api-key'], undefined, route);
+        assert.strictEqual(second.headers.authorization, undefined, route);
+      }
+    });
+
     // ── 9. one timeout ────────────────────────────────────────────────────
 
     await test('one timeout covers the whole chain', async () => {
@@ -624,35 +692,118 @@ async function main() {
       assertOneRefusal(lines, 'http://other.public.test/data', 'https');
     });
 
-    await test('http may continue over https; the headers stay with the entered origin; axios never follows on its own', async () => {
+    await test('http may continue over https on the same host with the headers; axios never follows on its own', async () => {
+      for (const [entered, upgraded] of [
+        ['http://api.public.test/up', 'https://api.public.test/data'],
+        ['http://api.public.test:80/up', 'https://api.public.test:443/data'],
+      ]) {
+        const { fake, calls } = fakeAxios({
+          [entered]: redirectTo(upgraded, 301),
+          [new URL(upgraded).href]: redirectTo('/more', 302),
+          'https://api.public.test/more': ok({ secure: true }),
+        });
+        const httpsService = loadService(fake);
+        setExternalApi({
+          EXTERNAL_API_URL: entered,
+          EXTERNAL_API_HEADERS: HEADERS,
+        });
+        const { value } = await captured(() => httpsService.fetchData());
+        assert.deepStrictEqual(value, { secure: true }, entered);
+        assert.deepStrictEqual(
+          calls.map((call) => new URL(call.url).href),
+          [
+            'http://api.public.test/up',
+            'https://api.public.test/data',
+            'https://api.public.test/more',
+          ]
+        );
+        assert.ok(
+          calls.every((call) => call.maxRedirects === 0),
+          'every request tells axios not to follow redirects itself'
+        );
+        for (const call of calls) {
+          assert.strictEqual(call.headers['X-Api-Key'], 'secret-key', call.url);
+          assert.strictEqual(
+            call.headers.Authorization,
+            'Bearer secret-token',
+            call.url
+          );
+        }
+      }
+    });
+
+    await test('the body goes along when http continues over https on the same host', async () => {
       const { fake, calls } = fakeAxios({
         'http://api.public.test/up': redirectTo(
           'https://api.public.test/data',
-          301
+          307
         ),
         'https://api.public.test/data': ok({ secure: true }),
       });
       const httpsService = loadService(fake);
       setExternalApi({
         EXTERNAL_API_URL: 'http://api.public.test/up',
+        EXTERNAL_API_METHOD: 'POST',
+        EXTERNAL_API_BODY: '{"token":"secret-in-body"}',
         EXTERNAL_API_HEADERS: HEADERS,
       });
       const { value } = await captured(() => httpsService.fetchData());
       assert.deepStrictEqual(value, { secure: true });
-      assert.deepStrictEqual(
-        calls.map((call) => call.url),
-        ['http://api.public.test/up', 'https://api.public.test/data']
+      assert.strictEqual(calls[1].method, 'POST');
+      assert.deepStrictEqual(calls[1].data, { token: 'secret-in-body' });
+      assert.strictEqual(calls[1].headers['X-Api-Key'], 'secret-key');
+    });
+
+    await test('an upgrade to https on another port or host is another address', async () => {
+      for (const [entered, target] of [
+        ['http://api.public.test:8080/up', 'https://api.public.test:8443/data'],
+        ['http://api.public.test/up', 'https://api.public.test:8443/data'],
+        ['http://api.public.test:8080/up', 'https://api.public.test/data'],
+        ['http://api.public.test/up', 'https://other.public.test/data'],
+      ]) {
+        const { fake, calls } = fakeAxios({
+          [entered]: redirectTo(target, 302),
+          [target]: ok({ secure: true }),
+        });
+        const httpsService = loadService(fake);
+        setExternalApi({
+          EXTERNAL_API_URL: entered,
+          EXTERNAL_API_HEADERS: HEADERS,
+          EXTERNAL_API_ALLOW_PRIVATE_IPS: 'yes',
+        });
+        const { value } = await captured(() => httpsService.fetchData());
+        assert.deepStrictEqual(value, { secure: true }, target);
+        assert.strictEqual(calls[0].headers['X-Api-Key'], 'secret-key');
+        assert.deepStrictEqual(calls[1].headers, {}, `${entered} to ${target}`);
+      }
+    });
+
+    // ── 11. the log ───────────────────────────────────────────────────────
+
+    await test('the log names the entered address without user, password, query and fragment', async () => {
+      endpoint.reset();
+      setExternalApi({
+        EXTERNAL_API_URL: `http://apiuser:secret-password@api.public.test:${endpoint.port}/data?key=secret-query#secret-fragment`,
+      });
+      const { value, lines } = await captured(() => service.fetchData());
+      assert.strictEqual(value.route, '/data');
+      const fetching = lines.filter((line) =>
+        line.includes('Fetching data from external API')
       );
-      assert.ok(
-        calls.every((call) => call.maxRedirects === 0),
-        'every request tells axios not to follow redirects itself'
-      );
-      assert.strictEqual(calls[0].headers['X-Api-Key'], 'secret-key');
-      assert.deepStrictEqual(
-        calls[1].headers,
-        {},
-        'https://api.public.test is another origin than http://api.public.test'
-      );
+      assert.deepStrictEqual(fetching, [
+        `[DEBUG] Fetching data from external API: http://api.public.test:${endpoint.port}/data`,
+      ]);
+      for (const secret of [
+        'apiuser',
+        'secret-password',
+        'secret-query',
+        'secret-fragment',
+      ]) {
+        assert.ok(
+          !lines.some((line) => line.includes(secret)),
+          `${secret} is in the log: ${lines.join(' | ')}`
+        );
+      }
     });
   } finally {
     realDns();

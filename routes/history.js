@@ -791,8 +791,10 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
  *       A document that cannot be resolved — deleted, or Paperless-ngx briefly
  *       unavailable — leaves every local record untouched and answers 404.
  *       A document that waits for OCR (queued or being read, while OCR is
- *       switched on) is analysed once OCR has read it: nothing is changed and
- *       the answer is 200 with `waitingForOcr: true`.
+ *       switched on) is analysed once OCR has read it, and a PDF whose password
+ *       was just removed once Paperless-ngx has stored its unlocked version
+ *       (the unlock follow-up): nothing is changed and the answer is 200 with
+ *       `waitingForOcr: true`.
  *     tags:
  *       - History
  *       - API
@@ -820,7 +822,7 @@ router.post('/api/history/:id/restore', isAuthenticated, async (req, res) => {
  *                   type: string
  *                 waitingForOcr:
  *                   type: boolean
- *                   description: Present and true when the document waits for OCR; nothing was changed
+ *                   description: Present and true when the document waits for OCR or for its unlocked version; nothing was changed
  *                   example: true
  *       400:
  *         description: Invalid document ID
@@ -894,8 +896,10 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
  *       scan tag filters. The local processing record is cleared and each document
  *       is enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS
  *       / TAGS scan-scope rules. Processing runs in the background. Documents
- *       that wait for OCR (while OCR is switched on) are left untouched and
- *       listed in `waitingForOcr`; they are analysed once OCR has read them.
+ *       that wait for OCR (while OCR is switched on), and PDFs whose password
+ *       was just removed while the unlock follow-up waits for their unlocked
+ *       version, are left untouched and listed in `waitingForOcr`; they are
+ *       analysed once OCR has read them or the unlocked version is stored.
  *     tags:
  *       - History
  *     security:
@@ -937,6 +941,7 @@ router.post('/api/history/:id/rescan', isAuthenticated, async (req, res) => {
  *                   example: []
  *                 waitingForOcr:
  *                   type: array
+ *                   description: Documents left untouched because they wait for OCR or for their unlocked version
  *                   items:
  *                     type: integer
  *                   example: []
