@@ -723,8 +723,8 @@ class SetupWizard {
         : '';
     const original = String(originalMessage || '').trim();
     return original
-      ? `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed. Original error: ${original}`
-      : `${normalizedScope} timed out${timeoutPart}. Please check provider availability and increase timeout if needed.`;
+      ? `${normalizedScope} timed out${timeoutPart}. Check that the provider is reachable and raise the timeout if needed. Original error: ${original}`
+      : `${normalizedScope} timed out${timeoutPart}. Check that the provider is reachable and raise the timeout if needed.`;
   }
 
   getOperationErrorDetails(scope, error, timeoutMs) {
@@ -1073,7 +1073,7 @@ class SetupWizard {
         this.setPillState(this.ocrTestStatePill, 'success', 'Connection valid');
         await this.showPopup({
           icon: 'success',
-          title: 'OCR test successful',
+          title: 'OCR test passed',
           text: result.message || 'OCR provider is reachable.',
         });
       } else {
@@ -1629,7 +1629,7 @@ class SetupWizard {
 
       if (this.ocrQuickstartNotice) {
         this.ocrQuickstartNotice.classList.remove('hidden');
-        this.ocrQuickstartNotice.textContent = `OCR was prefilled by Quickstart (model "${selectedOcrModel}" via ${detection.resolvedOcrApiUrl || 'detected endpoint'}). Adjust below if needed.`;
+        this.ocrQuickstartNotice.textContent = `Quickstart set up OCR (model "${selectedOcrModel}" via ${detection.resolvedOcrApiUrl || 'detected endpoint'}). Adjust below if needed.`;
       }
     } else if (this.quickstartState.ocrApplied) {
       // The user unchecked the OCR option after a previous apply.
@@ -1964,7 +1964,7 @@ class SetupWizard {
                 ? 'success'
                 : 'info',
           title: 'AI models loaded',
-          text: `${result.message || (models.length > 0 ? 'Models discovered successfully.' : 'No models found.')}${resolvedInfo}`,
+          text: `${result.message || (models.length > 0 ? 'Models discovered.' : 'No models found.')}${resolvedInfo}`,
         });
       }
 
@@ -2052,7 +2052,7 @@ class SetupWizard {
           text:
             result.message ||
             (models.length > 0
-              ? 'OCR models discovered successfully.'
+              ? 'OCR models discovered.'
               : 'No OCR models found.'),
         });
       }
@@ -2133,7 +2133,7 @@ class SetupWizard {
           : '';
         await this.showPopup({
           icon: 'success',
-          title: 'AI test successful',
+          title: 'AI test passed',
           text: `${result.message || 'AI provider is reachable.'}${resolvedInfo}`,
         });
       } else {
@@ -2356,7 +2356,7 @@ class SetupWizard {
         icon: 'warning',
         title: this.aiTestState.ran ? 'AI test failed' : 'AI test not run',
         text: this.aiTestState.ran
-          ? 'The AI test failed. Do you want to continue anyway?'
+          ? 'The AI test failed. Continue anyway?'
           : 'No AI test has been run. Continue anyway?',
         showCancelButton: true,
         confirmButtonText: 'Continue anyway',
