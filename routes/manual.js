@@ -1191,8 +1191,7 @@ router.delete('/manual/document/:id', isAuthenticated, async (req, res) => {
     if (status === 401 || status === 403) {
       return res.status(403).json({
         success: false,
-        error:
-          'The Paperless-ngx user of Zettelrobbe may not delete this document',
+        error: "Zettelrobbe's Paperless-ngx user may not delete this document",
       });
     }
     console.error(`[ERROR] DELETE /manual/document/${documentId}:`, error);
