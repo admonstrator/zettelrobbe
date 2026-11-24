@@ -16,6 +16,8 @@
  *   GET   /api/settings/paperless-public-url
  *   POST  /settings                             Update application settings
  *   GET   /api/settings/env-file                Export the running configuration as a .env file
+ *   POST  /api/settings/environment/take-over   Store values the environment sets
+ *   POST  /api/settings/environment/remove-copy Remove stored copies of them again
  */
 
 const express = require('express');
@@ -44,6 +46,12 @@ const {
   matchProviderChoice,
 } = require('../services/aiFormOptions');
 const { BOOT_IDENTITY } = require('../services/bootIdentity');
+const {
+  buildEnvironmentOverview,
+  planTakeOver,
+  planRemoveCopy,
+  readEnvironmentInputs,
+} = require('../services/environmentOverview');
 const router = express.Router();
 
 /**
@@ -342,7 +350,7 @@ router.delete(
       console.error('Error deleting the PDF passwords:', error.message);
       res
         .status(500)
-        .json({ success: false, error: 'Error deleting the PDF passwords' });
+        .json({ success: false, error: 'Could not delete the PDF passwords.' });
     }
   }
 );
@@ -463,6 +471,20 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     ]),
   ].filter((key) => configFile.isProtectedRuntimeEnvKey(key));
 
+  // What the environment decides (the topic Set by the environment). Without
+  // it the page still renders, with that topic empty.
+  let environmentOverview = null;
+  try {
+    environmentOverview = buildEnvironmentOverview(
+      await readEnvironmentInputs()
+    );
+  } catch (overviewError) {
+    console.warn(
+      '[WARN] Could not list what the environment sets:',
+      overviewError.message
+    );
+  }
+
   // How many PDF passwords are stored: the list itself is a secret and stays
   // off the page like the others, the count tells the field what it keeps.
   const pdfPasswordCount = parsePasswordList(config.PDF_PASSWORDS).length;
@@ -505,6 +527,7 @@ router.get('/settings', isAuthenticated, async (req, res) => {
     configuredSecrets,
     pdfPasswordCount,
     lockedEnvKeys,
+    environmentOverview,
     // The process's boot id; the page compares /health against it to tell
     // the restarted server from the one it saved to.
     bootId: BOOT_IDENTITY.bootId,
@@ -642,7 +665,7 @@ router.get(
       console.error('[ERROR] GET /api/settings/paperless-public-url:', error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to detect Paperless public URL',
+        error: 'Could not detect the public address.',
       });
     }
   }
@@ -660,6 +683,8 @@ router.get(
  *
  *       Changes made through this endpoint are applied immediately and affect all future
  *       document processing operations.
+ *
+ *       A field of a removed setting (aiTemperatureGeneration, paperlessUsername) is accepted and ignored.
  *     tags:
  *       - System
  *       - Setup
@@ -680,10 +705,6 @@ router.get(
  *                 type: string
  *                 description: API token for Paperless-ngx access
  *                 example: "abc123def456"
- *               paperlessUsername:
- *                 type: string
- *                 description: Username for Paperless-ngx (alternative to token authentication)
- *                 example: "admin"
  *               aiProvider:
  *                 type: string
  *                 description: Selected AI provider for document analysis
@@ -786,10 +807,6 @@ router.get(
  *                 type: number
  *                 description: Temperature for analysis/classification calls (range 0.0-2.0)
  *                 example: 0.3
- *               aiTemperatureGeneration:
- *                 type: number
- *                 description: Temperature for generation calls (range 0.0-2.0)
- *                 example: 0.7
  *               aiReasoningEffort:
  *                 type: string
  *                 enum: ["", "low", "medium", "high"]
@@ -814,8 +831,11 @@ router.get(
  *                 example: true
  *               aiTagName:
  *                 type: string
- *                 description: Tag name to use for AI-processed documents
- *                 example: "AI-Processed"
+ *                 description: >-
+ *                   Name of the tag added to analysed documents while aiProcessedTag is on
+ *                   (AI_PROCESSED_TAG_NAME). While no name is set the tag is ai-processed; a name
+ *                   set to the empty string means no tag.
+ *                 example: "ai-processed"
  *               usePromptTags:
  *                 type: boolean
  *                 description: Whether to use tags in prompts
@@ -852,6 +872,16 @@ router.get(
  *                 type: string
  *                 description: JSON string defining custom fields to extract
  *                 example: '{"invoice_number":{"type":"string"},"total_amount":{"type":"number"}}'
+ *               externalApiTransform:
+ *                 type: string
+ *                 description: >-
+ *                   Which part of the external API's JSON answer goes into the prompt
+ *                   (EXTERNAL_API_TRANSFORM): a path of names separated by dots with list positions in
+ *                   brackets, such as data.items[0].name, or [0].name when the answer itself is a list.
+ *                   It is a path, not code: JavaScript is never run. Empty, a value that is not such a
+ *                   path, a path of more than ten steps and a path that matches nothing send the whole
+ *                   answer.
+ *                 example: "data.items[0].name"
  *               disableAutomaticProcessing:
  *                 type: boolean
  *                 description: Disable automatic document processing
@@ -966,6 +996,26 @@ router.get(
  *                 description: OCR fallback provider. For anthropic (Claude OCR) an empty ocrApiKey uses the Anthropic AI key, and ocrApiUrl is an optional proxy URL; a key or URL stored for another provider is cleared when switching to it.
  *                 enum: ["mistral", "custom", "ollama", "anthropic"]
  *                 example: "mistral"
+ *               ocrValidationTimeout:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 7200
+ *                 description: >-
+ *                   How long OCR waits for one request, in seconds (1-7200, default 120); stored in
+ *                   milliseconds as SETUP_OCR_VALIDATION_TIMEOUT_MS. Out-of-range values are clamped,
+ *                   a value that is not a number saves the default, and an empty or missing field
+ *                   keeps the stored value.
+ *                 example: 120
+ *               ocrRunRightAway:
+ *                 type: string
+ *                 enum: ["yes", "no"]
+ *                 description: >-
+ *                   Read the OCR queue as soon as the scan run, webhook delivery or rescan that queued
+ *                   a document has ended, and analyse right after when ocrAutoAnalyze is on
+ *                   (OCR_RUN_RIGHT_AWAY, default no). Works next to ocrAutoProcessEnabled, does nothing
+ *                   while OCR is disabled or disableAutomaticProcessing is on, and applies without a
+ *                   restart.
+ *                 example: "no"
  *               ocrAutoProcessEnabled:
  *                 type: string
  *                 description: Process queued OCR documents automatically (yes/no)
@@ -982,6 +1032,21 @@ router.get(
  *                 type: string
  *                 description: Run AI analysis directly after automatic OCR (yes/no)
  *                 example: "yes"
+ *               ocrBeforeAi:
+ *                 type: string
+ *                 enum: ["off", "tagged", "all"]
+ *                 description: >-
+ *                   OCR before the first AI analysis (OCR_BEFORE_AI). off sends a document to OCR
+ *                   only when its text is too short or the analysis fails; tagged sends documents not
+ *                   analysed yet that carry ocrBeforeAiTag to the OCR queue first; all sends every
+ *                   document not analysed yet.
+ *                   Each document goes through it at most once, and only while OCR is enabled.
+ *                   An unknown value is saved as off.
+ *                 example: "off"
+ *               ocrBeforeAiTag:
+ *                 type: string
+ *                 description: Name of the Paperless-ngx tag that tagged looks for (OCR_BEFORE_AI_TAG), matched case-insensitively. Empty saves the default needs-ocr.
+ *                 example: "needs-ocr"
  *               dateFormat:
  *                 type: string
  *                 description: How every date in the web interface is rendered
@@ -1153,7 +1218,7 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
       ))
     ) {
       return res.status(400).json({
-        error: 'Paperless-ngx connection failed. Please check URL and Token.',
+        error: 'Paperless-ngx connection failed. Check the address and token.',
       });
     }
 
@@ -1177,20 +1242,13 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
 
     // Compared before saveConfig() writes the values onto process.env. Only a
     // changed key that something reads once at boot ends in a restart.
-    const { merged, changedKeys, restartKeys } = settingsService.planSave(
-      current,
-      updates
-    );
+    const { merged, restartKeys } = settingsService.planSave(current, updates);
 
     // The values are validated above (and Paperless reachability when its
     // settings changed); saveConfig's own validateConfig would live-test
     // Paperless and the AI provider on every save.
     await setupService.saveConfig(merged, { skipValidation: true });
 
-    // The tag cache keeps its lifetime once it has read it.
-    if (changedKeys.includes('TAG_CACHE_TTL_SECONDS')) {
-      paperlessService._cacheTTL = null;
-    }
     try {
       for (const field of customFields.fields) {
         await paperlessService.createCustomFieldSafely(
@@ -1222,7 +1280,7 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
   } catch (error) {
     console.error('Settings update error:', error);
     res.status(500).json({
-      error: 'An error occurred: ' + error.message,
+      error: 'Saving failed: ' + error.message,
     });
   }
 });
@@ -1263,5 +1321,281 @@ router.get('/api/settings/env-file', isAuthenticated, async (req, res) => {
       .json({ success: false, error: 'Failed to build the configuration' });
   }
 });
+
+/**
+ * @param {number} count
+ * @param {string} one
+ * @param {string} many
+ */
+const counted = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+/**
+ * @swagger
+ * /api/settings/environment/take-over:
+ *   post:
+ *     summary: Store values the environment sets
+ *     description: |
+ *       Stores the value in effect of settings the environment sets (usually the
+ *       lines under `environment:` in docker-compose) in Zettelrobbe's own stored
+ *       settings, so that their lines can be deleted from docker-compose. The value
+ *       is normalised the way a settings save of its field normalises it; switches
+ *       and free text are stored as written.
+ *
+ *       Nothing changes about the value in effect: the environment keeps winning
+ *       while its line is there, and no restart follows, also for a key that
+ *       otherwise needs one. Once the environment no longer sets a key, the stored
+ *       value applies from the next start on. A secret is stored like a secret
+ *       typed on the settings page; the response never contains a value.
+ *
+ *       The whole request is refused when a key is not a catalogue setting the
+ *       environment sets. A value the field's own check refuses (a broken cron, a
+ *       number outside the field's range), a setting without a field on the
+ *       settings page and a value Zettelrobbe would have changed if the
+ *       environment did not set it (an OCR timeout of 30000, the old default,
+ *       whose line is to be deleted instead) are not stored; `refused` says why.
+ *       "all" leaves them out.
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - keys
+ *             properties:
+ *               keys:
+ *                 description: Setting names, or "all" for every setting that can be taken over
+ *                 oneOf:
+ *                   - type: array
+ *                     items:
+ *                       type: string
+ *                     example: ["SCAN_INTERVAL", "OPENAI_API_KEY"]
+ *                   - type: string
+ *                     enum: ["all"]
+ *     responses:
+ *       200:
+ *         description: The values that could be stored are stored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     stored:
+ *                       type: array
+ *                       description: The keys whose value is stored now
+ *                       items:
+ *                         type: string
+ *                       example: ["SCAN_INTERVAL"]
+ *                     refused:
+ *                       type: array
+ *                       description: The keys that were not stored, each with the reason
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           key:
+ *                             type: string
+ *                           reason:
+ *                             type: string
+ *                 message:
+ *                   type: string
+ *                   example: "Zettelrobbe stored SCAN_INTERVAL. You can delete its line from docker-compose."
+ *       400:
+ *         description: No list of keys, or a key that is not a setting the environment sets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Not authenticated
+ *       422:
+ *         description: None of the keys could be stored; data.refused says why
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post(
+  '/api/settings/environment/take-over',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const plan = planTakeOver(await readEnvironmentInputs(), req.body?.keys);
+      if ('error' in plan) {
+        return res.status(400).json({ success: false, error: plan.error });
+      }
+      const stored = await setupService.storeEnvironmentValues(plan.values);
+      const data = { stored, refused: plan.refused };
+      if (stored.length === 0 && plan.refused.length > 0) {
+        return res
+          .status(422)
+          .json({ success: false, error: plan.refused[0].reason, data });
+      }
+      if (stored.length > 0) {
+        console.log(
+          `[INFO] Stored ${counted(stored.length, 'setting', 'settings')} the environment sets: ${stored.join(', ')}. The values in effect are unchanged.`
+        );
+      }
+
+      let message;
+      if (stored.length === 0) message = 'Nothing to take over.';
+      else if (stored.length === 1) {
+        message = `Zettelrobbe stored ${stored[0]}. You can delete its line from docker-compose.`;
+      } else {
+        message = `Zettelrobbe stored ${stored.length} settings. You can delete their lines from docker-compose.`;
+      }
+      if (plan.refused.length > 0) {
+        message += ` ${counted(plan.refused.length, 'setting was', 'settings were')} not stored.`;
+      }
+      return res.json({ success: true, data, message });
+    } catch (error) {
+      console.error('[ERROR] POST /api/settings/environment/take-over:', error);
+      return res
+        .status(500)
+        .json({ success: false, error: 'Failed to store the values' });
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/settings/environment/remove-copy:
+ *   post:
+ *     summary: Remove stored copies of values the environment sets
+ *     description: |
+ *       The undo of take-over: removes the stored copy of settings the environment
+ *       sets, but only a copy that equals the value in effect, so that a value
+ *       stored on purpose is not deleted by accident. Nothing changes about the
+ *       value in effect, and no restart follows. Once the environment no longer
+ *       sets the key, the default applies again.
+ *     tags:
+ *       - Settings
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - keys
+ *             properties:
+ *               keys:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["SCAN_INTERVAL"]
+ *     responses:
+ *       200:
+ *         description: The copies that equal the value in effect are removed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     removed:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["SCAN_INTERVAL"]
+ *                     refused:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           key:
+ *                             type: string
+ *                           reason:
+ *                             type: string
+ *                 message:
+ *                   type: string
+ *                   example: "Zettelrobbe removed its copy of SCAN_INTERVAL. Keep the line in docker-compose."
+ *       400:
+ *         description: No list of keys, or a key that is not a setting the environment sets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Not authenticated
+ *       422:
+ *         description: None of the copies could be removed; data.refused says why
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post(
+  '/api/settings/environment/remove-copy',
+  isAuthenticated,
+  express.json(),
+  async (req, res) => {
+    try {
+      const plan = planRemoveCopy(
+        await readEnvironmentInputs(),
+        req.body?.keys
+      );
+      if ('error' in plan) {
+        return res.status(400).json({ success: false, error: plan.error });
+      }
+      const removed = await setupService.removeEnvironmentValues(plan.keys);
+      const data = { removed, refused: plan.refused };
+      if (removed.length === 0) {
+        return res.status(422).json({
+          success: false,
+          error: plan.refused[0]?.reason || 'Nothing to remove.',
+          data,
+        });
+      }
+      console.log(
+        `[INFO] Removed the stored ${removed.length === 1 ? 'copy' : 'copies'} of ${removed.join(', ')}. The values in effect are unchanged.`
+      );
+      const message =
+        removed.length === 1
+          ? `Zettelrobbe removed its copy of ${removed[0]}. Keep the line in docker-compose.`
+          : `Zettelrobbe removed its copies of ${removed.length} settings. Keep their lines in docker-compose.`;
+      return res.json({ success: true, data, message });
+    } catch (error) {
+      console.error(
+        '[ERROR] POST /api/settings/environment/remove-copy:',
+        error
+      );
+      return res
+        .status(500)
+        .json({ success: false, error: 'Failed to remove the stored copies' });
+    }
+  }
+);
 
 module.exports = router;

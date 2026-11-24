@@ -1,0 +1,36 @@
+<%# A list of values typed one at a time and shown as removable pills.
+    The behaviour is public/js/chip-list.js; the pills rendered here are the
+    ones it builds, so the first paint already shows them. The page labels the
+    text field itself (<label for="id">) and adds its own hint.
+    Params:
+      id (string)            the text field
+      listId (string)        the .zr-chips container
+      addId (string, opt.)   the Add button
+      valueId (string, opt.) hidden input the form posts; name = valueName or valueId
+      valueName (string, opt.)
+      items (array)          the values
+      separator (string)     ',' (default) or ' ': how the hidden input joins them
+      placeholder (string)
+      datalist (string, opt.) id of a <datalist> with suggestions
+      emptyText (string, opt.) shown while the list is empty
+      envKey (string, opt.)  with lockedEnvKeys on the page, a pinned list renders
+                             locked: field and buttons disabled, no remove buttons
+      spellcheck (boolean, opt.) %>
+<%
+    const chipItems = Array.isArray(locals.items) ? locals.items.map((item) => String(item).trim()).filter(Boolean) : [];
+    const chipSeparator = locals.separator === ' ' ? ' ' : ',';
+    const chipLocked = Boolean(locals.envKey) && Array.isArray(locals.lockedEnvKeys) && locals.lockedEnvKeys.includes(locals.envKey);
+%>
+<div class="zr-inputgroup">
+    <input type="text" id="<%= id %>" class="zr-input" placeholder="<%= locals.placeholder || '' %>" autocomplete="off"<% if (chipLocked) { %> disabled<% } %><% if (locals.datalist) { %> list="<%= datalist %>"<% } %><% if (locals.spellcheck === false) { %> spellcheck="false"<% } %>>
+    <% if (locals.addId) { %>
+    <button type="button" id="<%= addId %>" class="zr-btn zr-btn--primary"<% if (chipLocked) { %> disabled<% } %>>
+        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
+        Add
+    </button>
+    <% } %>
+</div>
+<div id="<%= listId %>" class="zr-chips" role="list" data-chip-list data-chip-input="<%= id %>"<% if (locals.addId) { %> data-chip-add="<%= addId %>"<% } %><% if (locals.valueId) { %> data-chip-value="<%= valueId %>"<% } %><% if (chipSeparator === ' ') { %> data-chip-separator=" "<% } %><% if (locals.emptyText) { %> data-empty="<%= emptyText %>"<% } %><% if (chipLocked) { %> data-locked="true"<% } %>><% chipItems.forEach((item) => { %><span class="zr-chip" role="listitem"><span><%= item %></span><button type="button" aria-label="Remove <%= item %>"<% if (chipLocked) { %> disabled<% } %>><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button></span><% }); %></div>
+<% if (locals.valueId) { %>
+<input type="hidden" id="<%= valueId %>" name="<%= locals.valueName || valueId %>" value="<%= chipItems.join(chipSeparator) %>">
+<% } %>

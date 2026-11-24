@@ -59,7 +59,6 @@ const API_KEY = 'test-api-key';
 const BASE_ENV = {
   PAPERLESS_API_URL: 'http://paperless.local:8000',
   PAPERLESS_API_TOKEN: 'stored-paperless-token',
-  PAPERLESS_USERNAME: 'archivist',
   AI_PROVIDER: 'openai',
   OPENAI_API_KEY: 'stored-openai-key',
   OPENAI_MODEL: 'gpt-4o-mini',
@@ -73,7 +72,6 @@ const PAGE_BODY = {
   paperlessUrl: 'http://paperless.local:8000',
   paperlessPublicUrl: '',
   paperlessToken: '',
-  paperlessUsername: 'archivist',
   aiProvider: 'openai',
   openaiKey: '',
   openaiModel: 'gpt-4o-mini',
@@ -103,7 +101,6 @@ const PAGE_BODY = {
   tokenLimit: '128000',
   responseTokens: '1000',
   aiTemperatureAnalysis: '0.3',
-  aiTemperatureGeneration: '0.7',
   tags: '',
   ignoreTags: '',
   removeInboxTagsAfterProcessing: 'no',
@@ -155,14 +152,17 @@ const PAGE_BODY = {
   ocrApiKey: '',
   mistralApiKey: '',
   mistralOcrModel: 'mistral-ocr-latest',
-  ocrValidationTimeout: '30',
+  ocrValidationTimeout: '120',
   ocrPdfRenderEnabled: 'yes',
   ocrPdfRenderMaxPages: '10',
   ocrPdfRenderDpi: '150',
+  ocrRunRightAway: 'no',
   ocrAutoProcessEnabled: 'no',
   ocrAutoProcessInterval: '*/15 * * * *',
   ocrAutoProcessBatchSize: '10',
   ocrAutoAnalyze: 'yes',
+  ocrBeforeAi: 'off',
+  ocrBeforeAiTag: 'needs-ocr',
   globalRateLimitWindowMs: '900000',
   globalRateLimitMax: '1000',
   trustProxy: '',
@@ -208,7 +208,7 @@ const SAVE_SCENARIOS = [
   { name: 'page save, nothing touched', body: page({}) },
   {
     name: 'page save on a fresh instance without saved values',
-    unset: ['OPENAI_MODEL', 'PAPERLESS_USERNAME'],
+    unset: ['OPENAI_MODEL'],
     body: page({ paperlessUrl: '', openaiModel: '' }),
   },
 
@@ -506,6 +506,34 @@ const SAVE_SCENARIOS = [
     body: page({ ocrProvider: 'tesseract' }),
   },
   {
+    name: 'ocr before ai: tagged with a tag of its own',
+    body: page({
+      ocrBeforeAi: ' Tagged ',
+      ocrBeforeAiTag: '  Scan-Me  ',
+    }),
+  },
+  {
+    name: 'ocr before ai: an unknown value saves off, an empty tag the default',
+    env: { OCR_BEFORE_AI: 'all', OCR_BEFORE_AI_TAG: 'old-tag' },
+    body: page({ ocrBeforeAi: 'always', ocrBeforeAiTag: '   ' }),
+  },
+  {
+    name: 'ocr before ai: fields absent keep the stored values',
+    env: { OCR_BEFORE_AI: 'all', OCR_BEFORE_AI_TAG: 'old-tag' },
+    body: (() => {
+      const body = page({});
+      delete body.ocrBeforeAi;
+      delete body.ocrBeforeAiTag;
+      return body;
+    })(),
+  },
+  {
+    name: 'ocr before ai pinned by the environment',
+    pinned: { OCR_BEFORE_AI: 'all' },
+    env: { OCR_BEFORE_AI: 'all' },
+    body: page({ ocrBeforeAi: 'off' }),
+  },
+  {
     name: 'ocr crosses from mistral to claude',
     env: {
       MISTRAL_OCR_ENABLED: 'yes',
@@ -760,6 +788,8 @@ const SAVE_SCENARIOS = [
     name: 'response tokens parsed leniently, token limit normalised',
     body: page({ responseTokens: ' 2048abc ', tokenLimit: ' 0064000 ' }),
   },
+  // aiTemperatureGeneration is a removed field. An older page or an API user
+  // may still send it; the save ignores it.
   {
     name: 'temperatures out of range and padded',
     body: page({
@@ -994,6 +1024,7 @@ const SETUP_BASE = {
   adminUsername: ' admin ',
   adminPassword: 'correct horse battery',
   paperlessUrl: 'http://paperless.local:8000/api/',
+  // A removed field that older clients still send; the wizard ignores it.
   paperlessUsername: ' archivist ',
   paperlessToken: ' token ',
   paperlessTestPassed: 'yes',
@@ -1198,7 +1229,6 @@ const sortedCopy = (list) => (Array.isArray(list) ? [...list].sort() : list);
   };
 
   const AFTER_MOUNT = { ...process.env };
-  const paperlessService = harness.paperlessService;
 
   function prepare(scenario, { configured = true } = {}) {
     for (const key of Object.keys(process.env)) {
@@ -1221,7 +1251,6 @@ const sortedCopy = (list) => (Array.isArray(list) ? [...list].sort() : list);
     calls.restarts = 0;
     calls.users = [];
     calls.rendered = null;
-    paperlessService._cacheTTL = 'cached';
   }
 
   async function withCapturedLogs(fn) {
@@ -1341,7 +1370,6 @@ const sortedCopy = (list) => (Array.isArray(list) ? [...list].sort() : list);
       paperlessValidations: calls.validations,
       customFieldConflictQueries: calls.conflictQueries,
       createdCustomFields: calls.createdFields,
-      tagCacheReset: paperlessService._cacheTTL === null,
       warnings: logs.warnings,
       errors: logs.errors,
     });

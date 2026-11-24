@@ -250,7 +250,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.clearCookie(MFA_CHALLENGE_COOKIE);
-    renderLoginView(res, { error: 'An error occurred during login', username });
+    renderLoginView(res, { error: 'Could not complete the login.', username });
   }
 });
 

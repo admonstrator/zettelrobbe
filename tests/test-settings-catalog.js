@@ -202,6 +202,7 @@ test('a default config/config.js spells out matches the catalogue', () => {
     const patterns = [
       new RegExp(`\\('${entry.key}',\\s*'([^']*)'`),
       new RegExp(`process\\.env\\.${entry.key}\\s*\\|\\|\\s*'([^']*)'`),
+      new RegExp(`process\\.env\\.${entry.key}\\s*\\?\\?\\s*'([^']*)'`),
       new RegExp(`env\\('${entry.key}'\\)\\s*\\|\\|\\s*'([^']*)'`),
     ];
     for (const pattern of patterns) {
@@ -320,7 +321,7 @@ test('the parsers of the simple fields', () => {
     catalog.getEntry(key).parse(raw, current);
 
   assert.deepStrictEqual(parse('TOKEN_LIMIT', '128k'), {
-    error: 'Invalid Token Limit. Expected a positive whole number.',
+    error: 'Document length limit must be a whole number above 0.',
   });
   assert.deepStrictEqual(parse('TOKEN_LIMIT', ' 064000 '), { value: '64000' });
   assert.deepStrictEqual(parse('TOKEN_LIMIT', ''), {});
@@ -349,7 +350,7 @@ test('the parsers of the simple fields', () => {
   });
   assert.deepStrictEqual(parse('OCR_AUTO_PROCESS_INTERVAL', 'soon'), {
     error:
-      'Invalid OCR Processing Interval. Use cron syntax, for example */15 * * * *.',
+      'The OCR queue schedule must be in cron syntax, for example */15 * * * *.',
   });
   assert.deepStrictEqual(parse('OCR_AUTO_PROCESS_INTERVAL', ' */5 * * * * '), {
     value: '*/5 * * * *',

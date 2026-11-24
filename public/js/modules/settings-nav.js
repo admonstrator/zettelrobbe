@@ -7,14 +7,90 @@
  * URL hash (#sso, #ai-provider), which makes reload and Back work, and the
  * hashes the page used before the regrouping still land on the right entry.
  *
- * It also owns the settings search, the unsaved-change dots in the topic list
- * (fed by modules/settings-form.js) and switching to the entry of a field the
- * save names in an error or the browser refuses as invalid.
+ * It also owns "Find a setting" above the topic list (the matching itself is
+ * in modules/settings-find.js), the groups of the topic list that fold in
+ * and out, the unsaved-change dots in the topic list (fed by
+ * modules/settings-form.js) and switching to the entry of a field the save
+ * names in an error or the browser refuses as invalid.
+ *
+ * The page scrolls in a region of its own (data-el="scroller", see
+ * pages/settings.css), not in the window: a new topic starts at the top of
+ * that region, and the scroll keys work there from the first moment.
  */
+
+import { describeResult, findSettings } from './settings-find.js';
+
+/** Where a browser session remembers the groups a person opened. */
+export const GROUPS_KEY = 'zr.settings.groups';
+
+/**
+ * Which groups of the topic list are open.
+ *
+ * Without a query: the group of the open topic, unless the person closed it
+ * since that topic opened, and every group the person opened. While a query
+ * stands: the groups that hold a match, unless the person closed one of them
+ * during this query.
+ *
+ * @param {{ groups: string[], current: string|null, opened: Set<string>, closedCurrent: boolean, matched?: Set<string>|null, closedInSearch?: Set<string> }} state
+ * @returns {Set<string>}
+ */
+export function openGroups({
+  groups,
+  current,
+  opened,
+  closedCurrent,
+  matched = null,
+  closedInSearch = new Set(),
+}) {
+  if (matched) {
+    return new Set(
+      groups.filter((key) => matched.has(key) && !closedInSearch.has(key))
+    );
+  }
+  return new Set(
+    groups.filter(
+      (key) => opened.has(key) || (key === current && !closedCurrent)
+    )
+  );
+}
+
+/**
+ * How far a key scrolls the region when nothing on the page has the focus,
+ * or null for a key that does not scroll. Mirrors what the browser does for
+ * the window.
+ *
+ * @param {{ key: string, shiftKey?: boolean }} event
+ * @param {number} height the visible height of the region
+ * @returns {number|'start'|'end'|null}
+ */
+export function scrollStep({ key, shiftKey = false }, height) {
+  const page = Math.max(40, Math.round(height * 0.875));
+  switch (key) {
+    case 'PageDown':
+      return page;
+    case 'PageUp':
+      return -page;
+    case ' ':
+      return shiftKey ? -page : page;
+    case 'ArrowDown':
+      return 40;
+    case 'ArrowUp':
+      return -40;
+    case 'Home':
+      return 'start';
+    case 'End':
+      return 'end';
+    default:
+      return null;
+  }
+}
 
 // Hashes of entries and sections that were renamed or merged. Section ids
 // (#sec-...) still on the page need no line here: any element id inside an
-// entry resolves to that entry. The ones below name something that is gone.
+// entry resolves to that entry, also after its section moved to another
+// topic (#sec-ai-function-limits opens What the AI fills in, #sec-ai-behavior
+// opens Prompt). The ones below name something that is gone.
+// tests/test-settings-topics.js pins where every old address lands.
 export const ENTRY_ALIASES = Object.freeze({
   // Before the regrouping into one topic per view.
   'system-tab': 'connection',
@@ -51,8 +127,25 @@ export function entryForHash(key, isEntry) {
   return alias && isEntry(alias) ? alias : null;
 }
 
-const MAX_RESULTS = 12;
+/**
+ * The key a location hash holds: without its "#", percent-decoded. A hash
+ * that is not valid percent-encoding (#100%, #%E0%A4) is taken as written
+ * rather than stopping the page.
+ *
+ * @param {string} hash
+ * @returns {string}
+ */
+export function hashKey(hash) {
+  const raw = String(hash || '').replace(/^#/, '');
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 const ROW_SELECTOR = '.zr-field, .zr-switchrow, .zr-checktile';
+const MATCH_CLASS = 'zr-settings-match';
 const CONTROL_SELECTOR =
   'input:not([type="hidden"]), select, textarea, button, [tabindex]';
 
@@ -69,10 +162,139 @@ export default function settingsNav(root) {
   const links = [...root.querySelectorAll('[data-entry-link]')];
   const select = root.querySelector('[data-el="select"]');
   const search = root.querySelector('[data-el="search"]');
-  const results = root.querySelector('[data-el="results"]');
+  const searchStatus = root.querySelector('[data-el="search-status"]');
+  const nav = root.querySelector('[data-el="nav"]');
   const form = root.querySelector('#setupForm');
+  const scroller = root.querySelector('[data-el="scroller"]');
   const firstId = entries[0].dataset.entry;
   let current = null;
+
+  /* --- the groups of the topic list ----------------------------------------- */
+
+  const toggles = new Map(
+    [...root.querySelectorAll('[data-nav-toggle]')].map((button) => [
+      button.dataset.navToggle,
+      button,
+    ])
+  );
+  const groupKeys = [...toggles.keys()];
+  const groupOfEntry = new Map(
+    links.map((link) => [
+      link.dataset.entryLink,
+      link.closest('[data-nav-group]')?.dataset.navGroup || null,
+    ])
+  );
+  const session = (() => {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return null;
+    }
+  })();
+  /** Groups the person opened, for this browser session. */
+  const opened = new Set();
+  try {
+    const stored = JSON.parse(session?.getItem(GROUPS_KEY) || '[]');
+    if (Array.isArray(stored)) {
+      stored
+        .filter((key) => toggles.has(key))
+        .forEach((key) => opened.add(key));
+    }
+  } catch {
+    // Nothing remembered, or storage refused: the defaults apply.
+  }
+  let closedCurrent = false;
+  /** Groups with a match while a query stands, null without a query. */
+  let matchedGroups = null;
+  const closedInSearch = new Set();
+
+  function remember() {
+    try {
+      session?.setItem(GROUPS_KEY, JSON.stringify([...opened]));
+    } catch {
+      // Storage refused (private mode, quota): the choice lasts for this page.
+    }
+  }
+
+  function renderGroups() {
+    const open = openGroups({
+      groups: groupKeys,
+      current: current ? groupOfEntry.get(current.dataset.entry) : null,
+      opened,
+      closedCurrent,
+      matched: matchedGroups,
+      closedInSearch,
+    });
+    toggles.forEach((button, key) => {
+      const isOpen = open.has(key);
+      button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      const items = root.querySelector(
+        `#${button.getAttribute('aria-controls')}`
+      );
+      if (items) items.hidden = !isOpen;
+    });
+  }
+
+  toggles.forEach((button, key) => {
+    button.addEventListener('click', () => {
+      const isOpen = button.getAttribute('aria-expanded') === 'true';
+      const currentGroup = current
+        ? groupOfEntry.get(current.dataset.entry)
+        : null;
+      if (matchedGroups) {
+        if (isOpen) closedInSearch.add(key);
+        else {
+          closedInSearch.delete(key);
+          matchedGroups.add(key);
+        }
+      } else if (isOpen) {
+        opened.delete(key);
+        if (key === currentGroup) closedCurrent = true;
+      } else {
+        opened.add(key);
+        if (key === currentGroup) closedCurrent = false;
+      }
+      if (!matchedGroups) remember();
+      renderGroups();
+    });
+  });
+
+  /* --- the region that scrolls ------------------------------------------- */
+
+  function scrollToTop() {
+    if (scroller) scroller.scrollTop = 0;
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  // The window does not scroll on this page, and a browser sends the scroll
+  // keys to the window while nothing has the focus: on a fresh page Page
+  // Down would do nothing. With the focus on nothing, the keys scroll the
+  // region instead; once something inside has the focus, the browser does.
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  const onScrollKey = (event) => {
+    if (!scroller || event.defaultPrevented) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const active = document.activeElement;
+    if (
+      active &&
+      active !== document.body &&
+      active !== document.documentElement
+    ) {
+      return;
+    }
+    if (document.querySelector('dialog[open], .zr-fullscreen:not(.hidden)')) {
+      return;
+    }
+    const step = scrollStep(event, scroller.clientHeight);
+    if (step === null) return;
+    event.preventDefault();
+    const behavior = reduceMotion && reduceMotion.matches ? 'auto' : 'smooth';
+    if (step === 'start') scroller.scrollTo({ top: 0, behavior });
+    else if (step === 'end') {
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior });
+    } else scroller.scrollBy({ top: step, behavior });
+  };
+  document.addEventListener('keydown', onScrollKey);
 
   /* --- navigation -------------------------------------------------------- */
 
@@ -81,7 +303,7 @@ export default function settingsNav(root) {
    * one (a section id from an old link), the element to scroll to.
    */
   function resolve(hash) {
-    const key = decodeURIComponent(String(hash || '').replace(/^#/, ''));
+    const key = hashKey(hash);
     if (!key) return { id: firstId, target: null };
     const named = entryForHash(key, (id) => byId.has(id));
     if (named) return { id: named, target: null };
@@ -110,10 +332,21 @@ export default function settingsNav(root) {
       select.value = entry.dataset.entry;
     }
     current = entry;
+    if (changed) {
+      // The group of a topic opened from elsewhere (a link, a hash, a
+      // search) opens with it.
+      closedCurrent = false;
+      renderGroups();
+      document.dispatchEvent(
+        new CustomEvent('zr:settings-topic', {
+          detail: { id: entry.dataset.entry },
+        })
+      );
+    }
     if (changed && scroll) {
       // A new topic starts at its top, not at the scroll position the last one
       // was left at.
-      window.scrollTo({ top: 0, behavior: 'auto' });
+      scrollToTop();
     }
     return entry;
   }
@@ -128,12 +361,12 @@ export default function settingsNav(root) {
     if (location.hash !== `#${id}`) {
       history.pushState(null, '', `#${id}`);
     }
-    show(id);
+    revealMatches(show(id));
   }
 
   function syncFromLocation() {
     const { id, target } = resolve(location.hash);
-    show(id, { scroll: !target });
+    const entry = show(id, { scroll: !target });
     // An old hash is rewritten to the new one, so the address bar and any
     // bookmark made from it name the topic as the list does.
     const key = location.hash.replace(/^#/, '');
@@ -141,6 +374,7 @@ export default function settingsNav(root) {
       history.replaceState(null, '', hashFor(id) || location.pathname);
     }
     if (target) reveal(target, { focus: false });
+    else revealMatches(entry);
   }
 
   window.addEventListener('hashchange', syncFromLocation);
@@ -173,7 +407,12 @@ export default function settingsNav(root) {
       visible = visible.parentElement;
     }
     const row = (visible || entry).closest(ROW_SELECTOR) || visible || entry;
-    row.scrollIntoView({ block: 'center', behavior: 'auto' });
+    // A row comes to rest in the middle of the region; a whole section or
+    // disclosure (an old #sec-... link) with its title at the top.
+    row.scrollIntoView({
+      block: row.matches(ROW_SELECTOR) ? 'center' : 'start',
+      behavior: 'auto',
+    });
     flash(row);
 
     if (focus) {
@@ -213,6 +452,13 @@ export default function settingsNav(root) {
     );
     root.querySelectorAll('[data-entry-dirty]').forEach((dot) => {
       dot.classList.toggle('hidden', !dirtyEntries.has(dot.dataset.entryDirty));
+    });
+    // A closed group shows the dot of its topics on its heading.
+    const dirtyGroups = new Set(
+      [...dirtyEntries].map((id) => groupOfEntry.get(id)).filter(Boolean)
+    );
+    root.querySelectorAll('[data-group-dirty]').forEach((dot) => {
+      dot.classList.toggle('hidden', !dirtyGroups.has(dot.dataset.groupDirty));
     });
   });
 
@@ -278,11 +524,88 @@ export default function settingsNav(root) {
     return best;
   }
 
-  /* --- search ------------------------------------------------------------- */
+  /* --- find a setting ----------------------------------------------------- */
+
+  /** The text of a row's own label, without the badges or buttons in it. */
+  function labelOf(row) {
+    const labelEl = row.querySelector('label, .zr-field__name') || row;
+    return norm(
+      [...labelEl.childNodes]
+        .filter(
+          (node) =>
+            node.nodeType === Node.TEXT_NODE ||
+            !node.matches?.('.zr-badge, button')
+        )
+        .map((node) => node.textContent)
+        .join(' ')
+    );
+  }
 
   /**
-   * Every searchable row, built on demand: settings.js adds the env keys after
-   * this module mounts, and rows can appear later (custom fields).
+   * The hints a person sees on a row. Hints that take turns (the OCR key says
+   * one thing for Claude and another for the rest) are left out while their
+   * turn has not come.
+   */
+  function hintsOf(row) {
+    return [...row.querySelectorAll('.zr-field__hint')].filter((hint) => {
+      const hidden = hint.closest('.hidden');
+      return !hidden || hidden === row || !row.contains(hidden);
+    });
+  }
+
+  /**
+   * The row of the card a row belongs to: an AI option and the automatic
+   * processing switch are wrapped one row to a box, and the box is what the
+   * card lays out as its row.
+   */
+  function cardRowOf(row) {
+    const parent = row.parentElement;
+    if (
+      parent &&
+      parent.matches('.zr-field, .zr-settings-option') &&
+      parent.querySelectorAll(ROW_SELECTOR).length === 1
+    ) {
+      return parent;
+    }
+    return row;
+  }
+
+  /**
+   * What a match marks. A row on screen (a closed disclosure counts, it is
+   * opened) marks itself. A row a switch hides, such as the OCR fields while
+   * OCR is off, marks that switch: the block a switch shows sits right after
+   * it, or names the switch in data-shown-by when it stands in a section of
+   * its own. A row hidden for another reason (the fields and options of a
+   * provider that is not selected) marks nothing and is not counted.
+   */
+  function markFor(row, entry) {
+    let hidden = null;
+    for (let node = row; node && node !== entry; node = node.parentElement) {
+      if (node.classList.contains('hidden')) hidden = node;
+    }
+    if (!hidden) return cardRowOf(row);
+    if (hidden.matches('[data-providers]')) return null;
+    if (hidden.dataset.shownBy) {
+      const switchRow = entry
+        .querySelector(`#${hidden.dataset.shownBy}`)
+        ?.closest('.zr-switchrow');
+      return switchRow ? cardRowOf(switchRow) : null;
+    }
+    let gate = hidden.previousElementSibling;
+    while (gate && gate.classList.contains('hidden')) {
+      gate = gate.previousElementSibling;
+    }
+    if (!gate) return null;
+    const gateRow = gate.matches('.zr-switchrow')
+      ? gate
+      : gate.querySelector(':scope > .zr-switchrow');
+    return gateRow ? cardRowOf(gateRow) : null;
+  }
+
+  /**
+   * Every setting row of every topic, read from the page each time: switches
+   * show and hide rows, settings.js adds the env keys after this module
+   * mounts, and rows can appear later (custom fields).
    */
   function indexRows() {
     const items = [];
@@ -291,20 +614,10 @@ export default function settingsNav(root) {
         // A field that wraps other fields (the OCR block) is a container, not
         // a setting of its own.
         if (row.matches('.zr-field') && row.querySelector(ROW_SELECTOR)) return;
-        const labelEl = row.querySelector('label, .zr-field__name') || row;
-        const label = norm(
-          [...labelEl.childNodes]
-            .filter(
-              (node) =>
-                node.nodeType === Node.TEXT_NODE ||
-                !node.matches?.('.zr-badge, button')
-            )
-            .map((node) => node.textContent)
-            .join(' ')
-        );
+        const label = labelOf(row);
         if (!label) return;
         const hint = norm(
-          [...row.querySelectorAll('.zr-field__hint')]
+          hintsOf(row)
             .map((p) => p.textContent)
             .join(' ')
         );
@@ -315,188 +628,183 @@ export default function settingsNav(root) {
               .concat(hint.match(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g) || [])
           ),
         ];
-        items.push({ entry, row, label, hint, envKeys });
+        const choices = [...row.querySelectorAll('select option')].map(
+          (option) => norm(option.textContent)
+        );
+        items.push({
+          entry,
+          row,
+          topic: entry.dataset.entry,
+          label,
+          hint,
+          envKeys,
+          choices,
+          mark: markFor(row, entry),
+        });
       });
     });
     return items;
   }
 
-  function matches(query) {
-    const words = norm(query).toLowerCase().split(' ').filter(Boolean);
-    if (!words.length) return [];
-    const scored = [];
+  const topics = entries.map((entry) => ({
+    id: entry.dataset.entry,
+    title: entry.dataset.title || '',
+    group: entry.dataset.group || '',
+  }));
+  let searching = false;
+  // Disclosures opened to show a match; closed again when the field is
+  // cleared, so the page looks as it did before the search.
+  const openedBySearch = new Set();
 
-    entries.forEach((entry) => {
-      const title =
-        `${entry.dataset.title} ${entry.dataset.group}`.toLowerCase();
-      if (words.every((word) => title.includes(word))) {
-        scored.push({ kind: 'entry', entry, score: 3 });
-      }
-    });
+  let lastQuery = '';
 
-    indexRows().forEach((item) => {
-      const label = item.label.toLowerCase();
-      const keys = item.envKeys.join(' ').toLowerCase();
-      // SCAN_INTERVAL is found by "scan interval" as well as by its own name.
-      const keysSpaced = keys.replace(/_/g, ' ');
-      const haystack = `${label} ${item.hint.toLowerCase()} ${keys} ${keysSpaced}`;
-      if (!words.every((word) => haystack.includes(word))) return;
-      const inLabel = words.every((word) => label.includes(word));
-      const inKey = words.every(
-        (word) => keys.includes(word) || keysSpaced.includes(word)
-      );
-      scored.push({
-        kind: 'field',
-        ...item,
-        score: inLabel ? 2 : inKey ? 1.5 : 1,
-      });
-    });
-
-    return scored.sort((a, b) => b.score - a.score).slice(0, MAX_RESULTS);
-  }
-
-  let active = -1;
-  let shown = [];
-
-  function closeResults() {
-    if (!results) return;
-    results.classList.add('hidden');
-    search.setAttribute('aria-expanded', 'false');
-    search.removeAttribute('aria-activedescendant');
-    active = -1;
-  }
-
-  function renderResults() {
+  function runSearch() {
+    if (!search) return;
     const query = search.value;
-    shown = matches(query);
-    filterNav(query);
-    results.replaceChildren();
-    if (!norm(query)) {
-      closeResults();
-      return;
-    }
+    const result = findSettings(
+      query,
+      topics,
+      indexRows().filter((item) => item.mark)
+    );
+    searching = result.active;
+    root.toggleAttribute('data-searching', searching);
+    // A new query opens every group with a match again.
+    if (query.trim() !== lastQuery) closedInSearch.clear();
+    lastQuery = query.trim();
 
-    if (!shown.length) {
-      const empty = document.createElement('p');
-      empty.className = 'zr-settings-search__empty zr-sm zr-muted';
-      empty.textContent =
-        'No setting matches. Try a word from its label or its environment variable.';
-      results.append(empty);
-    }
+    root
+      .querySelectorAll(`.${MATCH_CLASS}`)
+      .forEach((row) => row.classList.remove(MATCH_CLASS));
+    result.items.forEach((item) => item.mark.classList.add(MATCH_CLASS));
 
-    shown.forEach((item, index) => {
-      const option = document.createElement('button');
-      option.type = 'button';
-      option.className = 'zr-settings-search__item';
-      option.id = `settingsSearchOption${index}`;
-      option.setAttribute('role', 'option');
-      option.dataset.index = String(index);
-
-      const name = document.createElement('span');
-      name.className = 'zr-settings-search__name';
-      name.textContent =
-        item.kind === 'entry' ? item.entry.dataset.title : item.label;
-      const path = document.createElement('span');
-      path.className = 'zr-settings-search__path';
-      path.textContent =
-        item.kind === 'entry'
-          ? item.entry.dataset.group
-          : `${item.entry.dataset.group} › ${item.entry.dataset.title}`;
-      option.append(name, path);
-
-      if (item.kind === 'field' && item.envKeys.length) {
-        const key = document.createElement('code');
-        key.className = 'zr-settings-search__key';
-        key.textContent = item.envKeys[0];
-        option.append(key);
+    const counts = new Map(
+      result.topics.map((topic) => [topic.id, topic.count])
+    );
+    links.forEach((link) => {
+      const id = link.dataset.entryLink;
+      link.classList.toggle('hidden', searching && !counts.has(id));
+      const badge = link.querySelector('[data-entry-count]');
+      if (!badge) return;
+      const count = searching ? counts.get(id) || 0 : 0;
+      badge.classList.toggle('hidden', count === 0);
+      if (count === 0) {
+        badge.replaceChildren();
+        return;
       }
-      results.append(option);
+      // The number for the eye, the words for a screen reader.
+      const words = document.createElement('span');
+      words.className = 'zr-sr';
+      words.textContent =
+        count === 1 ? ' matching setting' : ' matching settings';
+      badge.replaceChildren(String(count), words);
     });
-
-    results.classList.remove('hidden');
-    search.setAttribute('aria-expanded', 'true');
-    setActive(shown.length ? 0 : -1);
-  }
-
-  function setActive(index) {
-    active = index;
-    [...results.querySelectorAll('[role="option"]')].forEach((option, i) =>
-      option.setAttribute('aria-selected', i === index ? 'true' : 'false')
-    );
-    if (index >= 0) {
-      search.setAttribute(
-        'aria-activedescendant',
-        `settingsSearchOption${index}`
+    nav?.querySelectorAll('[data-nav-group]').forEach((group) => {
+      group.classList.toggle(
+        'hidden',
+        searching && !group.querySelector('[data-entry-link]:not(.hidden)')
       );
-      results
-        .querySelector(`#settingsSearchOption${index}`)
-        ?.scrollIntoView({ block: 'nearest' });
-    } else {
-      search.removeAttribute('aria-activedescendant');
-    }
+    });
+    // A group with a match opens; closed by hand, its heading carries the
+    // count of its topics.
+    matchedGroups = searching
+      ? new Set(
+          result.topics
+            .map((topic) => groupOfEntry.get(topic.id))
+            .filter(Boolean)
+        )
+      : null;
+    root.querySelectorAll('[data-group-count]').forEach((badge) => {
+      const key = badge.dataset.groupCount;
+      const count = searching
+        ? result.topics
+            .filter((topic) => groupOfEntry.get(topic.id) === key)
+            .reduce((sum, topic) => sum + topic.count, 0)
+        : 0;
+      badge.classList.toggle('hidden', count === 0);
+      const words = document.createElement('span');
+      words.className = 'zr-sr';
+      words.textContent =
+        count === 1 ? ' matching setting' : ' matching settings';
+      if (count) badge.replaceChildren(String(count), words);
+      else badge.replaceChildren();
+    });
+    renderGroups();
+    if (searchStatus) searchStatus.textContent = describeResult(result, query);
+
+    if (!searching) closeOpenedDisclosures();
   }
 
-  function pick(index) {
-    const item = shown[index];
-    if (!item) return;
-    closeResults();
-    if (item.kind === 'entry') {
-      go(item.entry.dataset.entry);
-      return;
-    }
-    reveal(item.row);
+  /**
+   * Shows the matches of the topic just opened: closed disclosures holding
+   * one are opened, and the first match is scrolled into view.
+   */
+  function revealMatches(entry) {
+    if (!searching || !entry) return;
+    const marked = [...entry.querySelectorAll(`.${MATCH_CLASS}`)];
+    if (!marked.length) return;
+    marked.forEach((row) => {
+      const details = row.closest('details');
+      if (details && !details.open) {
+        details.open = true;
+        openedBySearch.add(details);
+      }
+    });
+    marked[0].scrollIntoView({ block: 'center', behavior: 'auto' });
   }
 
-  /** Dims the topics that hold nothing matching the query. */
-  function filterNav(query) {
-    const hasQuery = Boolean(norm(query));
-    const hit = new Set(shown.map((item) => item.entry.dataset.entry));
-    links.forEach((link) =>
-      link.classList.toggle(
-        'zr-settings-nav__miss',
-        hasQuery && !hit.has(link.dataset.entryLink)
-      )
+  function closeOpenedDisclosures() {
+    openedBySearch.forEach((details) => {
+      details.open = false;
+    });
+    openedBySearch.clear();
+  }
+
+  function clearSearch() {
+    search.value = '';
+    runSearch();
+  }
+
+  /** The topics the list shows, in its order. */
+  function listedLinks() {
+    return links.filter(
+      (link) =>
+        !link.classList.contains('hidden') && !link.closest('.hidden, [hidden]')
     );
   }
 
-  if (search && results) {
-    search.addEventListener('input', renderResults);
-    search.addEventListener('focus', () => {
-      if (norm(search.value)) renderResults();
-    });
+  if (search) {
+    search.addEventListener('input', runSearch);
     search.addEventListener('keydown', (event) => {
-      const count = shown.length;
-      if (event.key === 'ArrowDown' && count) {
+      if (event.key === 'Escape' && search.value) {
         event.preventDefault();
-        if (results.classList.contains('hidden')) renderResults();
-        setActive((active + 1) % count);
-      } else if (event.key === 'ArrowUp' && count) {
-        event.preventDefault();
-        setActive((active - 1 + count) % count);
+        clearSearch();
       } else if (event.key === 'Enter') {
-        // Enter in the search field must never submit anything.
+        // Enter in the field opens the first topic listed and never submits
+        // the settings form.
         event.preventDefault();
-        if (active >= 0) pick(active);
-      } else if (event.key === 'Escape') {
-        if (!results.classList.contains('hidden')) {
+        const first = listedLinks()[0];
+        if (first) go(first.dataset.entryLink);
+      } else if (event.key === 'ArrowDown') {
+        const first = listedLinks()[0];
+        if (first) {
           event.preventDefault();
-          closeResults();
-        } else if (search.value) {
-          search.value = '';
-          renderResults();
+          first.focus();
         }
       }
     });
-    results.addEventListener('mousedown', (event) => {
-      // Keeps the focus in the field until the click has picked something.
-      event.preventDefault();
-    });
-    results.addEventListener('click', (event) => {
-      const option = event.target.closest('[role="option"]');
-      if (option) pick(Number(option.dataset.index));
-    });
-    document.addEventListener('click', (event) => {
-      if (!event.target.closest('.zr-settings-search')) closeResults();
+    // A browser that restores the field on Back finds the list as it was.
+    if (search.value) runSearch();
+  }
+
+  if (nav) {
+    nav.addEventListener('click', (event) => {
+      const link = event.target.closest('[data-entry-link]');
+      // The topic already open: no hash change follows, so its matches are
+      // shown from here.
+      if (link && searching && byId.get(link.dataset.entryLink) === current) {
+        event.preventDefault();
+        revealMatches(current);
+      }
     });
   }
 
@@ -506,6 +814,7 @@ export default function settingsNav(root) {
     destroy() {
       window.removeEventListener('hashchange', syncFromLocation);
       window.removeEventListener('popstate', syncFromLocation);
+      document.removeEventListener('keydown', onScrollKey);
     },
   };
 }

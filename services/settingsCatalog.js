@@ -40,7 +40,14 @@ const {
   serializePasswordList,
 } = require('./pdfPasswordService');
 const { normalizeOcrPrompt } = require('./ocrPrompt');
+const {
+  OCR_BEFORE_AI_MODES,
+  DEFAULT_OCR_BEFORE_AI_MODE,
+  DEFAULT_OCR_BEFORE_AI_TAG,
+  parseOcrBeforeAiMode,
+} = require('./ocrBeforeAi');
 const { REASONING_EFFORT_LEVELS } = require('./aiProviderRules');
+const { DEFAULT_OCR_TIMEOUT_MS } = require('./ocrTimeout');
 
 /**
  * @typedef {'string'|'secret'|'boolean'|'integer'|'number'|'list'|'enum'|'url'|'cron'|'json'} SettingType
@@ -77,6 +84,7 @@ const { REASONING_EFFORT_LEVELS } = require('./aiProviderRules');
  * @property {string|number} [saveDefault] in-effect value a save assumes when unset, where it differs from `default`
  * @property {string|number} [wizardDefault] wizard value when unset, where it differs from `default`
  * @property {readonly string[]} [fallbackKeys] variables consulted, in order, when `key` is unset
+ * @property {boolean} [keepEmpty] an empty value is a value of its own, not unset: the surfaces show and keep it instead of the default
  * @property {(value: unknown) => unknown} [view] how the pages show the value
  * @property {string} [field] settings form field that carries the value
  * @property {SettingParser} [parse] turns the form value into the value to save
@@ -371,14 +379,6 @@ const CATALOG = Object.freeze([
       restart: true,
       ...PSW,
     }),
-    setting('PAPERLESS_USERNAME', {
-      type: 'string',
-      default: '',
-      field: 'paperlessUsername',
-      parse: truthyAsIs,
-      readBy: 'services/paperlessService.js',
-      ...PSW,
-    }),
     // The connectivity probe's setInterval is started once at boot.
     setting('PAPERLESS_PROBE_INTERVAL_SECONDS', {
       type: 'integer',
@@ -466,9 +466,12 @@ const CATALOG = Object.freeze([
       parse: truthyAsIs,
       ...PSW,
     }),
+    // Unset is "ai-processed"; an empty name adds no tag at all
+    // (paperlessService.processTags), so the pages show it empty.
     setting('AI_PROCESSED_TAG_NAME', {
       type: 'string',
       default: 'ai-processed',
+      keepEmpty: true,
       field: 'aiTagName',
       parse: truthyAsIs,
       ...PSW,
@@ -496,7 +499,7 @@ const CATALOG = Object.freeze([
         }
         return {
           error:
-            'Invalid page limit. Use a whole number of pages, or 0 for no limit.',
+            'Page limit must be a whole number of pages, or 0 for no limit.',
         };
       },
       ...PS,
@@ -688,7 +691,7 @@ const CATALOG = Object.freeze([
         const normalized = String(raw).trim();
         if (!/^\d+$/.test(normalized) || Number(normalized) < 1) {
           return {
-            error: 'Invalid Token Limit. Expected a positive whole number.',
+            error: 'Document length limit must be a whole number above 0.',
           };
         }
         return { value: String(Number(normalized)) };
@@ -704,7 +707,7 @@ const CATALOG = Object.freeze([
         const parsed = Number.parseInt(String(raw).trim(), 10);
         if (!Number.isFinite(parsed) || parsed < 1) {
           return {
-            error: 'Invalid Response Tokens. Expected a positive whole number.',
+            error: 'Answer length must be a whole number above 0.',
           };
         }
         return { value: String(parsed) };
@@ -716,13 +719,6 @@ const CATALOG = Object.freeze([
       default: '0.3',
       field: 'aiTemperatureAnalysis',
       parse: temperature('AI_TEMPERATURE_ANALYSIS'),
-      ...PS,
-    }),
-    setting('AI_TEMPERATURE_GENERATION', {
-      type: 'number',
-      default: '0.7',
-      field: 'aiTemperatureGeneration',
-      parse: temperature('AI_TEMPERATURE_GENERATION'),
       ...PS,
     }),
     setting('AI_REASONING_EFFORT', {
@@ -740,7 +736,7 @@ const CATALOG = Object.freeze([
         return level === '' || REASONING_EFFORT_LEVELS.includes(level)
           ? { value: level }
           : {
-              error: `Invalid thinking effort. Allowed values are ${REASONING_EFFORT_LEVELS.join(', ')}, or empty to send none.`,
+              error: `Thinking effort must be one of ${REASONING_EFFORT_LEVELS.join(', ')}, or empty to send none.`,
             };
       },
       ...PS,
@@ -1087,6 +1083,16 @@ const CATALOG = Object.freeze([
       parse: intInRangeOrDefault('OCR_PDF_RENDER_DPI', 72, 300, '150'),
       ...PS,
     }),
+    // Read at every run end (services/ocrAutoProcessService.js), so a saved
+    // change applies without a restart. Off keeps the behaviour from before
+    // the setting existed.
+    setting('OCR_RUN_RIGHT_AWAY', {
+      type: 'boolean',
+      default: 'no',
+      field: 'ocrRunRightAway',
+      parse: yesNoString,
+      ...PS,
+    }),
     setting('OCR_AUTO_PROCESS_ENABLED', {
       type: 'boolean',
       default: 'no',
@@ -1107,7 +1113,7 @@ const CATALOG = Object.freeze([
         if (!isValidCron(pattern)) {
           return {
             error:
-              'Invalid OCR Processing Interval. Use cron syntax, for example */15 * * * *.',
+              'The OCR queue schedule must be in cron syntax, for example */15 * * * *.',
           };
         }
         return { value: pattern };
@@ -1129,6 +1135,36 @@ const CATALOG = Object.freeze([
       parse: yesNoString,
       ...PS,
     }),
+    setting('OCR_BEFORE_AI', {
+      type: 'enum',
+      default: DEFAULT_OCR_BEFORE_AI_MODE,
+      values: OCR_BEFORE_AI_MODES,
+      field: 'ocrBeforeAi',
+      // An unknown value is saved as off, the behaviour without the setting:
+      // a typo must not send every document to a paid OCR service.
+      parse: (raw) => {
+        if (raw === undefined) return {};
+        const mode = parseOcrBeforeAiMode(raw);
+        if (mode) return { value: mode };
+        return {
+          value: DEFAULT_OCR_BEFORE_AI_MODE,
+          warning: `[WARN] Invalid OCR_BEFORE_AI value: ${String(raw)}. Using default: ${DEFAULT_OCR_BEFORE_AI_MODE}`,
+        };
+      },
+      ...PS,
+    }),
+    setting('OCR_BEFORE_AI_TAG', {
+      type: 'string',
+      default: DEFAULT_OCR_BEFORE_AI_TAG,
+      field: 'ocrBeforeAiTag',
+      // A cleared field brings the default back rather than a tag no
+      // document can carry.
+      parse: (raw) =>
+        typeof raw === 'string'
+          ? { value: raw.trim() || DEFAULT_OCR_BEFORE_AI_TAG }
+          : {},
+      ...PS,
+    }),
     setting('PDF_PASSWORDS', {
       type: 'secret',
       default: '',
@@ -1136,12 +1172,14 @@ const CATALOG = Object.freeze([
       parse: parsePdfPasswords,
       ...PS,
     }),
+    // One OCR request, document OCR included. The default is the one
+    // services/ocrTimeout.js gives the runtime.
     setting('SETUP_OCR_VALIDATION_TIMEOUT_MS', {
       type: 'integer',
-      default: '30000',
+      default: String(DEFAULT_OCR_TIMEOUT_MS),
       fallbackKeys: ['SETUP_VALIDATION_TIMEOUT_MS'],
       field: 'ocrValidationTimeout',
-      readBy: 'services/mistralOcrService.js',
+      readBy: 'services/ocrTimeout.js',
       ...PSW,
     }),
     setting('SETUP_VALIDATION_TIMEOUT_MS', {
@@ -1189,8 +1227,7 @@ const CATALOG = Object.freeze([
         return ['auto', 'always', 'never'].includes(mode)
           ? { value: mode }
           : {
-              error:
-                'Invalid Cookie Secure Mode. Allowed values: auto, always, never.',
+              error: 'Secure cookies must be auto, always or never.',
             };
       },
       restart: true,
@@ -1325,8 +1362,7 @@ const CATALOG = Object.freeze([
         return ['debug', 'info', 'warn', 'error'].includes(level)
           ? { value: level }
           : {
-              error:
-                'Invalid Log Level. Allowed values: debug, info, warn, error.',
+              error: 'Log level must be debug, info, warn or error.',
             };
       },
       restart: true,
@@ -1378,8 +1414,7 @@ const CATALOG = Object.freeze([
         return ['DD.MM.YYYY', 'YYYY-MM-DD'].includes(format)
           ? { value: format }
           : {
-              error:
-                'Invalid Date Format. Allowed values: DD.MM.YYYY, YYYY-MM-DD.',
+              error: 'Date format must be DD.MM.YYYY or YYYY-MM-DD.',
             };
       },
       ...PS,
@@ -1389,6 +1424,35 @@ const CATALOG = Object.freeze([
 
 /** @type {ReadonlyMap<string, SettingEntry>} */
 const BY_KEY = new Map(CATALOG.map((entry) => [entry.key, entry]));
+
+/* ── Settings that left the catalogue ─────────────────────────────────── */
+
+/**
+ * A setting that was removed: nothing reads its key any more, but an
+ * installation can still carry it in docker-compose or in its stored
+ * settings. The settings page lists such a key (Set by the environment), and
+ * tests/test-removed-settings.js checks every entry here. A setting that is
+ * removed gets its line here in the same change that deletes its entry above.
+ *
+ * @typedef {object} RemovedSetting
+ * @property {string} key environment variable
+ * @property {string} field settings form field that carried it
+ * @property {string} removedIn the version that removed it
+ */
+
+/** @type {ReadonlyArray<RemovedSetting>} */
+const REMOVED_SETTINGS = Object.freeze([
+  Object.freeze({
+    key: 'AI_TEMPERATURE_GENERATION',
+    field: 'aiTemperatureGeneration',
+    removedIn: 'v2026.11.04',
+  }),
+  Object.freeze({
+    key: 'PAPERLESS_USERNAME',
+    field: 'paperlessUsername',
+    removedIn: 'v2026.11.04',
+  }),
+]);
 
 /* ── Lookups ──────────────────────────────────────────────────────────── */
 
@@ -1450,7 +1514,8 @@ function exportGroups() {
 
 /**
  * The value of a setting as one surface sees it: the variable (or its
- * fallbacks) when set and non-empty, otherwise the surface's default. No view
+ * fallbacks) when set and non-empty, otherwise the surface's default. An
+ * entry marked `keepEmpty` takes an empty variable as its value. No view
  * transformation is applied.
  *
  * @param {string} key
@@ -1463,6 +1528,7 @@ function valueFromEnv(key, env = process.env, surface = 'page') {
   for (const name of [entry.key, ...(entry.fallbackKeys || [])]) {
     const value = env[name];
     if (value) return value;
+    if (entry.keepEmpty && value === '') return value;
   }
   if (surface === 'save' && entry.saveDefault !== undefined) {
     return entry.saveDefault;
@@ -1543,4 +1609,5 @@ module.exports = {
   normalizeList,
   sanitizeSwitch,
   clampNumber,
+  REMOVED_SETTINGS,
 };

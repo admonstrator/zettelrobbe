@@ -22,6 +22,7 @@
  */
 
 import { escapeHtml as esc } from './text-utils.js';
+import { attachChipList, commitChipLists } from './tag-input.js';
 import {
   cardHtml,
   deleteGroupHtml,
@@ -136,13 +137,6 @@ function whenText(iso) {
   return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${time}`;
 }
 
-function topicList(text) {
-  return String(text || '')
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
 /* --- the page ------------------------------------------------------------ */
 
 export default function tidyUp(root, ctx = {}) {
@@ -184,6 +178,8 @@ export default function tidyUp(root, ctx = {}) {
     batchOf: new Map(),
     banner: null, // { batchId, count }
     edits: {},
+    /** suggestion id → topic text typed but not added as a pill yet */
+    topicDrafts: new Map(),
     openDetails: new Set(),
     picking: new Set(),
     ticked: new Set(),
@@ -416,6 +412,38 @@ export default function tidyUp(root, ctx = {}) {
       );
     }
     el.list.innerHTML = out.join('');
+    attachTopicLists();
+  }
+
+  /* The topic tags of a split card are pills (/js/chip-list.js). The list is
+     drawn anew on every redraw, so a pill change goes into state.edits at once
+     and text typed but not added yet is kept per suggestion and put back. */
+  function attachTopicLists() {
+    el.list.querySelectorAll('[data-topic-field]').forEach((field) => {
+      const s = suggestionOf(field);
+      const input = field.querySelector('[data-act="topics"]');
+      if (!s || !input) return;
+      const edit = state.edits[s.id] || {};
+      input.value = state.topicDrafts.get(s.id) || '';
+      attachChipList(field.querySelector('[data-el="topics"]'), {
+        input,
+        addButton: field.querySelector('[data-el="add-topic"]'),
+        values:
+          edit.topicNames !== undefined ? edit.topicNames : s.topicNames || [],
+        onChange(values) {
+          state.edits[s.id] = {
+            ...(state.edits[s.id] || {}),
+            topicNames: values,
+          };
+          rememberTopicDraft(s.id, input.value);
+        },
+      });
+    });
+  }
+
+  function rememberTopicDraft(id, text) {
+    if (String(text || '').trim()) state.topicDrafts.set(id, text);
+    else state.topicDrafts.delete(id);
   }
 
   /* --- loading ----------------------------------------------------------- */
@@ -768,6 +796,8 @@ export default function tidyUp(root, ctx = {}) {
   async function decide(ids, decision, { batchBanner = false } = {}) {
     if (!ids.length || busy()) return;
     try {
+      // A topic typed into a split card but not added yet is part of it.
+      if (decision === 'accept') commitChipLists(el.list);
       const body = { ids, decision };
       const edits = decision === 'accept' ? editsFor(ids) : undefined;
       if (edits) body.edits = edits;
@@ -900,37 +930,49 @@ export default function tidyUp(root, ctx = {}) {
 
   /* --- the vocabulary dialog ----------------------------------------------- */
 
+  // Both name lists are pills (/js/chip-list.js), like every list in the app.
   async function editVocabulary() {
     if (!state.vocabulary) await loadVocabulary();
-    const lines = (list) => esc(list.map((e) => e.name).join('\n'));
+    const field = (key, label) => `<div class="tidy-vocab__field">
+            <label class="zr-sm" for="tidy-vocab-${key}">${label}</label>
+            <div class="zr-inputgroup">
+              <input type="text" class="zr-input" id="tidy-vocab-${key}" autocomplete="off" placeholder="Name, then Enter">
+              <button type="button" class="zr-btn" data-vocab-add="${key}">Add</button>
+            </div>
+            <div class="zr-chips" data-vocab="${key}"></div>
+          </div>`;
+    const lists = {};
     const result = await window.zrDialog({
       title: 'The names splits use',
       html: `<div class="tidy-vocab">
-          <p class="zr-sm zr-muted">One name per line. Every split suggestion picks from these.</p>
-          <label class="tidy-vocab__field"><span class="zr-sm">Document types</span>
-            <textarea class="zr-textarea" rows="7" data-vocab="types">${lines(state.vocabulary.types)}</textarea></label>
-          <label class="tidy-vocab__field"><span class="zr-sm">Topics</span>
-            <textarea class="zr-textarea" rows="7" data-vocab="topics">${lines(state.vocabulary.topics)}</textarea></label>
+          <p class="zr-sm zr-muted">Every split suggestion picks its document type and topics from these names.</p>
+          ${field('types', 'Document types')}
+          ${field('topics', 'Topics')}
         </div>`,
       showCancelButton: true,
       confirmButtonText: 'Save',
       onOpen({ dialog }) {
         dialog.classList.add('tidy-vocab-dialog');
-        editVocabulary.dialog = dialog;
+        for (const key of ['types', 'topics']) {
+          lists[key] = attachChipList(
+            dialog.querySelector(`[data-vocab="${key}"]`),
+            {
+              input: dialog.querySelector(`#tidy-vocab-${key}`),
+              addButton: dialog.querySelector(`[data-vocab-add="${key}"]`),
+              values: (state.vocabulary[key] || []).map((e) => e.name),
+            }
+          );
+        }
       },
     });
-    const dialog = editVocabulary.dialog;
-    editVocabulary.dialog = null;
-    if (!result.isConfirmed || !dialog) return;
-    const read = (key) =>
-      String(dialog.querySelector(`[data-vocab="${key}"]`)?.value || '')
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
+    if (!result.isConfirmed || !lists.types || !lists.topics) return;
+    // A name typed but not added yet is saved with the others.
+    lists.types.commit();
+    lists.topics.commit();
     try {
       await sendJson('PUT', '/api/simplify/vocabulary', {
-        types: read('types'),
-        topics: read('topics'),
+        types: lists.types.values(),
+        topics: lists.topics.values(),
       });
       await loadVocabulary();
       renderResults();
@@ -1246,11 +1288,7 @@ export default function tidyUp(root, ctx = {}) {
     const target = event.target;
     if (target.dataset?.act !== 'topics') return;
     const s = suggestionOf(target);
-    if (s)
-      state.edits[s.id] = {
-        ...(state.edits[s.id] || {}),
-        topicNames: topicList(target.value),
-      };
+    if (s) rememberTopicDraft(s.id, target.value);
   });
 
   // Remember which Details are open, so a redraw keeps them open.

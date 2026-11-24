@@ -2,65 +2,283 @@ const axios = require('axios');
 const config = require('../config/config');
 const { validateApiUrl } = require('./serviceUtils');
 
-// Maximum allowed depth for property access to prevent DoS
+/*
+ * EXTERNAL_API_TRANSFORM is a path into the JSON answer: names separated by
+ * dots, a list position in brackets, such as `data.items[0].name`, or
+ * `[0].name` when the answer itself is a list. Upstream the setting held
+ * JavaScript for new Function(); this fork never runs code from it. The value
+ * is matched against PATH_PATTERN and walked step by step over the answer's
+ * own properties, so it cannot reach a prototype or call anything.
+ */
+
+/** A path with more steps than this is refused. */
 const MAX_TRANSFORM_DEPTH = 10;
+const NAME = '[\\p{L}\\p{N}_-]+';
+const PATH_PATTERN = new RegExp(
+  `^(?:${NAME}|\\[\\d+\\])(?:\\.${NAME}|\\[\\d+\\])*$`,
+  'u'
+);
+const STEP_PATTERN = new RegExp(`\\[(\\d+)\\]|(${NAME})`, 'gu');
+/*
+ * Never a step, not even as an own key: JSON.parse turns a "__proto__" in an
+ * answer into an own property.
+ */
+const BLOCKED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
- * Safely apply a JSONPath-like transformation to data without using Function constructor.
- * Supports simple property access patterns like "data.items" or "response.results[0]".
- * 
- * @param {Object} data - The data to transform
- * @param {string} transform - A dot-notation path to extract (e.g., "data.items" or "response.results")
- * @returns {*} The extracted data or the original data if transform fails
+ * The steps of a transform path, or null when the value is not a path.
+ *
+ * @param {string} path - trimmed
+ * @returns {Array<string|number>|null}
  */
-function safeTransform(data, transform) {
-  if (!transform || typeof transform !== 'string') {
-    return data;
+function parsePath(path) {
+  if (!PATH_PATTERN.test(path)) {
+    return null;
   }
+  return Array.from(path.matchAll(STEP_PATTERN), (match) =>
+    match[1] !== undefined ? Number(match[1]) : match[2]
+  );
+}
 
-  // Only allow safe property access patterns (alphanumeric, dots, brackets with numbers)
-  const safePattern = /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*$/;
-  
-  // Handle "return data.path" or just "data.path" patterns
-  let path = transform.trim();
-  if (path.startsWith('return ')) {
-    path = path.substring(7).trim();
-  }
-  // Remove trailing semicolon if present
-  if (path.endsWith(';')) {
-    path = path.slice(0, -1).trim();
-  }
-
-  if (!safePattern.test(path)) {
-    console.warn('[WARNING] Transform pattern contains unsafe characters, returning original data');
-    return data;
-  }
-
-  try {
-    // Parse the path and navigate through the object
-    const parts = path.split(/\.|\[|\]/).filter(Boolean);
-    
-    // Check depth limit to prevent DoS
-    if (parts.length > MAX_TRANSFORM_DEPTH) {
-      console.warn(`[WARNING] Transform path exceeds maximum depth of ${MAX_TRANSFORM_DEPTH}, returning original data`);
-      return data;
+/**
+ * Follows the steps through the answer. A name step reads an own property of
+ * an object or list, an index step an entry of a list; anything else is no
+ * match.
+ *
+ * @param {unknown} data - the parsed answer
+ * @param {Array<string|number>} steps
+ * @returns {{ found: boolean, value?: unknown }}
+ */
+function walkPath(data, steps) {
+  let current = data;
+  for (const step of steps) {
+    if (current === null || typeof current !== 'object') {
+      return { found: false };
     }
-    
-    let result = data;
-    
-    for (const part of parts) {
-      if (result === null || result === undefined) {
-        return data;
+    if (typeof step === 'number') {
+      if (!Array.isArray(current) || step >= current.length) {
+        return { found: false };
       }
-      // Handle numeric indices and string keys
-      const key = /^\d+$/.test(part) ? parseInt(part, 10) : part;
-      result = result[key];
+    } else if (
+      BLOCKED_KEYS.has(step) ||
+      !Object.prototype.hasOwnProperty.call(current, step)
+    ) {
+      return { found: false };
     }
-    
-    return result !== undefined ? result : data;
-  } catch (error) {
-    console.warn('[WARNING] Failed to apply transform, returning original data:', error.message);
+    current = current[step];
+  }
+  return { found: true, value: current };
+}
+
+/**
+ * The part of the answer EXTERNAL_API_TRANSFORM points to.
+ *
+ * The whole answer when the setting is empty, when it is not a path (the
+ * JavaScript an upstream installation may still hold, for one) and when the
+ * path matches nothing. That is what every installation got while the setting
+ * was never read, so a value that does not fit keeps that behaviour and says
+ * so in the log.
+ *
+ * @param {unknown} data - the parsed answer
+ * @param {unknown} transform - EXTERNAL_API_TRANSFORM
+ * @returns {unknown}
+ */
+function applyTransform(data, transform) {
+  const path = typeof transform === 'string' ? transform.trim() : '';
+  if (!path) {
     return data;
+  }
+
+  const steps = parsePath(path);
+  if (!steps) {
+    console.warn(
+      '[WARNING] EXTERNAL_API_TRANSFORM is not a path such as data.items[0].name, so the whole answer goes into the prompt'
+    );
+    return data;
+  }
+  if (steps.length > MAX_TRANSFORM_DEPTH) {
+    console.warn(
+      `[WARNING] EXTERNAL_API_TRANSFORM has more than ${MAX_TRANSFORM_DEPTH} steps, so the whole answer goes into the prompt`
+    );
+    return data;
+  }
+
+  const { found, value } = walkPath(data, steps);
+  if (!found) {
+    console.warn(
+      `[WARNING] EXTERNAL_API_TRANSFORM "${path}" matches nothing in the answer, so the whole answer goes into the prompt`
+    );
+    return data;
+  }
+  return value;
+}
+
+/*
+ * Redirects. Left to itself, axios follows up to 21 of them and checks none:
+ * a public endpoint could send the request on to a private address, localhost
+ * or the cloud metadata service, and a custom header such as X-Api-Key went
+ * along to whatever host a redirect named. So the service follows them itself.
+ * Every hop has to pass validateApiUrl with the options the entered address
+ * got, before a request goes to it, and an https request never continues over
+ * plain http.
+ *
+ * The configured headers and the request body go only to the address the
+ * user entered (isEnteredAddress): its own origin, or the same host name when
+ * the redirect only upgrades http to https on the default ports (80 to 443,
+ * or no port to no port), as a proxy in front of an API often does. On a hop
+ * to any other address the headers stay behind. A hop that would carry the
+ * body there (307 and 308, and 301 and 302 for a method other than POST, the
+ * cases where the body is kept) is refused, because a body can hold a token
+ * as well.
+ */
+
+/** Redirects followed at most; the next one is refused. */
+const MAX_REDIRECTS = 5;
+/** The answers that send the request on to the address in Location. */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** A redirect the service does not follow. */
+class RedirectRefusedError extends Error {
+  /**
+   * @param {string} address - as addressForLog() prints it
+   * @param {string} reason
+   */
+  constructor(address, reason) {
+    super(`redirect to ${address} refused: ${reason}`);
+    this.name = 'RedirectRefusedError';
+  }
+}
+
+/**
+ * An address for a log line: without user name, password, query string and
+ * fragment, which can carry a key.
+ *
+ * @param {URL} url
+ * @returns {string}
+ */
+function addressForLog(url) {
+  const shown = new URL(url.href);
+  shown.username = '';
+  shown.password = '';
+  shown.search = '';
+  shown.hash = '';
+  return shown.href;
+}
+
+/**
+ * Whether a hop goes to the address the user entered, as described above:
+ * the same origin, or the same host name reached over https instead of http,
+ * both on their default port.
+ *
+ * @param {URL} entered
+ * @param {URL} target
+ * @returns {boolean}
+ */
+function isEnteredAddress(entered, target) {
+  if (target.origin === entered.origin) {
+    return true;
+  }
+  // URL drops a default port (80 for http, 443 for https), so an empty port
+  // is the default one on either side.
+  return (
+    entered.protocol === 'http:' &&
+    target.protocol === 'https:' &&
+    target.hostname === entered.hostname &&
+    entered.port === '' &&
+    target.port === ''
+  );
+}
+
+/**
+ * Sends the request and follows its redirects as described above. One
+ * timeout covers the whole chain, as it did while axios followed.
+ *
+ * @param {{ method: string, url: string, headers: unknown, timeout: number, data?: unknown }} request
+ * @param {boolean} allowPrivateIPs - EXTERNAL_API_ALLOW_PRIVATE_IPS, as for the entered address
+ * @returns {Promise<{ status: number, data: unknown }>} the answer that is not a redirect
+ */
+async function requestCheckingRedirects(request, allowPrivateIPs) {
+  const entered = new URL(request.url);
+  const deadline = Date.now() + request.timeout;
+  let { method, url, data } = request;
+
+  for (let redirects = 0; ; redirects += 1) {
+    const current = new URL(url);
+    const timeLeft = deadline - Date.now();
+    if (timeLeft <= 0) {
+      throw new Error(`timeout of ${request.timeout}ms exceeded`);
+    }
+
+    const options = {
+      method,
+      url,
+      headers: isEnteredAddress(entered, current) ? request.headers : {},
+      timeout: timeLeft,
+      maxRedirects: 0,
+      validateStatus: (status) =>
+        (status >= 200 && status < 300) || REDIRECT_STATUSES.has(status),
+    };
+    if (data !== undefined) {
+      options.data = data;
+    }
+
+    const response = await axios(options);
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      return response;
+    }
+
+    const location = response.headers?.location;
+    if (!location) {
+      // What axios reports for an answer it does not accept.
+      const error = new Error(
+        `Request failed with status code ${response.status}`
+      );
+      error.response = response;
+      throw error;
+    }
+
+    let target;
+    try {
+      target = new URL(String(location), url);
+    } catch {
+      throw new RedirectRefusedError(String(location), 'Not a valid address');
+    }
+    if (redirects >= MAX_REDIRECTS) {
+      throw new RedirectRefusedError(
+        addressForLog(target),
+        `More than ${MAX_REDIRECTS} redirects in a row`
+      );
+    }
+    if (current.protocol === 'https:' && target.protocol === 'http:') {
+      throw new RedirectRefusedError(
+        addressForLog(target),
+        'An https request does not continue over http'
+      );
+    }
+    const check = await validateApiUrl(target.href, { allowPrivateIPs });
+    if (!check.valid) {
+      throw new RedirectRefusedError(addressForLog(target), check.error);
+    }
+
+    // As axios did: 301 and 302 turn a POST into a GET, 303 turns anything
+    // but GET and HEAD into a GET. The body stays behind.
+    const verb = String(method).toUpperCase();
+    if (
+      ((response.status === 301 || response.status === 302) &&
+        verb === 'POST') ||
+      (response.status === 303 && verb !== 'GET' && verb !== 'HEAD')
+    ) {
+      method = 'GET';
+      data = undefined;
+    }
+    if (data !== undefined && !isEnteredAddress(entered, target)) {
+      throw new RedirectRefusedError(
+        addressForLog(target),
+        'The request body goes only to the address you entered'
+      );
+    }
+    console.debug(`[DEBUG] External API redirects to ${addressForLog(target)}`);
+    url = target.href;
   }
 }
 
@@ -69,24 +287,33 @@ function safeTransform(data, transform) {
  */
 class ExternalApiService {
   /**
-   * Fetch data from the configured external API
-   * @returns {Promise<Object|string|null>} The data from the API or null if disabled/error
+   * Fetch data from the configured external API: one request, no retry.
+   * @returns {Promise<unknown>} the answer, or the part EXTERNAL_API_TRANSFORM
+   *   picks from it (a number or boolean as text); null when the feature is
+   *   off, the address or one of its redirects is refused, or the call fails
+   *   or times out, and the analysis then runs without it
    */
   async fetchData() {
     try {
       // Check if external API integration is enabled
-      if (!config.externalApiConfig || config.externalApiConfig.enabled !== 'yes') {
+      if (
+        !config.externalApiConfig ||
+        config.externalApiConfig.enabled !== 'yes'
+      ) {
         console.log('[DEBUG] External API integration is disabled');
         return null;
       }
 
+      // EXTERNAL_API_TRANSFORM reaches config as transformationTemplate, the
+      // name upstream gave it. This used to read `transform`, which config
+      // never had, so the setting was ignored.
       const {
         url,
         method = 'GET',
         headers = {},
         body = {},
         timeout = 5000,
-        transform
+        transformationTemplate: transform,
       } = config.externalApiConfig;
 
       if (!url) {
@@ -96,14 +323,20 @@ class ExternalApiService {
 
       // Validate URL to prevent SSRF attacks
       // Note: allowPrivateIPs is set based on environment - administrators may need internal APIs
-      const allowPrivateIPs = process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes';
+      const allowPrivateIPs =
+        process.env.EXTERNAL_API_ALLOW_PRIVATE_IPS === 'yes';
       const urlValidation = await validateApiUrl(url, { allowPrivateIPs });
       if (!urlValidation.valid) {
-        console.error(`[ERROR] External API URL validation failed: ${urlValidation.error}`);
+        console.error(
+          `[ERROR] External API URL validation failed: ${urlValidation.error}`
+        );
         return null;
       }
 
-      console.log(`[DEBUG] Fetching data from external API: ${url}`);
+      // The address can carry a key in its user name, password or query.
+      console.log(
+        `[DEBUG] Fetching data from external API: ${addressForLog(new URL(url))}`
+      );
 
       // Parse headers if they're a string
       let parsedHeaders = headers;
@@ -111,7 +344,10 @@ class ExternalApiService {
         try {
           parsedHeaders = JSON.parse(headers);
         } catch (error) {
-          console.error('[ERROR] Failed to parse external API headers:', error.message);
+          console.error(
+            '[ERROR] Failed to parse external API headers:',
+            error.message
+          );
           parsedHeaders = {};
         }
       }
@@ -122,7 +358,10 @@ class ExternalApiService {
         try {
           parsedBody = JSON.parse(body);
         } catch (error) {
-          console.error('[ERROR] Failed to parse external API body:', error.message);
+          console.error(
+            '[ERROR] Failed to parse external API body:',
+            error.message
+          );
           parsedBody = {};
         }
       }
@@ -140,25 +379,31 @@ class ExternalApiService {
         options.data = parsedBody;
       }
 
-      // Make the request
-      const response = await axios(options);
-      let data = response.data;
+      // Make the request; every redirect passes the same check as the URL
+      const response = await requestCheckingRedirects(options, allowPrivateIPs);
+      const data = applyTransform(response.data, transform);
 
-      // Apply safe transform if provided (replaces unsafe Function constructor)
-      if (transform && typeof transform === 'string') {
-        try {
-          data = safeTransform(data, transform);
-          console.log('[DEBUG] Successfully transformed external API data');
-        } catch (error) {
-          console.error('[ERROR] Failed to execute transform:', error.message);
-        }
+      // A number or a boolean goes into the prompt as text. As a value, 0 and
+      // false would read as "no data" further on and never reach the model.
+      if (typeof data === 'number' || typeof data === 'boolean') {
+        return String(data);
       }
-
       return data;
     } catch (error) {
-      console.error('[ERROR] Failed to fetch data from external API:', error.message);
+      if (error instanceof RedirectRefusedError) {
+        console.error(`[ERROR] External API ${error.message}`);
+        return null;
+      }
+      console.error(
+        '[ERROR] Failed to fetch data from external API:',
+        error.message
+      );
       if (error.response) {
-        console.error('[ERROR] API Response:', error.response.status, error.response.data);
+        console.error(
+          '[ERROR] API Response:',
+          error.response.status,
+          error.response.data
+        );
       }
       return null;
     }

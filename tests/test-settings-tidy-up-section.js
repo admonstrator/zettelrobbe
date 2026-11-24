@@ -287,9 +287,9 @@ function sliceBetween(source, from, to) {
         ['mobile', mobilePicker, (id) => `value="${id}"`],
       ].forEach(([label, nav, needle]) => {
         assert.ok(
-          nav.indexOf(needle('runtime')) < nav.indexOf(needle('tidy-up')) &&
+          nav.indexOf(needle('skip-rules')) < nav.indexOf(needle('tidy-up')) &&
             nav.indexOf(needle('tidy-up')) < nav.indexOf(needle('account')),
-          `the ${label} topic list must list Tidy up after runtime and before account`
+          `the ${label} topic list must list Tidy up after skip rules and before account`
         );
       });
 
@@ -337,8 +337,8 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         section,
-        /These settings only govern what the model does on the Tidy up page when you ask it\.\s+Finding, merging and splitting work without them; nothing here runs on its own\./,
-        'the two-sentence intro says what the section is for'
+        /Finding, merging and splitting names work without the model\. The model only answers\s+when you start a run on the Tidy up page\. Reusing names that exist in another spelling\s+also applies to every analysis\./,
+        'the intro says what the section is for and what also applies to every analysis'
       );
       assert.strictEqual(
         countOccurrences(section, '<details'),
@@ -687,7 +687,7 @@ function sliceBetween(source, from, to) {
       );
       assert.match(
         guard,
-        /Reuse an existing name instead of creating a near-duplicate/,
+        /Reuse names that exist in another spelling/,
         'the switch must say what it switches'
       );
       // The hint has to name the tiers, or "the same word in another
@@ -697,7 +697,7 @@ function sliceBetween(source, from, to) {
         'the hint must name the spellings the guard treats as the same word'
       );
       assert.ok(
-        /a mere typo is only logged/.test(guard),
+        /A mere typo is only logged/.test(guard),
         'the hint must say that a fuzzy match is not mapped, only recorded'
       );
       assert.ok(
@@ -1328,7 +1328,7 @@ function sliceBetween(source, from, to) {
 
       assert.match(
         section,
-        /Finding, merging and splitting work without them/,
+        /Finding, merging and splitting names work without the model/,
         'the section must say that splitting works without a model'
       );
     });
@@ -1505,9 +1505,15 @@ function sliceBetween(source, from, to) {
             },
           };
         });
-      // The submit handler awaits more than the POST; wait for the request.
+      // The save button sits in the save bar, outside the form
+      // (form="setupForm"), which shows once a change is unsaved. The submit
+      // handler awaits more than the POST; wait for the request.
       const submitAndWait = async (page, saves, count) => {
-        await page.click('#setupForm button[type="submit"]');
+        assert.ok(
+          await page.isVisible('#settingsSaveRow'),
+          'the change shows the save bar'
+        );
+        await page.click('#settingsSaveRow [data-el="save"]');
         const deadline = Date.now() + 10000;
         while (saves.length < count && Date.now() < deadline) {
           await page.waitForTimeout(25);
@@ -1523,8 +1529,6 @@ function sliceBetween(source, from, to) {
 
       process.env.DUPLICATES_AI_MODEL = 'proxy-pinned-model';
       process.env.AI_PROVIDER = 'openai';
-      // The form is validated before it is sent; the harness has no user.
-      process.env.PAPERLESS_USERNAME = 'tidy-up-tester';
       const browser = await playwright.chromium.launch();
       try {
         await test('in a browser, a locked model picker disables the select and the Fetch button', async () => {
@@ -1635,6 +1639,53 @@ function sliceBetween(source, from, to) {
           state = await pickerState(page);
           assert.ok(!state.button.hidden, 'the button returns with Ollama');
           assert.strictEqual(state.value, 'proxy-pinned-model');
+          await page.close();
+        });
+
+        await test('in a browser, a saved model is what a provider switch and Discard return to', async () => {
+          const { page, saves } = await openPage(browser, [
+            'gpt-4.1',
+            'o4-mini',
+          ]);
+          await page.waitForFunction(
+            () => !document.getElementById('duplicatesAiModel').disabled
+          );
+          await page.click('#fetchTidyUpModelsBtn');
+          await closeDialog(page);
+          await page.selectOption('#duplicatesAiModel', 'o4-mini');
+          await submitAndWait(page, saves, 1);
+          assert.strictEqual(saves[0].duplicatesAiModel, 'o4-mini');
+          await page.waitForSelector('#settingsSaveRow', { state: 'hidden' });
+
+          // Saved without a reload, the model is the stored one now. A
+          // person's switch, so the save bar offers Discard.
+          await page.evaluate(() => {
+            location.hash = '#ai-provider';
+          });
+          await page.selectOption('#aiProvider', 'azure');
+          let state = await pickerState(page);
+          assert.deepStrictEqual(state.options, [
+            'Same as the analysis model',
+            'o4-mini',
+            'Other…',
+          ]);
+          assert.strictEqual(state.value, 'o4-mini');
+
+          await page.click('#settingsSaveRow [data-el="reset"]');
+          await page.click(
+            'dialog.zr-dialog:not([id])[open] button[value="ok"]'
+          );
+          await page.waitForSelector('#settingsSaveRow', { state: 'hidden' });
+          state = await pickerState(page);
+          assert.strictEqual(
+            state.value,
+            'o4-mini',
+            'Discard keeps the saved model'
+          );
+          assert.strictEqual(
+            await page.$eval('#aiProvider', (select) => select.value),
+            'openai'
+          );
           await page.close();
         });
 

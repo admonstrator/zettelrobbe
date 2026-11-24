@@ -64,6 +64,10 @@ const {
   getAnthropicFormOptions,
   loadAiProviderPresets,
 } = require('../services/aiFormOptions');
+const {
+  DEFAULT_OCR_TIMEOUT_MS,
+  ocrTimeoutMsFromEnv,
+} = require('../services/ocrTimeout');
 const router = express.Router();
 
 function normalizeSetupBaseUrl(url) {
@@ -137,7 +141,6 @@ function toEnvPreviewLines(config) {
   const previewKeys = [
     'PAPERLESS_API_URL',
     'PAPERLESS_API_TOKEN',
-    'PAPERLESS_USERNAME',
     'PROCESS_PREDEFINED_DOCUMENTS',
     'TAGS',
     'IGNORE_TAGS',
@@ -204,8 +207,7 @@ async function validatePaperlessConnectionForSetup(
     return {
       success: false,
       stage: 'reachability',
-      message:
-        'Paperless-ngx could not be reached with the provided URL and token.',
+      message: 'Could not reach Paperless-ngx with this URL and token.',
     };
   }
 
@@ -298,9 +300,9 @@ router.get('/setup', async (req, res) => {
         .render('setup-error', {
           title: 'System Configuration Error',
           errorMessage:
-            'The system configuration exists but the database is inaccessible or corrupted. This is an administrative error state. Please check system logs and database integrity.',
+            'The configuration exists, but the database cannot be read or is corrupted. Check the system logs and whether the database is intact.',
           supportText:
-            'This may occur if: (1) the database file was deleted or corrupted, (2) file permissions changed, or (3) the database is locked. Restart the application after verifying database and permissions.',
+            'Possible causes: the database file was deleted or corrupted, file permissions changed, or the database is locked. Check the database and its permissions, then restart the application.',
         })
         .catch(() => {
           // Fallback if setup-error template doesn't exist
@@ -364,6 +366,7 @@ router.get('/setup', async (req, res) => {
       anthropicOptions: getAnthropicFormOptions(),
       defaults: {
         scanInterval: getDefaultScanInterval(),
+        ocrTimeoutMs: DEFAULT_OCR_TIMEOUT_MS,
       },
     });
   } catch (error) {
@@ -371,11 +374,12 @@ router.get('/setup', async (req, res) => {
     const aiProviderPresets = await loadAiProviderPresets();
     res.status(500).render('setup', {
       config: {},
-      error: 'An error occurred while loading the setup page.',
+      error: 'Could not load the setup page.',
       aiProviderPresets,
       anthropicOptions: getAnthropicFormOptions(),
       defaults: {
         scanInterval: getDefaultScanInterval(),
+        ocrTimeoutMs: DEFAULT_OCR_TIMEOUT_MS,
       },
     });
   }
@@ -468,7 +472,7 @@ router.post('/api/setup/mfa/setup', express.json(), async (req, res) => {
     console.error('[ERROR] POST /api/setup/mfa/setup:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to initialize MFA setup.',
+      error: 'Could not start MFA setup.',
     });
   }
 });
@@ -934,7 +938,9 @@ router.post(
  *             description: >
  *               The wizard's answers (administrator, Paperless-ngx connection,
  *               document scope, AI and OCR settings). Only the fields below are
- *               described individually.
+ *               described individually. paperlessUsername, which older clients
+ *               send, is ignored: Zettelrobbe signs in with paperlessToken
+ *               alone.
  *             properties:
  *               processedTag:
  *                 type: string
@@ -983,7 +989,6 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const mfaChallengeId = String(req.body?.mfaChallengeId || '').trim();
 
     const paperlessUrl = normalizeSetupBaseUrl(req.body?.paperlessUrl);
-    const paperlessUsername = String(req.body?.paperlessUsername || '').trim();
     const paperlessToken = String(req.body?.paperlessToken || '').trim();
 
     const scanAllDocuments = parseBooleanInput(
@@ -1026,11 +1031,13 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       req.body?.setupValidationTimeoutMs,
       30000
     );
+    // Without either value, the OCR timeout in effect: the default while
+    // nothing is set, as for document OCR.
     const setupOcrValidationTimeoutMs =
       setupService.normalizeValidationTimeoutMs(
         req.body?.setupOcrValidationTimeoutMs ??
           req.body?.setupValidationTimeoutMs,
-        30000
+        ocrTimeoutMsFromEnv(process.env)
       );
 
     const allowFailedPaperlessTest = parseBooleanInput(
@@ -1124,10 +1131,11 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
       });
     }
 
-    if (!paperlessUrl || !paperlessUsername || !paperlessToken) {
+    // Zettelrobbe signs in with the token alone.
+    if (!paperlessUrl || !paperlessToken) {
       return res.status(400).json({
         success: false,
-        error: 'Paperless URL, username, and token are required.',
+        error: 'Paperless URL and token are required.',
       });
     }
 
@@ -1209,7 +1217,6 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
     const finalConfig = settingsService.buildInitialSetupConfig({
       paperlessUrl,
       paperlessToken,
-      paperlessUsername,
       aiProvider,
       aiApiUrl,
       aiToken,
@@ -1285,7 +1292,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Initial setup completed successfully.',
+      message: 'Initial setup is complete.',
       restart: true,
       redirectTo: '/login',
       envPreview,

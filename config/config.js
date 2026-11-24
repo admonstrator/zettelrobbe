@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { stripTrailingSlashes } = require('../services/serviceUtils');
+const { normalizeOcrBeforeAiMode } = require('../services/ocrBeforeAi');
 const currentDir = decodeURIComponent(process.cwd());
 const envPath = path.join(currentDir, 'data', '.env');
 const migratedEnvPath = path.join(currentDir, 'data', '.env.migrated');
@@ -102,6 +103,13 @@ const isProtectedRuntimeEnvKey = (key) => {
 if (!global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__) {
   global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ = { ...process.env };
 }
+
+// A copy of the environment the process started with, as taken above: every
+// variable present at startup, the Dockerfile's own defaults included. The
+// settings page lists from it what the environment decides.
+const getStartupEnvironment = () => ({
+  ...(global.__PAPERLESS_AI_INJECTED_ENV_SNAPSHOT__ || {}),
+});
 
 const migrateLegacyEnvFileToRuntimeOverrides = (currentLevel) => {
   try {
@@ -563,10 +571,19 @@ const mistralOcr = liveBlock({
   autoProcessEnabled: () => envBool('OCR_AUTO_PROCESS_ENABLED', 'no'),
   autoProcessInterval: () => env('OCR_AUTO_PROCESS_INTERVAL', '*/15 * * * *'),
   autoProcessBatchSize: () => envInt('OCR_AUTO_PROCESS_BATCH_SIZE', '10'),
+  // Read the queue as soon as the scan or webhook run that queued a document
+  // has ended (services/ocrAutoProcessService.js afterRun), next to the cron
+  // above. Does nothing while OCR is switched off.
+  runRightAway: () => envBool('OCR_RUN_RIGHT_AWAY', 'no'),
   // Run AI analysis right after OCR. Defaults to yes because a failed
   // content write-back leaves the OCR text local-only, where a regular
   // scan would never pick it up.
   autoAnalyze: () => envBool('OCR_AUTO_ANALYZE', 'yes'),
+  // OCR before the first AI analysis (services/ocrBeforeAi.js): off (OCR
+  // only as a fallback), tagged (documents carrying ocrBeforeAiTag) or all.
+  // Anything else reads as off. Does nothing while OCR is switched off.
+  ocrBeforeAi: () => normalizeOcrBeforeAiMode(env('OCR_BEFORE_AI', 'off')),
+  ocrBeforeAiTag: () => env('OCR_BEFORE_AI_TAG', 'needs-ocr').trim(),
   // Passwords tried on PDFs that cannot be opened without one, stored as a
   // JSON array; services/pdfPasswordService.js reads it into a list.
   pdfPasswords: () => process.env.PDF_PASSWORDS || '',
@@ -629,7 +646,7 @@ const MUST_HAVE_PROMPT = `  Return the result EXCLUSIVELY as a JSON object. The 
   }`;
 
 module.exports = {
-  PAPERLESS_AI_VERSION: 'v2026.11.03',
+  PAPERLESS_AI_VERSION: 'v2026.11.04',
   CONFIGURED: false,
   configSourceMode: CONFIG_SOURCE_MODE,
   getApiKey,
@@ -639,6 +656,8 @@ module.exports = {
   getOidcConfig,
   getSkipRulesConfig,
   isProtectedRuntimeEnvKey,
+  getStartupEnvironment,
+  dockerfileBakedKeys: [...DOCKERFILE_BAKED_KEYS],
   get apiKey() {
     return getApiKey();
   },
@@ -692,17 +711,12 @@ defineLive(module.exports, {
       0.3,
       'AI_TEMPERATURE_ANALYSIS'
     ),
-  aiTemperatureGeneration: () =>
-    parseTemperature(
-      process.env.AI_TEMPERATURE_GENERATION,
-      0.7,
-      'AI_TEMPERATURE_GENERATION'
-    ),
   // reasoning_effort for the OpenAI-compatible providers: low | medium |
   // high; empty sends none. Which models get it: services/aiProviderRules.js.
   aiReasoningEffort: () => env('AI_REASONING_EFFORT').trim().toLowerCase(),
   addAIProcessedTag: () => env('ADD_AI_PROCESSED_TAG', 'no'),
-  addAIProcessedTags: () => env('AI_PROCESSED_TAG_NAME', 'ai-processed'),
+  // Unset is the default name; an empty value is no name, and no tag.
+  addAIProcessedTags: () => process.env.AI_PROCESSED_TAG_NAME ?? 'ai-processed',
   // Tags taken off a document when its analysis is written back, so a
   // document the analysis filed is done. The switch covers every tag
   // Paperless-ngx marks as inbox tag; the list names further tags, matched
@@ -838,7 +852,6 @@ const validateAtStartup = () => [
   module.exports.tokenLimit,
   module.exports.responseTokens,
   module.exports.aiTemperatureAnalysis,
-  module.exports.aiTemperatureGeneration,
   anthropic.maxTokens,
 ];
 validateAtStartup();

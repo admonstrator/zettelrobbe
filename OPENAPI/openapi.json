@@ -476,6 +476,153 @@
           }
         }
       },
+      "TaskRunnerDocument": {
+        "type": "object",
+        "description": "A document in one of the two lanes of `activity`",
+        "properties": {
+          "documentId": {
+            "type": "integer",
+            "example": 123
+          },
+          "title": {
+            "type": "string",
+            "example": "Invoice #12345"
+          },
+          "step": {
+            "type": "string",
+            "description": "In progress only, the step the document is in",
+            "enum": [
+              "checking",
+              "download",
+              "unlock",
+              "ocr",
+              "ai",
+              "writeback"
+            ],
+            "example": "ai"
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true,
+            "description": "In progress only, e.g. the page OCR reads (\"3/7\")",
+            "example": "3/7"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "In progress only, when the lane took the document"
+          },
+          "stepStartedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "In progress only, when the current step began"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Ready only, when the lane finished the document"
+          }
+        }
+      },
+      "TaskRunnerLane": {
+        "type": "object",
+        "description": "One lane of `activity` (analysis or OCR)",
+        "properties": {
+          "active": {
+            "type": "array",
+            "description": "Documents in progress, oldest first",
+            "items": {
+              "$ref": "#/components/schemas/TaskRunnerDocument"
+            }
+          },
+          "ready": {
+            "type": "array",
+            "description": "The last documents finished, newest first (in memory, empty after a restart)",
+            "items": {
+              "$ref": "#/components/schemas/TaskRunnerDocument"
+            }
+          },
+          "waiting": {
+            "type": "array",
+            "description": "The first documents that wait, in the order they will be read",
+            "items": {
+              "$ref": "#/components/schemas/TaskRunnerDocument"
+            }
+          },
+          "waitingCount": {
+            "type": "integer",
+            "description": "All documents that wait",
+            "example": 28
+          }
+        }
+      },
+      "TaskRunnerActivity": {
+        "type": "object",
+        "description": "What the analysis lane and the OCR lane are doing",
+        "properties": {
+          "analysis": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TaskRunnerLane"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "scan": {
+                    "type": "object",
+                    "nullable": true,
+                    "description": "Where the running scan is in its list, null when no scan runs",
+                    "properties": {
+                      "checked": {
+                        "type": "integer",
+                        "example": 120
+                      },
+                      "total": {
+                        "type": "integer",
+                        "example": 2300
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "ocr": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TaskRunnerLane"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Whether OCR is switched on"
+                  },
+                  "running": {
+                    "type": "boolean",
+                    "description": "Whether a run is reading the OCR queue"
+                  },
+                  "waitingForScan": {
+                    "type": "boolean",
+                    "description": "The queue is read once the running scan is over"
+                  },
+                  "rightAway": {
+                    "type": "boolean",
+                    "description": "OCR_RUN_RIGHT_AWAY is on"
+                  },
+                  "nextRunAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true,
+                    "description": "When the OCR cron reads the queue next, null when it is not armed or switched off"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
       "ScannerHealth": {
         "type": "object",
         "description": "State of the periodic document scan loop",
@@ -531,6 +678,13 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "nextRunAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the armed scan task fires next, as reported by the\nscheduler itself. Null when automatic processing is off\n(DISABLE_AUTOMATIC_PROCESSING=yes) or the scheduler is not armed.\n",
+            "example": "2026-11-18T14:45:00.000Z"
           },
           "consecutiveFailures": {
             "type": "integer",
@@ -3085,7 +3239,7 @@
     "/api/changelog/status": {
       "get": {
         "summary": "Check whether the What's New modal should be shown",
-        "description": "Returns show=true when the authenticated user has not yet seen the current release changelog.",
+        "description": "Returns show=true when the authenticated user has not yet seen the current release changelog.\n\n`updated` is true when the user confirmed the dialog for another release, so an update is\nwhy it shows again; `previousVersion` then names that release. A user who never confirmed the\ndialog (a fresh installation or a new account) gets `updated: false` and `previousVersion: null`.\nAPI-key callers and sessions without a username get `{ show: false }` only.\n",
         "tags": [
           "Changelog"
         ],
@@ -3096,7 +3250,42 @@
         ],
         "responses": {
           "200": {
-            "description": "Changelog status"
+            "description": "Changelog status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "show": {
+                      "type": "boolean",
+                      "description": "Whether the dialog should open"
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "The current release",
+                      "example": "v2026.11.04"
+                    },
+                    "entries": {
+                      "type": "array",
+                      "description": "Release notes of the current release, also when show is false, so the dialog can be opened again on request",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "updated": {
+                      "type": "boolean",
+                      "description": "True when the user last confirmed the dialog for a different release"
+                    },
+                    "previousVersion": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "The release the user last confirmed, set only when updated is true",
+                      "example": "v2026.11.03"
+                    }
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "Not authenticated"
@@ -3387,7 +3576,7 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": true,
-                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually.\n",
+                "description": "The wizard's answers (administrator, Paperless-ngx connection, document scope, AI and OCR settings). Only the fields below are described individually. paperlessUsername, which older clients send, is ignored: Zettelrobbe signs in with paperlessToken alone.\n",
                 "properties": {
                   "processedTag": {
                     "type": "string",
@@ -4347,7 +4536,7 @@
       },
       "post": {
         "summary": "Update application settings",
-        "description": "Updates the configuration settings of the Zettelrobbe application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx,\nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n",
+        "description": "Updates the configuration settings of the Zettelrobbe application after initial setup.\nThis endpoint allows administrators to modify connections to Paperless-ngx,\nAI provider settings, processing parameters, and feature toggles.\n\nChanges made through this endpoint are applied immediately and affect all future\ndocument processing operations.\n\nA field of a removed setting (aiTemperatureGeneration, paperlessUsername) is accepted and ignored.\n",
         "tags": [
           "System",
           "Setup"
@@ -4373,11 +4562,6 @@
                     "type": "string",
                     "description": "API token for Paperless-ngx access",
                     "example": "abc123def456"
-                  },
-                  "paperlessUsername": {
-                    "type": "string",
-                    "description": "Username for Paperless-ngx (alternative to token authentication)",
-                    "example": "admin"
                   },
                   "aiProvider": {
                     "type": "string",
@@ -4524,11 +4708,6 @@
                     "description": "Temperature for analysis/classification calls (range 0.0-2.0)",
                     "example": 0.3
                   },
-                  "aiTemperatureGeneration": {
-                    "type": "number",
-                    "description": "Temperature for generation calls (range 0.0-2.0)",
-                    "example": 0.7
-                  },
                   "aiReasoningEffort": {
                     "type": "string",
                     "enum": [
@@ -4566,8 +4745,8 @@
                   },
                   "aiTagName": {
                     "type": "string",
-                    "description": "Tag name to use for AI-processed documents",
-                    "example": "AI-Processed"
+                    "description": "Name of the tag added to analysed documents while aiProcessedTag is on (AI_PROCESSED_TAG_NAME). While no name is set the tag is ai-processed; a name set to the empty string means no tag.",
+                    "example": "ai-processed"
                   },
                   "usePromptTags": {
                     "type": "boolean",
@@ -4613,6 +4792,11 @@
                     "type": "string",
                     "description": "JSON string defining custom fields to extract",
                     "example": "{\"invoice_number\":{\"type\":\"string\"},\"total_amount\":{\"type\":\"number\"}}"
+                  },
+                  "externalApiTransform": {
+                    "type": "string",
+                    "description": "Which part of the external API's JSON answer goes into the prompt (EXTERNAL_API_TRANSFORM): a path of names separated by dots with list positions in brackets, such as data.items[0].name, or [0].name when the answer itself is a list. It is a path, not code: JavaScript is never run. Empty, a value that is not such a path, a path of more than ten steps and a path that matches nothing send the whole answer.",
+                    "example": "data.items[0].name"
                   },
                   "disableAutomaticProcessing": {
                     "type": "boolean",
@@ -4764,6 +4948,22 @@
                     ],
                     "example": "mistral"
                   },
+                  "ocrValidationTimeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 7200,
+                    "description": "How long OCR waits for one request, in seconds (1-7200, default 120); stored in milliseconds as SETUP_OCR_VALIDATION_TIMEOUT_MS. Out-of-range values are clamped, a value that is not a number saves the default, and an empty or missing field keeps the stored value.",
+                    "example": 120
+                  },
+                  "ocrRunRightAway": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no"
+                    ],
+                    "description": "Read the OCR queue as soon as the scan run, webhook delivery or rescan that queued a document has ended, and analyse right after when ocrAutoAnalyze is on (OCR_RUN_RIGHT_AWAY, default no). Works next to ocrAutoProcessEnabled, does nothing while OCR is disabled or disableAutomaticProcessing is on, and applies without a restart.",
+                    "example": "no"
+                  },
                   "ocrAutoProcessEnabled": {
                     "type": "string",
                     "description": "Process queued OCR documents automatically (yes/no)",
@@ -4783,6 +4983,21 @@
                     "type": "string",
                     "description": "Run AI analysis directly after automatic OCR (yes/no)",
                     "example": "yes"
+                  },
+                  "ocrBeforeAi": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "tagged",
+                      "all"
+                    ],
+                    "description": "OCR before the first AI analysis (OCR_BEFORE_AI). off sends a document to OCR only when its text is too short or the analysis fails; tagged sends documents not analysed yet that carry ocrBeforeAiTag to the OCR queue first; all sends every document not analysed yet. Each document goes through it at most once, and only while OCR is enabled. An unknown value is saved as off.",
+                    "example": "off"
+                  },
+                  "ocrBeforeAiTag": {
+                    "type": "string",
+                    "description": "Name of the Paperless-ngx tag that tagged looks for (OCR_BEFORE_AI_TAG), matched case-insensitively. Empty saves the default needs-ocr.",
+                    "example": "needs-ocr"
                   },
                   "dateFormat": {
                     "type": "string",
@@ -5075,6 +5290,268 @@
         }
       }
     },
+    "/api/settings/environment/take-over": {
+      "post": {
+        "summary": "Store values the environment sets",
+        "description": "Stores the value in effect of settings the environment sets (usually the\nlines under `environment:` in docker-compose) in Zettelrobbe's own stored\nsettings, so that their lines can be deleted from docker-compose. The value\nis normalised the way a settings save of its field normalises it; switches\nand free text are stored as written.\n\nNothing changes about the value in effect: the environment keeps winning\nwhile its line is there, and no restart follows, also for a key that\notherwise needs one. Once the environment no longer sets a key, the stored\nvalue applies from the next start on. A secret is stored like a secret\ntyped on the settings page; the response never contains a value.\n\nThe whole request is refused when a key is not a catalogue setting the\nenvironment sets. A value the field's own check refuses (a broken cron, a\nnumber outside the field's range), a setting without a field on the\nsettings page and a value Zettelrobbe would have changed if the\nenvironment did not set it (an OCR timeout of 30000, the old default,\nwhose line is to be deleted instead) are not stored; `refused` says why.\n\"all\" leaves them out.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "keys"
+                ],
+                "properties": {
+                  "keys": {
+                    "description": "Setting names, or \"all\" for every setting that can be taken over",
+                    "oneOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "example": [
+                          "SCAN_INTERVAL",
+                          "OPENAI_API_KEY"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "all"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The values that could be stored are stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "stored": {
+                          "type": "array",
+                          "description": "The keys whose value is stored now",
+                          "items": {
+                            "type": "string"
+                          },
+                          "example": [
+                            "SCAN_INTERVAL"
+                          ]
+                        },
+                        "refused": {
+                          "type": "array",
+                          "description": "The keys that were not stored, each with the reason",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Zettelrobbe stored SCAN_INTERVAL. You can delete its line from docker-compose."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No list of keys, or a key that is not a setting the environment sets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "422": {
+            "description": "None of the keys could be stored; data.refused says why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/environment/remove-copy": {
+      "post": {
+        "summary": "Remove stored copies of values the environment sets",
+        "description": "The undo of take-over: removes the stored copy of settings the environment\nsets, but only a copy that equals the value in effect, so that a value\nstored on purpose is not deleted by accident. Nothing changes about the\nvalue in effect, and no restart follows. Once the environment no longer\nsets the key, the default applies again.\n",
+        "tags": [
+          "Settings"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "keys"
+                ],
+                "properties": {
+                  "keys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "SCAN_INTERVAL"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The copies that equal the value in effect are removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "removed": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "example": [
+                            "SCAN_INTERVAL"
+                          ]
+                        },
+                        "refused": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Zettelrobbe removed its copy of SCAN_INTERVAL. Keep the line in docker-compose."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No list of keys, or a key that is not a setting the environment sets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "422": {
+            "description": "None of the copies could be removed; data.refused says why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scan/now": {
       "post": {
         "summary": "Trigger immediate document scan",
@@ -5357,7 +5834,7 @@
     "/api/processing-status": {
       "get": {
         "summary": "Get document processing status",
-        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n",
+        "description": "Returns the current status of document processing operations.\nThis endpoint provides information about documents in the processing queue\nand the current processing state (active/idle).\n\nThe status information can be used by UIs to display progress indicators\nand provide real-time feedback about background processing operations.\n\n`scanner` also tells when the automatic scan runs: `scanInterval` is\nthe cron expression, `lastRunFinishedAt` the end of the last run and\n`nextRunAt` the next time the armed scheduler fires (null when\nautomatic processing is off or the scheduler is not armed). The\ndashboard counts down to it between two polls.\n\n`activity` says what the analysis lane and the OCR lane are doing:\nthe documents that wait, the ones in progress with their\nstep, and the last ones finished (kept in memory, empty after a\nrestart). `activity.ocr.nextRunAt` is when the OCR cron reads the\nqueue next.\n",
         "tags": [
           "Documents",
           "System",
@@ -5399,6 +5876,9 @@
                     },
                     "paperless": {
                       "$ref": "#/components/schemas/PaperlessHealth"
+                    },
+                    "activity": {
+                      "$ref": "#/components/schemas/TaskRunnerActivity"
                     },
                     "currentlyProcessing": {
                       "type": "object",
@@ -6497,7 +6977,7 @@
     "/api/ocr/unlock/{documentId}": {
       "post": {
         "summary": "Unlock one password-protected PDF",
-        "description": "Finds the password that opens the document's PDF, either the one given or the first of the passwords stored in Settings, and has Paperless-ngx (3.0 or later) remove it. Paperless-ngx keeps the unlocked file as a new version of the same document and reads its text; the document leaves the OCR queue and the failed list and is analysed by the next scan. Passwords are checked locally first, so only a password that opens the file reaches Paperless-ngx. A document that stays locked is answered with success false and an outcome.",
+        "description": "Finds the password that opens the document's PDF, either the one given or the first of the passwords stored in Settings, and has Paperless-ngx (3.0 or later) remove it. Paperless-ngx keeps the unlocked file as a new version of the same document and reads its text; the document leaves the OCR queue and the failed list. The answer comes at once; in the background the document is analysed as soon as Paperless-ngx lists the new version (skip rules, ignore list and OCR_BEFORE_AI apply). If that version does not appear within 15 minutes, the next scan takes the document. With DISABLE_AUTOMATIC_PROCESSING=yes nothing starts and the document waits for a scan started by hand; the message says which applies. Passwords are checked locally first, so only a password that opens the file reaches Paperless-ngx. A document that stays locked is answered with success false and an outcome; busy also covers a document unlocked moments ago whose new version is not stored yet.",
         "tags": [
           "OCR",
           "API"
@@ -6592,7 +7072,7 @@
     "/api/ocr/unlock-all": {
       "post": {
         "summary": "Try the stored passwords on every locked PDF",
-        "description": "Works through the OCR queue items whose PDF needs a password and tries the passwords stored in Settings on each, as POST /api/ocr/unlock/{documentId} does without a password. Streams one event per document via SSE and a summary at the end.",
+        "description": "Works through the OCR queue items whose PDF needs a password and tries the passwords stored in Settings on each, as POST /api/ocr/unlock/{documentId} does without a password. Streams one event per document via SSE and a summary at the end. The stream does not wait for the analyses: each unlocked document is analysed in the background once Paperless-ngx has stored its unlocked version, one document after the other.",
         "tags": [
           "OCR",
           "API"
@@ -6724,6 +7204,10 @@
                     "locked": {
                       "type": "boolean",
                       "description": "True when the PDF needs a password. Checked only for a\ndocument without text, or known from the OCR queue.\n"
+                    },
+                    "unlocking": {
+                      "type": "boolean",
+                      "description": "True while the PDF still needs a password although it\nwas unlocked a moment ago: Paperless-ngx is still\nstoring the unlocked version.\n"
                     },
                     "status": {
                       "type": "object",
@@ -8659,7 +9143,7 @@
     "/api/history/{id}/rescan": {
       "post": {
         "summary": "Reset one document for reprocessing",
-        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\nA document that waits for OCR (queued or being read, while OCR is\nswitched on) is analysed once OCR has read it: nothing is changed and\nthe answer is 200 with `waitingForOcr: true`.\n",
+        "description": "Resolves the document in Paperless-ngx first and only then removes its\nlocal tracking records, so it is processed again in a subsequent scan.\nA document that cannot be resolved — deleted, or Paperless-ngx briefly\nunavailable — leaves every local record untouched and answers 404.\nA document that waits for OCR (queued or being read, while OCR is\nswitched on) is analysed once OCR has read it, and a PDF whose password\nwas just removed once Paperless-ngx has stored its unlocked version\n(the unlock follow-up): nothing is changed and the answer is 200 with\n`waitingForOcr: true`.\n",
         "tags": [
           "History",
           "API"
@@ -8699,7 +9183,7 @@
                     },
                     "waitingForOcr": {
                       "type": "boolean",
-                      "description": "Present and true when the document waits for OCR; nothing was changed",
+                      "description": "Present and true when the document waits for OCR or for its unlocked version; nothing was changed",
                       "example": true
                     }
                   }
@@ -8738,7 +9222,7 @@
     "/api/history/rescan": {
       "post": {
         "summary": "Rescan (reprocess) multiple documents by ID",
-        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background. Documents\nthat wait for OCR (while OCR is switched on) are left untouched and\nlisted in `waitingForOcr`; they are analysed once OCR has read them.\n",
+        "description": "Forces reprocessing of the given documents regardless of the configured\nscan tag filters. The local processing record is cleared and each document\nis enqueued for direct AI processing, bypassing PROCESS_PREDEFINED_DOCUMENTS\n/ TAGS scan-scope rules. Processing runs in the background. Documents\nthat wait for OCR (while OCR is switched on), and PDFs whose password\nwas just removed while the unlock follow-up waits for their unlocked\nversion, are left untouched and listed in `waitingForOcr`; they are\nanalysed once OCR has read them or the unlocked version is stored.\n",
         "tags": [
           "History"
         ],
@@ -8802,6 +9286,7 @@
                     },
                     "waitingForOcr": {
                       "type": "array",
+                      "description": "Documents left untouched because they wait for OCR or for their unlocked version",
                       "items": {
                         "type": "integer"
                       },

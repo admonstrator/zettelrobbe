@@ -3,12 +3,15 @@
 <%- include('partials/shell/head-start', { pageTitle: 'Styleguide - Zettelrobbe' }) %>
     <%# window.zrDialog lives in this classic script; the settings and setup pages load it the same way. %>
     <script src="/js/dialogs.js"></script>
+    <script src="/js/chip-list.js"></script>
 <%- include('partials/shell/head-end') %>
 <%- include('partials/shell/body-open', {
     pageTitle: 'Styleguide',
     version: typeof version !== 'undefined' ? version : ''
 }) %>
 
+<%# The page is one column of cards, like every page of the app. %>
+<div class="zr-stack">
 <div class="zr-viewhead">
     <h2 class="zr-viewhead__title">Framework reference</h2>
     <p class="zr-viewhead__sub">
@@ -31,6 +34,10 @@
             <a href="#sg-forms">
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-list"/></svg>
                 Forms
+            </a>
+            <a href="#sg-settings">
+                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-sliders"/></svg>
+                Settings page
             </a>
             <a href="#sg-alerts">
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-alert"/></svg>
@@ -68,9 +75,13 @@
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-login"/></svg>
                 Auth &amp; steps
             </a>
+            <a href="#sg-quick-start">
+                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-zap"/></svg>
+                Quick start rows
+            </a>
             <a href="#sg-actionbar">
                 <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
-                Action bar
+                Save bar
             </a>
         </nav>
     </aside>
@@ -233,28 +244,21 @@
                     </div>
                 </div>
 
-                <div class="zr-col zr-col--tight">
-                    <span class="zr-label">Chips</span>
-                    <div class="zr-chips">
-                        <div class="zr-chip">
-                            <span>invoice</span>
-                            <button type="button" class="zr-link" aria-label="Remove invoice">
-                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                            </button>
-                        </div>
-                        <div class="zr-chip">
-                            <span>household</span>
-                            <button type="button" class="zr-link" aria-label="Remove household">
-                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                            </button>
-                        </div>
-                        <div class="zr-chip">
-                            <span>tax-2026</span>
-                            <button type="button" class="zr-link" aria-label="Remove tax-2026">
-                                <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg>
-                            </button>
-                        </div>
-                    </div>
+                <%# Every field that holds several values is this list: partials/chip-list.ejs
+                    renders it, js/chip-list.js drives it (modules/tag-input.js here). %>
+                <div class="zr-col zr-col--tight" data-module="tag-input">
+                    <label for="sgChipInput" class="zr-label">Chips: a list of values</label>
+                    <%- include('partials/chip-list', {
+                        id: 'sgChipInput', addId: 'sgChipAdd', listId: 'sgChips',
+                        items: ['invoice', 'household', 'tax-2026'],
+                        placeholder: 'Tag name, then Enter'
+                    }) %>
+                    <label for="sgChipLockedInput" class="zr-label">Set by the environment</label>
+                    <%- include('partials/chip-list', {
+                        id: 'sgChipLockedInput', listId: 'sgChipsLocked',
+                        items: ['inbox', 'todo'], envKey: 'SG_TAGS', lockedEnvKeys: ['SG_TAGS'],
+                        placeholder: 'Tag name, then Enter'
+                    }) %>
                 </div>
 
                 <div class="zr-col zr-col--tight">
@@ -423,6 +427,7 @@
 
                 <div class="zr-col zr-col--tight">
                     <span class="zr-label">Switch row — .zr-switchrow</span>
+                    <p class="zr-sm zr-muted">One setting that is on or off. A click anywhere on the row toggles it; the word next to the switch comes from forms.css and follows the checkbox.</p>
                     <div class="zr-switchrow">
                         <div class="zr-grow">
                             <label for="sgSwitchRow" class="zr-field__name">Disable automatic processing</label>
@@ -451,6 +456,237 @@
                             <span>Title generation</span>
                             <input type="checkbox" id="sgTileD" class="zr-toggle">
                         </label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── settings page ───────────────────────────────────────────── -->
+        <section class="zr-module" id="sg-settings">
+            <div class="zr-module__head">
+                <h3 class="zr-module__title">Settings page</h3>
+                <span class="zr-module__meta">css/pages/settings.css</span>
+            </div>
+            <div class="zr-module__body zr-col zr-col--loose">
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">A topic and its sections — .zr-settings-entry, .zr-settings-section, .zr-settings-disclosure</span>
+                    <p class="zr-sm zr-muted">
+                        A topic is one card like the cards of every other page (.zr-module.zr-settings-entry): its head names it,
+                        with the group as a quiet line, the title and one sentence on what the topic is for; its body holds the
+                        sections, one block after the other. A section is a block, not a card: its title, a button for the whole
+                        section beside it if it has one, one line on what it holds, then its rows. A section after another one is
+                        ruled off from card edge to card edge. A section that folds (.zr-settings-disclosure: Advanced options, a
+                        release of the changelog) has a summary row for its head. In a section every setting is a row, ruled off by
+                        a hairline, and every control ends on the same right edge. The form of a row follows the type of its
+                        control: a switch, a number, a select or a short text sits beside its label; an address, a secret, a list
+                        of pills, a textarea or a control with a button beside it sits under its label across the row. Shown: both
+                        forms, a switch with an unsaved change, one set by the environment, and a row "Find a setting" marked.
+                    </p>
+                    <div style="max-width: 720px">
+                        <section class="zr-settings-entry zr-module" aria-labelledby="sgEntryTitle">
+                            <header class="zr-module__head zr-settings-entry__head">
+                                <p class="zr-settings-entry__group">Document analysis</p>
+                                <div class="zr-settings-entry__titlerow">
+                                    <h4 class="zr-settings-entry__title" id="sgEntryTitle">What the AI fills in</h4>
+                                </div>
+                                <p class="zr-settings-entry__lead">Which fields of a document Zettelrobbe writes, and which tags it adds or takes off once the analysis is written.</p>
+                            </header>
+                            <div class="zr-module__body zr-module__body--tight zr-settings-entry__body">
+                                <section class="zr-settings-section" aria-labelledby="sgSectionFields">
+                                    <div class="zr-settings-section__head">
+                                        <h5 class="zr-settings-section__title" id="sgSectionFields">Fields of a document</h5>
+                                    </div>
+                                    <p class="zr-settings-section__desc">Switched off, Zettelrobbe leaves that field as it is.</p>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsFieldTags" class="zr-field__name">Tags</label>
+                                                <p class="zr-field__hint">Adds the tags the model picks to the ones the document already has.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsFieldTags" checked>
+                                        </div>
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsFieldTitle" class="zr-field__name">Title</label>
+                                                <p class="zr-field__hint">Replaces the title with one the model writes from the content.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsFieldTitle">
+                                        </div>
+                                    </div>
+                                </section>
+                                <section class="zr-settings-section" aria-labelledby="sgSectionTitle">
+                                    <div class="zr-settings-section__head">
+                                        <h5 class="zr-settings-section__title" id="sgSectionTitle">Tags after the analysis</h5>
+                                    </div>
+                                    <p class="zr-settings-section__desc">What Zettelrobbe adds to a document or takes off it once its analysis is written.</p>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsTagSwitch" class="zr-field__name">Tag analysed documents</label>
+                                                <p class="zr-field__hint">Adds the tag below to every analysed document.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsTagSwitch" checked>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsTagName" class="zr-field__name">Tag name</label>
+                                            <input type="text" id="sgRowsTagName" class="zr-input" value="ai-processed">
+                                            <p class="zr-field__hint">A short text: beside its label.</p>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsLimit" class="zr-field__name">Page limit</label>
+                                            <input type="number" id="sgRowsLimit" class="zr-input" value="40">
+                                            <p class="zr-field__hint">A number: beside its label.</p>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsUrl" class="zr-field__name">Server address</label>
+                                            <input type="text" id="sgRowsUrl" class="zr-input" value="http://ollama.lan:11434" inputmode="url">
+                                            <p class="zr-field__hint">An address: under its label, across the row.</p>
+                                        </div>
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsPills" class="zr-field__name">Also remove these tags</label>
+                                            <div class="zr-inputgroup">
+                                                <input type="text" id="sgRowsPills" class="zr-input" placeholder="Tag name, then Enter">
+                                                <button type="button" class="zr-btn zr-btn--primary">
+                                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-plus"/></svg>
+                                                    Add
+                                                </button>
+                                            </div>
+                                            <div class="zr-chips" role="list"><span class="zr-chip" role="listitem"><span>needs-ocr</span><button type="button" aria-label="Remove needs-ocr"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button></span></div>
+                                            <p class="zr-field__hint">A list of pills: its Add button ends on the same edge as the switches.</p>
+                                        </div>
+                                        <div class="zr-switchrow" data-dirty>
+                                            <div class="zr-grow">
+                                                <label for="sgRowsInboxSwitch" class="zr-field__name">Remove the inbox tags</label>
+                                                <p class="zr-field__hint">Changed and not saved yet: the bar on the left says so.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsInboxSwitch">
+                                        </div>
+                                        <div class="zr-switchrow">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsPinnedSwitch" class="zr-field__name">Send the existing names</label>
+                                                <p class="zr-field__hint">Set by the environment (USE_EXISTING_DATA).</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsPinnedSwitch" checked disabled>
+                                        </div>
+                                        <div class="zr-switchrow zr-settings-match">
+                                            <div class="zr-grow">
+                                                <label for="sgRowsMatchSwitch" class="zr-field__name">Skip copies of ignored documents</label>
+                                                <p class="zr-field__hint">Marked while a search for "ignored" stands.</p>
+                                            </div>
+                                            <input type="checkbox" class="zr-toggle" id="sgRowsMatchSwitch" checked>
+                                        </div>
+                                    </div>
+                                </section>
+                                <details class="zr-settings-section zr-settings-disclosure">
+                                    <summary class="zr-settings-section__head zr-settings-disclosure__summary">
+                                        <h5 class="zr-settings-section__title">Advanced options</h5>
+                                        <span class="zr-field__hint zr-grow">Options most archives leave at their defaults.</span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-disclosure__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </summary>
+                                    <div class="zr-settings-section__body zr-col zr-col--loose">
+                                        <div class="zr-field zr-field--stacked">
+                                            <label for="sgRowsAnswer" class="zr-field__name">Answer length</label>
+                                            <input type="number" id="sgRowsAnswer" class="zr-input" value="1500">
+                                            <p class="zr-field__hint">The longest answer the model may write for one document, in tokens.</p>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">Topic list — .zr-settings-find, .zr-settings-nav</span>
+                    <p class="zr-sm zr-muted">
+                        Quick start first, ruled off; then the groups. A group heading is a button that folds its topics in and out
+                        and says how many it holds; closed, it carries the dot of a topic with unsaved changes and the count of a search.
+                        The list never scrolls inside itself. "Find a setting" narrows it to the topics with a match and opens their groups.
+                        Field and list sit in a card (.zr-settings-side is its body), which on a phone also holds the topic picker.
+                    </p>
+                    <div class="zr-row zr-row--wrap" style="align-items: flex-start; gap: var(--zr-card-gap)">
+                        <%# Each sample card on its own: two adjacent modules would take the stacking margin. %>
+                        <div style="width: 256px">
+                        <div class="zr-module">
+                        <div class="zr-module__body zr-settings-side">
+                            <div class="zr-settings-find" role="search">
+                                <label for="sgFindIdle" class="zr-settings-find__label">Find a setting</label>
+                                <div class="zr-settings-find__box">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-search"/></svg>
+                                    <input type="search" class="zr-input" id="sgFindIdle" placeholder="e.g. token limit, cron, tag" autocomplete="off">
+                                </div>
+                            </div>
+                            <nav class="zr-sectionnav zr-settings-nav" aria-label="Sample topic list">
+                                <div class="zr-settings-nav__group zr-settings-nav__group--featured">
+                                    <a href="#sg-settings" class="zr-settings-nav__featured" aria-current="false">
+                                        <span class="zr-grow">Quick start</span>
+                                        <span class="zr-badge">5 of 6</span>
+                                    </a>
+                                </div>
+                                <div class="zr-settings-nav__group">
+                                    <button type="button" class="zr-settings-nav__toggle" aria-expanded="false" aria-controls="sgNavBasics">
+                                        <span class="zr-grow">Basics</span>
+                                        <span class="zr-settings-nav__dirty" title="Unsaved changes"><span class="zr-sr">Unsaved changes</span></span>
+                                        <span class="zr-settings-nav__size">2<span class="zr-sr"> topics</span></span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-nav__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </button>
+                                    <div class="zr-settings-nav__items" id="sgNavBasics" hidden></div>
+                                </div>
+                                <div class="zr-settings-nav__group">
+                                    <button type="button" class="zr-settings-nav__toggle" aria-expanded="true" aria-controls="sgNavAnalysis">
+                                        <span class="zr-grow">Document analysis</span>
+                                        <span class="zr-settings-nav__size">7<span class="zr-sr"> topics</span></span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-nav__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </button>
+                                    <div class="zr-settings-nav__items" id="sgNavAnalysis">
+                                        <a href="#sg-settings" aria-current="false"><span class="zr-grow">AI provider</span></a>
+                                        <a href="#sg-settings" aria-current="page"><span class="zr-grow">What the AI fills in</span></a>
+                                        <a href="#sg-settings" aria-current="false">
+                                            <span class="zr-grow">Prompt</span>
+                                            <span class="zr-settings-nav__dirty" title="Unsaved changes"></span>
+                                        </a>
+                                    </div>
+                                </div>
+                            </nav>
+                        </div>
+                        </div>
+                        </div>
+                        <div style="width: 256px">
+                        <div class="zr-module">
+                        <div class="zr-module__body zr-settings-side">
+                            <div class="zr-settings-find" role="search">
+                                <label for="sgFindActive" class="zr-settings-find__label">Find a setting</label>
+                                <div class="zr-settings-find__box">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-search"/></svg>
+                                    <input type="search" class="zr-input" id="sgFindActive" value="token" autocomplete="off">
+                                </div>
+                                <p class="zr-settings-find__status">4 settings in 2 topics.</p>
+                            </div>
+                            <nav class="zr-sectionnav zr-settings-nav" aria-label="Sample topic list while searching">
+                                <div class="zr-settings-nav__group">
+                                    <button type="button" class="zr-settings-nav__toggle" aria-expanded="true" aria-controls="sgNavFound">
+                                        <span class="zr-grow">Document analysis</span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-nav__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </button>
+                                    <div class="zr-settings-nav__items" id="sgNavFound">
+                                        <a href="#sg-settings" aria-current="page">
+                                            <span class="zr-grow">AI provider</span>
+                                            <span class="zr-settings-nav__count">3<span class="zr-sr"> matching settings</span></span>
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="zr-settings-nav__group">
+                                    <button type="button" class="zr-settings-nav__toggle" aria-expanded="false" aria-controls="sgNavFoundClosed">
+                                        <span class="zr-grow">Tag tools</span>
+                                        <span class="zr-settings-nav__count">1<span class="zr-sr"> matching setting</span></span>
+                                        <svg class="zr-icon zr-icon--sm zr-settings-nav__chevron" aria-hidden="true"><use href="/icons.svg#i-chevron-down"/></svg>
+                                    </button>
+                                    <div class="zr-settings-nav__items" id="sgNavFoundClosed" hidden></div>
+                                </div>
+                            </nav>
+                        </div>
+                        </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -886,6 +1122,28 @@
                             <h4 class="zr-module__title">.zr-module--flat</h4>
                             <p class="zr-sm zr-muted">No surface, no border, no shadow — a group heading with content under it.</p>
                         </article>
+                    </div>
+                </div>
+
+                <div class="zr-col zr-col--tight">
+                    <span class="zr-label">A column of cards — .zr-stack</span>
+                    <p class="zr-sm zr-muted">
+                        Every page puts its content in one: the lead line, a toolbar, an alert and the cards stand
+                        <code class="zr-mono">--zr-card-gap</code> apart (16px, 12px on a phone), and a hidden one takes no gap
+                        with it. The grid, the figures and two cards side by side keep the same gap; the page itself starts at
+                        <code class="zr-mono">--zr-page-pad</code>. A page never spaces its cards with a number of its own.
+                    </p>
+                    <div class="zr-stack" style="max-width: 480px">
+                        <p class="zr-viewhead__sub">A lead line, like the one History opens with.</p>
+                        <div class="zr-module">
+                            <div class="zr-module__head">
+                                <h4 class="zr-module__title">First card</h4>
+                            </div>
+                            <div class="zr-module__body"><p class="zr-sm zr-muted">The card gap above and below.</p></div>
+                        </div>
+                        <div class="zr-module">
+                            <div class="zr-module__body"><p class="zr-sm zr-muted">A second card.</p></div>
+                        </div>
                     </div>
                 </div>
 
@@ -1405,28 +1663,143 @@
             </div>
         </section>
 
+        <!-- ── quick start rows ────────────────────────────────────────── -->
+        <section class="zr-module" id="sg-quick-start">
+            <div class="zr-module__head">
+                <h3 class="zr-module__title">Quick start rows</h3>
+                <span class="zr-module__meta">css/pages/settings.css</span>
+            </div>
+            <div class="zr-module__body zr-col">
+                <p class="zr-sm zr-muted">
+                    The decisions of the settings Quick start: one row per step, the mark says done
+                    (<code>data-state="done"</code>), open, <code>problem</code> or <code>skipped</code>; the row
+                    is a button with <code>aria-expanded</code> and opens its controls in place. On the settings
+                    page each control mirrors a real field (<code>data-mirror</code>) and carries no
+                    <code>name</code>; <code>js/modules/settings-quick-start.js</code> keeps both in step.
+                    The rows are the body of the Quick start topic card, from card edge to card edge under its
+                    head. Here they are static.
+                </p>
+                <div style="max-width: 720px">
+                    <section class="zr-settings-entry zr-module" aria-labelledby="sgQuickStartTopic">
+                        <header class="zr-module__head zr-settings-entry__head">
+                            <div class="zr-settings-entry__titlerow">
+                                <h4 class="zr-settings-entry__title" id="sgQuickStartTopic">Quick start</h4>
+                                <span class="zr-badge zr-badge--brand">1 of 3 done</span>
+                            </div>
+                            <p class="zr-settings-entry__lead">Six decisions Zettelrobbe needs before it analyses your documents. Every other setting starts with a default and has its own topic.</p>
+                        </header>
+                        <div class="zr-module__body zr-module__body--tight zr-settings-entry__body">
+                            <div class="zr-qs">
+                                <div class="zr-qs__list">
+                                    <div class="zr-qs__step" data-state="done">
+                                        <h3 class="zr-qs__heading">
+                                            <button type="button" class="zr-qs__toggle" aria-expanded="false">
+                                                <span class="zr-qs__mark" aria-hidden="true">
+                                                    <svg class="zr-icon zr-icon--sm zr-qs__icon zr-qs__icon--done"><use href="/icons.svg#i-check"/></svg>
+                                                    <span class="zr-qs__number">1</span>
+                                                </span>
+                                                <span class="zr-qs__text">
+                                                    <span class="zr-qs__title">Paperless-ngx</span>
+                                                    <span class="zr-qs__summary">http://paperless:8000 · user admin · connected</span>
+                                                </span>
+                                                <span class="zr-qs__action">Change</span>
+                                            </button>
+                                        </h3>
+                                    </div>
+                                    <div class="zr-qs__step zr-qs__step--open" data-state="open" data-dirty>
+                                        <h3 class="zr-qs__heading">
+                                            <button type="button" class="zr-qs__toggle" aria-expanded="true" aria-controls="sgQuickStartBody">
+                                                <span class="zr-qs__mark" aria-hidden="true">
+                                                    <span class="zr-qs__number">2</span>
+                                                </span>
+                                                <span class="zr-qs__text">
+                                                    <span class="zr-qs__title">What the AI fills in</span>
+                                                    <span class="zr-qs__summary">Nothing switched on</span>
+                                                </span>
+                                                <span class="zr-qs__dirty"><span class="zr-sr">Unsaved changes.</span></span>
+                                                <span class="zr-qs__action">Close</span>
+                                            </button>
+                                        </h3>
+                                        <div class="zr-qs__body" id="sgQuickStartBody">
+                                            <div class="zr-qs__switches">
+                                                <div class="zr-qs__field zr-qs__switch">
+                                                    <div class="zr-qs__switchtext">
+                                                        <label for="sgQuickStartTitle" class="zr-field__name">Title</label>
+                                                        <p class="zr-field__hint">A title from the content instead of the file name.</p>
+                                                    </div>
+                                                    <input type="checkbox" class="zr-toggle" id="sgQuickStartTitle">
+                                                </div>
+                                                <div class="zr-qs__field zr-qs__switch">
+                                                    <div class="zr-qs__switchtext">
+                                                        <label for="sgQuickStartTags" class="zr-field__name">Tags</label>
+                                                        <p class="zr-field__hint">Set by the environment (ACTIVATE_TAGGING).</p>
+                                                    </div>
+                                                    <input type="checkbox" class="zr-toggle" id="sgQuickStartTags" disabled>
+                                                </div>
+                                            </div>
+                                            <p class="zr-qs__more"><a class="zr-link zr-link--underline" href="#sg-quick-start">All options in Restrictions and limits</a></p>
+                                        </div>
+                                    </div>
+                                    <div class="zr-qs__step" data-state="skipped">
+                                        <h3 class="zr-qs__heading">
+                                            <button type="button" class="zr-qs__toggle" aria-expanded="false">
+                                                <span class="zr-qs__mark" aria-hidden="true">
+                                                    <span class="zr-qs__number">3</span>
+                                                </span>
+                                                <span class="zr-qs__text">
+                                                    <span class="zr-qs__title">OCR for scans <span class="zr-badge">Optional</span></span>
+                                                    <span class="zr-qs__summary">Off</span>
+                                                </span>
+                                                <span class="zr-qs__action">Change</span>
+                                            </button>
+                                        </h3>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </section>
+
         <!-- ── action bar ──────────────────────────────────────────────── -->
         <section class="zr-module" id="sg-actionbar">
             <div class="zr-module__head">
-                <h3 class="zr-module__title">Sticky action bar</h3>
+                <h3 class="zr-module__title">Save bar</h3>
                 <span class="zr-module__meta">css/modules.css</span>
             </div>
             <div class="zr-module__body zr-col">
                 <p class="zr-sm zr-muted">
-                    The settings save row. It sticks to the bottom of its scroll container and turns brand-coloured
-                    while there are unsaved changes; below 860px it docks onto the tab bar.
+                    The settings save bar. It is a row of the page layout under the region that scrolls, there only while a change
+                    is not saved, so it never lies over the form. It counts the changed settings and names them by their labels,
+                    cut with an ellipsis (the whole list stays in the text and in the title), and says when saving restarts
+                    Zettelrobbe. On a phone it sits on the tab bar and steps aside while the on-screen keyboard is open.
                 </p>
-                <div class="zr-actionbar" data-dirty="true">
-                    <span class="zr-actionbar__status">3 unsaved changes</span>
-                    <button type="button" class="zr-btn">Discard</button>
-                    <button type="button" class="zr-btn zr-btn--primary">
-                        <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
-                        Save
-                    </button>
+                <div class="zr-actionbar" role="region" aria-label="Unsaved changes" style="--zr-actionbar-measure: 720px">
+                    <div class="zr-actionbar__inner">
+                        <div class="zr-actionbar__status">
+                            <p class="zr-actionbar__title">
+                                <span>3 unsaved changes</span>
+                                <span class="zr-badge zr-badge--warn">
+                                    <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg>
+                                    Restart needed
+                                </span>
+                            </p>
+                            <p class="zr-actionbar__list" title="Custom fields, Remove the inbox tags, Scan schedule (cron)">Custom fields, Remove the inbox tags, Scan schedule (cron)</p>
+                        </div>
+                        <div class="zr-actionbar__actions">
+                            <button type="button" class="zr-btn">Discard</button>
+                            <button type="button" class="zr-btn zr-btn--primary">
+                                <svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-save"/></svg>
+                                Save settings
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
     </div>
+</div>
 </div>
 
 <dialog class="zr-dialog" id="sgStaticDialog" aria-labelledby="sgStaticDialogTitle">

@@ -24,9 +24,19 @@
             <%- include('../runner-seal') %>
         </div>
 
+        <!-- The scan clock. Ticks between two polls; deliberately not a live
+             region either. -->
+        <div class="scan-clock zr-sm" id="scanClock">
+            <div class="zr-kv"><span class="zr-kv__k">Last scan</span><span class="zr-kv__v" id="scanLastRun">&mdash;</span></div>
+            <div class="zr-kv"><span class="zr-kv__k">Next scan</span><span class="zr-kv__v" id="scanNextRun">&mdash;</span></div>
+            <div class="zr-kv"><span class="zr-kv__k">Schedule</span><span class="zr-kv__v" id="scanSchedule">&mdash;</span></div>
+            <div class="zr-kv hidden" id="ocrNextRunRow"><span class="zr-kv__k">Next OCR run</span><span class="zr-kv__v" id="ocrNextRun">&mdash;</span></div>
+        </div>
+
         <div class="zr-row zr-row--wrap zr-sm zr-muted" style="gap: var(--zr-4)">
             <span><strong class="zr-num" id="processedToday">0</strong> processed today</span>
             <span>last document <strong id="lastProcessed">no data</strong></span>
+            <span class="hidden" id="ocrWaitingRow"><strong class="zr-num" id="ocrWaitingCount">0</strong> waiting for OCR</span>
         </div>
     </div>
 

@@ -21,7 +21,7 @@ const config = require('../config/config.js');
 const paperlessService = require('./paperlessService.js');
 /** @type {Record<string, any>} */
 const documentModel = require('../models/document.js');
-/** @type {{ running: boolean }} */
+/** @type {{ running: boolean, afterRun: (trigger: string, queued: number) => unknown }} */
 const ocrAutoProcessService = require('./ocrAutoProcessService.js');
 /** @type {{ isRunning: () => boolean }} */
 const duplicateReviewJobService = require('./duplicateReviewJobService.js');
@@ -34,6 +34,7 @@ const dashboardStatsService = require('./dashboardStatsService.js');
 /** @type {Record<string, any>} */
 const documentProcessingService = require('./documentProcessingService.js');
 const documentPipeline = require('./documentPipeline.js');
+const activityService = require('./activityService.js');
 const scanControlService = require('./scanControl.js');
 
 /** @typedef {import('./scanControl.js').ScanState} ScanState */
@@ -209,6 +210,9 @@ class ScanService {
     scanControl.startedAt = new Date().toISOString();
     scanControl.stopRequestedAt = null;
     scanHealthService.recordRunStart(source);
+    // What the pipeline has queued for OCR so far; the difference at the end
+    // is what this run queued.
+    const queuedForOcrAtStart = documentPipeline.queuedForOcr;
 
     console.info(`Scan started (source=${source})`);
 
@@ -265,7 +269,11 @@ class ScanService {
       // Asked once per run, when the first document gets that far.
       const getExternalApiData = documentPipeline.externalApiDataForRun();
 
+      let checked = 0;
       for (const doc of documents) {
+        // Where the run is in its list, for the dashboard.
+        activityService.scanProgress(checked, documents.length);
+        checked += 1;
         if (scanControl.stopRequested) {
           scanStats.stopRequested = true;
           console.info(
@@ -313,6 +321,7 @@ class ScanService {
             doc.title,
             'complete'
           );
+          activityService.finish('analysis', doc.id, 'done');
           scanStats.processed += 1;
           // The document counters and token figures just changed. Marking the
           // cache stale costs nothing here; the next dashboard poll pays for the
@@ -320,6 +329,7 @@ class ScanService {
           dashboardStatsService.invalidate();
         } catch (error) {
           await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
+          activityService.finish('analysis', doc.id, 'failed');
           scanStats.failed += 1;
           // A failure moves the failed counter and the failure rate, which the
           // dashboard shows just as prominently as the successes.
@@ -354,6 +364,7 @@ class ScanService {
       );
 
       scanControl.running = false;
+      activityService.scanProgress(null);
       scanControl.stopRequested = false;
       scanControl.source = null;
       scanControl.startedAt = null;
@@ -368,6 +379,16 @@ class ScanService {
           `[DASHBOARD-STATS] Refresh after scan failed: ${error.message}`
         );
       });
+
+      // With OCR_RUN_RIGHT_AWAY on, the documents this run put into the OCR
+      // queue are read now rather than at the next OCR cron. The scan is
+      // over, so OCR has the AI backend to itself. Called after every run:
+      // a webhook that queued a document during the scan waits for this.
+      // Detached and never throws.
+      ocrAutoProcessService.afterRun(
+        'scan',
+        documentPipeline.queuedForOcr - queuedForOcrAtStart
+      );
     }
   }
 }

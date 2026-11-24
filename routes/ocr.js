@@ -270,7 +270,7 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
         added,
         skipped,
         missing,
-        message: `Document ${documentIds[0]} is being processed by OCR right now and was not queued again`,
+        message: `OCR is reading document ${documentIds[0]} right now, so it was not queued again`,
       });
     }
 
@@ -525,7 +525,9 @@ router.post('/api/ocr/process-all', isAuthenticated, async (req, res) => {
       return res.end();
     }
 
-    const pendingItems = await documentModel.getOcrQueue('pending');
+    const pendingItems = await documentModel.getOcrQueue('pending', {
+      oldestFirst: true,
+    });
     const total = pendingItems.length;
 
     if (total === 0) {
@@ -849,10 +851,17 @@ router.get('/api/ocr/unlock/status', isAuthenticated, async (req, res) => {
  *       given or the first of the passwords stored in Settings, and has
  *       Paperless-ngx (3.0 or later) remove it. Paperless-ngx keeps the
  *       unlocked file as a new version of the same document and reads its
- *       text; the document leaves the OCR queue and the failed list and is
- *       analysed by the next scan. Passwords are checked locally first, so
- *       only a password that opens the file reaches Paperless-ngx. A document
- *       that stays locked is answered with success false and an outcome.
+ *       text; the document leaves the OCR queue and the failed list. The
+ *       answer comes at once; in the background the document is analysed as
+ *       soon as Paperless-ngx lists the new version (skip rules, ignore list
+ *       and OCR_BEFORE_AI apply). If that version does not appear within 15
+ *       minutes, the next scan takes the document. With
+ *       DISABLE_AUTOMATIC_PROCESSING=yes nothing starts and the document
+ *       waits for a scan started by hand; the message says which applies.
+ *       Passwords are checked locally first, so only a password that opens
+ *       the file reaches Paperless-ngx. A document that stays locked is
+ *       answered with success false and an outcome; busy also covers a
+ *       document unlocked moments ago whose new version is not stored yet.
  *     tags:
  *       - OCR
  *       - API
@@ -946,7 +955,10 @@ router.post(
  *       Works through the OCR queue items whose PDF needs a password and
  *       tries the passwords stored in Settings on each, as
  *       POST /api/ocr/unlock/{documentId} does without a password. Streams
- *       one event per document via SSE and a summary at the end.
+ *       one event per document via SSE and a summary at the end. The stream
+ *       does not wait for the analyses: each unlocked document is analysed
+ *       in the background once Paperless-ngx has stored its unlocked
+ *       version, one document after the other.
  *     tags:
  *       - OCR
  *       - API
@@ -980,7 +992,7 @@ router.post('/api/ocr/unlock-all', isAuthenticated, async (req, res) => {
       send({
         step: 'error',
         message:
-          'No passwords are stored. Add them under Settings → OCR Fallback → PDF Passwords.',
+          'No passwords are stored. Add them under Settings → OCR → PDF passwords.',
       });
       return res.end();
     }

@@ -15,6 +15,8 @@
   "files": [
     "services/restartService.js",
     "services/ocrPrompt.js",
+    "services/ocrBeforeAi.js",
+    "services/ocrTimeout.js",
     "scripts/route-proof.js",
     "tests/test-route-table.js",
     "middleware/authGate.js",
@@ -38,6 +40,9 @@
     "services/scanService.js",
     "tests/test-typecheck-config.js",
     "services/pdfPasswordService.js",
-    "services/pdfUnlockService.js"
+    "services/pdfUnlockService.js",
+    "services/unlockFollowUpService.js",
+    "services/environmentOverview.js",
+    "services/activityService.js"
   ]
 }

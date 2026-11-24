@@ -8,7 +8,7 @@
   .zr-settings {
     display: grid;
     grid-template-columns: 190px minmax(0, 1fr);
-    gap: var(--zr-5);
+    gap: var(--zr-card-gap);
     align-items: start;
   }
   /* The nav inside is sticky, and a sticky element can only travel inside its own
@@ -18,10 +18,21 @@
     align-self: stretch;
   }
 
+  /* A column of cards: what every page puts its content in, and what a page
+     stacks cards in inside a grid cell. Its gap is the distance between two
+     cards and between a lead line, a toolbar or an alert and the card under
+     it; an element that is hidden takes no gap with it. */
+  .zr-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--zr-card-gap);
+    min-width: 0;
+  }
+
   .zr-grid {
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: var(--zr-3);
+    gap: var(--zr-card-gap);
     align-items: start;
   }
   .zr-grid > [data-span='3'] {
@@ -163,17 +174,20 @@
     ):not(table):not(script):not(style):last-child {
     padding-bottom: var(--zr-3);
   }
-  /* Stacked modules need air between them; the grid handles its own gaps. */
+  /* Modules stacked in a plain wrapper keep the card gap between them; the
+     grid and the column bring their own. */
   .zr-module + .zr-module,
   .zr-module + .zr-alert,
   .zr-alert + .zr-module {
-    margin-top: var(--zr-3);
+    margin-top: var(--zr-card-gap);
   }
-  /* …which is why the grid has to opt out again: the margin lands on every card
-     but the first, so the cards sharing a row no longer start at the same height
-     and every row gap ends up doubled. */
+  /* …which is why both have to opt out again: in the grid the margin lands on
+     every card but the first, so the cards sharing a row no longer start at
+     the same height, and in either one every gap would end up doubled. */
   .zr-grid > .zr-module,
-  .zr-grid > .zr-alert {
+  .zr-grid > .zr-alert,
+  .zr-stack > .zr-module,
+  .zr-stack > .zr-alert {
     margin-top: 0;
   }
 
@@ -204,7 +218,7 @@
   .zr-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: var(--zr-3);
+    gap: var(--zr-card-gap);
   }
   .zr-stat {
     display: flex;
@@ -453,42 +467,65 @@
     background: transparent;
   }
 
-  /* sticky action bar */
+  /* Action bar: the strip under a form that says what is not saved yet and
+     holds the buttons that save or discard it. It used to float as a card
+     over the end of the page; now it is a row of the page layout itself
+     (pages/settings.css docks it under the scrolling content), so it never
+     covers anything. Opaque, a full-width rule above it, its content at the
+     page padding and in a column (--zr-actionbar-measure) that ends with the
+     form. It
+     sets no display of its own, so the hidden attribute keeps it out of the
+     layout while nothing has changed. */
   .zr-actionbar {
-    position: sticky;
-    bottom: 0;
-    z-index: 15;
+    flex: none;
+    background: var(--zr-surface);
+    border-top: 1px solid var(--zr-line-strong);
+  }
+  .zr-actionbar__inner {
     display: flex;
     align-items: center;
-    gap: var(--zr-3);
-    margin-top: var(--zr-4);
-    padding: var(--zr-2) var(--zr-3);
-    background: color-mix(in srgb, var(--zr-surface) 92%, transparent);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--zr-line);
-    border-radius: var(--zr-r-lg);
-    box-shadow: var(--zr-shadow-md);
+    gap: var(--zr-2) var(--zr-4);
+    max-width: var(--zr-actionbar-measure, none);
+    padding: 10px var(--zr-page-pad);
   }
+  /* What changed: the count, then the settings by name on one line, cut
+     with an ellipsis. The whole list stays in the text, for a screen reader
+     and in the title for the pointer. */
   .zr-actionbar__status {
-    font-size: var(--zr-fs-sm);
-    color: var(--zr-text-muted);
-    margin-right: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
   }
-  .zr-actionbar[data-dirty='true'] {
-    border-color: var(--zr-brand);
-  }
-  .zr-actionbar[data-dirty='true'] .zr-actionbar__status {
-    color: var(--zr-brand-text);
+  .zr-actionbar__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px var(--zr-2);
+    font-size: var(--zr-fs-md);
     font-weight: 600;
   }
+  .zr-actionbar__list {
+    overflow: hidden;
+    color: var(--zr-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .zr-actionbar__actions {
+    flex: none;
+    display: flex;
+    gap: var(--zr-2);
+  }
 
-  /* view header — page-level title row with actions, inside the content area */
+  /* view header — page-level title row with actions, inside the content area.
+     It is the first row of the page's .zr-stack, which puts the card gap
+     under it. */
   .zr-viewhead {
     display: flex;
     align-items: center;
     gap: var(--zr-2);
     flex-wrap: wrap;
-    margin-bottom: var(--zr-4);
   }
   .zr-viewhead__title {
     font-family: var(--zr-font-brand);
@@ -500,6 +537,10 @@
     font-size: var(--zr-fs-sm);
     color: var(--zr-text-muted);
     flex-basis: 100%;
+  }
+  /* Tucked under a title only. A lead line that opens the page sits on the
+     page padding like any first card; pulled up, it started 4px higher. */
+  .zr-viewhead__title ~ .zr-viewhead__sub {
     margin-top: -4px;
   }
   .zr-viewhead__actions {
@@ -620,43 +661,32 @@
     }
     .zr-stats {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: var(--zr-2);
     }
     /* an odd last tile takes the full row instead of leaving a hole */
     .zr-stats > :last-child:nth-child(odd) {
       grid-column: span 2;
     }
 
-    /* Docked onto the tab bar instead of floating above it: the floating island
-       left a strip of scrolling content visible between its bottom edge and the
-       tabs, which read as a rendering glitch. */
-    .zr-actionbar {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: var(--zr-tabbar-h);
-      z-index: 25;
-      margin: 0;
-      gap: var(--zr-2);
-      padding: var(--zr-2) var(--zr-3);
-      border-radius: 0;
-      border-left: 0;
-      border-right: 0;
-      border-bottom: 0;
-      box-shadow: none;
+    /* On a phone the page docks the bar onto the tab bar; it keeps the same
+       one line of text and two buttons, with less air. */
+    .zr-actionbar__inner {
+      gap: var(--zr-2) var(--zr-3);
+      padding: var(--zr-2) var(--zr-page-pad);
     }
-    /* The docked bar covers content the sticky island used to push away. */
-    .zr-view:has(.zr-actionbar) {
-      padding-bottom: calc(var(--zr-tabbar-h) + 72px);
+    .zr-actionbar__title {
+      font-size: var(--zr-fs-base);
     }
-    .zr-actionbar__status {
-      font-size: var(--zr-fs-xs);
-      white-space: nowrap;
+    .zr-actionbar__list {
+      font-size: var(--zr-fs-sm);
+    }
+    /* The words of the buttons stay; their icons give the count room for
+       one line. */
+    .zr-actionbar__actions .zr-icon {
+      display: none;
     }
 
     .zr-settings {
       grid-template-columns: minmax(0, 1fr);
-      gap: var(--zr-3);
     }
 
     .zr-sectionnav {

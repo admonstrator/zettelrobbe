@@ -70,7 +70,7 @@ check('ignores variables that are not on the list', () => {
 check('skips variables that are set but empty', () => {
   const { env, count } = buildEnvExport({
     PAPERLESS_API_URL: '',
-    PAPERLESS_USERNAME: 'zettelrobbe',
+    PAPERLESS_API_TOKEN: 'paperless-token',
   });
   assert.strictEqual(count, 1);
   assert.ok(!env.includes('PAPERLESS_API_URL'));

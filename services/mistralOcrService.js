@@ -19,6 +19,7 @@ const AIServiceFactory = require('./aiServiceFactory');
 const documentProcessingService = require('./documentProcessingService');
 const pdfPasswordService = require('./pdfPasswordService');
 const pdfUnlockService = require('./pdfUnlockService');
+const activityService = require('./activityService');
 const {
   isTimeoutError,
   buildTimeoutErrorMessage,
@@ -34,6 +35,7 @@ const {
   assertAnthropicCompleted,
 } = require('./anthropicSupport');
 const { NO_TEXT_MARKER, resolveOcrPrompt } = require('./ocrPrompt');
+const { ocrTimeoutMsFromEnv } = require('./ocrTimeout');
 
 // ── Claude OCR limits ──────────────────────────────────────────────────────
 //
@@ -217,13 +219,11 @@ class MistralOcrService {
     return config.mistralOcr?.enabled === 'yes';
   }
 
+  // How long one OCR request may take. The default and the fallback to
+  // SETUP_VALIDATION_TIMEOUT_MS live in services/ocrTimeout.js, which the
+  // settings page and the setup wizard read too.
   get ocrTimeoutMs() {
-    const raw =
-      process.env.SETUP_OCR_VALIDATION_TIMEOUT_MS ||
-      process.env.SETUP_VALIDATION_TIMEOUT_MS ||
-      '120000';
-    const parsed = Number.parseInt(String(raw).trim(), 10);
-    return Number.isFinite(parsed) && parsed >= 1000 ? parsed : 120000;
+    return ocrTimeoutMsFromEnv(process.env);
   }
 
   get pdfRenderEnabled() {
@@ -1098,6 +1098,15 @@ class MistralOcrService {
       return;
     }
 
+    // docker-compose sets the address: it stays in effect, and no stored
+    // copy is written that would apply once its line is gone.
+    if (config.isProtectedRuntimeEnvKey('OCR_API_URL')) {
+      console.log(
+        `[OCR] The OCR API answers at ${normalizedDetectedBase}. OCR_API_URL is set by the environment, which decides, so the address is not saved.`
+      );
+      return;
+    }
+
     try {
       const setupService = require('./setupService');
       const currentConfig = (await setupService.loadConfig()) || {};
@@ -1210,9 +1219,10 @@ class MistralOcrService {
    *
    * A password-protected PDF ends the run before any provider is called:
    * unlocked with a stored password (unlocked: true, the document leaves the
-   * queue), still waiting for Paperless-ngx to store a version unlocked
-   * moments ago (waiting: true, the item stays pending), or failed with the
-   * reason password_protected.
+   * queue, and the unlock's follow-up analyses it once this run has ended and
+   * Paperless-ngx has stored the unlocked version), still waiting for
+   * Paperless-ngx to store a version unlocked moments ago (waiting: true, the
+   * item stays pending), or failed with the reason password_protected.
    *
    * @param {number} documentId
    * @param {object} opts
@@ -1224,8 +1234,20 @@ class MistralOcrService {
     const { autoAnalyze = false, progressCallback = null } = opts;
     const normalizedDocumentId = Number(documentId);
     const emit = (step, message, data = {}) => {
+      // The dashboard's OCR lane follows the same steps the progress stream
+      // tells; 'done' and 'error' are handled by the finally below.
+      activityService.step(
+        'ocr',
+        normalizedDocumentId,
+        step,
+        data && data.pageNumber && data.pageCount
+          ? `${data.pageNumber}/${data.pageCount}`
+          : null
+      );
       if (progressCallback) progressCallback(step, message, data);
     };
+    // Only a finished read lands in the dashboard's Ready column.
+    let laneOutcome = 'skipped';
 
     if (!Number.isInteger(normalizedDocumentId) || normalizedDocumentId <= 0) {
       throw new Error('Invalid OCR document ID');
@@ -1261,6 +1283,11 @@ class MistralOcrService {
         normalizedDocumentId,
         'processing'
       );
+      activityService.start(
+        'ocr',
+        { id: normalizedDocumentId, title: fallbackTitle },
+        'download'
+      );
 
       // Step 1: Download
       emit(
@@ -1284,6 +1311,11 @@ class MistralOcrService {
       // for someone to unlock it.
       const fileBuffer = Buffer.from(base64, 'base64');
       if (await pdfPasswordService.needsPassword(fileBuffer)) {
+        // Unlocked moments ago, and Paperless-ngx still serves the locked
+        // file. The follow-up of that unlock keeps the scan away from the
+        // document, so this happens when OCR is started by hand meanwhile or
+        // after the follow-up gave up waiting: the row waits for a later try
+        // instead of a second unlock.
         if (pdfUnlockService.wasRecentlyUnlocked(normalizedDocumentId)) {
           await documentModel.updateOcrQueueStatus(
             normalizedDocumentId,
@@ -1331,7 +1363,10 @@ class MistralOcrService {
           normalizedDocumentId,
           {
             onPageProgress: (pageNumber, pageCount) =>
-              emit('ocr', `OCR page ${pageNumber}/${pageCount}…`),
+              emit('ocr', `OCR page ${pageNumber}/${pageCount}…`, {
+                pageNumber,
+                pageCount,
+              }),
           }
         );
       } catch (ocrErr) {
@@ -1434,6 +1469,7 @@ class MistralOcrService {
         await documentModel.removeFromOcrQueue(normalizedDocumentId);
       }
 
+      laneOutcome = 'done';
       emit('done', 'Processing finished successfully.');
       return { ocrText, wroteBack, aiAnalysis: aiResult };
     } catch (error) {
@@ -1452,10 +1488,12 @@ class MistralOcrService {
         );
         await recordTerminalFailure('ocr_failed', 'ocr');
       }
+      laneOutcome = 'failed';
       emit('error', error.message);
       throw error;
     } finally {
       this.activeDocumentIds.delete(normalizedDocumentId);
+      activityService.finish('ocr', normalizedDocumentId, laneOutcome);
     }
   }
 
