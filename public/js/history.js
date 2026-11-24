@@ -63,7 +63,7 @@ class HistoryManager {
       );
       if (statusText) {
         statusText.textContent =
-          'Loading taking longer than expected, continuing...';
+          'Taking longer than expected, still loading...';
       }
     }, 5000);
 
@@ -181,7 +181,7 @@ class HistoryManager {
     const tagFilter = document.getElementById('tagFilter');
     if (tagFilter && filters.tags) {
       // Keep the "All Tags" option
-      tagFilter.innerHTML = '<option value="">All Tags</option>';
+      tagFilter.innerHTML = '<option value="">All tags</option>';
       filters.tags.forEach((tag) => {
         const option = document.createElement('option');
         option.value = tag.id;
@@ -195,7 +195,7 @@ class HistoryManager {
     if (correspondentFilter && filters.correspondents) {
       // Keep the "All Correspondents" option
       correspondentFilter.innerHTML =
-        '<option value="">All Correspondents</option>';
+        '<option value="">All correspondents</option>';
       filters.correspondents.forEach((corr) => {
         const option = document.createElement('option');
         option.value = corr;
@@ -694,7 +694,7 @@ class HistoryManager {
     if (!ids) return;
 
     const confirmed = await this._confirmBulk(
-      `Ignore ${ids.length} document(s)? They will be skipped by future scans.`
+      `Ignore ${ids.length} document(s)? Future scans will skip them.`
     );
     if (!confirmed) return;
 
@@ -894,7 +894,7 @@ class HistoryManager {
       : 'The text is too short to tell copies apart, so copies are not recognised.';
     if (sameText.available && !sameText.enabled) {
       textHint +=
-        ' Copy recognition is switched off in Settings › Skip rules; the fingerprint is kept for when it is on.';
+        ' Copy recognition is switched off in Settings → Skip rules; the fingerprint is kept for when it is on.';
     }
     setText('skipRuleTextHint', textHint);
 
@@ -1445,7 +1445,7 @@ class HistoryManager {
       const sentences = [];
       if (sent > 0) {
         sentences.push(
-          `${sent} document(s) sent for rescan. It might take a few moments to process.`
+          `${sent} document(s) sent for rescan. This can take a few moments.`
         );
       }
       if (waiting > 0) {
@@ -1530,7 +1530,7 @@ class HistoryManager {
     if (data && data.waitingForOcr === true) {
       return 'Document is waiting for OCR. It is analysed once OCR has read it.';
     }
-    return 'Document sent for rescan. It might take a few moments to process.';
+    return 'Document sent for rescan. This can take a few moments.';
   }
 
   /**

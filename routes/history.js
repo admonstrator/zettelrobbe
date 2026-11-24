@@ -293,7 +293,7 @@ router.get('/api/history/load-progress', isAuthenticated, async (req, res) => {
       step: 1,
       totalSteps: 3,
       message: forceReload
-        ? 'Force reloading filters...'
+        ? 'Reloading filters...'
         : 'Connecting to database...',
     });
 
@@ -307,8 +307,8 @@ router.get('/api/history/load-progress', isAuthenticated, async (req, res) => {
       step: 1,
       totalSteps: 2,
       message: forceReload
-        ? 'Force loading tags from Paperless...'
-        : 'Loading tags from Paperless...',
+        ? 'Reloading tags from Paperless-ngx...'
+        : 'Loading tags from Paperless-ngx...',
     });
 
     // Load tags from centralized cache
