@@ -56,7 +56,7 @@
         ] },
         { key: 'processing', label: 'Processing', icon: 'i-clock', entries: [
             { id: 'schedule', title: 'Schedule and tag filters', lead: 'When Zettelrobbe looks for documents it has not analysed yet, and which of them a scan takes or passes over.' },
-            { id: 'skip-rules', title: 'Skip rules', badge: 'New', lead: 'Documents that go to the ignored list before Zettelrobbe sends them to OCR or to the model.' }
+            { id: 'skip-rules', title: 'Skip rules', badge: 'New', lead: 'Documents that go to the ignore list before Zettelrobbe sends them to OCR or to the model.' }
         ] },
         { key: 'tags', label: 'Tag tools', icon: 'i-tag', entries: [
             { id: 'tidy-up', title: 'Tidy up', lead: 'How the model takes part in Tidy up, and how much a run may spend.' }
@@ -1059,7 +1059,7 @@
 
                         <%- entryOpen('skip-rules') %>
                                 <section class="zr-settings-section" id="sec-skip-rules" aria-labelledby="sec-skip-rules-title">
-                                    <%- sectionHead('sec-skip-rules', 'Documents that skip OCR and the model', 'A matching document goes to the <a href="/ignored" class="zr-link zr-link--underline">ignored list</a>. Take it off that list to process it anyway.') %>
+                                    <%- sectionHead('sec-skip-rules', 'Documents that skip OCR and the model', 'A matching document goes to the <a href="/ignored" class="zr-link zr-link--underline">ignore list</a>. Take it off that list to process it anyway.') %>
                                     <div class="zr-settings-section__body zr-col zr-col--loose">
                                     <div class="zr-field zr-field--stacked">
                                         <label for="maxPageCount" class="zr-field__name">Page limit</label>
@@ -1081,7 +1081,7 @@
                                         id: 'ignoreRepeatedContent',
                                         label: 'Skip copies of ignored documents',
                                         checked: String(config.IGNORE_REPEATED_CONTENT || 'yes').toLowerCase() !== 'no',
-                                        hint: 'Also skips documents whose text matches one on the ignored list, even as a newly generated PDF.'
+                                        hint: 'Also skips documents whose text matches one on the ignore list, even as a newly generated PDF.'
                                     }) %>
                                     </div>
                                 </section>
