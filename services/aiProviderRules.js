@@ -118,7 +118,7 @@ function transportFor(provider) {
  * @property {boolean} promptCaching      the provider caches a marked prompt
  * @property {'max_tokens'|'max_completion_tokens'|'num_predict'} maxTokensParam
  * @property {boolean} streaming          the transport streams completions
- * @property {'minimal'|'low'|null} reasoningOffEffort
+ * @property {'none'|'minimal'|'low'|null} reasoningOffEffort
  *   the reasoning_effort value that asks this model for (almost) no thinking,
  *   sent when a caller switches thinking off; null when there is none to send
  * @property {string|null} thinkingPromptSwitch
@@ -140,6 +140,13 @@ function transportFor(provider) {
 const REASONING_EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high']);
 
 const GPT_5_MODEL_PATTERN = /gpt-?5/i;
+// gpt-6 and its point releases (gpt-6.1-sol), not a gpt-60.
+const GPT_6_MODEL_PATTERN = /gpt-?6(?:\.\d+)?(?!\d)/i;
+// The GPT-6 models OpenAI documents with a `none` reasoning effort. The
+// others (gpt-6-astra, gpt-6.1-sol, a -pro variant) answer 400 for it, so a
+// name not listed here gets `low`, which every GPT-6 model takes.
+const GPT_6_NO_REASONING_MODEL_PATTERN =
+  /gpt-?6-(?:sol|luna)(?:-\d{4}-\d{2}-\d{2})?$|gpt-?6\.1-terra(?:-\d{4}-\d{2}-\d{2})?$/i;
 const O_SERIES_MODEL_PATTERN = /(?:^|[/:_\s-])o[1-4](?:$|[-_.])/i;
 const GPT_OSS_MODEL_PATTERN = /gpt-?oss/i;
 const QWEN_MODEL_PATTERN = /qwen/i;
@@ -147,10 +154,20 @@ const QWEN_MODEL_PATTERN = /qwen/i;
 /**
  * Model families whose rules differ from the transport default. Patterns are
  * tried in order; the first match wins and only overrides what it names. An
- * entry with `providers` applies to those providers only.
+ * entry with `providers` applies to those providers only. An entry with
+ * `keepsCapName` keeps its `maxTokensParam` on the custom provider too,
+ * where every other model sends `max_tokens` (see resolveRules()).
  * Anthropic models are not listed: their per-model traits stay in
  * services/anthropicSupport.js, which this module defers to for them.
  *
+ * - The GPT-6 family (gpt-6-astra, gpt-6-sol, gpt-6.1-sol, gpt-6-luna, …)
+ *   answers 400 for `max_tokens` and for a temperature while it reasons,
+ *   wherever it is served: OpenAI, Azure, or a gateway that passes the
+ *   request on. It takes `reasoning_effort` low to high (and xhigh, max)
+ *   but no `minimal`; only gpt-6-sol, gpt-6-luna and gpt-6.1-terra take
+ *   `none`. The cap therefore stays `max_completion_tokens` on the custom
+ *   provider as well — a gateway such as LiteLLM forwards the field as
+ *   sent, and `max_tokens` is the error the model answers with.
  * - gpt-5 and the o-series reject a temperature other than the default and
  *   reject `max_tokens` (they want `max_completion_tokens`); both take
  *   `reasoning_effort`, gpt-5 down to 'minimal', the o-series down to 'low',
@@ -163,9 +180,33 @@ const QWEN_MODEL_PATTERN = /qwen/i;
  *   hosted APIs such as Mistral's reject the unknown field with 422 (issue
  *   #373), so for any other model it waits for DUPLICATES_AI_TEMPLATE_SWITCH.
  *
- * @type {ReadonlyArray<{transport: Transport, pattern: RegExp, providers?: ReadonlyArray<ProviderId>, rules: Partial<RequestRules>}>}
+ * @type {ReadonlyArray<{transport: Transport, pattern: RegExp, providers?: ReadonlyArray<ProviderId>, keepsCapName?: boolean, rules: Partial<RequestRules>}>}
  */
 const MODEL_FAMILIES = Object.freeze([
+  {
+    transport: 'openai-compatible',
+    pattern: GPT_6_NO_REASONING_MODEL_PATTERN,
+    keepsCapName: true,
+    rules: {
+      temperature: false,
+      reasoningEffort: 'openai',
+      reasoningOffEffort: 'none',
+      maxTokensParam: 'max_completion_tokens',
+      effortSetting: true,
+    },
+  },
+  {
+    transport: 'openai-compatible',
+    pattern: GPT_6_MODEL_PATTERN,
+    keepsCapName: true,
+    rules: {
+      temperature: false,
+      reasoningEffort: 'openai',
+      reasoningOffEffort: 'low',
+      maxTokensParam: 'max_completion_tokens',
+      effortSetting: true,
+    },
+  },
   {
     transport: 'openai-compatible',
     pattern: GPT_5_MODEL_PATTERN,
@@ -301,15 +342,21 @@ function resolveRules(provider, model = '', settings = {}) {
   // The custom provider serves hosted and self-hosted models alike, behind
   // gateways that each read the OpenAI dialect a little differently. The
   // compatible dialect is what all of them understand: reasoning_effort
-  // 'low' rather than 'minimal', and the cap as max_tokens.
+  // 'low' rather than 'minimal' or 'none', and the cap as max_tokens —
+  // except for a family that rejects max_tokens wherever it is served.
   if (id === 'custom') {
     if (rules.reasoningEffort === 'openai') {
       rules.reasoningEffort = 'compatible';
     }
-    if (rules.reasoningOffEffort === 'minimal') {
+    if (
+      rules.reasoningOffEffort === 'minimal' ||
+      rules.reasoningOffEffort === 'none'
+    ) {
       rules.reasoningOffEffort = 'low';
     }
-    rules.maxTokensParam = 'max_tokens';
+    if (!family?.keepsCapName) {
+      rules.maxTokensParam = 'max_tokens';
+    }
     if (settings.templateSwitch && !rules.thinkingSwitch) {
       rules.thinkingSwitch = 'chat_template';
     }
