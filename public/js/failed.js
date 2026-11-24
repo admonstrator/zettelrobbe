@@ -56,9 +56,7 @@
       const resp = await fetch(`/api/failed/queue?${params}`);
       const data = await resp.json();
       if (!data.success)
-        throw new Error(
-          data.error || 'Failed to load permanently failed queue'
-        );
+        throw new Error(data.error || 'Could not load the failed documents');
 
       totalRecords = data.recordsTotal || 0;
       paperlessUrl = data.paperlessUrl || '';
@@ -71,7 +69,7 @@
 
   function renderTable(items) {
     if (!items.length) {
-      tableBody.innerHTML = `<tr><td colspan="6" class="zr-empty"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>No permanently failed documents</td></tr>`;
+      tableBody.innerHTML = `<tr><td colspan="6" class="zr-empty"><svg class="zr-icon zr-icon--sm" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg>No failed documents</td></tr>`;
       return;
     }
 
@@ -184,7 +182,7 @@
       const data = await resp.json();
 
       if (data.success) {
-        showToast(data.message || 'Document reset successfully');
+        showToast(data.message || 'Document reset.');
       } else {
         showToast(data.message || data.error || 'Reset failed', 'error');
       }
@@ -202,7 +200,7 @@
       const data = await resp.json();
 
       if (data.success) {
-        showToast(data.message || 'Document moved to ignored list');
+        showToast(data.message || 'Document moved to ignore list');
       } else {
         showToast(data.message || data.error || 'Ignore failed', 'error');
       }
@@ -216,7 +214,7 @@
     if (resetAllInProgress || totalRecords === 0) return;
 
     const confirmed = window.confirm(
-      `Reset all ${totalRecords} permanently failed document${totalRecords === 1 ? '' : 's'}?`
+      `Reset all ${totalRecords} failed document${totalRecords === 1 ? '' : 's'}?`
     );
     if (!confirmed) return;
 
@@ -231,7 +229,7 @@
         throw new Error(data.error || data.message || 'Reset all failed');
       }
 
-      showToast(data.message || 'All failed documents reset successfully');
+      showToast(data.message || 'All failed documents reset.');
       currentPage = 0;
       await loadQueue();
     } catch (error) {

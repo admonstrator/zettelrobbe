@@ -378,9 +378,9 @@ router.post('/api/ignored/add', isAuthenticated, async (req, res) => {
       message:
         documentIds.length === 1
           ? added
-            ? `Document ${documentIds[0]} added to ignored list.`
+            ? `Document ${documentIds[0]} added to ignore list.`
             : `Document ${documentIds[0]} was already ignored.`
-          : `${added} document(s) added to ignored list${skipped ? `, ${skipped} already ignored` : ''}.`,
+          : `${added} document(s) added to ignore list${skipped ? `, ${skipped} already ignored` : ''}.`,
     });
   } catch (error) {
     console.error('[ERROR] POST /api/ignored/add:', error);
@@ -600,7 +600,7 @@ router.post('/api/ignored/skip', isAuthenticated, async (req, res) => {
       pageLimit,
     });
     const notSavedNote = data.notSaved.length
-      ? ` Set by the container, not changed: ${data.notSaved.join(', ')}.`
+      ? ` Set by the environment, not changed: ${data.notSaved.join(', ')}.`
       : '';
     return res.json({
       success: true,
@@ -629,8 +629,8 @@ router.delete('/api/ignored/:documentId', isAuthenticated, async (req, res) => {
     return res.json({
       success: removed,
       message: removed
-        ? `Document ${documentId} removed from ignored list. It will be processed again, even if a skip rule matches it.`
-        : `Document ${documentId} was not in ignored list.`,
+        ? `Document ${documentId} removed from ignore list. It will be processed again, even if a skip rule matches it.`
+        : `Document ${documentId} was not in ignore list.`,
     });
   } catch (error) {
     console.error('[ERROR] DELETE /api/ignored/:documentId:', error);
@@ -690,7 +690,7 @@ router.post(
 
       return res.json({
         success: true,
-        message: `Document ${documentId} moved to ignored list.`,
+        message: `Document ${documentId} moved to ignore list.`,
       });
     } catch (error) {
       console.error('[ERROR] POST /api/failed/ignore/:documentId:', error);

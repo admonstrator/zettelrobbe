@@ -12,7 +12,7 @@
             <div class="zr-stack">
                 <div class="zr-viewhead">
                     <p class="zr-viewhead__sub">
-                        Documents with missing or insufficient OCR text queued for OCR reprocessing.
+                        Documents with little or no text, waiting for OCR.
                     </p>
                     <% if (ocrEnabled) { %>
                     <div class="zr-viewhead__actions">
@@ -37,7 +37,7 @@
                         <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-eye-off"/></svg>
                         <h2 class="zr-viewhead__title">OCR is not enabled</h2>
                         <p class="zr-muted">
-                            Enable OCR in settings and configure your OCR provider. You can optionally set these values in <strong>data/.env</strong> and restart the service:
+                            Turn on OCR in Settings and set up your OCR provider. You can also set these values in <strong>data/.env</strong> and restart the service:
                         </p>
                         <pre class="ocr-env-codeblock">MISTRAL_OCR_ENABLED=yes
 OCR_PROVIDER=mistral|custom

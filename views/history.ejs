@@ -74,7 +74,7 @@
                 <div class="zr-alert zr-alert--info">
                     <svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-info"/></svg>
                     <div class="zr-alert__body">
-                        <p class="zr-sm">History is reconciled automatically. To run it by hand, go to
+                        <p class="zr-sm">History is reconciled automatically. To reconcile it by hand, go to
                         <a href="/settings#caching" class="zr-link">Settings &rarr; Caching and history</a>.</p>
                     </div>
                 </div>
@@ -223,7 +223,7 @@
                 <button class="modal-close"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
             </div>
             <div class="modal-content">
-                <p >Are you sure you want to reset the selected documents to their original values? This action cannot be undone.</p>
+                <p >Reset the selected documents to their original values? This cannot be undone.</p>
                 <div class="zr-row" style="justify-content: flex-end">
                     <button id="cancelReset" class="zr-btn">Cancel</button>
                     <button id="confirmReset" class="zr-btn zr-btn--danger">Confirm Reset</button>
@@ -241,7 +241,7 @@
                 <button class="modal-close"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-x"/></svg></button>
             </div>
             <div class="modal-content">
-                <p >Are you sure you want to reset <b>all</b> documents to their original values? This action cannot be undone.</p>
+                <p >Reset <b>all</b> documents to their original values? This cannot be undone.</p>
                 <div class="zr-row" style="justify-content: flex-end">
                     <button id="cancelResetAll" class="zr-btn">Cancel</button>
                     <button id="confirmResetAll" class="zr-btn zr-btn--danger">Confirm Reset</button>
@@ -277,7 +277,7 @@
                     <input type="checkbox" class="zr-check" id="skipRuleDocument" checked disabled>
                     <div class="zr-col zr-col--tight zr-grow">
                         <label for="skipRuleDocument" class="history-skip__name">This document</label>
-                        <p class="zr-sm">Goes on the ignored list. Always part of a skip.</p>
+                        <p class="zr-sm">Goes on the ignore list. Always part of a skip.</p>
                     </div>
                 </div>
 
@@ -316,7 +316,7 @@
             </div>
         </div>
         <div class="zr-dialog__foot">
-            <span class="zr-grow zr-sm zr-faint">Title and page rules are saved to <a href="/settings#skip-rules">Settings › Skip rules</a>.</span>
+            <span class="zr-grow zr-sm zr-faint">Title and page rules are saved to <a href="/settings#skip-rules">Settings &rarr; Skip rules</a>.</span>
             <button type="button" class="zr-btn" data-skip-close>Cancel</button>
             <button type="button" class="zr-btn zr-btn--primary" id="skipDialogConfirm" disabled>Skip document</button>
         </div>
