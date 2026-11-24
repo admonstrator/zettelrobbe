@@ -409,7 +409,7 @@ const entry = (key) => catalog.getEntry(key);
     assert.match(json.reason, /not valid JSON/);
     const mode = storableValue(entry('COOKIE_SECURE_MODE'), 'sometimes');
     assert.strictEqual(mode.ok, false);
-    assert.match(mode.reason, /Invalid Cookie Secure Mode/);
+    assert.match(mode.reason, /Secure cookies must be auto, always or never/);
     [cron, range, parsed, provider, json, mode].forEach((result) => {
       if (!result.ok)
         assert.match(result.reason, /Correct the line in docker-compose/);

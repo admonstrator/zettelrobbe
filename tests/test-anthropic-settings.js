@@ -846,23 +846,23 @@ function startFakeAnthropic() {
       const cases = [
         [
           anthropicBody({ anthropicEffort: 'extreme' }),
-          /Invalid Anthropic effort/,
+          /Thinking effort for Claude must be/,
         ],
         [
           anthropicBody({ anthropicMaxTokens: '16k' }),
-          /Invalid Anthropic max tokens/,
+          /Answer and thinking budget must be a whole number above 0/,
         ],
         [
           anthropicBody({ anthropicMaxTokens: '0' }),
-          /Invalid Anthropic max tokens/,
+          /Answer and thinking budget must be a whole number above 0/,
         ],
         [
           anthropicBody({ anthropicApiUrl: 'ftp://proxy' }),
-          /Invalid Anthropic API URL/,
+          /The Anthropic API address must be an http\(s\) address/,
         ],
         [
           anthropicBody({ anthropicApiKey: '' }),
-          /Anthropic API key is required/,
+          /The Anthropic API key is missing/,
         ],
       ];
       for (const [body, pattern] of cases) {

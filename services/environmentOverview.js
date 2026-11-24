@@ -269,8 +269,8 @@ function storableValue(entry, raw) {
     return {
       ok: false,
       reason: entry.secret
-        ? `A save of this field would change the value. ${CORRECT_FIRST}`
-        : `A save of this field turns ${trimmed} into ${parsed}. ${CORRECT_FIRST}`,
+        ? `Saving this field would change the value. ${CORRECT_FIRST}`
+        : `Saving this field turns ${trimmed} into ${parsed}. ${CORRECT_FIRST}`,
     };
   }
   return { ok: true, value: parsed };

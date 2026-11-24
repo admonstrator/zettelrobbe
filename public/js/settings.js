@@ -784,7 +784,7 @@ function initializeFormHandlers() {
         await zrDialog({
           icon: 'warning',
           title: 'No server address',
-          text: 'Enter the server address of Ollama first.',
+          text: 'Enter the Ollama server address first.',
         });
         return;
       }
@@ -809,7 +809,7 @@ function initializeFormHandlers() {
         await zrDialog({
           icon: 'success',
           title: 'Models loaded',
-          text: `${models.length > 0 ? `Models found: ${models.length}.` : 'The server lists no model.'}${resolvedInfo}`,
+          text: `${models.length > 0 ? `Models found: ${models.length}.` : 'The server lists no models.'}${resolvedInfo}`,
         });
         refreshAiProviderChoice();
       } catch (error) {
@@ -877,7 +877,7 @@ function initializeFormHandlers() {
         await zrDialog({
           icon: 'success',
           title: 'Models loaded',
-          text: `${models.length > 0 ? `Models found: ${models.length}.` : 'The server lists no model.'}${resolvedInfo}`,
+          text: `${models.length > 0 ? `Models found: ${models.length}.` : 'The server lists no models.'}${resolvedInfo}`,
         });
         refreshAiProviderChoice();
       } catch (error) {
@@ -1026,7 +1026,7 @@ function initializeFormHandlers() {
             result.message ||
             (result.models.length > 0
               ? `Models found: ${result.models.length}.`
-              : 'The server lists no model.'),
+              : 'The server lists no models.'),
         });
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
@@ -1272,7 +1272,7 @@ function initializeFormHandlers() {
     const answer = await zrDialog({
       icon: 'warning',
       title: 'Delete all passwords?',
-      text: `${count === 1 ? 'The stored PDF password is' : `All ${count} stored PDF passwords are`} deleted. Locked documents can then only be unlocked with a password typed in again.`,
+      text: `${count === 1 ? 'This deletes the stored PDF password.' : `This deletes all ${count} stored PDF passwords.`} Locked documents can then only be unlocked with a password typed in again.`,
       showCancelButton: true,
       confirmButtonText: 'Delete',
       cancelButtonText: 'Cancel',
@@ -2019,7 +2019,7 @@ function initializeFormHandlers() {
               ? 'Suggested models shown'
               : 'OCR models loaded',
           text:
-            models.length > 0 ? result.message : 'The server lists no model.',
+            models.length > 0 ? result.message : 'The server lists no models.',
         });
       } catch (error) {
         const errorDetails = getTimeoutAwareErrorDetails(
@@ -2384,7 +2384,7 @@ function initializeFormHandlers() {
       if (resultDiv) {
         resultDiv.className = 'mt-3';
         resultDiv.innerHTML =
-          '<span class="zr-sm zr-faint"><svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Reconciliation in progress...</span>';
+          '<span class="zr-sm zr-faint"><svg class="zr-icon zr-icon--sm zr-icon--spin" aria-hidden="true"><use href="/icons.svg#i-refresh"/></svg> Clean-up running…</span>';
       }
 
       try {
