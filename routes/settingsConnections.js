@@ -430,7 +430,7 @@ router.post(
       ) {
         return res.status(400).json({
           success: false,
-          error: `Unknown token endpoint auth method. Use one of: ${oidcService.TOKEN_AUTH_METHODS.join(', ')}, or leave it empty.`,
+          error: `Unknown token authentication method. Use one of: ${oidcService.TOKEN_AUTH_METHODS.join(', ')}, or leave it empty.`,
         });
       }
 
@@ -444,7 +444,7 @@ router.post(
       ) {
         return res.status(400).json({
           success: false,
-          error: `${tokenAuthMethod} needs a client secret. Enter it, or choose another auth method.`,
+          error: `${tokenAuthMethod} needs a client secret. Enter it, or choose another method.`,
         });
       }
 
@@ -501,7 +501,7 @@ router.post(
       console.error('[ERROR] POST /api/settings/ai/models:', error);
       return res.status(400).json({
         success: false,
-        error: error.message || 'Could not discover AI models.',
+        error: error.message || 'Could not load the models.',
       });
     }
   }
@@ -629,7 +629,7 @@ router.post(
       console.error('[ERROR] POST /api/settings/ocr/models:', error);
       return res.status(400).json({
         success: false,
-        error: error.message || 'Could not discover OCR models.',
+        error: error.message || 'Could not load the OCR models.',
       });
     }
   }
@@ -693,7 +693,7 @@ router.post(
       console.error('[ERROR] POST /api/settings/quickstart/detect:', error);
       return res.status(400).json({
         success: false,
-        error: error.message || 'Quickstart detection failed.',
+        error: error.message || 'Could not detect the server.',
       });
     }
   }

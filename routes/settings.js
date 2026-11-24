@@ -350,7 +350,7 @@ router.delete(
       console.error('Error deleting the PDF passwords:', error.message);
       res
         .status(500)
-        .json({ success: false, error: 'Error deleting the PDF passwords' });
+        .json({ success: false, error: 'Could not delete the PDF passwords.' });
     }
   }
 );
@@ -665,7 +665,7 @@ router.get(
       console.error('[ERROR] GET /api/settings/paperless-public-url:', error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to detect Paperless public URL',
+        error: 'Could not ask Paperless-ngx for its public address.',
       });
     }
   }
@@ -1218,7 +1218,7 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
       ))
     ) {
       return res.status(400).json({
-        error: 'Paperless-ngx connection failed. Please check URL and Token.',
+        error: 'Paperless-ngx connection failed. Check the address and token.',
       });
     }
 
@@ -1280,7 +1280,7 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
   } catch (error) {
     console.error('Settings update error:', error);
     res.status(500).json({
-      error: 'An error occurred: ' + error.message,
+      error: 'Saving failed: ' + error.message,
     });
   }
 });

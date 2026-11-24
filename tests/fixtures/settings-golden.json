@@ -264,7 +264,7 @@
     "openai without any key": {
       "status": 400,
       "response": {
-        "error": "OpenAI API key is required when OpenAI provider is selected."
+        "error": "The OpenAI API key is missing."
       },
       "saved": [],
       "restartRequested": 0,
@@ -341,7 +341,7 @@
     "ollama without think field and without model": {
       "status": 400,
       "response": {
-        "error": "Ollama URL and model are required when Ollama provider is selected."
+        "error": "Ollama needs a server address and a model."
       },
       "saved": [],
       "restartRequested": 0,
@@ -416,7 +416,7 @@
     "custom without url": {
       "status": 400,
       "response": {
-        "error": "Custom provider URL and model are required when custom provider is selected."
+        "error": "An OpenAI-compatible provider needs a server address and a model."
       },
       "saved": [],
       "restartRequested": 0,
@@ -492,7 +492,7 @@
     "azure without key": {
       "status": 400,
       "response": {
-        "error": "Azure endpoint, API key and deployment name are required when Azure provider is selected."
+        "error": "Azure OpenAI needs an endpoint, an API key and a deployment name."
       },
       "saved": [],
       "restartRequested": 0,
@@ -571,7 +571,7 @@
     "anthropic without key": {
       "status": 400,
       "response": {
-        "error": "Anthropic API key is required when the Anthropic provider is selected."
+        "error": "The Anthropic API key is missing."
       },
       "saved": [],
       "restartRequested": 0,
@@ -584,7 +584,7 @@
     "anthropic invalid effort": {
       "status": 400,
       "response": {
-        "error": "Invalid Anthropic effort. Allowed values are low, medium, high, xhigh, max, or empty for the model default."
+        "error": "Thinking effort for Claude must be low, medium, high, xhigh, max, or empty for the model default."
       },
       "saved": [],
       "restartRequested": 0,
@@ -597,7 +597,7 @@
     "anthropic invalid max tokens": {
       "status": 400,
       "response": {
-        "error": "Invalid Anthropic max tokens. Expected a positive whole number."
+        "error": "Answer and thinking budget must be a whole number above 0."
       },
       "saved": [],
       "restartRequested": 0,
@@ -610,7 +610,7 @@
     "anthropic invalid url": {
       "status": 400,
       "response": {
-        "error": "Invalid Anthropic API URL. Expected an http(s) URL, or leave it empty for api.anthropic.com."
+        "error": "The Anthropic API address must be an http(s) address, or empty for api.anthropic.com."
       },
       "saved": [],
       "restartRequested": 0,
@@ -711,7 +711,7 @@
     "paperless url changed and unreachable": {
       "status": 400,
       "response": {
-        "error": "Paperless-ngx connection failed. Please check URL and Token."
+        "error": "Paperless-ngx connection failed. Check the address and token."
       },
       "saved": [],
       "restartRequested": 0,
@@ -1065,7 +1065,7 @@
     "mistral ocr enabled without any key": {
       "status": 400,
       "response": {
-        "error": "Mistral API key is required when OCR fallback is enabled with provider mistral."
+        "error": "The OCR API key is missing. Mistral needs one."
       },
       "saved": [],
       "restartRequested": 0,
@@ -1078,7 +1078,7 @@
     "invalid ocr provider": {
       "status": 400,
       "response": {
-        "error": "Invalid OCR provider. Allowed values are mistral, custom and anthropic."
+        "error": "OCR provider must be mistral, custom or anthropic."
       },
       "saved": [],
       "restartRequested": 0,
@@ -1502,7 +1502,7 @@
     "invalid ocr interval": {
       "status": 400,
       "response": {
-        "error": "Invalid OCR Processing Interval. Use cron syntax, for example */15 * * * *."
+        "error": "The OCR queue schedule must be in cron syntax, for example */15 * * * *."
       },
       "saved": [],
       "restartRequested": 0,
@@ -1863,7 +1863,7 @@
     "token limit rejected": {
       "status": 400,
       "response": {
-        "error": "Invalid Token Limit. Expected a positive whole number."
+        "error": "Document length limit must be a whole number above 0."
       },
       "saved": [],
       "restartRequested": 0,
@@ -1876,7 +1876,7 @@
     "response tokens rejected": {
       "status": 400,
       "response": {
-        "error": "Invalid Response Tokens. Expected a positive whole number."
+        "error": "Answer length must be a whole number above 0."
       },
       "saved": [],
       "restartRequested": 0,
@@ -1974,7 +1974,7 @@
     "cookie secure mode rejected": {
       "status": 400,
       "response": {
-        "error": "Invalid Cookie Secure Mode. Allowed values: auto, always, never."
+        "error": "Secure cookies must be auto, always or never."
       },
       "saved": [],
       "restartRequested": 0,
@@ -1987,7 +1987,7 @@
     "page limit rejected": {
       "status": 400,
       "response": {
-        "error": "Invalid page limit. Use a whole number of pages, or 0 for no limit."
+        "error": "Page limit must be a whole number of pages, or 0 for no limit."
       },
       "saved": [],
       "restartRequested": 0,
@@ -2055,7 +2055,7 @@
     "log level rejected": {
       "status": 400,
       "response": {
-        "error": "Invalid Log Level. Allowed values: debug, info, warn, error."
+        "error": "Log level must be debug, info, warn or error."
       },
       "saved": [],
       "restartRequested": 0,
@@ -2096,7 +2096,7 @@
     "date format rejected": {
       "status": 400,
       "response": {
-        "error": "Invalid Date Format. Allowed values: DD.MM.YYYY, YYYY-MM-DD."
+        "error": "Date format must be DD.MM.YYYY or YYYY-MM-DD."
       },
       "saved": [],
       "restartRequested": 0,
@@ -2137,7 +2137,7 @@
     "first error wins: provider before token limit": {
       "status": 400,
       "response": {
-        "error": "OpenAI API key is required when OpenAI provider is selected."
+        "error": "The OpenAI API key is missing."
       },
       "saved": [],
       "restartRequested": 0,
