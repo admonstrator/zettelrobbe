@@ -2523,7 +2523,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'success',
         title: 'Copied',
-        text: 'Environment keys copied to clipboard.',
+        text: 'Environment variables copied.',
       });
     } catch {
       this.envPreview.select();
@@ -2531,7 +2531,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'success',
         title: 'Copied',
-        text: 'Environment keys copied to clipboard.',
+        text: 'Environment variables copied.',
       });
     }
   }
@@ -2681,7 +2681,7 @@ class SetupWizard {
       await this.showPopup({
         icon: 'success',
         title: 'Setup saved',
-        text: result.message || 'Setup completed successfully.',
+        text: result.message || 'Setup is complete.',
         timer: 1800,
         showConfirmButton: false,
       });
@@ -2710,7 +2710,7 @@ class SetupWizard {
     } catch (error) {
       await this.showPopup({
         icon: 'error',
-        title: 'Finalize failed',
+        title: 'Setup not saved',
         text: error.message,
       });
     } finally {

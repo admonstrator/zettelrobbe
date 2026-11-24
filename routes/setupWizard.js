@@ -300,9 +300,9 @@ router.get('/setup', async (req, res) => {
         .render('setup-error', {
           title: 'System Configuration Error',
           errorMessage:
-            'The system configuration exists but the database is inaccessible or corrupted. This is an administrative error state. Please check system logs and database integrity.',
+            'The configuration exists, but the database cannot be read or is corrupted. Check the system logs and whether the database is intact.',
           supportText:
-            'This may occur if: (1) the database file was deleted or corrupted, (2) file permissions changed, or (3) the database is locked. Restart the application after verifying database and permissions.',
+            'Possible causes: the database file was deleted or corrupted, file permissions changed, or the database is locked. Check the database and its permissions, then restart the application.',
         })
         .catch(() => {
           // Fallback if setup-error template doesn't exist
@@ -374,7 +374,7 @@ router.get('/setup', async (req, res) => {
     const aiProviderPresets = await loadAiProviderPresets();
     res.status(500).render('setup', {
       config: {},
-      error: 'An error occurred while loading the setup page.',
+      error: 'Could not load the setup page.',
       aiProviderPresets,
       anthropicOptions: getAnthropicFormOptions(),
       defaults: {
@@ -1292,7 +1292,7 @@ router.post('/api/setup/complete', express.json(), async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Initial setup completed successfully.',
+      message: 'Initial setup is complete.',
       restart: true,
       redirectTo: '/login',
       envPreview,

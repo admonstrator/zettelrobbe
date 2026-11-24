@@ -3336,7 +3336,7 @@
       "status": 200,
       "response": {
         "success": true,
-        "message": "Initial setup completed successfully.",
+        "message": "Initial setup is complete.",
         "restart": true,
         "redirectTo": "/login",
         "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=openai\nOPENAI_API_KEY=sk-setup\nOPENAI_MODEL=gpt-4o-mini\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
@@ -3394,7 +3394,7 @@
       "status": 200,
       "response": {
         "success": true,
-        "message": "Initial setup completed successfully.",
+        "message": "Initial setup is complete.",
         "restart": true,
         "redirectTo": "/login",
         "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=yes\nTAGS=inbox,scan,extra\nIGNORE_TAGS=old,junk,ai-done\nADD_AI_PROCESSED_TAG=yes\nAI_PROCESSED_TAG_NAME=ai-done\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=yes\nDISABLE_AUTOMATIC_PROCESSING=yes\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=ollama\nOLLAMA_API_URL=http://localhost:11434\nOLLAMA_API_KEY=\nOLLAMA_MODEL=qwen3\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=mistral-setup\nMISTRAL_API_KEY=mistral-setup\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
@@ -3453,7 +3453,7 @@
       "status": 200,
       "response": {
         "success": true,
-        "message": "Initial setup completed successfully.",
+        "message": "Initial setup is complete.",
         "restart": true,
         "redirectTo": "/login",
         "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=anthropic\nANTHROPIC_API_KEY=sk-ant-setup\nANTHROPIC_API_URL=https://proxy.example.com\nANTHROPIC_MODEL=claude-setup-model\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=anthropic\nOCR_API_URL=https://ocr-proxy\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=claude-setup-model"
@@ -3512,7 +3512,7 @@
       "status": 200,
       "response": {
         "success": true,
-        "message": "Initial setup completed successfully.",
+        "message": "Initial setup is complete.",
         "restart": true,
         "redirectTo": "/login",
         "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=azure\nAZURE_ENDPOINT=https://x.openai.azure.com\nAZURE_API_KEY=az\nAZURE_DEPLOYMENT_NAME=gpt4o\nAZURE_API_VERSION=2023-05-15\nMISTRAL_OCR_ENABLED=yes\nOCR_PROVIDER=custom\nOCR_API_URL=http://lm:1234/v1\nOCR_API_KEY=lm\nMISTRAL_API_KEY=lm\nMISTRAL_OCR_MODEL=qwen-vl"
@@ -3572,7 +3572,7 @@
       "status": 200,
       "response": {
         "success": true,
-        "message": "Initial setup completed successfully.",
+        "message": "Initial setup is complete.",
         "restart": true,
         "redirectTo": "/login",
         "envPreview": "PAPERLESS_API_URL=http://paperless.local:8000\nPAPERLESS_API_TOKEN=token\nPROCESS_PREDEFINED_DOCUMENTS=no\nTAGS=\nIGNORE_TAGS=\nADD_AI_PROCESSED_TAG=no\nAI_PROCESSED_TAG_NAME=ai-processed\nREMOVE_INBOX_TAGS_AFTER_PROCESSING=no\nDISABLE_AUTOMATIC_PROCESSING=no\nSCAN_INTERVAL=*/30 * * * *\nAI_PROVIDER=custom\nCUSTOM_BASE_URL=http://lm:1234/v1\nCUSTOM_API_KEY=\nCUSTOM_MODEL=qwen\nMISTRAL_OCR_ENABLED=no\nOCR_PROVIDER=mistral\nOCR_API_URL=\nOCR_API_KEY=\nMISTRAL_API_KEY=\nMISTRAL_OCR_MODEL=mistral-ocr-latest"
