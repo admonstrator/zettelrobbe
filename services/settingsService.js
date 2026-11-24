@@ -136,14 +136,12 @@ function resolveOcrSettings(body, current) {
   };
 
   if (!['mistral', 'custom', 'ollama', 'anthropic'].includes(provider)) {
-    result.error =
-      'Invalid OCR provider. Allowed values are mistral, custom and anthropic.';
+    result.error = 'OCR provider must be mistral, custom or anthropic.';
     return result;
   }
 
   if (enabled === 'yes' && provider === 'mistral' && !effectiveKey) {
-    result.error =
-      'Mistral API key is required when OCR fallback is enabled with provider mistral.';
+    result.error = 'The OCR API key is missing. Mistral needs one.';
     return result;
   }
 
@@ -410,7 +408,7 @@ function buildProviderUpdate(body, current) {
     if (!key.value) {
       return {
         updates,
-        error: 'OpenAI API key is required when OpenAI provider is selected.',
+        error: 'The OpenAI API key is missing.',
       };
     }
     if (key.typed) updates.OPENAI_API_KEY = key.value;
@@ -422,8 +420,7 @@ function buildProviderUpdate(body, current) {
     ) {
       return {
         updates,
-        error:
-          'Ollama URL and model are required when Ollama provider is selected.',
+        error: 'Ollama needs a server address and a model.',
       };
     }
     const key = secret('ollamaApiKey', 'OLLAMA_API_KEY');
@@ -449,7 +446,7 @@ function buildProviderUpdate(body, current) {
       return {
         updates,
         error:
-          'Custom provider URL and model are required when custom provider is selected.',
+          'An OpenAI-compatible provider needs a server address and a model.',
       };
     }
     const key = secret('customApiKey', 'CUSTOM_API_KEY');
@@ -466,7 +463,7 @@ function buildProviderUpdate(body, current) {
       return {
         updates,
         error:
-          'Azure endpoint, API key and deployment name are required when Azure provider is selected.',
+          'Azure OpenAI needs an endpoint, an API key and a deployment name.',
       };
     }
     if (body.azureEndpoint) updates.AZURE_ENDPOINT = body.azureEndpoint;
@@ -501,8 +498,7 @@ function buildAnthropicUpdate(body, current) {
   if (!key) {
     return {
       updates,
-      error:
-        'Anthropic API key is required when the Anthropic provider is selected.',
+      error: 'The Anthropic API key is missing.',
     };
   }
 
@@ -518,7 +514,7 @@ function buildAnthropicUpdate(body, current) {
   if (effort && !ANTHROPIC_EFFORT_LEVELS.includes(effort)) {
     return {
       updates,
-      error: `Invalid Anthropic effort. Allowed values are ${ANTHROPIC_EFFORT_LEVELS.join(', ')}, or empty for the model default.`,
+      error: `Thinking effort for Claude must be one of ${ANTHROPIC_EFFORT_LEVELS.join(', ')}, or empty for the model default.`,
     };
   }
 
@@ -527,7 +523,7 @@ function buildAnthropicUpdate(body, current) {
   if (maxTokens && (!/^\d+$/.test(maxTokens) || Number(maxTokens) < 1)) {
     return {
       updates,
-      error: 'Invalid Anthropic max tokens. Expected a positive whole number.',
+      error: 'Answer and thinking budget must be a whole number above 0.',
     };
   }
 
@@ -547,7 +543,7 @@ function buildAnthropicUpdate(body, current) {
       return {
         updates,
         error:
-          'Invalid Anthropic API URL. Expected an http(s) URL, or leave it empty for api.anthropic.com.',
+          'The Anthropic API address must be an http(s) address, or empty for api.anthropic.com.',
       };
     }
   }

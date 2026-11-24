@@ -430,7 +430,7 @@
     unlockAllBtn.disabled = !storedPasswords;
     unlockAllBtn.title = storedPasswords
       ? `Try the ${storedPasswords} password(s) stored in Settings on every password-protected document`
-      : 'No passwords stored. Add them under Settings → OCR Fallback → PDF Passwords.';
+      : 'No passwords stored. Add them under Settings → OCR → PDF passwords.';
   }
 
   async function unlockSingle(documentId) {

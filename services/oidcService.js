@@ -478,7 +478,7 @@ class OidcService {
       const code = error?.error;
       if (code === 'invalid_client' || error?.status === 401) {
         throw new Error(
-          `The provider refused the client (${code || `HTTP ${error.status}`}). Check the client ID, the client secret and the token endpoint auth method (${chosenAuthMethod}).`,
+          `The provider refused the client (${code || `HTTP ${error.status}`}). Check the client ID, the client secret and the token authentication (${chosenAuthMethod}).`,
           { cause: error }
         );
       }

@@ -144,7 +144,7 @@
 
                 <section class="zr-steppane" data-step-index="1" data-step-title="Two-factor auth">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-shield"/></svg> Multi-factor authentication (MFA)</h3>
-                    <p class="zr-sm zr-muted">Would you like to enable MFA for the admin account?</p>
+                    <p class="zr-sm zr-muted">Enable MFA for the admin account?</p>
 
                     <div class="zr-field zr-field--stacked">
                         <label for="enableMfa" class="zr-field__name">Enable MFA</label>
@@ -186,7 +186,7 @@
 
                 <section class="zr-steppane" data-step-index="2" data-step-title="Paperless connection">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-link"/></svg> Paperless-ngx connection</h3>
-                    <p class="zr-sm zr-muted">Enter your Paperless-ngx API credentials and run a connectivity test.</p>
+                    <p class="zr-sm zr-muted">Enter your Paperless-ngx URL and API token, then test the connection.</p>
 
                     <div class="zr-formgrid">
                         <div class="zr-field zr-field--stacked zr-formgrid__wide">
@@ -236,7 +236,7 @@
                             <input id="scanAllDocuments" type="checkbox" class="zr-toggle">
                             <span>
                                 <strong>Always scan all documents</strong>
-                                <span class="zr-field__hint">If enabled, no include-tag filter is used.</span>
+                                <span class="zr-field__hint">If on, include tags are not used.</span>
                             </span>
                         </label>
 
@@ -266,7 +266,7 @@
                             <div class="zr-inputgroup">
                                 <input id="processedTag" type="text" class="zr-input" list="paperlessTagsDatalist" placeholder="e.g. ai-processed" value="<%= config.AI_PROCESSED_TAG_NAME ?? 'ai-processed' %>">
                             </div>
-                            <p class="zr-field__hint">This tag is automatically added to excluded tags during setup finalization.</p>
+                            <p class="zr-field__hint">Setup also adds this tag to the excluded tags.</p>
                         </div>
 
                         <label class="zr-row">
@@ -374,7 +374,7 @@
                             <div class="zr-field zr-field--stacked zr-formgrid__wide">
                                 <label for="aiToken" class="zr-field__name">API key</label>
                                 <input id="aiToken" type="password" class="zr-input" placeholder="Enter token if required">
-                                <p class="zr-field__hint">For Ollama and custom endpoints, this field can stay empty if the API does not require authentication.</p>
+                                <p class="zr-field__hint">For Ollama and custom endpoints, leave this empty if the API needs no key.</p>
                             </div>
                             <div class="zr-field zr-field--stacked zr-formgrid__wide">
                                 <label for="aiModel" class="zr-field__name">Model</label>
@@ -412,7 +412,7 @@
 
                 <section class="zr-steppane" data-step-index="5" data-step-title="OCR fallback">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-file"/></svg> OCR fallback</h3>
-                    <p class="zr-sm zr-muted">Configure OCR fallback for documents where AI extraction needs OCR assistance.</p>
+                    <p class="zr-sm zr-muted">OCR steps in when the AI cannot work with a document's text.</p>
 
                     <div id="ocrQuickstartNotice" class="zr-alert zr-alert--ok hidden"></div>
 
@@ -436,7 +436,7 @@
                         <div id="ocrApiUrlContainer" class="zr-field zr-field--stacked">
                             <label for="ocrApiUrl" class="zr-field__name">OCR API URL (optional override)</label>
                             <input id="ocrApiUrl" type="text" class="zr-input" value="<%= config.OCR_API_URL || '' %>" placeholder="Leave empty to use provider default URL" data-placeholder-default="Leave empty to use provider default URL" data-placeholder-anthropic="Optional proxy URL">
-                            <p id="ocrApiUrlHint" class="zr-field__hint">For custom provider, set URL to your local endpoint (e.g. Ollama or LM Studio /v1).</p>
+                            <p id="ocrApiUrlHint" class="zr-field__hint">For a custom provider, enter your local endpoint (e.g. Ollama or LM Studio /v1).</p>
                             <p id="ocrApiUrlAnthropicHint" class="zr-field__hint hidden">Only for a proxy; empty uses the Anthropic API URL of the AI provider, then api.anthropic.com.</p>
                         </div>
                         <div id="ocrApiKeyContainer" class="zr-field zr-field--stacked">
@@ -479,7 +479,7 @@
 
                 <section class="zr-steppane" data-step-index="6" data-step-title="Review and finish">
                     <h3 class="zr-module__title zr-row"><svg class="zr-icon" aria-hidden="true"><use href="/icons.svg#i-check-circle"/></svg> Review and finish</h3>
-                    <p class="zr-sm zr-muted">Review generated environment keys, copy if needed, then finalize setup.</p>
+                    <p class="zr-sm zr-muted">Check the environment variables, copy them if needed, then finish setup.</p>
 
                     <div class="zr-field zr-field--stacked">
                         <label for="envPreview" class="zr-field__name">For docker compose copy</label>

@@ -129,7 +129,7 @@
         <div class="zr-qs__step" data-qs-step="fill" data-state="open">
             <%- qsStepHead({ step: 'fill', number: 3, title: 'What the AI fills in' }) %>
             <%- qsBodyOpen('fill') %>
-                <p class="zr-field__hint">Each switch is one field of a document. Switched off, Zettelrobbe leaves that field as it is.</p>
+                <p class="zr-field__hint">Each switch is one field of a document. With a switch off, Zettelrobbe leaves that field as it is.</p>
                 <div class="zr-qs__switches">
                     <%- qsSwitch({ target: 'activateTitle', label: 'Title', hint: 'Replaces the title with one the model writes from the content.' }) %>
                     <%- qsSwitch({ target: 'activateTagging', label: 'Tags', hint: 'Adds the tags the model picks to the ones the document already has.' }) %>
@@ -172,7 +172,7 @@
                 </div>
                 <div class="zr-qs__group" data-qs-ocr-own>
                     <%- qsSelect({ target: 'ocrProvider', label: 'OCR provider' }) %>
-                    <%- qsInput({ target: 'ocrApiUrl', label: 'Server address', attrs: 'inputmode="url"', hint: 'Empty uses the default of the provider. For a local server, that is the Ollama address of step 2.' }) %>
+                    <%- qsInput({ target: 'ocrApiUrl', label: 'Server address', attrs: 'inputmode="url"', hint: 'Empty uses the provider\'s default. For a local server, that is the Ollama address from step 2.' }) %>
                     <%- qsInput({ target: 'ocrApiKey', label: 'OCR API key', type: 'password', hint: qsKeyHint(qsSecrets.ocrApiKey, 'Mistral shows it in its console, under API keys.') }) %>
                     <%- qsSelect({ target: 'mistralOcrModel', label: 'OCR model', hint: `Missing a model? ${qsLink('fetchOcrModelsBtn', 'Fetch models')} in ${qsTopic('ocr')} lists what the server offers. For a local server, pick one that reads images.` }) %>
                 </div>

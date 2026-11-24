@@ -282,6 +282,8 @@ const RELEASES = [
       'Fix: A settings link with a malformed address part after #, such as /settings#100%, opens the first topic instead of a settings page without its topic list',
       'Fix: When docker-compose sets OCR_API_URL, the OCR address detection no longer replaces it or stores another address',
       'Fix: The log line of an external API request no longer shows a user name, password or query string from the address',
+      'Improvement: Plainer English in the setup wizard, the settings hints, and the messages and error texts of every page',
+      'Fix: Hints that pointed to "OCR Fallback → PDF Passwords" or "AI Analysis After OCR" name the settings as the page shows them, and "Rescan selected" no longer claims to start a scan',
     ],
   },
 ];

@@ -34,7 +34,7 @@ const { mountRouter } = require('./helpers/mount-router');
 const ADMIN_ERROR =
   'An administrator account already exists. Sign in and use /settings instead.';
 const TOKEN_LIMIT_ERROR =
-  'Invalid Token Limit. Expected a positive whole number.';
+  'Document length limit must be a whole number above 0.';
 
 let passed = 0;
 let failed = 0;

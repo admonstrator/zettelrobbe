@@ -945,7 +945,7 @@ export default function settingsQuickStart(root) {
       timingHint,
       chosen
         ? chosen.hint
-        : 'Right after the scan gives a document OCR and its analysis without waiting.'
+        : '"Right after the scan" gives a document OCR and its analysis without waiting.'
     );
     const note =
       lockNote(reals.rightAway, lockedKeys) ||

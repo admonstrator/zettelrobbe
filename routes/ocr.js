@@ -270,7 +270,7 @@ router.post('/api/ocr/queue/add', isAuthenticated, async (req, res) => {
         added,
         skipped,
         missing,
-        message: `Document ${documentIds[0]} is being processed by OCR right now and was not queued again`,
+        message: `OCR is reading document ${documentIds[0]} right now, so it was not queued again`,
       });
     }
 
@@ -992,7 +992,7 @@ router.post('/api/ocr/unlock-all', isAuthenticated, async (req, res) => {
       send({
         step: 'error',
         message:
-          'No passwords are stored. Add them under Settings → OCR Fallback → PDF Passwords.',
+          'No passwords are stored. Add them under Settings → OCR → PDF passwords.',
       });
       return res.end();
     }

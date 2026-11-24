@@ -264,7 +264,7 @@ router.post(
       if (!setupToken) {
         return res.status(401).json({
           success: false,
-          error: 'No active MFA setup challenge found. Start setup again.',
+          error: 'No MFA setup in progress. Start setup again.',
         });
       }
 
@@ -311,7 +311,7 @@ router.post(
       }
 
       res.clearCookie(MFA_SETUP_COOKIE);
-      return res.json({ success: true, message: 'MFA has been enabled.' });
+      return res.json({ success: true, message: 'MFA is on.' });
     } catch (error) {
       console.error('[ERROR] POST /api/settings/mfa/enable:', error);
       return res
@@ -387,7 +387,7 @@ router.post(
 
       return res.json({
         success: true,
-        message: 'Authentication code is valid.',
+        message: 'The code is valid.',
       });
     } catch (error) {
       console.error('[ERROR] POST /api/settings/mfa/verify:', error);
@@ -488,7 +488,7 @@ router.post(
       }
 
       res.clearCookie(MFA_SETUP_COOKIE);
-      return res.json({ success: true, message: 'MFA has been disabled.' });
+      return res.json({ success: true, message: 'MFA is off.' });
     } catch (error) {
       console.error('[ERROR] POST /api/settings/mfa/disable:', error);
       return res

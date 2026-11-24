@@ -499,7 +499,7 @@ const CATALOG = Object.freeze([
         }
         return {
           error:
-            'Invalid page limit. Use a whole number of pages, or 0 for no limit.',
+            'Page limit must be a whole number of pages, or 0 for no limit.',
         };
       },
       ...PS,
@@ -691,7 +691,7 @@ const CATALOG = Object.freeze([
         const normalized = String(raw).trim();
         if (!/^\d+$/.test(normalized) || Number(normalized) < 1) {
           return {
-            error: 'Invalid Token Limit. Expected a positive whole number.',
+            error: 'Document length limit must be a whole number above 0.',
           };
         }
         return { value: String(Number(normalized)) };
@@ -707,7 +707,7 @@ const CATALOG = Object.freeze([
         const parsed = Number.parseInt(String(raw).trim(), 10);
         if (!Number.isFinite(parsed) || parsed < 1) {
           return {
-            error: 'Invalid Response Tokens. Expected a positive whole number.',
+            error: 'Answer length must be a whole number above 0.',
           };
         }
         return { value: String(parsed) };
@@ -736,7 +736,7 @@ const CATALOG = Object.freeze([
         return level === '' || REASONING_EFFORT_LEVELS.includes(level)
           ? { value: level }
           : {
-              error: `Invalid thinking effort. Allowed values are ${REASONING_EFFORT_LEVELS.join(', ')}, or empty to send none.`,
+              error: `Thinking effort must be one of ${REASONING_EFFORT_LEVELS.join(', ')}, or empty to send none.`,
             };
       },
       ...PS,
@@ -1113,7 +1113,7 @@ const CATALOG = Object.freeze([
         if (!isValidCron(pattern)) {
           return {
             error:
-              'Invalid OCR Processing Interval. Use cron syntax, for example */15 * * * *.',
+              'The OCR queue schedule must be in cron syntax, for example */15 * * * *.',
           };
         }
         return { value: pattern };
@@ -1227,8 +1227,7 @@ const CATALOG = Object.freeze([
         return ['auto', 'always', 'never'].includes(mode)
           ? { value: mode }
           : {
-              error:
-                'Invalid Cookie Secure Mode. Allowed values: auto, always, never.',
+              error: 'Secure cookies must be auto, always or never.',
             };
       },
       restart: true,
@@ -1363,8 +1362,7 @@ const CATALOG = Object.freeze([
         return ['debug', 'info', 'warn', 'error'].includes(level)
           ? { value: level }
           : {
-              error:
-                'Invalid Log Level. Allowed values: debug, info, warn, error.',
+              error: 'Log level must be debug, info, warn or error.',
             };
       },
       restart: true,
@@ -1416,8 +1414,7 @@ const CATALOG = Object.freeze([
         return ['DD.MM.YYYY', 'YYYY-MM-DD'].includes(format)
           ? { value: format }
           : {
-              error:
-                'Invalid Date Format. Allowed values: DD.MM.YYYY, YYYY-MM-DD.',
+              error: 'Date format must be DD.MM.YYYY or YYYY-MM-DD.',
             };
       },
       ...PS,
