@@ -3027,6 +3027,28 @@ class PaperlessService {
     return 250;
   }
 
+  /** First wait between two looks at a queued bulk edit; it doubles up to 2s. */
+  get BULK_EDIT_TASK_POLL_MS() {
+    return 250;
+  }
+
+  /**
+   * How long a queued bulk edit may take. A worker that is busy consuming
+   * documents picks it up late, so this is generous.
+   */
+  get BULK_EDIT_TASK_TIMEOUT_MS() {
+    return 300000;
+  }
+
+  /**
+   * How long a task id may stay unknown to /api/tasks/ before the wait gives
+   * up and leaves the check to the caller (every caller reads the documents
+   * again before it deletes anything).
+   */
+  get BULK_EDIT_TASK_UNLISTED_MS() {
+    return 15000;
+  }
+
   /**
    * @param {string} kind
    * @returns {'tags'|'correspondents'}
@@ -3629,11 +3651,18 @@ class PaperlessService {
     ) {
       const batch = ids.slice(start, start + this.BULK_EDIT_BATCH_SIZE);
       try {
-        await client.post('/documents/bulk_edit/', {
+        const response = await client.post('/documents/bulk_edit/', {
           documents: batch,
           method,
           parameters,
         });
+        // Paperless-ngx 3.5 and later only queue the edit and answer with
+        // the id of the task that will do it. Reading the documents right
+        // after that answer still shows them unchanged, so wait for the task.
+        const taskId = response?.data?.task_id;
+        if (taskId) {
+          await this._waitForBulkEditTask(client, String(taskId), method);
+        }
         edited += batch.length;
       } catch (error) {
         console.error(
@@ -3650,6 +3679,68 @@ class PaperlessService {
     }
 
     return { edited };
+  }
+
+  /**
+   * Waits until Paperless-ngx has carried out a queued bulk edit.
+   *
+   * Resolves when the task succeeded, or when /api/tasks/ never lists it (an
+   * instance that does not track these tasks); throws when it failed, was
+   * revoked or did not finish in time.
+   *
+   * @param {import('axios').AxiosInstance} client
+   * @param {string} taskId
+   * @param {string} method - for the messages only
+   * @returns {Promise<void>}
+   */
+  async _waitForBulkEditTask(client, taskId, method) {
+    const startedAt = Date.now();
+    let delay = this.BULK_EDIT_TASK_POLL_MS;
+    let lastStatus = null;
+
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, 2000);
+
+      const response = await client.get('/tasks/', {
+        params: { task_id: taskId },
+      });
+      // API version 9 answers a plain list, later versions a page of results.
+      const data = response?.data;
+      const tasks = Array.isArray(data) ? data : data?.results;
+      const task = Array.isArray(tasks)
+        ? tasks.find((entry) => String(entry?.task_id) === taskId)
+        : null;
+      const elapsed = Date.now() - startedAt;
+
+      if (!task) {
+        if (elapsed >= this.BULK_EDIT_TASK_UNLISTED_MS) {
+          console.warn(
+            `[WARN] bulk edit ${method}: task ${taskId} is not listed by Paperless-ngx ` +
+              `after ${Math.round(elapsed / 1000)}s, continuing without confirmation.`
+          );
+          return;
+        }
+        continue;
+      }
+
+      lastStatus = String(task.status || '').toUpperCase();
+      if (lastStatus === 'SUCCESS') {
+        return;
+      }
+      if (lastStatus === 'FAILURE' || lastStatus === 'REVOKED') {
+        const reason = task.result ? `: ${task.result}` : '';
+        throw new Error(
+          `Paperless-ngx task ${taskId} ended with ${lastStatus}${reason}`
+        );
+      }
+      if (elapsed >= this.BULK_EDIT_TASK_TIMEOUT_MS) {
+        throw new Error(
+          `Paperless-ngx task ${taskId} has not finished after ` +
+            `${Math.round(elapsed / 1000)}s (status ${lastStatus || 'unknown'})`
+        );
+      }
+    }
   }
 
   /**

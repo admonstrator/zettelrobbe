@@ -55,6 +55,11 @@
  * 28. A delete row that carries documents (the one "Simplify tags" writes)
  *     gives them back on an undo, and reopens the proposal behind it
  * 29. An undone merge reopens the proposal that made it, and only that one
+ * 30. Paperless-ngx 3.5+ queues a bulk edit: the merge waits for the task, so
+ *     the source is empty and deleted (and so is the undo), with either shape
+ *     of the /tasks/ answer
+ * 31. A queued bulk edit that fails keeps the source; one /tasks/ never lists
+ *     is not waited for forever
  */
 
 'use strict';
@@ -1905,6 +1910,89 @@ async function main() {
         'applied',
         'a proposal this row is not about is left alone'
       );
+    });
+
+    // The waits of a queued bulk edit, shortened so the cases below run fast.
+    for (const [key, value] of [
+      ['BULK_EDIT_TASK_POLL_MS', 1],
+      ['BULK_EDIT_TASK_UNLISTED_MS', 50],
+    ]) {
+      Object.defineProperty(paperlessService, key, {
+        value,
+        configurable: true,
+      });
+    }
+
+    await test('A queued bulk edit is waited for before the source is checked', async () => {
+      for (const plainList of [false, true]) {
+        const fake = useFake({
+          tags: [
+            { id: 1, name: 'Elektromobilität' },
+            { id: 2, name: 'Ladevorgang' },
+          ],
+          documents: [
+            { id: 100, tags: [2] },
+            { id: 101, tags: [1, 2] },
+          ],
+          asyncBulkEdit: { runAfterPolls: 3, plainList },
+        });
+        const result = await duplicateMergeService.merge({
+          kind: 'tags',
+          targetId: 1,
+          sourceIds: [2],
+        });
+        assert.strictEqual(result.status, 'done', `plainList ${plainList}`);
+        assert.strictEqual(fake.tag(2), undefined, 'the source is deleted');
+        assert.deepStrictEqual(fake.document(100).tags, [1]);
+        assert.ok(
+          fake.calls.some((call) => call.path === '/tasks/'),
+          'asked Paperless-ngx about the task'
+        );
+
+        await duplicateMergeService.undo(result.mergeId);
+        const recreated = [...fake.state.tags.values()].find(
+          (tag) => tag.name === 'Ladevorgang'
+        );
+        assert.ok(recreated, 'the undo re-created the source');
+        assert.deepStrictEqual(fake.document(100).tags, [recreated.id]);
+        assert.deepStrictEqual(
+          [...fake.document(101).tags].sort((a, b) => a - b),
+          [1, recreated.id].sort((a, b) => a - b),
+          'the target stays where it was before the merge'
+        );
+      }
+    });
+
+    await test('A failed or unlisted bulk edit task never deletes the source', async () => {
+      const seed = () => ({
+        tags: [
+          { id: 1, name: 'Elektromobilität' },
+          { id: 2, name: 'Ladevorgang' },
+        ],
+        documents: [{ id: 100, tags: [2] }],
+      });
+
+      let fake = useFake({ ...seed(), asyncBulkEdit: { status: 'FAILURE' } });
+      let result = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 1,
+        sourceIds: [2],
+      });
+      assert.strictEqual(result.status, 'partial');
+      assert.ok(fake.tag(2), 'the source is kept');
+      assert.match(
+        result.sources[0].error,
+        /ended with FAILURE: worker said no/
+      );
+
+      fake = useFake({ ...seed(), asyncBulkEdit: { unlisted: true } });
+      result = await duplicateMergeService.merge({
+        kind: 'tags',
+        targetId: 1,
+        sourceIds: [2],
+      });
+      assert.strictEqual(result.status, 'partial');
+      assert.ok(fake.tag(2), 'an unconfirmed edit keeps the source');
     });
   } finally {
     try {

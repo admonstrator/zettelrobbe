@@ -60,6 +60,11 @@ function project(document, fields) {
  * @param {object[]} [seed.documents]       { id, title?, content?, tags?: number[], correspondent?: number|null, document_type?: number|null }
  * @param {Set<number>|number[]} [seed.bulkEditIgnores] document ids a bulk edit silently does not touch
  * @param {number} [seed.requestDelayMs] milliseconds every request waits before it is answered
+ * @param {object} [seed.asyncBulkEdit] answer bulk_edit the way Paperless-ngx 3.5+ does: queue
+ *   the edit, return a task_id, and apply it only once /tasks/ has been asked `runAfterPolls`
+ *   times (default 2). `status` (default SUCCESS) is what the task ends with; FAILURE leaves the
+ *   documents untouched. `unlisted: true` never lists the task; `plainList: true` answers
+ *   /tasks/ with a plain array like API version 9.
  * @returns {object} the stand-in
  */
 function createFakePaperless(seed = {}) {
@@ -78,6 +83,9 @@ function createFakePaperless(seed = {}) {
         : [...(seed.bulkEditIgnores || [])]
     ),
     nextId: 1000,
+    /** Queued bulk edits by task id (seed.asyncBulkEdit only). */
+    tasks: new Map(),
+    nextTaskNumber: 1,
     /** Requests being answered right now, and the most there ever were. */
     inFlight: 0,
     maxInFlight: 0,
@@ -349,10 +357,68 @@ function createFakePaperless(seed = {}) {
           documents: [`Some documents do not exist: ${missing.join(', ')}`],
         });
       }
-      for (const id of ids) {
-        if (state.bulkEditIgnores.has(id)) continue;
-        const document = state.documents.get(id);
-        if (body.method === 'modify_tags') {
+      if (
+        !['modify_tags', 'set_correspondent', 'set_document_type'].includes(
+          body.method
+        )
+      ) {
+        throw httpError(400, {
+          method: [`Unsupported method: ${body.method}`],
+        });
+      }
+      const apply = () => applyBulkEdit(ids, body);
+      if (seed.asyncBulkEdit) {
+        const taskId = `task-${state.nextTaskNumber++}`;
+        state.tasks.set(taskId, { apply, polls: 0, status: 'PENDING' });
+        return { status: 200, data: { result: 'OK', task_id: taskId } };
+      }
+      apply();
+      return { status: 200, data: { result: 'OK' } };
+    }
+
+    if (path === '/tasks/' && verb === 'get') {
+      const options = seed.asyncBulkEdit || {};
+      const task = state.tasks.get(String(params.task_id));
+      let listed = [];
+      if (task && !options.unlisted) {
+        task.polls += 1;
+        if (
+          task.status === 'PENDING' &&
+          task.polls >= (options.runAfterPolls ?? 2)
+        ) {
+          task.status = options.status || 'SUCCESS';
+          if (task.status === 'SUCCESS') task.apply();
+        }
+        listed = [
+          {
+            task_id: String(params.task_id),
+            status: task.status,
+            result: task.status === 'FAILURE' ? 'worker said no' : null,
+          },
+        ];
+      }
+      return {
+        status: 200,
+        data: options.plainList
+          ? listed
+          : { count: listed.length, next: null, results: listed },
+      };
+    }
+
+    if (path === '/ui_settings/' && verb === 'get') {
+      return { status: 200, data: { settings: {} } };
+    }
+
+    throw httpError(404, { detail: `No route for ${verb} ${path}` });
+  }
+
+  /** What a bulk edit does to the documents, at once or when its task runs. */
+  function applyBulkEdit(ids, body) {
+    for (const id of ids) {
+      if (state.bulkEditIgnores.has(id)) continue;
+      const document = state.documents.get(id);
+      if (!document) continue;
+      if (body.method === 'modify_tags') {
           const add = (body.parameters?.add_tags || []).map(Number);
           const remove = new Set(
             (body.parameters?.remove_tags || []).map(Number)
@@ -366,20 +432,8 @@ function createFakePaperless(seed = {}) {
         } else if (body.method === 'set_document_type') {
           const value = body.parameters?.document_type;
           document.document_type = value == null ? null : Number(value);
-        } else {
-          throw httpError(400, {
-            method: [`Unsupported method: ${body.method}`],
-          });
         }
-      }
-      return { status: 200, data: { result: 'OK' } };
     }
-
-    if (path === '/ui_settings/' && verb === 'get') {
-      return { status: 200, data: { settings: {} } };
-    }
-
-    throw httpError(404, { detail: `No route for ${verb} ${path}` });
   }
 
   /** axios-shaped client; every 4xx/5xx is thrown the way axios throws it. */
