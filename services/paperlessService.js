@@ -2311,24 +2311,36 @@ class PaperlessService {
   }
 
   /**
-   * Has Paperless-ngx decrypt a document with the given password. Paperless-ngx
-   * decrypts within the request and then consumes the unlocked file as a new
-   * version of the same document: the ID, tags, correspondent, type and
-   * custom fields stay, the encrypted file remains in the version history,
-   * and Paperless-ngx runs its own OCR on the new version.
+   * Has Paperless-ngx decrypt a document with the given password. It then
+   * consumes the unlocked file as a new version of the same document: the ID,
+   * tags, correspondent, type and custom fields stay, the encrypted file
+   * remains in the version history, and Paperless-ngx runs its own OCR on the
+   * new version.
+   *
+   * Paperless-ngx 3.0 to 3.4 decrypt within the request. 3.5 and later only
+   * queue the work and answer with a task id; this waits for that task up to
+   * PASSWORD_REMOVAL_TASK_TIMEOUT_MS, since a wrong password only shows as a
+   * failed task there.
+   *
+   * Resolves with 'done' when Paperless-ngx has removed the password (or
+   * does not say otherwise: no task id, or a task /api/tasks/ never lists),
+   * and 'pending' when the task was accepted but has not finished within the
+   * wait, or could not be asked about.
    *
    * Throws an error with `code` 'unsupported' (no such endpoint, Paperless-ngx
    * before 3.0), 'forbidden' (the API user may not change the document) or
-   * 'rejected' (Paperless-ngx could not decrypt it, usually a wrong password).
+   * 'rejected' (Paperless-ngx could not decrypt it, usually a wrong password;
+   * from 3.5 on with the reason Paperless-ngx gave).
    *
    * @param {number} documentId
    * @param {string} password
-   * @returns {Promise<void>}
+   * @returns {Promise<'done'|'pending'>}
    */
   async removePassword(documentId, password) {
     this.initialize();
+    let response;
     try {
-      await this.client.post('/documents/remove_password/', {
+      response = await this.client.post('/documents/remove_password/', {
         documents: [documentId],
         password,
         update_document: true,
@@ -2358,6 +2370,52 @@ class PaperlessService {
           `Paperless-ngx did not remove the password: ${error.message}`
         );
       }
+      throw wrapped;
+    }
+
+    const taskId = response?.data?.task_id;
+    if (!taskId) {
+      return 'done';
+    }
+    const label = `password removal of document ${documentId}`;
+    try {
+      const wait = await this._waitForTask(this.client, String(taskId), {
+        label,
+        timeoutMs: this.PASSWORD_REMOVAL_TASK_TIMEOUT_MS,
+      });
+      if (wait.state !== 'running') {
+        return 'done';
+      }
+      console.warn(
+        `[WARN] ${label}: task ${taskId} has not finished after ` +
+          `${Math.round(wait.elapsedMs / 1000)}s (status ${wait.status || 'unknown'}); ` +
+          'the unlock follow-up waits for the new version.'
+      );
+      return 'pending';
+    } catch (error) {
+      const failure =
+        /** @type {Error & { taskStatus?: string, taskReason?: string }} */ (
+          error
+        );
+      if (!failure?.taskStatus) {
+        // Paperless-ngx took the request; only the look at its task failed.
+        console.warn(
+          `[WARN] ${label}: could not read task ${taskId} (${describeHttpError(error)}); ` +
+            'the unlock follow-up waits for the new version.'
+        );
+        return 'pending';
+      }
+      // Paperless-ngx words its own errors; keep the password out anyway.
+      const reason = password
+        ? (failure.taskReason || '').split(password).join('***')
+        : failure.taskReason || '';
+      /** @type {Error & { code?: string }} */
+      const wrapped = new Error(
+        reason
+          ? `Paperless-ngx could not remove the password: ${reason}`
+          : `Paperless-ngx could not remove the password (its task ended with ${failure.taskStatus})`
+      );
+      wrapped.code = 'rejected';
       throw wrapped;
     }
   }
@@ -3027,7 +3085,10 @@ class PaperlessService {
     return 250;
   }
 
-  /** First wait between two looks at a queued bulk edit; it doubles up to 2s. */
+  /**
+   * First wait between two looks at a queued task (a bulk edit or a password
+   * removal); it doubles up to 2s.
+   */
   get BULK_EDIT_TASK_POLL_MS() {
     return 250;
   }
@@ -3042,11 +3103,23 @@ class PaperlessService {
 
   /**
    * How long a task id may stay unknown to /api/tasks/ before the wait gives
-   * up and leaves the check to the caller (every caller reads the documents
-   * again before it deletes anything).
+   * up and leaves the check to the caller (every bulk edit caller reads the
+   * documents again before it deletes anything; after a password removal the
+   * unlock follow-up waits for the new version).
    */
   get BULK_EDIT_TASK_UNLISTED_MS() {
     return 15000;
+  }
+
+  /**
+   * How long an unlock waits for a queued password removal. Someone clicked
+   * "Unlock" and waits for the answer, so this is short; Paperless-ngx
+   * decrypts a file within a second or two once a worker has it. A task
+   * still queued or running after this counts as accepted, not as failed:
+   * the unlock follow-up waits for the new version.
+   */
+  get PASSWORD_REMOVAL_TASK_TIMEOUT_MS() {
+    return 20000;
   }
 
   /**
@@ -3661,7 +3734,16 @@ class PaperlessService {
         // after that answer still shows them unchanged, so wait for the task.
         const taskId = response?.data?.task_id;
         if (taskId) {
-          await this._waitForBulkEditTask(client, String(taskId), method);
+          const wait = await this._waitForTask(client, String(taskId), {
+            label: `bulk edit ${method}`,
+            timeoutMs: this.BULK_EDIT_TASK_TIMEOUT_MS,
+          });
+          if (wait.state === 'running') {
+            throw new Error(
+              `Paperless-ngx task ${taskId} has not finished after ` +
+                `${Math.round(wait.elapsedMs / 1000)}s (status ${wait.status || 'unknown'})`
+            );
+          }
         }
         edited += batch.length;
       } catch (error) {
@@ -3682,21 +3764,25 @@ class PaperlessService {
   }
 
   /**
-   * Waits until Paperless-ngx has carried out a queued bulk edit.
+   * Waits until Paperless-ngx has carried out a queued task: a bulk edit, or
+   * a password removal (both are queued since 3.5).
    *
-   * Resolves when the task succeeded, or when /api/tasks/ never lists it (an
-   * instance that does not track these tasks); throws when it failed, was
-   * revoked or did not finish in time.
+   * Resolves with state 'success' when the task succeeded, 'unlisted' when
+   * /api/tasks/ never lists it (an instance that does not track these tasks)
+   * and 'running' when it has not finished within `timeoutMs`; the caller
+   * decides what an unfinished task means. Throws when the task failed or was
+   * revoked: the error carries `taskStatus` and `taskReason`, the failure
+   * reason Paperless-ngx gave. Errors reading /api/tasks/ are passed on.
    *
    * @param {import('axios').AxiosInstance} client
    * @param {string} taskId
-   * @param {string} method - for the messages only
-   * @returns {Promise<void>}
+   * @param {{ label: string, timeoutMs: number }} options - label is for the
+   *   log only
+   * @returns {Promise<{ state: 'success'|'unlisted'|'running', status: string|null, elapsedMs: number }>}
    */
-  async _waitForBulkEditTask(client, taskId, method) {
+  async _waitForTask(client, taskId, { label, timeoutMs }) {
     const startedAt = Date.now();
     let delay = this.BULK_EDIT_TASK_POLL_MS;
-    let lastStatus = null;
 
     for (;;) {
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -3714,33 +3800,61 @@ class PaperlessService {
       const elapsed = Date.now() - startedAt;
 
       if (!task) {
-        if (elapsed >= this.BULK_EDIT_TASK_UNLISTED_MS) {
+        if (elapsed >= Math.min(this.BULK_EDIT_TASK_UNLISTED_MS, timeoutMs)) {
           console.warn(
-            `[WARN] bulk edit ${method}: task ${taskId} is not listed by Paperless-ngx ` +
+            `[WARN] ${label}: task ${taskId} is not listed by Paperless-ngx ` +
               `after ${Math.round(elapsed / 1000)}s, continuing without confirmation.`
           );
-          return;
+          return { state: 'unlisted', status: null, elapsedMs: elapsed };
         }
         continue;
       }
 
-      lastStatus = String(task.status || '').toUpperCase();
-      if (lastStatus === 'SUCCESS') {
-        return;
+      // API version 9 spells the status in capitals, version 10 in lower case.
+      const status = String(task.status || '').toUpperCase();
+      if (status === 'SUCCESS') {
+        return { state: 'success', status, elapsedMs: elapsed };
       }
-      if (lastStatus === 'FAILURE' || lastStatus === 'REVOKED') {
-        const reason = task.result ? `: ${task.result}` : '';
-        throw new Error(
-          `Paperless-ngx task ${taskId} ended with ${lastStatus}${reason}`
+      if (status === 'FAILURE' || status === 'REVOKED') {
+        const reason = this._taskFailureReason(task);
+        /** @type {Error & { taskStatus?: string, taskReason?: string }} */
+        const failure = new Error(
+          `Paperless-ngx task ${taskId} ended with ${status}${
+            reason ? `: ${reason}` : ''
+          }`
         );
+        failure.taskStatus = status;
+        failure.taskReason = reason;
+        throw failure;
       }
-      if (elapsed >= this.BULK_EDIT_TASK_TIMEOUT_MS) {
-        throw new Error(
-          `Paperless-ngx task ${taskId} has not finished after ` +
-            `${Math.round(elapsed / 1000)}s (status ${lastStatus || 'unknown'})`
-        );
+      if (elapsed >= timeoutMs) {
+        return { state: 'running', status, elapsedMs: elapsed };
       }
     }
+  }
+
+  /**
+   * Why a Paperless-ngx task failed, as far as the task row says. API version
+   * 10 has no `result` field and puts the reason into `result_data`; version
+   * 9 has it in `result`.
+   *
+   * @param {any} task - one row of /api/tasks/
+   * @returns {string} the reason, or '' when the row gives none
+   */
+  _taskFailureReason(task) {
+    const details = task?.result_data;
+    for (const value of [
+      details?.error_message,
+      details?.error_type,
+      task?.result,
+    ]) {
+      if (value === undefined || value === null || value === '') continue;
+      const text = (
+        typeof value === 'string' ? value : JSON.stringify(value)
+      ).trim();
+      if (text) return text.length > 500 ? `${text.slice(0, 500)}…` : text;
+    }
+    return '';
   }
 
   /**

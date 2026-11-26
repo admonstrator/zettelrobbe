@@ -58,8 +58,9 @@
  * 30. Paperless-ngx 3.5+ queues a bulk edit: the merge waits for the task, so
  *     the source is empty and deleted (and so is the undo), with either shape
  *     of the /tasks/ answer
- * 31. A queued bulk edit that fails keeps the source; one /tasks/ never lists
- *     is not waited for forever
+ * 31. A queued bulk edit that fails keeps the source and says why, read from
+ *     `result_data` (API v10) or `result` (v9); one /tasks/ never lists is
+ *     not waited for forever
  */
 
 'use strict';
@@ -1972,17 +1973,42 @@ async function main() {
         documents: [{ id: 100, tags: [2] }],
       });
 
-      let fake = useFake({ ...seed(), asyncBulkEdit: { status: 'FAILURE' } });
-      let result = await duplicateMergeService.merge({
-        kind: 'tags',
-        targetId: 1,
-        sourceIds: [2],
-      });
-      assert.strictEqual(result.status, 'partial');
-      assert.ok(fake.tag(2), 'the source is kept');
-      assert.match(
-        result.sources[0].error,
-        /ended with FAILURE: worker said no/
+      let fake;
+      let result;
+      for (const plainList of [false, true]) {
+        fake = useFake({
+          ...seed(),
+          asyncBulkEdit: {
+            status: 'FAILURE',
+            reason: 'Tag 1 is locked',
+            plainList,
+          },
+        });
+        result = await duplicateMergeService.merge({
+          kind: 'tags',
+          targetId: 1,
+          sourceIds: [2],
+        });
+        assert.strictEqual(result.status, 'partial', `plainList ${plainList}`);
+        assert.ok(fake.tag(2), 'the source is kept');
+        assert.match(
+          result.sources[0].error,
+          /ended with FAILURE: Tag 1 is locked/,
+          `plainList ${plainList}`
+        );
+      }
+
+      // API v10 has no `result`; the type stands in for a missing message.
+      assert.strictEqual(
+        paperlessService._taskFailureReason({
+          status: 'failure',
+          result_data: { error_type: 'ValueError' },
+        }),
+        'ValueError'
+      );
+      assert.strictEqual(
+        paperlessService._taskFailureReason({ status: 'failure' }),
+        ''
       );
 
       fake = useFake({ ...seed(), asyncBulkEdit: { unlisted: true } });

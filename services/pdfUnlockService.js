@@ -46,6 +46,10 @@ const NEXT_STEP = Object.freeze({
     'Unlocked. The document is analysed as soon as Paperless-ngx has stored the unlocked version.',
   unlockedManual:
     'Unlocked. Paperless-ngx keeps the unlocked file as a new version. Automatic processing is off, so the document waits for a scan you start by hand.',
+  unlockPending:
+    'Paperless-ngx has the password but has not finished removing it yet. The document is analysed as soon as the unlocked version is there.',
+  unlockPendingManual:
+    'Paperless-ngx has the password but has not finished removing it yet. Automatic processing is off, so the document waits for a scan you start by hand.',
   notLocked:
     'This document does not need a password (any more). It is analysed right away.',
   notLockedManual:
@@ -256,8 +260,10 @@ class PdfUnlockService {
         ? null
         : await this._versionsBefore(documentId);
 
+      /** @type {'done'|'pending'|undefined} */
+      let removal;
       try {
-        await paperlessService.removePassword(documentId, password);
+        removal = await paperlessService.removePassword(documentId, password);
       } catch (error) {
         const err = /** @type {Error & { code?: string }} */ (error);
         const outcome =
@@ -272,20 +278,33 @@ class PdfUnlockService {
         return result(outcome, err.message);
       }
 
+      // Pending: Paperless-ngx 3.5+ took the password but its task had not
+      // finished within the wait. That counts as an unlock: a second removal
+      // would only queue a second one, and a task that fails later leaves the
+      // document locked, so the follow-up runs out and the next scan sends it
+      // back to the OCR queue, where it shows as locked again.
+      const pending = removal === 'pending';
       this._recentlyUnlocked.set(documentId, Date.now());
       await this._release(documentId);
       console.log(
-        `[OCR] Document ${documentId} unlocked in Paperless-ngx (${typed ? 'typed password' : 'stored password'})`
+        pending
+          ? `[OCR] Document ${documentId}: Paperless-ngx accepted the password (${typed ? 'typed password' : 'stored password'}) but has not finished removing it yet`
+          : `[OCR] Document ${documentId} unlocked in Paperless-ngx (${typed ? 'typed password' : 'stored password'})`
       );
       // Straight after the release, with nothing sent over the network in
       // between: the follow-up claims the document before a running scan
       // can reach it with the old text.
       const followUp = followUps().schedule(documentId, { versionsBefore });
+      const manual = followUp === 'automatic_processing_off';
       return result(
         'unlocked',
-        followUp === 'automatic_processing_off'
-          ? NEXT_STEP.unlockedManual
-          : NEXT_STEP.unlocked
+        pending
+          ? manual
+            ? NEXT_STEP.unlockPendingManual
+            : NEXT_STEP.unlockPending
+          : manual
+            ? NEXT_STEP.unlockedManual
+            : NEXT_STEP.unlocked
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
