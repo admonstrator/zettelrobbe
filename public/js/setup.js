@@ -1285,10 +1285,19 @@ class SetupWizard {
           text: result.message || 'Connection and permissions look good.',
         });
       } else {
-        this.setPillState(this.paperlessTestStatePill, 'error', 'Test failed');
+        // Paperless-ngx 3.5+ answered but refused the host name; the message
+        // names the host and the fix, so the title must not suggest the token.
+        const hostRefused = result.stage === 'host_not_allowed';
+        this.setPillState(
+          this.paperlessTestStatePill,
+          'error',
+          hostRefused ? 'Host name refused' : 'Test failed'
+        );
         await this.showPopup({
           icon: 'error',
-          title: 'Paperless test failed',
+          title: hostRefused
+            ? 'Paperless-ngx refused the host name'
+            : 'Paperless test failed',
           text: result.message || 'Connection test failed.',
         });
       }

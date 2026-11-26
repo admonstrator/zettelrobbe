@@ -1184,6 +1184,13 @@ const sortedCopy = (list) => (Array.isArray(list) ? [...list].sort() : list);
         calls.validations.push([url, token]);
         return scenarioState.paperlessValid;
       };
+      // What POST /settings calls: the same test with the reason when
+      // Paperless-ngx refused the host name (none in these scenarios).
+      setupService.checkPaperlessConnection = async (url, token) => ({
+        ok: await setupService.validatePaperlessConfig(url, token),
+        hostNotAllowed: null,
+        message: null,
+      });
       setupService.loadConfig = async () =>
         scenarioState.saved ? { ...scenarioState.saved } : null;
       setupService.getSetupState = async () => 'partial';

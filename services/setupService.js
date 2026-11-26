@@ -7,6 +7,10 @@ const settingsCatalog = require('./settingsCatalog');
 const AzureOpenAI = require('openai').AzureOpenAI;
 const { validateApiUrl, stripTrailingSlashes } = require('./serviceUtils');
 const {
+  refusedHostFromError,
+  hostNotAllowedMessage,
+} = require('./paperlessHostCheck');
+const {
   ANTHROPIC_DEFAULT_MODEL,
   ANTHROPIC_SUGGESTED_MODELS,
   createAnthropicClient,
@@ -481,6 +485,21 @@ class SetupService {
   }
 
   async validatePaperlessConfig(url, token) {
+    return (await this.checkPaperlessConnection(url, token)).ok;
+  }
+
+  /**
+   * The connection test behind validatePaperlessConfig(), with the reason
+   * when Paperless-ngx 3.5+ refused the host name (PAPERLESS_ALLOWED_HOSTS).
+   * Never throws.
+   *
+   * @param {string} url Paperless-ngx base URL, without /api
+   * @param {string} token API token
+   * @returns {Promise<{ok: boolean, hostNotAllowed: {host: string, hostname: string}|null, message: string|null}>}
+   *   hostNotAllowed and message are set only for a refused host name.
+   */
+  async checkPaperlessConnection(url, token) {
+    const failed = { ok: false, hostNotAllowed: null, message: null };
     try {
       // Validate URL to prevent SSRF attacks
       // Allow private IPs since Paperless-ngx is typically deployed in a private network
@@ -490,7 +509,7 @@ class SetupService {
       );
       if (!urlValidation.valid) {
         console.error('Paperless URL validation error:', urlValidation.error);
-        return false;
+        return failed;
       }
 
       console.log('Validating Paperless config for:', url + '/api/documents/');
@@ -499,10 +518,16 @@ class SetupService {
           Authorization: `Token ${token}`,
         },
       });
-      return response.status === 200;
+      return { ...failed, ok: response.status === 200 };
     } catch (error) {
+      const refused = refusedHostFromError(error, `${url}/api/documents/`);
+      if (refused) {
+        const message = hostNotAllowedMessage(refused);
+        console.error('Paperless validation error:', message);
+        return { ok: false, hostNotAllowed: refused, message };
+      }
       console.error('Paperless validation error:', error.message);
-      return false;
+      return failed;
     }
   }
 
@@ -550,6 +575,14 @@ class SetupService {
           `API permissions validation failed for ${endpoint}:`,
           error.message
         );
+        const refused = refusedHostFromError(error, `${url}/api/${endpoint}/`);
+        if (refused) {
+          return {
+            success: false,
+            hostNotAllowed: refused,
+            message: hostNotAllowedMessage(refused),
+          };
+        }
         return {
           success: false,
           message: `Permission check failed for '/api/${endpoint}/'.`,

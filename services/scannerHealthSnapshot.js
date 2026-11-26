@@ -45,6 +45,7 @@ function buildScannerHealthSnapshot() {
       status: scanner.paperless.status,
       lastCheckedAt: scanner.paperless.lastCheckedAt,
       error: scanner.paperless.error,
+      hostNotAllowed: scanner.paperless.hostNotAllowed ?? null,
     },
   };
 }

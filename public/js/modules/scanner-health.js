@@ -46,6 +46,12 @@ export function describePaperlessProblem(paperless) {
     ? ` Last checked ${formatTimeAgo(paperless.lastCheckedAt)}.`
     : '';
 
+  // Paperless-ngx 3.5+ refused the host name: the server-side message names
+  // the host and the fix, and has nothing to do with the token.
+  if (paperless.hostNotAllowed && paperless.error) {
+    return `${paperless.error}${checked}`;
+  }
+
   if (paperless.reachable && paperless.authorized === false) {
     return `Paperless-ngx rejected the API token${detail}. Check PAPERLESS_API_TOKEN in the settings.${checked}`;
   }

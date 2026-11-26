@@ -1150,8 +1150,11 @@ router.get(
  *                   example: []
  *       400:
  *         description: |
- *           Invalid configuration parameters, or a custom field added or changed in
- *           this request whose name Paperless-ngx already has with another data type.
+ *           Invalid configuration parameters, a custom field added or changed in
+ *           this request whose name Paperless-ngx already has with another data type,
+ *           or a new Paperless-ngx address or token that failed the connection test
+ *           (when Paperless-ngx 3.5+ refused the host name, `error` names the host
+ *           to add to PAPERLESS_ALLOWED_HOSTS).
  *         content:
  *           application/json:
  *             schema:
@@ -1210,16 +1213,19 @@ router.post('/settings', isAuthenticated, express.json(), async (req, res) => {
 
     // A new Paperless-ngx URL or a typed token is tested before it is saved.
     const paperless = settingsService.resolvePaperlessConnection(body, current);
-    if (
-      paperless.needsValidation &&
-      !(await setupService.validatePaperlessConfig(
+    if (paperless.needsValidation) {
+      const connection = await setupService.checkPaperlessConnection(
         paperless.url,
         paperless.token
-      ))
-    ) {
-      return res.status(400).json({
-        error: 'Paperless-ngx connection failed. Check the address and token.',
-      });
+      );
+      if (!connection.ok) {
+        return res.status(400).json({
+          // A refused host name (Paperless-ngx 3.5+) is not a token problem.
+          error:
+            connection.message ||
+            'Paperless-ngx connection failed. Check the address and token.',
+        });
+      }
     }
 
     // Everything else: the AI provider (required fields only, no live test),

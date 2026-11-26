@@ -199,11 +199,20 @@ async function validatePaperlessConnectionForSetup(
     };
   }
 
-  const isReachable = await setupService.validatePaperlessConfig(
+  const connection = await setupService.checkPaperlessConnection(
     normalizedUrl,
     paperlessToken
   );
-  if (!isReachable) {
+  if (connection.hostNotAllowed) {
+    // Paperless-ngx 3.5+ answered, but refused the host name: not a token
+    // problem, and nothing the person can fix in Zettelrobbe.
+    return {
+      success: false,
+      stage: 'host_not_allowed',
+      message: connection.message,
+    };
+  }
+  if (!connection.ok) {
     return {
       success: false,
       stage: 'reachability',
@@ -218,7 +227,9 @@ async function validatePaperlessConnectionForSetup(
   if (!permissionResult.success) {
     return {
       success: false,
-      stage: 'permissions',
+      stage: permissionResult.hostNotAllowed
+        ? 'host_not_allowed'
+        : 'permissions',
       message:
         permissionResult.message ||
         'Paperless-ngx API permissions are insufficient.',
@@ -546,7 +557,23 @@ router.post('/api/setup/mfa/confirm', express.json(), async (req, res) => {
  *       - Setup
  *     responses:
  *       200:
- *         description: Connectivity result returned
+ *         description: |
+ *           Connectivity result returned. `stage` names the step that decided
+ *           it; `host_not_allowed` means Paperless-ngx 3.5+ refused the host
+ *           name in the URL (HTTP 400, PAPERLESS_ALLOWED_HOSTS), and `message`
+ *           says which host to add there.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 stage:
+ *                   type: string
+ *                   enum: [input, host_not_allowed, reachability, permissions, ok]
+ *                 message:
+ *                   type: string
  */
 router.post('/api/setup/paperless/test', express.json(), async (req, res) => {
   try {
