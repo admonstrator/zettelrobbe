@@ -241,6 +241,30 @@ test('A rejected token is reported as a credentials problem', () => {
   );
 });
 
+test('A refused host name (Paperless-ngx 3.5+) shows the fix, not the token', () => {
+  const error =
+    'Paperless-ngx refused requests for paperless:8000 (HTTP 400). Since version 3.5 ' +
+    'it only answers host names it is set up for: add paperless to ' +
+    'PAPERLESS_ALLOWED_HOSTS in the Paperless-ngx configuration and restart Paperless-ngx.';
+  const { banner, title, message } = renderBanner({
+    scanner: HEALTHY_SCANNER,
+    paperless: {
+      reachable: true,
+      authorized: false,
+      usable: false,
+      status: 400,
+      lastCheckedAt: null,
+      error,
+      hostNotAllowed: { host: 'paperless:8000', hostname: 'paperless' },
+    },
+  });
+
+  assert.strictEqual(banner.classList.contains('hidden'), false);
+  assert.match(title.textContent, /connection problem/i);
+  assert.strictEqual(message.textContent, error);
+  assert.doesNotMatch(message.textContent, /rejected the API token/i);
+});
+
 test('The warning appears with automatic processing disabled', () => {
   const { banner, message } = renderBanner({
     scanner: {

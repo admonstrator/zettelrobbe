@@ -53,6 +53,9 @@ function createInitialState() {
       lastCheckedAt: null,
       status: null,
       error: null,
+      // Paperless-ngx 3.5+ refused the host name Zettelrobbe uses
+      // ({ host, hostname }), or null. The banner then shows `error` as is.
+      hostNotAllowed: null,
     },
   };
 }
@@ -163,7 +166,7 @@ class ScanHealthService {
 
   /**
    * Records the result of a Paperless-ngx connectivity probe.
-   * @param {{reachable: boolean, authorized: boolean, status: number|null, error: string|null}} probe
+   * @param {{reachable: boolean, authorized: boolean, status: number|null, error: string|null, hostNotAllowed?: {host: string, hostname: string}|null}} probe
    */
   recordConnectivity(probe) {
     this.state.paperless = {
@@ -173,6 +176,7 @@ class ScanHealthService {
       lastCheckedAt: new Date().toISOString(),
       status: probe?.status ?? null,
       error: probe?.error || null,
+      hostNotAllowed: probe?.hostNotAllowed || null,
     };
   }
 

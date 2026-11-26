@@ -10,6 +10,11 @@ const {
 // Pure module, no side effects and no requires of its own: safe to load here
 // even though half the app loads this service.
 const entityNameMatcher = require('./entityNameMatcher');
+// Pure module as well: recognises Paperless-ngx 3.5+ refusing our host name.
+const {
+  refusedHostFromError,
+  hostNotAllowedMessage,
+} = require('./paperlessHostCheck');
 
 /** Timeout for the connectivity probe so a hanging host cannot stall a scan. */
 const CONNECTION_PROBE_TIMEOUT_MS = 10000;
@@ -572,9 +577,10 @@ class PaperlessService {
       await this.client.get('/');
       return true;
     } catch (error) {
+      const refused = refusedHostFromError(error, `${baseUrl}/api/`);
       console.error(
         '[ERROR] Failed to initialize with credentials:',
-        error.message
+        refused ? hostNotAllowedMessage(refused) : error.message
       );
       this.client = null;
       return false;
@@ -2749,9 +2755,12 @@ class PaperlessService {
    * an unreachable Paperless indistinguishable from "nothing to do". This call
    * makes that distinction explicit and never throws.
    *
-   * @returns {Promise<{reachable: boolean, authorized: boolean, status: number|null, error: string|null}>}
+   * @returns {Promise<{reachable: boolean, authorized: boolean, status: number|null, error: string|null, hostNotAllowed?: {host: string, hostname: string}}>}
    *   reachable: an HTTP response was received (the host answered).
    *   authorized: the API token is accepted (not 401/403).
+   *   hostNotAllowed: Paperless-ngx 3.5+ refused the host name (HTTP 400,
+   *   PAPERLESS_ALLOWED_HOSTS). authorized is then false — no request gets
+   *   through — and error carries the fix instruction.
    */
   async checkConnection() {
     this.initialize();
@@ -2779,6 +2788,17 @@ class PaperlessService {
       };
     } catch (error) {
       const status = error.response?.status ?? null;
+
+      const refused = refusedHostFromError(error);
+      if (refused) {
+        return {
+          reachable: true,
+          authorized: false,
+          status,
+          error: hostNotAllowedMessage(refused),
+          hostNotAllowed: refused,
+        };
+      }
 
       // A status code means the host answered, so it is reachable — only the
       // credentials or permissions may be wrong. Without a status the request

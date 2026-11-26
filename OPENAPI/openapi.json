@@ -3406,7 +3406,32 @@
         ],
         "responses": {
           "200": {
-            "description": "Connectivity result returned"
+            "description": "Connectivity result returned. `stage` names the step that decided\nit; `host_not_allowed` means Paperless-ngx 3.5+ refused the host\nname in the URL (HTTP 400, PAPERLESS_ALLOWED_HOSTS), and `message`\nsays which host to add there.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "stage": {
+                      "type": "string",
+                      "enum": [
+                        "input",
+                        "host_not_allowed",
+                        "reachability",
+                        "permissions",
+                        "ok"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -5128,7 +5153,7 @@
             }
           },
           "400": {
-            "description": "Invalid configuration parameters, or a custom field added or changed in\nthis request whose name Paperless-ngx already has with another data type.\n",
+            "description": "Invalid configuration parameters, a custom field added or changed in\nthis request whose name Paperless-ngx already has with another data type,\nor a new Paperless-ngx address or token that failed the connection test\n(when Paperless-ngx 3.5+ refused the host name, `error` names the host\nto add to PAPERLESS_ALLOWED_HOSTS).\n",
             "content": {
               "application/json": {
                 "schema": {
