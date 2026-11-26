@@ -23,6 +23,13 @@
  *   - `next` is an absolute URL on a different host, so any code that follows
  *     it instead of counting pages itself fails visibly here
  *   - user_can_change: false makes every write on that object answer 403
+ *   - nested tags (seed.nestedTags, or any seed tag with a `parent`) behave
+ *     like Paperless-ngx 3.5+: tags carry `parent` and `children`, deleting
+ *     a tag deletes every tag below it, `modify_tags` takes the tags below a
+ *     removed tag off as well and puts the tags above an added one on, and a
+ *     `parent` that does not exist, makes a cycle or goes deeper than five
+ *     levels is refused with 400. Without them tags have no such fields,
+ *     like Paperless-ngx before 3.5.
  */
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -54,7 +61,9 @@ function project(document, fields) {
 
 /**
  * @param {object} [seed]
- * @param {object[]} [seed.tags]            { id, name, match?, matching_algorithm?, is_insensitive?, is_inbox_tag?, color?, owner?, user_can_change? }
+ * @param {object[]} [seed.tags]            { id, name, match?, matching_algorithm?, is_insensitive?, is_inbox_tag?, color?, owner?, user_can_change?, parent? }
+ * @param {boolean} [seed.nestedTags] tags carry `parent`/`children` (Paperless-ngx 3.5+); on by
+ *   itself when any seed tag names a `parent`
  * @param {object[]} [seed.correspondents]  { id, name, match?, ... }
  * @param {object[]} [seed.documentTypes]   { id, name, match?, ... }
  * @param {object[]} [seed.documents]       { id, title?, content?, tags?: number[], correspondent?: number|null, document_type?: number|null }
@@ -112,6 +121,11 @@ function createFakePaperless(seed = {}) {
     }
   }
 
+  /** Paperless-ngx 3.5+ tag tree: on when asked for or when a seed tag has a parent. */
+  const nestedTags =
+    seed.nestedTags === true ||
+    (seed.tags || []).some((tag) => tag && 'parent' in tag);
+
   const addEntity = (kind, raw) => {
     const entity = {
       id: Number(raw.id),
@@ -127,6 +141,9 @@ function createFakePaperless(seed = {}) {
       entity.color = raw.color ?? '#a6cee3';
       entity.text_color = raw.text_color ?? '#000000';
       entity.is_inbox_tag = Boolean(raw.is_inbox_tag);
+      if (nestedTags) {
+        entity.parent = raw.parent == null ? null : Number(raw.parent);
+      }
     } else if (kind === 'correspondents') {
       entity.last_correspondence = raw.last_correspondence ?? null;
     }
@@ -162,10 +179,79 @@ function createFakePaperless(seed = {}) {
       return document.correspondent === id;
     }).length;
 
-  const serialize = (kind, entity) => ({
-    ...entity,
-    document_count: documentCount(kind, entity.id),
-  });
+  /** The tags directly below one (nested tags only). */
+  const childrenOf = (id) =>
+    [...state.tags.values()].filter((tag) => tag.parent === id);
+
+  /** Every tag below one, nearest first. */
+  const descendantsOf = (id) => {
+    const found = [];
+    const queue = [id];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      for (const child of childrenOf(current)) {
+        if (found.includes(child.id) || child.id === id) continue;
+        found.push(child.id);
+        queue.push(child.id);
+      }
+    }
+    return found;
+  };
+
+  /** Every tag above one, nearest first. */
+  const ancestorsOf = (id) => {
+    const found = [];
+    let current = state.tags.get(id)?.parent ?? null;
+    while (current != null && !found.includes(current) && current !== id) {
+      found.push(current);
+      current = state.tags.get(current)?.parent ?? null;
+    }
+    return found;
+  };
+
+  /**
+   * Why a tag may not hang below `parentId`, or null when it may: the
+   * parent must exist, must not be the tag or one below it, and the tree
+   * must stay at most five levels deep.
+   */
+  const parentRefusal = (tagId, parentId) => {
+    if (parentId == null) return null;
+    if (!state.tags.has(parentId)) {
+      return `Invalid pk "${parentId}" - object does not exist.`;
+    }
+    if (
+      tagId != null &&
+      (parentId === tagId || descendantsOf(tagId).includes(parentId))
+    ) {
+      return 'Cannot set a descendant as parent.';
+    }
+    const below = tagId == null ? 0 : subtreeHeight(tagId);
+    if (ancestorsOf(parentId).length + 2 + below > 5) {
+      return 'Maximum nesting depth exceeded.';
+    }
+    return null;
+  };
+
+  /** Levels below a tag: 0 for a leaf. */
+  const subtreeHeight = (id) => {
+    const children = childrenOf(id);
+    if (children.length === 0) return 0;
+    return 1 + Math.max(...children.map((child) => subtreeHeight(child.id)));
+  };
+
+  const serialize = (kind, entity) => {
+    const data = {
+      ...entity,
+      document_count: documentCount(kind, entity.id),
+    };
+    if (kind === 'tags' && nestedTags) {
+      // Nested objects, the way Paperless-ngx 3.5+ answers.
+      data.children = childrenOf(entity.id).map((child) =>
+        serialize('tags', child)
+      );
+    }
+    return data;
+  };
 
   const paginate = (items, params, buildPath) => {
     const pageSize = Number(params.page_size) || DEFAULT_PAGE_SIZE;
@@ -261,6 +347,10 @@ function createFakePaperless(seed = {}) {
         if (body?.owner != null && seed.rejectOwnerOnCreate) {
           throw httpError(400, { owner: ['Invalid owner.'] });
         }
+        if (kind === 'tags' && nestedTags && body?.parent != null) {
+          const refusal = parentRefusal(null, Number(body.parent));
+          if (refusal) throw httpError(400, { parent: [refusal] });
+        }
         const created = addEntity(kind, { ...body, id: state.nextId });
         return { status: 201, data: serialize(kind, created) };
       }
@@ -284,7 +374,28 @@ function createFakePaperless(seed = {}) {
             });
           }
         }
+        const parentChanged =
+          kind === 'tags' &&
+          nestedTags &&
+          body &&
+          'parent' in body &&
+          (body.parent == null ? null : Number(body.parent)) !== entity.parent;
+        if (parentChanged) {
+          const parentId = body.parent == null ? null : Number(body.parent);
+          const refusal = parentRefusal(id, parentId);
+          if (refusal) throw httpError(400, { parent: [refusal] });
+        }
         Object.assign(entity, body);
+        if (parentChanged) {
+          entity.parent = body.parent == null ? null : Number(body.parent);
+          // Paperless-ngx queues a task that gives the tag's documents the
+          // new parent (and what is above it); here it happens at once.
+          const above = ancestorsOf(id);
+          for (const document of state.documents.values()) {
+            if (!document.tags.includes(id)) continue;
+            document.tags = [...new Set([...document.tags, ...above])];
+          }
+        }
         return { status: 200, data: serialize(kind, entity) };
       }
 
@@ -295,6 +406,25 @@ function createFakePaperless(seed = {}) {
           throw httpError(403, {
             detail: 'You do not have permission to perform this action.',
           });
+        }
+        if (kind === 'tags' && nestedTags) {
+          // on_delete=CASCADE: everything below goes too, and so does every
+          // document's link to it. Since 3.5 the delete is refused when the
+          // token may not delete one of those.
+          const below = descendantsOf(id);
+          if (
+            below.some((childId) => !state.tags.get(childId).user_can_change)
+          ) {
+            throw httpError(403, {
+              detail: 'You do not have permission to perform this action.',
+            });
+          }
+          const gone = new Set([id, ...below]);
+          for (const childId of below) state.tags.delete(childId);
+          for (const document of state.documents.values()) {
+            document.tags = document.tags.filter((tagId) => !gone.has(tagId));
+          }
+          state.cascadeDeleted = [...(state.cascadeDeleted || []), ...below];
         }
         state[kind].delete(id);
         return { status: 204, data: null };
@@ -431,13 +561,31 @@ function createFakePaperless(seed = {}) {
       const document = state.documents.get(id);
       if (!document) continue;
       if (body.method === 'modify_tags') {
-        const add = (body.parameters?.add_tags || []).map(Number);
+        let add = (body.parameters?.add_tags || []).map(Number);
         const remove = new Set(
           (body.parameters?.remove_tags || []).map(Number)
         );
-        document.tags = [...new Set([...document.tags, ...add])].filter(
-          (tagId) => !remove.has(tagId)
-        );
+        if (nestedTags) {
+          // bulk_edit.modify_tags: a removed tag takes the tags below it
+          // along, an added one brings the tags above it; the removal runs
+          // first.
+          for (const tagId of [...remove]) {
+            for (const below of descendantsOf(tagId)) remove.add(below);
+          }
+          add = [
+            ...new Set(add.flatMap((tagId) => [tagId, ...ancestorsOf(tagId)])),
+          ];
+        }
+        document.tags = nestedTags
+          ? [
+              ...new Set([
+                ...document.tags.filter((tagId) => !remove.has(tagId)),
+                ...add,
+              ]),
+            ]
+          : [...new Set([...document.tags, ...add])].filter(
+              (tagId) => !remove.has(tagId)
+            );
       } else if (body.method === 'set_correspondent') {
         const value = body.parameters?.correspondent;
         document.correspondent = value == null ? null : Number(value);

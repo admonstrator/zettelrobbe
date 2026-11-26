@@ -15,6 +15,8 @@ const {
   refusedHostFromError,
   hostNotAllowedMessage,
 } = require('./paperlessHostCheck');
+// Pure as well: what the nested tags of Paperless-ngx 3.5+ mean for a delete.
+const tagHierarchy = require('./tagHierarchy');
 
 /** Timeout for the connectivity probe so a hanging host cannot stall a scan. */
 const CONNECTION_PROBE_TIMEOUT_MS = 10000;
@@ -59,6 +61,39 @@ const GUARD_ENTITY_TTL_MS = 60 * 1000;
  * turning a scan into a small load test.
  */
 const ENTITY_PAGE_CONCURRENCY = 3;
+
+/** The code of the refusal deleteEntity() raises for a tag with child tags. */
+const TAG_HAS_CHILDREN = 'TAG_HAS_CHILDREN';
+
+/**
+ * The plain sentence for a tag that keeps its sub-tags, the same one wherever
+ * a delete, a merge or a split is refused for it.
+ *
+ * @param {number} childCount
+ * @returns {string}
+ */
+function tagHasChildrenMessage(childCount) {
+  const count = Number(childCount) || 0;
+  return count === 1
+    ? 'It has a sub-tag, and Paperless-ngx would delete the sub-tag along with it'
+    : `It has ${count > 0 ? count : 'several'} sub-tags, and Paperless-ngx would delete them along with it`;
+}
+
+/**
+ * @param {number} id
+ * @param {number[]} childIds
+ * @returns {Error} with code TAG_HAS_CHILDREN, status 409 and the child ids
+ */
+function tagHasChildrenError(id, childIds) {
+  const error = new Error(tagHasChildrenMessage(childIds.length));
+  Object.assign(error, {
+    code: TAG_HAS_CHILDREN,
+    status: 409,
+    tagId: Number(id),
+    childIds: [...childIds],
+  });
+  return error;
+}
 
 /** A settings value that means "on"; everything else is off. */
 function switchedOn(value) {
@@ -3191,6 +3226,12 @@ class PaperlessService {
     if (kind === 'tags') {
       record.isInboxTag = Boolean(raw?.is_inbox_tag);
       record.color = raw?.color ?? null;
+      // Nested tags (Paperless-ngx 3.5+): only where the instance has them,
+      // so a record of an older version looks exactly as it always did.
+      if (tagHierarchy.hasHierarchyFields(raw)) {
+        record.parentId = tagHierarchy.parentIdOf(raw);
+        record.childIds = tagHierarchy.childIdsOf(raw) ?? [];
+      }
     } else {
       record.lastCorrespondence = raw?.last_correspondence ?? null;
     }
@@ -3469,7 +3510,96 @@ class PaperlessService {
       page += 1;
     }
 
+    if (kind === 'tags') {
+      this._completeTagChildren(records);
+    }
     return records;
+  }
+
+  // ── Nested tags ───────────────────────────────────────────────────────────
+  // Paperless-ngx 3.5+ keeps tags in a tree (`parent`, `children`). Deleting
+  // a tag there deletes every tag below it, and the documents lose all of
+  // them. These helpers let Tidy up see the tree; deleteEntity() refuses to
+  // delete a tag that has child tags. On an older version none of the fields
+  // exist and every helper answers "no hierarchy".
+
+  /**
+   * Fills `childIds` of every tag record from the `parentId` of the others,
+   * so a child is known even when its parent's own `children` list is not
+   * part of the answer.
+   *
+   * @param {object[]} records  tag EntityRecords, changed in place
+   */
+  _completeTagChildren(records) {
+    const byId = new Map();
+    for (const record of records) {
+      if (Array.isArray(record?.childIds)) byId.set(record.id, record);
+    }
+    if (byId.size === 0) return;
+    for (const record of records) {
+      const parent = byId.get(record?.parentId);
+      if (parent && !parent.childIds.includes(record.id)) {
+        parent.childIds.push(record.id);
+      }
+    }
+  }
+
+  /**
+   * The ids of the tags directly below one, read live from Paperless-ngx.
+   *
+   * @param {number} id
+   * @param {object} [raw]  the tag as just read, to save the request
+   * @returns {Promise<number[]|null>} [] without hierarchy, null when the tag is gone
+   */
+  async getTagChildIds(id, raw = undefined) {
+    const tag = raw === undefined ? await this.getEntity('tags', id) : raw;
+    if (!tag) return null;
+    const listed = tagHierarchy.childIdsOf(tag);
+    if (listed) return listed;
+    if (!tagHierarchy.hasHierarchyFields(tag)) return [];
+    // The tag knows its parent but does not list its children: ask the
+    // other way round, from every tag's parent.
+    const records = await this.listEntities('tags');
+    return records
+      .filter((record) => record.parentId === Number(id))
+      .map((record) => record.id);
+  }
+
+  /**
+   * The tag tree as a map from id to parent id.
+   *
+   * @returns {Promise<{known: boolean, parentOf: Map<number, number|null>}>}
+   *   known is false when the instance has no nested tags at all
+   */
+  async getTagHierarchy() {
+    const records = await this.listEntities('tags');
+    const known = records.some((record) => 'parentId' in record);
+    return {
+      known,
+      parentOf: known ? tagHierarchy.parentMapOf(records) : new Map(),
+    };
+  }
+
+  /**
+   * Every tag above one, nearest first, read live one level at a time.
+   *
+   * @param {object} raw  the tag as Paperless-ngx returned it
+   * @returns {Promise<number[]>} [] for a top-level tag or without hierarchy
+   */
+  async getTagAncestorIds(raw) {
+    const ancestors = [];
+    let parentId = tagHierarchy.parentIdOf(raw);
+    while (
+      parentId != null &&
+      !ancestors.includes(parentId) &&
+      parentId !== Number(raw?.id) &&
+      ancestors.length < tagHierarchy.MAX_DEPTH
+    ) {
+      ancestors.push(parentId);
+      const parent = await this.getEntity('tags', parentId);
+      parentId = parent ? tagHierarchy.parentIdOf(parent) : null;
+    }
+    return ancestors;
   }
 
   /**
@@ -3587,6 +3717,20 @@ class PaperlessService {
   async deleteEntity(kind, id) {
     this._assertEntityKind(kind);
     const client = this._requireClient(`deleting ${kind} ${id}`);
+    if (kind === 'tags') {
+      // Paperless-ngx deletes every tag below a deleted one, and the
+      // documents lose them too. Asked live, right before the DELETE, so no
+      // cached list and no caller can talk this one into it.
+      const childIds = await this.getTagChildIds(id);
+      if (childIds === null) return false;
+      if (childIds.length > 0) {
+        console.warn(
+          `[DUPLICATES] tag ${id} was not deleted: it has ${childIds.length} sub-tag(s), ` +
+            'which Paperless-ngx would delete with it.'
+        );
+        throw tagHasChildrenError(id, childIds);
+      }
+    }
     try {
       await client.delete(`/${kind}/${id}/`);
       return true;
@@ -4593,5 +4737,7 @@ const paperlessService = new PaperlessService();
 // Exposed on the singleton so tests can assert what a logged error looks like
 // without reaching into the module scope.
 paperlessService.describeHttpError = describeHttpError;
+paperlessService.TAG_HAS_CHILDREN = TAG_HAS_CHILDREN;
+paperlessService.tagHasChildrenMessage = tagHasChildrenMessage;
 
 module.exports = paperlessService;

@@ -44,6 +44,7 @@
     "services/unlockFollowUpService.js",
     "services/environmentOverview.js",
     "services/activityService.js",
-    "services/paperlessHostCheck.js"
+    "services/paperlessHostCheck.js",
+    "services/tagHierarchy.js"
   ]
 }

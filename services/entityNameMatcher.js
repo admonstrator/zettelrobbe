@@ -267,6 +267,8 @@ const TOKEN_SEPARATOR = /[\s&_/\-.,'"()+:;]+/;
  * @property {boolean} userCanChange     false when the API token may not modify it
  * @property {boolean} [isInboxTag]      tags only
  * @property {string|null} [color]       tags only
+ * @property {number|null} [parentId]    tags only, and only where Paperless-ngx has nested tags
+ * @property {number[]} [childIds]       tags only: the tags directly below, same condition
  * @property {string|null} [lastCorrespondence]  correspondents only
  */
 
@@ -953,9 +955,21 @@ function hasMatchingRule(entity) {
 }
 
 /**
+ * True for a tag with sub-tags (Paperless-ngx 3.5+). Such a tag is never
+ * merged away: deleting it would delete its sub-tags as well. It can only be
+ * the one the others are merged into.
+ *
+ * @param {EntityRecord} entity
+ * @returns {boolean}
+ */
+function hasSubTags(entity) {
+  return Array.isArray(entity?.childIds) && entity.childIds.length > 0;
+}
+
+/**
  * Picks the member the others should be merged into: an inbox tag always,
- * otherwise the one with the most documents, then the one that has a
- * matching rule, then the oldest (lowest id).
+ * then a tag with sub-tags, otherwise the one with the most documents, then
+ * the one that has a matching rule, then the oldest (lowest id).
  *
  * @param {EntityRecord[]} members
  * @returns {number} id of the suggested target
@@ -964,6 +978,8 @@ function suggestTarget(members) {
   const ranked = [...members].sort((x, y) => {
     const inbox = Number(Boolean(y.isInboxTag)) - Number(Boolean(x.isInboxTag));
     if (inbox !== 0) return inbox;
+    const nested = Number(hasSubTags(y)) - Number(hasSubTags(x));
+    if (nested !== 0) return nested;
     const docs =
       (Number(y.documentCount) || 0) - (Number(x.documentCount) || 0);
     if (docs !== 0) return docs;
@@ -1020,7 +1036,9 @@ function buildGroups(kind, component, edges, configuredTagNames, normalize) {
     for (const member of pool) {
       if (member === target) continue;
       const edge = edges.get(pairKey(kind, member.id, target.id));
-      if (edge) {
+      // A tag with sub-tags is never a source; it may be the target of a
+      // group of its own in the next round.
+      if (edge && !hasSubTags(member)) {
         kept.push({
           ...member,
           scoreToTarget: edge.score,

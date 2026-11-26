@@ -369,6 +369,18 @@ export function lineHtml(s) {
 
 /* --- the counts, in sentences --------------------------------------------- */
 
+/** What the run left alone on purpose, one muted line each (run.notes). */
+function notesHtml(run) {
+  const notes = Array.isArray(run?.notes) ? run.notes : [];
+  return notes
+    .filter((note) => note && note.text)
+    .map(
+      (note) =>
+        `<p class="zr-sm zr-muted" data-note="${esc(note.kind)}">${esc(note.text)}</p>`
+    )
+    .join('');
+}
+
 /** The top card of the result: "14 suggestions" and what they are. */
 export function summaryHtml(summary, run) {
   const open = Number(summary?.open) || 0;
@@ -404,6 +416,7 @@ export function summaryHtml(summary, run) {
       ${stopped}
       <h2 class="tidy-title">${number(open)} ${plural(open, 'suggestion', 'suggestions')}</h2>
       <p class="zr-muted">${esc(sentences.join(' '))}</p>
+      ${notesHtml(run)}
     </div>
     <div class="tidy-actions">
       ${sure ? `<button type="button" class="zr-btn zr-btn--primary" data-act="accept-sure">Accept the ${number(sure)} sure ${plural(sure, 'one', 'ones')}</button>` : ''}

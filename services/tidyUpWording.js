@@ -280,6 +280,26 @@ function deleteReason({ from, entityKind, modelReason }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* What a run left alone                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The line under the counts when the archive has tags with sub-tags
+ * (Paperless-ngx 3.5+). Such a tag is never merged away, split or deleted,
+ * because Paperless-ngx deletes the sub-tags of a deleted tag. Empty when
+ * there are none.
+ *
+ * @param {number} n  tags that have at least one sub-tag
+ * @returns {string}
+ */
+function nestedTagsNote(n) {
+  if (count(n) === 0) return '';
+  return count(n) === 1
+    ? '1 tag with sub-tags was left alone, because Paperless-ngx would delete its sub-tags along with it.'
+    : `${number(n)} tags with sub-tags were left alone, because Paperless-ngx would delete their sub-tags along with them.`;
+}
+
+/* ------------------------------------------------------------------ */
 /* The run: steps in sentences                                          */
 /* ------------------------------------------------------------------ */
 
@@ -806,6 +826,7 @@ module.exports = {
   splitReason,
   deleteHeadline,
   deleteReason,
+  nestedTagsNote,
   stepDetail,
   runHeadline,
   failureNotice,

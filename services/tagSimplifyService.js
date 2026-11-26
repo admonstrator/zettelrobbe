@@ -61,6 +61,7 @@ const paperlessService = require('./paperlessService');
 const entityNameMatcher = require('./entityNameMatcher');
 const { calculateTokens } = require('./serviceUtils');
 const scanControl = require('./scanControl');
+const tagHierarchy = require('./tagHierarchy');
 
 /** The two dimensions a vocabulary entry can belong to. */
 const DIMENSIONS = Object.freeze({ TYPE: 'type', TOPIC: 'topic' });
@@ -380,7 +381,16 @@ function snapshotOfTag(raw) {
     color: raw?.color ?? null,
     text_color: raw?.text_color ?? null,
     is_inbox_tag: Boolean(raw?.is_inbox_tag),
+    // Nested tags only: where the undo puts the tag back.
+    ...(tagHierarchy.hasHierarchyFields(raw)
+      ? { parent: tagHierarchy.parentIdOf(raw) }
+      : {}),
   };
+}
+
+/** True when an EntityRecord is a tag with sub-tags. */
+function hasSubTags(tag) {
+  return Array.isArray(tag?.childIds) && tag.childIds.length > 0;
 }
 
 /** The payload that re-creates a tag from its snapshot. */
@@ -1758,6 +1768,36 @@ class TagSimplifyService {
     if (mergeService.isConfiguredTagName(configuredTagNames, tagName)) {
       throw this._refusal('The settings refer to this tag', tagName);
     }
+    // Deleting it would delete its sub-tags, and taking it off the documents
+    // would take them off too: refused before anything is written.
+    let childIds;
+    try {
+      childIds = await paperlessService.getTagChildIds(tagId, raw);
+    } catch (error) {
+      throw this._refusal(
+        `its sub-tags could not be read: ${error?.message || 'unknown error'}`,
+        tagName
+      );
+    }
+    if (childIds && childIds.length > 0) {
+      throw this._refusal(
+        paperlessService.tagHasChildrenMessage(childIds.length),
+        tagName
+      );
+    }
+    // Adding a topic tag also adds every tag above it; the undo has to know
+    // which of those a document did not carry.
+    const nested = tagHierarchy.hasHierarchyFields(raw);
+    if (nested && !context.hierarchy) {
+      try {
+        context.hierarchy = await paperlessService.getTagHierarchy();
+      } catch (error) {
+        throw this._refusal(
+          `the tag tree could not be read: ${error?.message || 'unknown error'}`,
+          tagName
+        );
+      }
+    }
 
     let typeId = null;
     let createdTypeId = null;
@@ -1850,12 +1890,27 @@ class TagSimplifyService {
         previousTypeId !== typeId &&
         (previousTypeId == null || proposal.overwriteType === true);
       if (typeId != null && previousTypeId != null && !typeSet) typeKept += 1;
-      details.documents.push({
+      const addedTagIds = topicTagIds.filter((id) => !carried.has(id));
+      const row = {
         id: Number(document.id),
-        addedTagIds: topicTagIds.filter((id) => !carried.has(id)),
+        addedTagIds,
         previousTypeId,
         typeSet,
-      });
+      };
+      if (nested) {
+        const above = new Set();
+        for (const topicId of addedTagIds) {
+          for (const ancestorId of tagHierarchy.ancestorsOf(
+            topicId,
+            context.hierarchy.parentOf
+          )) {
+            if (!carried.has(ancestorId) && !topicTagIds.includes(ancestorId))
+              above.add(ancestorId);
+          }
+        }
+        row.addedAncestorIds = [...above];
+      }
+      details.documents.push(row);
       if (typeSet) typeSetIds.push(Number(document.id));
     }
 
@@ -2146,6 +2201,15 @@ class TagSimplifyService {
       if (existing) {
         restored.restoredId = Number(existing.id);
         restored.adoptedExisting = true;
+      } else if (tagHierarchy.hasHierarchyFields(source.snapshot)) {
+        // Nested tags: back below the parent it had, the way a merge's undo
+        // puts a source back.
+        const outcome = await this._mergeService().createFromSnapshot(
+          'tags',
+          source.snapshot
+        );
+        restored.restoredId = Number(outcome.created?.id);
+        this._mergeService().noteParent(restored, outcome);
       } else {
         const payload = createPayloadFromSnapshot(source.snapshot);
         let created;
@@ -2206,12 +2270,16 @@ class TagSimplifyService {
           if (!byAdded.has(key)) byAdded.set(key, { added, documents: [] });
           byAdded.get(key).documents.push(id);
         }
-        for (const group of byAdded.values()) {
-          await paperlessService.bulkEditDocuments(
-            group.documents,
-            'modify_tags',
-            { add_tags: [], remove_tags: group.added }
-          );
+        if (tagHierarchy.hasHierarchyFields(source.snapshot)) {
+          await this._takeOffNested(recorded, alive, restored);
+        } else {
+          for (const group of byAdded.values()) {
+            await paperlessService.bulkEditDocuments(
+              group.documents,
+              'modify_tags',
+              { add_tags: [], remove_tags: group.added }
+            );
+          }
         }
 
         // The document type this split set, put back to what the document
@@ -2296,6 +2364,82 @@ class TagSimplifyService {
             }ms.`
     );
     return undoResult;
+  }
+
+  /**
+   * The undo of a split on an instance with nested tags: takes the topic
+   * tags the split added, and the tags above them it brought along, off
+   * again, but only where Paperless-ngx would not take a tag below them
+   * with it. A document that carries a sub-tag of a topic keeps that topic.
+   *
+   * @param {object[]} recorded  details.documents of the split row
+   * @param {Set<number>} alive  the documents that still exist
+   * @param {object} restored    the undo result entry, `note` may be set
+   */
+  async _takeOffNested(recorded, alive, restored) {
+    const wanted = new Map();
+    for (const document of recorded) {
+      const id = Number(document.id);
+      if (!alive.has(id)) continue;
+      const topics = (
+        Array.isArray(document.addedTagIds) ? document.addedTagIds : []
+      ).map(Number);
+      const above = (
+        Array.isArray(document.addedAncestorIds)
+          ? document.addedAncestorIds
+          : []
+      ).map(Number);
+      if (topics.length + above.length > 0) {
+        wanted.set(id, { topics, candidates: [...topics, ...above] });
+      }
+    }
+    if (wanted.size === 0) return;
+    const { parentOf } = await paperlessService.getTagHierarchy();
+    const documents = await paperlessService.getDocumentsByIds(
+      [...wanted.keys()],
+      'id,tags'
+    );
+    const groups = new Map();
+    let kept = 0;
+    for (const document of documents) {
+      const id = Number(document.id);
+      const { topics, candidates } = wanted.get(id) || {
+        topics: [],
+        candidates: [],
+      };
+      const removable = tagHierarchy.removableTags(
+        (Array.isArray(document?.tags) ? document.tags : []).map(Number),
+        candidates,
+        parentOf
+      );
+      const carried = new Set(
+        (Array.isArray(document?.tags) ? document.tags : []).map(Number)
+      );
+      if (topics.some((tag) => carried.has(tag) && !removable.includes(tag)))
+        kept += 1;
+      if (removable.length === 0) continue;
+      const key = [...removable].sort((a, b) => a - b).join(',');
+      if (!groups.has(key)) groups.set(key, { tags: removable, ids: [] });
+      groups.get(key).ids.push(id);
+    }
+    for (const group of groups.values()) {
+      await paperlessService.bulkEditDocuments(group.ids, 'modify_tags', {
+        add_tags: [],
+        remove_tags: group.tags,
+      });
+    }
+    if (kept > 0) {
+      restored.note = [
+        restored.note,
+        `${kept} document(s) kept a topic tag, because they carry one of its sub-tags`,
+      ]
+        .filter(Boolean)
+        .join('; ');
+      this._log(
+        `undo of the split of "${restored.name}": ${kept} document(s) kept a topic tag, ` +
+          'they carry one of its sub-tags.'
+      );
+    }
   }
 
   /**
@@ -2881,6 +3025,11 @@ class TagSimplifyService {
         reason: 'the API token may not change it',
       });
     }
+    if (hasSubTags(tag)) {
+      // Splitting, merging or deleting it deletes it, and Paperless-ngx
+      // would delete its sub-tags along with it.
+      return this._orderRow(tag, { reason: 'it has sub-tags' });
+    }
     if (rules.topicKeys.has(normalizedTagKey(name))) {
       return this._orderRow(tag, { reason: 'a topic of the vocabulary' });
     }
@@ -2942,8 +3091,12 @@ class TagSimplifyService {
     return this._mergeSurvivor(tag, best.entity) === tag ? null : best;
   }
 
-  /** Which of two tags of a hard pair is the one to keep. */
+  /**
+   * Which of two tags of a hard pair is the one to keep. A tag with sub-tags
+   * always: it cannot go without taking them along.
+   */
   _mergeSurvivor(a, b) {
+    if (hasSubTags(a) !== hasSubTags(b)) return hasSubTags(a) ? a : b;
     const documentsA = Number(a.documentCount) || 0;
     const documentsB = Number(b.documentCount) || 0;
     if (documentsA !== documentsB) return documentsA > documentsB ? a : b;
