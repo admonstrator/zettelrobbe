@@ -637,6 +637,12 @@
  *               error:
  *                 type: string
  *                 nullable: true
+ *               note:
+ *                 type: string
+ *                 description: |
+ *                   Only with nested tags (Paperless-ngx 3.5+), when the object did not come back
+ *                   exactly as it was: re-created at the top level because its parent tag is gone
+ *                   or refused it, or documents kept the target because they carry one of its sub-tags.
  *
  *     AiVerdict:
  *       type: object
@@ -990,6 +996,19 @@
  *             $ref: '#/components/schemas/TidyUpFailure'
  *         summary:
  *           $ref: '#/components/schemas/TidyUpSummary'
+ *         notes:
+ *           type: array
+ *           description: lines the summary shows under the counts, about what the run left alone on purpose
+ *           items:
+ *             type: object
+ *             properties:
+ *               kind:
+ *                 type: string
+ *                 enum: [nested-tags]
+ *                 description: nested-tags = tags with sub-tags (Paperless-ngx 3.5+), never merged away, split or deleted
+ *               text:
+ *                 type: string
+ *                 description: tidyUpWording.nestedTagsNote(count)
  *         startedAt:
  *           type: string
  *           format: date-time

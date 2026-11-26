@@ -21,6 +21,18 @@
  * the Paperless-ngx path segment, so document types can follow later without
  * a second implementation.
  *
+ * ## Nested tags
+ *
+ * Paperless-ngx 3.5+ keeps tags in a tree, and deleting a tag there deletes
+ * every tag below it. A tag that has sub-tags is therefore never a source of
+ * a merge and never deleted as unused: the scan leaves it out, the merge and
+ * the delete refuse it against a fresh read, and paperlessService.deleteEntity()
+ * refuses it once more right before the DELETE. It may be the survivor. The
+ * snapshot of a removed tag keeps its parent, and an undo puts it back there.
+ * Taking a tag off documents also takes off the tags below it, so an undo
+ * only takes the target (and the parents the merge brought along) off a
+ * document that carries nothing below it.
+ *
  * ## The scan cache
  *
  * A scan of a real archive reads every tag and every correspondent and scores
@@ -48,6 +60,7 @@ const documentModel = require('../models/document');
 const dashboardStatsService = require('./dashboardStatsService');
 const entityNameMatcher = require('./entityNameMatcher');
 const scanControl = require('./scanControl');
+const tagHierarchy = require('./tagHierarchy');
 
 const { KINDS, KIND_LIST, DEFAULT_THRESHOLD, MATCHING_ALGORITHM_NONE } =
   entityNameMatcher;
@@ -157,8 +170,18 @@ function snapshotOf(kind, raw) {
     snapshot.color = raw?.color ?? null;
     snapshot.text_color = raw?.text_color ?? null;
     snapshot.is_inbox_tag = Boolean(raw?.is_inbox_tag);
+    // Only where the instance has nested tags, so a snapshot of an older
+    // version stays exactly what it was.
+    if (tagHierarchy.hasHierarchyFields(raw)) {
+      snapshot.parent = tagHierarchy.parentIdOf(raw);
+    }
   }
   return snapshot;
+}
+
+/** True when an EntityRecord is a tag with sub-tags. */
+function hasSubTags(entity) {
+  return Array.isArray(entity?.childIds) && entity.childIds.length > 0;
 }
 
 /** The payload that re-creates a source from its snapshot. */
@@ -329,9 +352,10 @@ class DuplicateMergeService {
    * that must not be deleted is filtered out here rather than at the moment
    * of the DELETE: the inbox tag (Paperless-ngx routes new documents through
    * it), a tag the Zettelrobbe settings name (deleting it breaks the
-   * setting), and anything the API token may not change. deleteUnused()
-   * checks the same three again against a fresh read, because a scan is a
-   * picture of a minute ago.
+   * setting), a tag with sub-tags (Paperless-ngx would delete them with it)
+   * and anything the API token may not change. deleteUnused() checks the
+   * same four again against a fresh read, because a scan is a picture of a
+   * minute ago.
    *
    * @param {'tags'|'correspondents'} kind
    * @param {object[]} entities  EntityRecord objects
@@ -347,6 +371,8 @@ class DuplicateMergeService {
         if (isTag && entity?.isInboxTag) return false;
         if (isTag && this._isConfiguredTagName(configuredTagNames, entity.name))
           return false;
+        // Deleting it would delete its sub-tags, which may carry documents.
+        if (isTag && hasSubTags(entity)) return false;
         return true;
       })
       .sort((a, b) => {
@@ -476,6 +502,7 @@ class DuplicateMergeService {
     const groups = [];
     const unused = { tags: [], correspondents: [] };
     let dismissedPairs = 0;
+    let tagsWithSubTags = 0;
 
     for (const one of kinds) {
       let entities;
@@ -486,6 +513,9 @@ class DuplicateMergeService {
       }
       totals[one] = entities.length;
       unused[one] = this._unusedEntities(one, entities, configuredTagNames);
+      if (one === KINDS.TAGS) {
+        tagsWithSubTags = entities.filter(hasSubTags).length;
+      }
 
       let dismissed = [];
       if (!includeDismissed) {
@@ -514,6 +544,9 @@ class DuplicateMergeService {
       dismissedPairs,
       paperlessUrl: await this._publicBaseUrl(),
       unused,
+      // Never merged away or deleted, see "Nested tags" above; the page
+      // says so in one sentence.
+      tagsWithSubTags,
     };
     this._scanCache.set(cacheKey, {
       result,
@@ -763,6 +796,22 @@ class DuplicateMergeService {
       }
     }
 
+    // Adding the target to a document also adds every tag above it. The undo
+    // must know which of those the documents did not have before.
+    const nested =
+      kind === KINDS.TAGS && tagHierarchy.hasHierarchyFields(target);
+    let targetAncestors = [];
+    if (nested) {
+      try {
+        targetAncestors = await paperlessService.getTagAncestorIds(target);
+      } catch (error) {
+        throw this._asPaperlessError(
+          error,
+          'reading the parents of the target'
+        );
+      }
+    }
+
     const startedAt = Date.now();
     this._log(
       `merge started: ${kind}, target ${targetNumericId} "${target.name}", ` +
@@ -795,6 +844,26 @@ class DuplicateMergeService {
       }
 
       try {
+        // A tag with sub-tags never goes: deleting it would delete them, and
+        // taking it off the documents would take them off too. Refused
+        // before anything moves, so nothing is lost.
+        if (kind === KINDS.TAGS) {
+          const childIds = await paperlessService.getTagChildIds(
+            detail.id,
+            source
+          );
+          if (childIds && childIds.length > 0) {
+            detail.error = paperlessService.tagHasChildrenMessage(
+              childIds.length
+            );
+            this._log(
+              `merge ${kind} ${detail.id} "${detail.name}": skipped, it has ` +
+                `${childIds.length} sub-tag(s) Paperless-ngx would delete with it.`
+            );
+            continue;
+          }
+        }
+
         const documentIds = await paperlessService.getDocumentIdsByEntity(
           kind,
           detail.id
@@ -816,6 +885,23 @@ class DuplicateMergeService {
                 document.tags.map(Number).includes(targetNumericId)
             )
             .map((document) => Number(document.id));
+          // The tags above the target the move will add, per document that
+          // did not carry them yet.
+          if (nested) {
+            detail.ancestorsAdded = targetAncestors
+              .map((ancestorId) => ({
+                tagId: ancestorId,
+                documentIds: documents
+                  .filter(
+                    (document) =>
+                      !(Array.isArray(document?.tags) ? document.tags : [])
+                        .map(Number)
+                        .includes(ancestorId)
+                  )
+                  .map((document) => Number(document.id)),
+              }))
+              .filter((entry) => entry.documentIds.length > 0);
+          }
         }
 
         if (documentIds.length > 0) {
@@ -889,10 +975,19 @@ class DuplicateMergeService {
             `${detail.copiedMatchingRule ? ', matching rule copied to the target' : ''}.`
         );
       } catch (error) {
-        console.error(
-          `[ERROR] merging ${kind} ${detail.id} into ${targetNumericId}:`,
-          error?.message || error
-        );
+        if (error?.code === paperlessService.TAG_HAS_CHILDREN) {
+          // It was given a sub-tag after the check above; the documents
+          // moved, the tag stays.
+          this._log(
+            `merge ${kind} ${detail.id} "${detail.name}": documents moved, but it ` +
+              'has a sub-tag by now and was not deleted.'
+          );
+        } else {
+          console.error(
+            `[ERROR] merging ${kind} ${detail.id} into ${targetNumericId}:`,
+            error?.message || error
+          );
+        }
         detail.error = error?.message || 'unknown error';
       }
     }
@@ -986,9 +1081,14 @@ class DuplicateMergeService {
    * for. The new object gets a new id in Paperless-ngx; a same-named object
    * that exists again is adopted instead of created a second time.
    *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} entry  the merge log row
+   * @param {object} source  one of its sources
+   * @param {{known: boolean, parentOf: Map<number, number|null>}|null} [hierarchy]
+   *   the tag tree when the instance has nested tags; null otherwise
    * @returns {Promise<object>} one entry of EntityMergeUndoResult.sources
    */
-  async _restoreSource(kind, entry, source) {
+  async _restoreSource(kind, entry, source, hierarchy = null) {
     const restored = {
       originalId: Number(source.id),
       name: source?.snapshot?.name ?? source.name,
@@ -1017,24 +1117,19 @@ class DuplicateMergeService {
       if (existing) {
         restored.restoredId = Number(existing.id);
         restored.adoptedExisting = true;
-      } else {
-        const payload = createPayloadFrom(kind, source.snapshot);
-        let created;
-        try {
-          created = await paperlessService.createEntity(kind, payload);
-        } catch (error) {
-          const status = error?.response?.status;
-          if (payload.owner != null && (status === 400 || status === 403)) {
-            // Setting the owner is refused for some tokens; the object itself
-            // matters more than who owns it.
-            const { owner, ...withoutOwner } = payload;
-            void owner;
-            created = await paperlessService.createEntity(kind, withoutOwner);
-          } else {
-            throw error;
-          }
+        if (hierarchy) {
+          hierarchy.parentOf.set(
+            restored.restoredId,
+            tagHierarchy.parentIdOf(existing)
+          );
         }
-        restored.restoredId = Number(created?.id);
+      } else {
+        const outcome = await this._createFromSnapshot(kind, source.snapshot);
+        restored.restoredId = Number(outcome.created?.id);
+        this._noteParent(restored, outcome);
+        if (hierarchy) {
+          hierarchy.parentOf.set(restored.restoredId, outcome.parentId);
+        }
       }
     } catch (error) {
       restored.error = `could not restore: ${error?.message || 'unknown error'}`;
@@ -1080,10 +1175,19 @@ class DuplicateMergeService {
               : []
             ).map(Number)
           );
-          const loseTarget = qualifying.filter(
+          let loseTarget = qualifying.filter(
             (documentId) => !alreadyOnTarget.has(documentId)
           );
-          if (loseTarget.length === qualifying.length) {
+          if (hierarchy?.known) {
+            loseTarget = await this._moveBackNested({
+              qualifying,
+              loseTarget,
+              restored,
+              targetId,
+              source,
+              parentOf: hierarchy.parentOf,
+            });
+          } else if (loseTarget.length === qualifying.length) {
             await paperlessService.bulkEditDocuments(
               qualifying,
               'modify_tags',
@@ -1138,6 +1242,182 @@ class DuplicateMergeService {
     }
 
     return restored;
+  }
+
+  /**
+   * Re-creates a removed object from its snapshot. A tag goes back below
+   * the parent it had, when that parent still exists; otherwise, or when
+   * Paperless-ngx refuses the place (the tree changed meanwhile), it comes
+   * back at the top level and the outcome says so.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} snapshot  what snapshotOf() wrote
+   * @returns {Promise<{created: object|null, parentId: number|null, wantedParentId: number|null, parentMissing: boolean, parentRefused: boolean}>}
+   */
+  async _createFromSnapshot(kind, snapshot) {
+    const payload = createPayloadFrom(kind, snapshot);
+    const wantedParentId =
+      kind === KINDS.TAGS ? tagHierarchy.parentIdOf(snapshot) : null;
+    const outcome = {
+      created: null,
+      parentId: null,
+      wantedParentId,
+      parentMissing: false,
+      parentRefused: false,
+    };
+    if (wantedParentId != null) {
+      const parent = await paperlessService.getEntity('tags', wantedParentId);
+      if (parent) {
+        payload.parent = wantedParentId;
+      } else {
+        outcome.parentMissing = true;
+      }
+    }
+
+    const create = async (body) => {
+      try {
+        return await paperlessService.createEntity(kind, body);
+      } catch (error) {
+        const status = error?.response?.status;
+        if (body.owner != null && (status === 400 || status === 403)) {
+          // Setting the owner is refused for some tokens; the object itself
+          // matters more than who owns it.
+          const { owner, ...withoutOwner } = body;
+          void owner;
+          return paperlessService.createEntity(kind, withoutOwner);
+        }
+        throw error;
+      }
+    };
+
+    try {
+      outcome.created = await create(payload);
+      outcome.parentId = payload.parent ?? null;
+    } catch (error) {
+      if (payload.parent == null || error?.response?.status !== 400) {
+        throw error;
+      }
+      // Too deep by now, or a cycle: the tag itself matters more than where
+      // it hangs.
+      const { parent, ...withoutParent } = payload;
+      void parent;
+      outcome.created = await create(withoutParent);
+      outcome.parentRefused = true;
+    }
+    return outcome;
+  }
+
+  /**
+   * Writes down where a re-created tag ended up when that is not where it
+   * was: in the undo result (`note`) and in the app log.
+   *
+   * @param {object} restored  one entry of EntityMergeUndoResult.sources
+   * @param {object} outcome   what _createFromSnapshot() returned
+   */
+  _noteParent(restored, outcome) {
+    if (!outcome || outcome.wantedParentId == null) return;
+    if (!outcome.parentMissing && !outcome.parentRefused) return;
+    restored.note = outcome.parentMissing
+      ? 'Its parent tag no longer exists, so it was re-created at the top level'
+      : 'Paperless-ngx did not accept it below its old parent tag, so it was re-created at the top level';
+    this._log(
+      `undo tag "${restored.name}": re-created at the top level, its parent tag ` +
+        `${outcome.wantedParentId} ${outcome.parentMissing ? 'is gone' : 'refused it'}.`
+    );
+  }
+
+  /**
+   * The undo of a tag merge on an instance with nested tags. Taking a tag
+   * off a document there takes every tag below it off as well, so the moves
+   * are made one after the other and checked against what the documents
+   * carry: the re-created source goes on first, then the target and the
+   * tags above it that the merge brought along come off, but only where
+   * nothing below them would go too. A document that carries a sub-tag of
+   * the target keeps the target, because Paperless-ngx cannot keep a tag
+   * without the tags above it.
+   *
+   * @param {object} job
+   * @param {number[]} job.qualifying  documents that still carry the target
+   * @param {number[]} job.loseTarget  of those, the ones that did not have it before
+   * @param {object} job.restored      the undo result entry, `note` may be set
+   * @param {number} job.targetId
+   * @param {object} job.source        the merge log source
+   * @param {Map<number, number|null>} job.parentOf  the tag tree
+   * @returns {Promise<number[]>} the documents the target was taken off
+   */
+  async _moveBackNested({
+    qualifying,
+    loseTarget,
+    restored,
+    targetId,
+    source,
+    parentOf,
+  }) {
+    await paperlessService.bulkEditDocuments(qualifying, 'modify_tags', {
+      add_tags: [restored.restoredId],
+      remove_tags: [],
+    });
+
+    const lose = new Set(loseTarget);
+    const added = new Map();
+    for (const entry of Array.isArray(source.ancestorsAdded)
+      ? source.ancestorsAdded
+      : []) {
+      for (const documentId of Array.isArray(entry?.documentIds)
+        ? entry.documentIds
+        : []) {
+        const id = Number(documentId);
+        if (!lose.has(id)) continue;
+        if (!added.has(id)) added.set(id, []);
+        added.get(id).push(Number(entry.tagId));
+      }
+    }
+
+    const documents =
+      lose.size > 0
+        ? await paperlessService.getDocumentsByIds([...lose], 'id,tags')
+        : [];
+    const removals = new Map();
+    const removedTarget = [];
+    let kept = 0;
+    for (const document of documents) {
+      const id = Number(document.id);
+      const tags = (Array.isArray(document?.tags) ? document.tags : []).map(
+        Number
+      );
+      const removable = tagHierarchy.removableTags(
+        tags,
+        [targetId, ...(added.get(id) || [])],
+        parentOf
+      );
+      if (!removable.includes(targetId)) {
+        kept += 1;
+        continue;
+      }
+      removedTarget.push(id);
+      const key = [...removable].sort((a, b) => a - b).join(',');
+      if (!removals.has(key)) removals.set(key, { tags: removable, ids: [] });
+      removals.get(key).ids.push(id);
+    }
+    for (const group of removals.values()) {
+      await paperlessService.bulkEditDocuments(group.ids, 'modify_tags', {
+        add_tags: [],
+        remove_tags: group.tags,
+      });
+    }
+    if (kept > 0) {
+      restored.note = [
+        restored.note,
+        `${kept} document(s) kept the target, because they carry one of its sub-tags`,
+      ]
+        .filter(Boolean)
+        .join('; ');
+      this._log(
+        `undo tag "${restored.name}": ${kept} document(s) kept tag ${targetId}, ` +
+          'they carry one of its sub-tags.'
+      );
+    }
+    return removedTarget;
   }
 
   /**
@@ -1263,9 +1543,29 @@ class DuplicateMergeService {
       ? { ...entry, targetName: entry.targetRenamedFrom }
       : entry;
 
+    // Nested tags: taking the target off documents takes its sub-tags off
+    // too, so the undo needs the tree. Read once, only where it exists.
+    let hierarchy = null;
+    if (
+      kind === KINDS.TAGS &&
+      targetNow &&
+      tagHierarchy.hasHierarchyFields(targetNow)
+    ) {
+      try {
+        hierarchy = await paperlessService.getTagHierarchy();
+      } catch (error) {
+        throw this._asPaperlessError(error, 'reading the tag tree');
+      }
+    }
+
     const sources = [];
     for (const source of deletedSources) {
-      const restored = await this._restoreSource(kind, effectiveEntry, source);
+      const restored = await this._restoreSource(
+        kind,
+        effectiveEntry,
+        source,
+        hierarchy
+      );
       sources.push(restored);
       this._log(
         restored.error
@@ -1402,6 +1702,29 @@ class DuplicateMergeService {
         failed.push({ id, name, error: 'The settings refer to this tag' });
         continue;
       }
+      if (kind === KINDS.TAGS) {
+        let childIds;
+        try {
+          childIds = await paperlessService.getTagChildIds(id, raw);
+        } catch (error) {
+          failed.push({
+            id,
+            name,
+            error: `its sub-tags could not be read: ${
+              error?.message || 'unknown error'
+            }`,
+          });
+          continue;
+        }
+        if (childIds && childIds.length > 0) {
+          failed.push({
+            id,
+            name,
+            error: paperlessService.tagHasChildrenMessage(childIds.length),
+          });
+          continue;
+        }
+      }
 
       let documentIds;
       try {
@@ -1439,7 +1762,10 @@ class DuplicateMergeService {
         failed.push({
           id,
           name,
-          error: `it was not deleted: ${error?.message || 'unknown error'}`,
+          error:
+            error?.code === paperlessService.TAG_HAS_CHILDREN
+              ? error.message
+              : `it was not deleted: ${error?.message || 'unknown error'}`,
         });
         continue;
       }
@@ -1630,6 +1956,30 @@ class DuplicateMergeService {
   }
 
   /**
+   * Re-creates a removed object from its snapshot, below its old parent tag
+   * where that still exists. Public because "Simplify tags" brings back the
+   * tag a split removed the same way.
+   *
+   * @param {'tags'|'correspondents'} kind
+   * @param {object} snapshot
+   * @returns {Promise<object>} see _createFromSnapshot()
+   */
+  createFromSnapshot(kind, snapshot) {
+    return this._createFromSnapshot(kind, snapshot);
+  }
+
+  /**
+   * Puts the `note` of a re-created tag that did not land below its old
+   * parent on an undo result entry, and logs it.
+   *
+   * @param {object} restored
+   * @param {object} outcome  what createFromSnapshot() returned
+   */
+  noteParent(restored, outcome) {
+    this._noteParent(restored, outcome);
+  }
+
+  /**
    * What every write to Paperless-ngx has to do afterwards: drop the entity
    * caches and the cached scans now, and ask for the dashboard numbers once
    * the writes have stopped. Public because "Simplify tags" writes through
@@ -1704,23 +2054,9 @@ class DuplicateMergeService {
           restored.restoredId = Number(existing.id);
           restored.adoptedExisting = true;
         } else {
-          const payload = createPayloadFrom(kind, source.snapshot);
-          let created;
-          try {
-            created = await paperlessService.createEntity(kind, payload);
-          } catch (error) {
-            const status = error?.response?.status;
-            if (payload.owner != null && (status === 400 || status === 403)) {
-              // Setting the owner is refused for some tokens; the object
-              // itself matters more than who owns it.
-              const { owner, ...withoutOwner } = payload;
-              void owner;
-              created = await paperlessService.createEntity(kind, withoutOwner);
-            } else {
-              throw error;
-            }
-          }
-          restored.restoredId = Number(created?.id);
+          const outcome = await this._createFromSnapshot(kind, source.snapshot);
+          restored.restoredId = Number(outcome.created?.id);
+          this._noteParent(restored, outcome);
         }
       } catch (error) {
         restored.error = `could not restore: ${

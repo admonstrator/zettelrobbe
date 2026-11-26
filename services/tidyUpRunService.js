@@ -463,6 +463,7 @@ class TidyUpRunService {
       reviewTokens: null,
       orderTokens: null,
       failedRequests: 0,
+      tagsWithSubTags: 0,
       suggestions: [],
       groupIdOf: new Map(),
       batches: new Map(),
@@ -521,6 +522,9 @@ class TidyUpRunService {
     run.counts.names =
       (Number(scan.totals?.tags) || 0) +
       (Number(scan.totals?.correspondents) || 0);
+    // Tags with sub-tags are never merged away, split or deleted; the
+    // summary says so in one line.
+    run.tagsWithSubTags = Number(scan.tagsWithSubTags) || 0;
     this._build(run, { scan, order: null, final: false });
     run.counts.sure = run.suggestions.filter(
       (s) => s.kind === SUGGESTION_KINDS.MERGE && s.certainty === CERTAINTY.SURE
@@ -678,7 +682,15 @@ class TidyUpRunService {
       }
       return { member: proposal, mergeTarget };
     });
+    // A proposal stored before the tag got sub-tags must not come back as a
+    // split, merge or delete of it.
+    const withSubTags = new Set(
+      tags
+        .filter((tag) => Array.isArray(tag.childIds) && tag.childIds.length > 0)
+        .map((tag) => Number(tag.id))
+    );
     return members.filter(({ member, mergeTarget }) => {
+      if (withSubTags.has(Number(member.tagId))) return false;
       if (!mergeTarget) return true;
       const a = Number(member.tagId);
       const b = mergeTarget.id;
@@ -1073,10 +1085,25 @@ class TidyUpRunService {
       failure: this._failure(run, job),
       partialFailures: this._partialFailures(run, job),
       summary: summarize(run.suggestions),
+      notes: this._notes(run),
       startedAt: run.startedAt,
       finishedAt: job.finishedAt || null,
       activity: run === this.run ? this.activityNow() : null,
     };
+  }
+
+  /**
+   * Lines the summary shows under the counts: what the run left alone on
+   * purpose, in plain words.
+   *
+   * @param {object} run
+   * @returns {Array<{kind: string, text: string}>}
+   */
+  _notes(run) {
+    const notes = [];
+    const nested = wording.nestedTagsNote(run.tagsWithSubTags);
+    if (nested) notes.push({ kind: 'nested-tags', text: nested });
+    return notes;
   }
 
   /** Tokens the whole run spent: the judge's and the order's. */
