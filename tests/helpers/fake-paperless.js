@@ -63,8 +63,10 @@ function project(document, fields) {
  * @param {object} [seed.asyncBulkEdit] answer bulk_edit the way Paperless-ngx 3.5+ does: queue
  *   the edit, return a task_id, and apply it only once /tasks/ has been asked `runAfterPolls`
  *   times (default 2). `status` (default SUCCESS) is what the task ends with; FAILURE leaves the
- *   documents untouched. `unlisted: true` never lists the task; `plainList: true` answers
- *   /tasks/ with a plain array like API version 9.
+ *   documents untouched, and `reason` (default 'worker said no') is why. `unlisted: true` never
+ *   lists the task. /tasks/ answers like API version 10 (a page of results, lower-case status,
+ *   the reason in `result_data`); `plainList: true` answers like version 9 (a plain array,
+ *   capitals, the reason in `result`).
  * @returns {object} the stand-in
  */
 function createFakePaperless(seed = {}) {
@@ -386,15 +388,25 @@ function createFakePaperless(seed = {}) {
           task.status === 'PENDING' &&
           task.polls >= (options.runAfterPolls ?? 2)
         ) {
-          task.status = options.status || 'SUCCESS';
+          task.status = String(options.status || 'SUCCESS').toUpperCase();
           if (task.status === 'SUCCESS') task.apply();
         }
+        const failedTask = task.status === 'FAILURE';
+        const reason = options.reason ?? 'worker said no';
         listed = [
-          {
-            task_id: String(params.task_id),
-            status: task.status,
-            result: task.status === 'FAILURE' ? 'worker said no' : null,
-          },
+          options.plainList
+            ? {
+                task_id: String(params.task_id),
+                status: task.status,
+                result: failedTask ? reason : null,
+              }
+            : {
+                task_id: String(params.task_id),
+                status: task.status.toLowerCase(),
+                result_data: failedTask
+                  ? { error_type: 'ValueError', error_message: reason }
+                  : null,
+              },
         ];
       }
       return {
@@ -419,20 +431,20 @@ function createFakePaperless(seed = {}) {
       const document = state.documents.get(id);
       if (!document) continue;
       if (body.method === 'modify_tags') {
-          const add = (body.parameters?.add_tags || []).map(Number);
-          const remove = new Set(
-            (body.parameters?.remove_tags || []).map(Number)
-          );
-          document.tags = [...new Set([...document.tags, ...add])].filter(
-            (tagId) => !remove.has(tagId)
-          );
-        } else if (body.method === 'set_correspondent') {
-          const value = body.parameters?.correspondent;
-          document.correspondent = value == null ? null : Number(value);
-        } else if (body.method === 'set_document_type') {
-          const value = body.parameters?.document_type;
-          document.document_type = value == null ? null : Number(value);
-        }
+        const add = (body.parameters?.add_tags || []).map(Number);
+        const remove = new Set(
+          (body.parameters?.remove_tags || []).map(Number)
+        );
+        document.tags = [...new Set([...document.tags, ...add])].filter(
+          (tagId) => !remove.has(tagId)
+        );
+      } else if (body.method === 'set_correspondent') {
+        const value = body.parameters?.correspondent;
+        document.correspondent = value == null ? null : Number(value);
+      } else if (body.method === 'set_document_type') {
+        const value = body.parameters?.document_type;
+        document.document_type = value == null ? null : Number(value);
+      }
     }
   }
 

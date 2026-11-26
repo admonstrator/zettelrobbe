@@ -27,6 +27,12 @@
  * 12. Versions that cannot be read do not stop the unlock
  * 13. paperlessService.removePassword(): the request and its error mapping
  * 14. paperlessService.getDocumentVersionIds(): the request and the answer
+ * 15. removePassword() on Paperless-ngx 3.5+: it waits for the queued task,
+ *     reads a failure reason from `result_data` (API v10) or `result` (v9),
+ *     and calls a task that has not finished in time pending
+ * 16. An unlock through a queued removal: success starts the follow-up, a
+ *     failed task is reported as rejected and releases nothing, a task still
+ *     running counts as accepted and says so
  */
 
 'use strict';
@@ -83,6 +89,8 @@ const FILE = Buffer.from('%PDF-1.7 locked');
  * @param {number[]} [options.waiting] documents whose follow-up still waits
  * @param {number[]|null} [options.versions] the version ids Paperless-ngx lists
  * @param {Error|null} [options.versionsError] what reading them throws
+ * @param {object|null} [options.removal] a real paperlessService (see
+ *   realPaperless()) whose removePassword() does the removal
  */
 function load({
   stored = '',
@@ -95,6 +103,7 @@ function load({
   waiting = [],
   versions = [70],
   versionsError = null,
+  removal = null,
 } = {}) {
   const state = {
     downloads: [],
@@ -156,6 +165,7 @@ function load({
       if (removeError) throw removeError;
       state.removed.push({ id, password });
       state.order.push('remove');
+      return removal ? removal.removePassword(id, password) : undefined;
     },
     getDocumentVersionIds: async (id) => {
       state.versionReads.push(id);
@@ -187,6 +197,67 @@ function load({
 
   const service = require('../services/pdfUnlockService');
   return { service, state };
+}
+
+/**
+ * A real paperlessService with its client replaced and its task waits cut
+ * short, loaded apart from the stand-ins load() puts into the module cache.
+ *
+ * @param {{ post: Function, get?: Function }} client
+ */
+function realPaperless(client) {
+  for (const modulePath of [configPath, paperlessServicePath]) {
+    delete require.cache[modulePath];
+  }
+  const paperlessService = require('../services/paperlessService.js');
+  delete require.cache[paperlessServicePath];
+  delete require.cache[configPath];
+  paperlessService.initialize = () => {};
+  paperlessService.client = client;
+  for (const [key, value] of [
+    ['BULK_EDIT_TASK_POLL_MS', 1],
+    ['BULK_EDIT_TASK_UNLISTED_MS', 30],
+    ['PASSWORD_REMOVAL_TASK_TIMEOUT_MS', 60],
+  ]) {
+    Object.defineProperty(paperlessService, key, {
+      value,
+      configurable: true,
+    });
+  }
+  return paperlessService;
+}
+
+/**
+ * A Paperless-ngx 3.5+ client: the removal answers with a task id, and every
+ * look at /tasks/ gets the next of `answers` (the last one repeats). An
+ * answer is the task row, null for an empty list, or an Error to throw.
+ *
+ * @param {Array<object|null|Error>} answers
+ * @param {{ plainList?: boolean }} [options]
+ */
+function queuedClient(answers, { plainList = false } = {}) {
+  const calls = { posts: 0, gets: [] };
+  let index = 0;
+  const client = {
+    calls,
+    post: async () => {
+      calls.posts += 1;
+      return { data: { result: 'OK', task_id: 'task-9' } };
+    },
+    get: async (url, options) => {
+      calls.gets.push({ url, options });
+      const answer = answers[Math.min(index, answers.length - 1)];
+      index += 1;
+      if (answer instanceof Error) throw answer;
+      const rows = answer ? [{ task_id: 'task-9', ...answer }] : [];
+      return {
+        data: plainList
+          ? rows
+          : { count: rows.length, next: null, previous: null, results: rows },
+      };
+    },
+  };
+  return client;
 }
 
 /** Runs fn with the console quiet; the warnings are expected. */
@@ -385,7 +456,9 @@ async function run() {
         return { data: { result: 'OK' } };
       },
     };
-    await paperlessService.removePassword(42, 'pw');
+    // Paperless-ngx 3.0 to 3.4: no task id, nothing to wait for. The client
+    // has no get(), so a look at /tasks/ would throw.
+    assert.strictEqual(await paperlessService.removePassword(42, 'pw'), 'done');
     assert.deepStrictEqual(posts, [
       {
         url: '/documents/remove_password/',
@@ -412,6 +485,138 @@ async function run() {
     }
     delete require.cache[paperlessServicePath];
     delete require.cache[configPath];
+  });
+
+  await test('removePassword() waits for a queued removal (Paperless-ngx 3.5+)', async () => {
+    // Done after a look that still finds it queued, in either /tasks/ shape.
+    let client = queuedClient([{ status: 'pending' }, { status: 'success' }]);
+    assert.strictEqual(
+      await realPaperless(client).removePassword(42, 'pw'),
+      'done'
+    );
+    assert.strictEqual(client.calls.gets.length, 2);
+    assert.deepStrictEqual(client.calls.gets[0], {
+      url: '/tasks/',
+      options: { params: { task_id: 'task-9' } },
+    });
+    client = queuedClient([{ status: 'SUCCESS' }], { plainList: true });
+    assert.strictEqual(
+      await realPaperless(client).removePassword(42, 'pw'),
+      'done'
+    );
+
+    // A failed task is a refusal, with the reason Paperless-ngx gave: API
+    // v10 in result_data, v9 in result. The password never shows.
+    for (const [answer, plainList, reason] of [
+      [
+        {
+          status: 'failure',
+          result_data: {
+            error_type: 'ValueError',
+            error_message:
+              'Error removing password from document 42: invalid password s3cret',
+          },
+        },
+        false,
+        /could not remove the password: Error removing password from document 42: invalid password \*\*\*/,
+      ],
+      [
+        { status: 'failure', result_data: { error_type: 'PasswordError' } },
+        false,
+        /could not remove the password: PasswordError/,
+      ],
+      [
+        { status: 'FAILURE', result: 'invalid password' },
+        true,
+        /could not remove the password: invalid password/,
+      ],
+      [{ status: 'revoked' }, false, /its task ended with REVOKED/],
+    ]) {
+      const paperless = realPaperless(queuedClient([answer], { plainList }));
+      await assert.rejects(paperless.removePassword(42, 's3cret'), (e) => {
+        assert.strictEqual(e.code, 'rejected');
+        assert.match(e.message, reason);
+        assert.ok(!e.message.includes('s3cret'), 'no password in errors');
+        return true;
+      });
+    }
+
+    // Still queued when the wait runs out, or /tasks/ cannot be read:
+    // Paperless-ngx took the password, the outcome is not known yet.
+    await quietly(async () => {
+      for (const answers of [
+        [{ status: 'started' }],
+        [Object.assign(new Error('HTTP 502'), { response: { status: 502 } })],
+      ]) {
+        assert.strictEqual(
+          await realPaperless(queuedClient(answers)).removePassword(42, 'pw'),
+          'pending'
+        );
+      }
+      // A task /tasks/ never lists: done as far as anyone can tell; the
+      // follow-up's version check is the safety net.
+      assert.strictEqual(
+        await realPaperless(queuedClient([null])).removePassword(42, 'pw'),
+        'done'
+      );
+    });
+  });
+
+  await test('an unlock through a queued removal reports what Paperless-ngx did', async () => {
+    // The task succeeds: unlocked, released, follow-up started.
+    let { service, state } = load({
+      removal: realPaperless(queuedClient([{ status: 'success' }])),
+    });
+    let result = await service.unlock(7, { password: 'right' });
+    assert.strictEqual(result.outcome, 'unlocked');
+    assert.deepStrictEqual(state.releasedFromQueue, [7]);
+    assert.deepStrictEqual(state.scheduled, [{ id: 7, versionsBefore: [70] }]);
+    assert.match(
+      result.message,
+      /analysed as soon as Paperless-ngx has stored the unlocked version/
+    );
+
+    // The task fails although the password opens the file locally: rejected,
+    // nothing released, no follow-up waiting for a version that never comes.
+    ({ service, state } = load({
+      removal: realPaperless(
+        queuedClient([
+          {
+            status: 'failure',
+            result_data: { error_message: 'Cannot decrypt document' },
+          },
+        ])
+      ),
+    }));
+    result = await quietly(() => service.unlock(7, { password: 'right' }));
+    assert.strictEqual(result.outcome, 'rejected');
+    assert.match(result.message, /Cannot decrypt document/);
+    assert.deepStrictEqual(state.releasedFromQueue, []);
+    assert.deepStrictEqual(state.failedReset, []);
+    assert.deepStrictEqual(state.scheduled, [], 'no follow-up');
+    assert.strictEqual(service.wasRecentlyUnlocked(7), false);
+
+    // The task is still running: accepted, released, the follow-up waits for
+    // the version, and an OCR run meanwhile does not unlock it again.
+    ({ service, state } = load({
+      removal: realPaperless(queuedClient([{ status: 'started' }])),
+    }));
+    result = await quietly(() => service.unlock(7, { password: 'right' }));
+    assert.strictEqual(result.outcome, 'unlocked');
+    assert.deepStrictEqual(state.releasedFromQueue, [7]);
+    assert.deepStrictEqual(state.scheduled, [{ id: 7, versionsBefore: [70] }]);
+    assert.strictEqual(service.wasRecentlyUnlocked(7), true);
+    assert.match(result.message, /has not finished removing it yet/);
+    assert.match(result.message, /analysed as soon as the unlocked version/);
+
+    ({ service } = load({
+      automaticOff: true,
+      removal: realPaperless(queuedClient([{ status: 'pending' }])),
+    }));
+    result = await quietly(() => service.unlock(7, { password: 'right' }));
+    assert.strictEqual(result.outcome, 'unlocked');
+    assert.match(result.message, /has not finished removing it yet/);
+    assert.match(result.message, /scan you start by hand/);
   });
 
   await test('getDocumentVersionIds() reads the version list of one document', async () => {
